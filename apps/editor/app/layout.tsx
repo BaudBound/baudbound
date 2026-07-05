@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 const appName = "BaudBound Editor";
 const appDescription =
-	"Build, verify, simulate, and export local-first BaudBound visual automation scripts as .bbs packages.";
+	"Create local automation workflows visually and export them as portable BaudBound .bbs packages.";
 const appUrl = process.env.NEXT_PUBLIC_EDITOR_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://editor.baudbound.app";
 
 export const metadata: Metadata = {
@@ -23,9 +23,9 @@ export const metadata: Metadata = {
 		"script editor",
 		".bbs",
 	],
-	authors: [{ name: "BaudBound" }],
-	creator: "BaudBound",
-	publisher: "BaudBound",
+	authors: [{ name: "NATroutter" }],
+	creator: "NATroutter",
+	publisher: "NATroutter",
 	alternates: {
 		canonical: "/",
 	},
