@@ -64,7 +64,7 @@ jobs:
             type=ref,event=tag
             type=ref,event=pr
             type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
           labels: |
             org.opencontainers.image.title=BaudBound Editor
             org.opencontainers.image.description=Web editor for building, verifying, simulating, and exporting BaudBound .bbs scripts.
