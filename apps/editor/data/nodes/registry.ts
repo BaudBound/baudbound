@@ -58,6 +58,7 @@ import { forEachNode } from "./definitions/control/for-each";
 import { ifElseNode } from "./definitions/control/if-else";
 import { loopNode } from "./definitions/control/loop";
 import { switchNode } from "./definitions/control/switch";
+import { whileNode } from "./definitions/control/while";
 import { fileWatchTriggerNode } from "./definitions/triggers/file-watch";
 import { hotkeyTriggerNode } from "./definitions/triggers/hotkey";
 import { manualTriggerNode } from "./definitions/triggers/manual";
@@ -91,6 +92,7 @@ const nodeDefinitions: NodeDefinition[] = [
 	ifElseNode,
 	switchNode,
 	loopNode,
+	whileNode,
 	forEachNode,
 	variableOperationNode,
 	calculateNode,

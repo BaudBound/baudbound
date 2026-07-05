@@ -16,6 +16,7 @@ export type SimulatorPanelProps = {
 	onAddOverride: (nodeId: string) => void;
 	onRemoveOverride: (nodeId: string) => void;
 	onSettingsChange: (settings: SimulationSettings) => void;
+	onStopSimulation: () => void;
 	onTriggerSimulation: (triggerNodeId: string, payload: SimulationTriggerPayload) => void;
 	onUpdateOverride: (nodeId: string, outcome: SimulationOverrideOutcome) => void;
 };

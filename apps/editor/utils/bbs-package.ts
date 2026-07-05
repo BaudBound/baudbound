@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import JSZip from "jszip";
+import { defaultEditorEdgeStyle, type EditorEdgeStyle, isEditorEdgeStyle } from "@/data/editor/flow-canvas";
 import { getNodeDefinition, getNodePorts, getRuntimeDataOutputs } from "@/data/nodes/registry";
 import {
 	getAssetKindForMediaType,
@@ -31,13 +32,23 @@ import {
 type ImportedBbsPackage = {
 	assets: EditorAsset[];
 	comments: EditorComment[];
+	edgeStyle: EditorEdgeStyle;
 	edges: Edge[];
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
 };
 
+type PackageAssetRecord = {
+	asset: Record<string, unknown>;
+	packageEntry: JSZip.JSZipObject;
+	packagePath: string;
+};
+
 const EDITOR_PACKAGE_FILE = "editor.json";
 const EDITOR_METADATA_FORMAT_VERSION = 1;
+const DEFAULT_COMMENT_FONT_SIZE = 14;
+const MIN_COMMENT_FONT_SIZE = 12;
+const MAX_COMMENT_FONT_SIZE = 72;
 
 export async function exportBbsPackage(params: {
 	projectSettings: ProjectSettings;
@@ -45,6 +56,7 @@ export async function exportBbsPackage(params: {
 	edges: Edge[];
 	assets: EditorAsset[];
 	comments: EditorComment[];
+	edgeStyle: EditorEdgeStyle;
 }) {
 	const permissions = calculatePermissions(params.nodes);
 	const capabilities = calculateCapabilities(params.nodes);
@@ -75,7 +87,7 @@ export async function exportBbsPackage(params: {
 		})),
 	});
 	const programJson = toProgramJson(params.nodes, params.edges, params.projectSettings);
-	const editorJson = toEditorJson(params.nodes, params.comments);
+	const editorJson = toEditorJson(params.nodes, params.comments, params.edgeStyle);
 	const permissionsJson = {
 		declared_permissions: permissions.map((permission) => permission.name),
 		risk_level: calculateRiskLevel(permissions),
@@ -182,10 +194,12 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 	const assets = await readPackageAssets(zip, manifest);
 	const { nodes, edges } = toEditorGraph(program, editorMetadata);
 	const comments = toEditorComments(editorMetadata);
+	const edgeStyle = toEditorEdgeStyle(editorMetadata);
 
 	return {
 		assets,
 		comments,
+		edgeStyle,
 		edges,
 		nodes,
 		projectSettings,
@@ -214,10 +228,13 @@ function slugFromName(name: string) {
 	);
 }
 
-function toEditorJson(nodes: Node<ScriptNodeData>[], comments: EditorComment[]) {
+function toEditorJson(nodes: Node<ScriptNodeData>[], comments: EditorComment[], edgeStyle: EditorEdgeStyle) {
 	return {
 		format_version: EDITOR_METADATA_FORMAT_VERSION,
 		created_with: "BaudBound Editor 0.1.0",
+		canvas: {
+			edge_style: edgeStyle,
+		},
 		nodes: nodes.map((node) => ({
 			id: node.id,
 			position: {
@@ -229,13 +246,19 @@ function toEditorJson(nodes: Node<ScriptNodeData>[], comments: EditorComment[]) 
 			id: comment.id,
 			text: comment.text,
 			color: comment.color,
+			font_size: finiteNumberInRangeOrDefault(
+				comment.fontSize,
+				DEFAULT_COMMENT_FONT_SIZE,
+				MIN_COMMENT_FONT_SIZE,
+				MAX_COMMENT_FONT_SIZE,
+			),
 			position: {
 				x: finiteNumberOrZero(comment.position.x),
 				y: finiteNumberOrZero(comment.position.y),
 			},
 			size: {
-				width: finitePositiveNumberOrDefault(comment.size.width, 280),
-				height: finitePositiveNumberOrDefault(comment.size.height, 156),
+				width: finitePositiveNumberOrDefault(comment.size.width, 320),
+				height: finitePositiveNumberOrDefault(comment.size.height, 196),
 			},
 		})),
 	};
@@ -277,25 +300,17 @@ function toProjectSettings(manifest: Record<string, unknown>, capabilities: Reco
 }
 
 async function readPackageAssets(zip: JSZip, manifest: Record<string, unknown>): Promise<EditorAsset[]> {
-	if (!Array.isArray(manifest.assets)) {
+	const assetManifest = collectPackageAssetManifest(zip, manifest);
+	if (assetManifest.errors.length > 0) {
+		throw new Error(assetManifest.errors.join(" "));
+	}
+
+	if (assetManifest.records.length === 0) {
 		return [];
 	}
 
-	const entryValidation = validatePackageAssetEntries(getZipAssetEntries(zip));
-	if (entryValidation.errors.length > 0) {
-		throw new Error(entryValidation.errors.join(" "));
-	}
-
 	const assets: EditorAsset[] = [];
-	for (const entry of manifest.assets) {
-		const asset = requireRecord(entry, "manifest asset");
-		const packagePath = stringOrDefault(asset.path, "");
-		const packageEntry = packagePath ? zip.file(packagePath) : null;
-
-		if (!packageEntry) {
-			throw new Error(`Package asset ${packagePath || "(missing path)"} is listed in manifest but missing from zip.`);
-		}
-
+	for (const { asset, packageEntry, packagePath } of assetManifest.records) {
 		const name = stringOrDefault(asset.name, assetFileNameFromPath(packagePath));
 		const mediaType = stringOrDefault(asset.media_type, "application/octet-stream");
 		const kind = asAssetKind(asset.kind);
@@ -345,10 +360,14 @@ async function createPackageAssetContentCheck(
 	jsonFiles: Record<string, unknown>,
 ): Promise<VerificationCheck> {
 	const manifest = isRecord(jsonFiles["manifest.json"]) ? jsonFiles["manifest.json"] : null;
-	const entryValidation = validatePackageAssetEntries(getZipAssetEntries(zip));
-	const errors: string[] = [...entryValidation.errors];
+	const errors: string[] = [];
 
-	if (!manifest || !Array.isArray(manifest.assets) || manifest.assets.length === 0) {
+	if (!manifest) {
+		const assetEntries = getPackageAssetZipEntries(zip);
+		if (assetEntries.length > 0) {
+			errors.push("Asset files are present, but manifest.json is missing or invalid.");
+		}
+
 		return {
 			id: "package-asset-content",
 			title: "Asset content",
@@ -358,16 +377,10 @@ async function createPackageAssetContentCheck(
 		};
 	}
 
-	for (const entry of manifest.assets) {
-		const asset = isRecord(entry) ? entry : null;
-		const packagePath = stringOrDefault(asset?.path, "");
-		const packageEntry = packagePath ? zip.file(packagePath) : null;
+	const assetManifest = collectPackageAssetManifest(zip, manifest);
+	errors.push(...assetManifest.errors);
 
-		if (!asset || !packageEntry) {
-			errors.push(`${packagePath || "(missing path)"} is listed in manifest but missing from zip.`);
-			continue;
-		}
-
+	for (const { asset, packageEntry, packagePath } of assetManifest.records) {
 		const name = stringOrDefault(asset.name, assetFileNameFromPath(packagePath));
 		const mediaType = stringOrDefault(asset.media_type, "application/octet-stream");
 		const kind = asAssetKind(asset.kind);
@@ -407,9 +420,66 @@ async function createPackageAssetContentCheck(
 		outcome: errors.length === 0 ? "passed" : "failed",
 		message:
 			errors.length === 0
-				? `${manifest.assets.length} asset file${manifest.assets.length === 1 ? "" : "s"} validated.`
+				? `${assetManifest.records.length} asset file${assetManifest.records.length === 1 ? "" : "s"} validated.`
 				: errors.join(" "),
 	};
+}
+
+function collectPackageAssetManifest(zip: JSZip, manifest: Record<string, unknown>) {
+	const entryValidation = validatePackageAssetEntries(getZipAssetEntries(zip));
+	const errors: string[] = [...entryValidation.errors];
+	const records: PackageAssetRecord[] = [];
+	const assetEntries = getPackageAssetZipEntries(zip);
+	const zipPathsByLowercase = new Map(assetEntries.map((entry) => [entry.path.toLowerCase(), entry.path]));
+	const manifestAssets = manifest.assets;
+
+	if (manifestAssets !== undefined && !Array.isArray(manifestAssets)) {
+		errors.push("manifest.json assets must be an array when present.");
+	}
+
+	const assets = Array.isArray(manifestAssets) ? manifestAssets : [];
+	const manifestPathCounts = new Map<string, number>();
+	const manifestPathsByLowercase = new Map<string, string>();
+
+	for (const [index, entry] of assets.entries()) {
+		const asset = isRecord(entry) ? entry : null;
+		if (!asset) {
+			errors.push(`manifest asset ${index + 1} must be an object.`);
+			continue;
+		}
+
+		const packagePath = stringOrDefault(asset.path, "");
+		if (!packagePath) {
+			errors.push(`manifest asset ${index + 1} must define path.`);
+			continue;
+		}
+
+		const normalizedPath = packagePath.toLowerCase();
+		manifestPathCounts.set(normalizedPath, (manifestPathCounts.get(normalizedPath) ?? 0) + 1);
+		manifestPathsByLowercase.set(normalizedPath, packagePath);
+
+		const packageEntry = zip.file(packagePath);
+		if (!packageEntry) {
+			errors.push(`${packagePath} is listed in manifest but missing from zip.`);
+			continue;
+		}
+
+		records.push({ asset, packageEntry, packagePath });
+	}
+
+	for (const [normalizedPath, count] of manifestPathCounts) {
+		if (count > 1) {
+			errors.push(`${manifestPathsByLowercase.get(normalizedPath) ?? normalizedPath}: duplicate manifest asset path.`);
+		}
+	}
+
+	for (const [normalizedPath, zipPath] of zipPathsByLowercase) {
+		if (!manifestPathCounts.has(normalizedPath)) {
+			errors.push(`${zipPath}: asset file is not declared in manifest.json assets.`);
+		}
+	}
+
+	return { errors, records };
 }
 
 function toEditorGraph(program: Record<string, unknown>, editorMetadata: Record<string, unknown> | null) {
@@ -531,6 +601,12 @@ function toEditorComments(editorMetadata: Record<string, unknown> | null): Edito
 				id,
 				text: stringOrDefault(value.text, ""),
 				color: asCommentColor(value.color),
+				fontSize: finiteNumberInRangeOrDefault(
+					typeof value.font_size === "number" ? value.font_size : undefined,
+					DEFAULT_COMMENT_FONT_SIZE,
+					MIN_COMMENT_FONT_SIZE,
+					MAX_COMMENT_FONT_SIZE,
+				),
 				position: { x, y },
 				size: { width, height },
 			};
@@ -542,6 +618,15 @@ function asCommentColor(value: unknown): EditorComment["color"] {
 	return value === "amber" || value === "blue" || value === "green" || value === "rose" || value === "violet"
 		? value
 		: "amber";
+}
+
+function toEditorEdgeStyle(editorMetadata: Record<string, unknown> | null): EditorEdgeStyle {
+	if (!editorMetadata || !isRecord(editorMetadata.canvas)) {
+		return defaultEditorEdgeStyle;
+	}
+
+	const edgeStyle = editorMetadata.canvas.edge_style;
+	return typeof edgeStyle === "string" && isEditorEdgeStyle(edgeStyle) ? edgeStyle : defaultEditorEdgeStyle;
 }
 
 function toEditorEdges(value: unknown, nodeIds: ReadonlySet<string>): Edge[] {
@@ -644,6 +729,10 @@ function getZipAssetEntries(zip: JSZip) {
 		}));
 }
 
+function getPackageAssetZipEntries(zip: JSZip) {
+	return getZipAssetEntries(zip).filter((entry) => entry.path.startsWith("assets/"));
+}
+
 function getZipEntryUncompressedSize(entry: JSZip.JSZipObject) {
 	const zipEntry = entry as JSZip.JSZipObject & {
 		_data?: {
@@ -674,4 +763,12 @@ function finiteNumberOrZero(value: number) {
 
 function finitePositiveNumberOrDefault(value: number, fallback: number) {
 	return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function finiteNumberInRangeOrDefault(value: number | undefined, fallback: number, min: number, max: number) {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+
+	return Math.min(max, Math.max(min, value));
 }

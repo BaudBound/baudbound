@@ -1,6 +1,7 @@
 import { GitBranch } from "lucide-react";
 import { defaultInputPort, defineNode } from "../../node-definition";
 import { createConditionRow } from "../rows";
+import { validateConditionRowsConfig } from "../shared";
 
 export const ifElseNode = defineNode({
 	actionType: "control.if",
@@ -20,4 +21,5 @@ export const ifElseNode = defineNode({
 		],
 	}),
 	risk: "low",
+	validateConfig: (config) => validateConditionRowsConfig(config, "if/else"),
 });

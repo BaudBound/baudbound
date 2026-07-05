@@ -19,6 +19,7 @@ export type ActionType =
 	| "control.if"
 	| "control.switch"
 	| "control.loop"
+	| "control.while"
 	| "control.for_each"
 	| "runtime.set_variable"
 	| "action.calculate"
@@ -137,6 +138,7 @@ export type CommentNodeData = {
 		height: number;
 	};
 	color: "amber" | "blue" | "green" | "rose" | "violet";
+	fontSize: number;
 };
 
 export type EditorComment = {
@@ -151,6 +153,7 @@ export type EditorComment = {
 		height: number;
 	};
 	color: "amber" | "blue" | "green" | "rose" | "violet";
+	fontSize: number;
 };
 
 export type PaletteItem = {

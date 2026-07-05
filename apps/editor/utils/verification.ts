@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import { isEditorEdgeStyle } from "@/data/editor/flow-canvas";
 import {
 	desktopOnlyActionTypes,
 	getNodeDefinition,
@@ -183,13 +184,15 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 		run: ({ permissions }) => {
 			const dangerousPermissions = permissions.filter((permission) => permission.risk === "dangerous");
 			const highRiskPermissions = permissions.filter((permission) => permission.risk === "high");
-			const elevatedPermissionCount = dangerousPermissions.length + highRiskPermissions.length;
+			const mediumRiskPermissions = permissions.filter((permission) => permission.risk === "medium");
+			const elevatedPermissionCount =
+				dangerousPermissions.length + highRiskPermissions.length + mediumRiskPermissions.length;
 
 			return {
 				outcome: elevatedPermissionCount > 0 ? "warning" : "passed",
 				message:
 					elevatedPermissionCount > 0
-						? `${elevatedPermissionCount} elevated permission${elevatedPermissionCount === 1 ? "" : "s"} require review.`
+						? `${elevatedPermissionCount} medium-or-higher risk permission${elevatedPermissionCount === 1 ? " requires" : "s require"} review.`
 						: "No elevated permissions detected.",
 			};
 		},
@@ -409,6 +412,12 @@ const packageVerificationRules: VerificationRule<PackageVerificationContext>[] =
 
 			const editorMetadata = asRecord(jsonFiles["editor.json"]);
 			const nodes = Array.isArray(editorMetadata?.nodes) ? editorMetadata.nodes : null;
+			const canvas = asRecord(editorMetadata?.canvas);
+			const validCanvas =
+				editorMetadata?.canvas === undefined ||
+				(!!canvas &&
+					(canvas.edge_style === undefined ||
+						(typeof canvas.edge_style === "string" && isEditorEdgeStyle(canvas.edge_style))));
 			const invalidNodes =
 				nodes?.filter((node) => {
 					const nodeRecord = asRecord(node);
@@ -423,11 +432,11 @@ const packageVerificationRules: VerificationRule<PackageVerificationContext>[] =
 				}) ?? [];
 
 			return {
-				outcome: editorMetadata && nodes && invalidNodes.length === 0 ? "passed" : "failed",
+				outcome: editorMetadata && nodes && invalidNodes.length === 0 && validCanvas ? "passed" : "failed",
 				message:
-					editorMetadata && nodes && invalidNodes.length === 0
-						? `${nodes.length} editor node position${nodes.length === 1 ? "" : "s"} validated.`
-						: "Editor metadata must define a nodes array with finite x/y positions.",
+					editorMetadata && nodes && invalidNodes.length === 0 && validCanvas
+						? `${nodes.length} editor node position${nodes.length === 1 ? "" : "s"} and canvas preferences validated.`
+						: "Editor metadata must define finite node positions and a valid canvas edge style when present.",
 			};
 		},
 	},

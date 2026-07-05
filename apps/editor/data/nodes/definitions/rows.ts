@@ -2,6 +2,7 @@ import type { JsonValue } from "@/lib/types";
 
 export type ConditionRow = {
 	id: string;
+	invert?: boolean;
 	left: string;
 	combinator?: string;
 	operator: string;
@@ -60,6 +61,9 @@ export function isConditionRow(value: JsonValue): value is ConditionRow {
 		isRecord(value) &&
 		typeof value.id === "string" &&
 		typeof value.left === "string" &&
+		typeof value.operator === "string" &&
+		typeof value.right === "string" &&
+		(typeof value.invert === "boolean" || value.invert === undefined) &&
 		(typeof value.combinator === "string" || value.combinator === undefined)
 	);
 }

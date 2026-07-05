@@ -1,3 +1,4 @@
+import { isEditorEdgeStyle } from "@/data/editor/flow-canvas";
 import {
 	getControlStepType,
 	getNodeCapabilities,
@@ -44,6 +45,7 @@ export const canonicalCapabilities = [
 	"runtime.if",
 	"runtime.switch",
 	"runtime.loop",
+	"runtime.while",
 	"runtime.for_each",
 	"runtime.sub_script",
 	"runtime.error_handling",
@@ -384,6 +386,16 @@ export function validateEditorContract(value: unknown) {
 		errors.push("editor.json nodes must be an array.");
 		return errors;
 	}
+	if (editor.canvas !== undefined) {
+		const canvas = asRecord(editor.canvas);
+		if (
+			!canvas ||
+			(canvas.edge_style !== undefined &&
+				(typeof canvas.edge_style !== "string" || !isEditorEdgeStyle(canvas.edge_style)))
+		) {
+			errors.push("editor.json canvas.edge_style must be smoothstep, bezier, straight, or step when present.");
+		}
+	}
 
 	for (const node of editor.nodes) {
 		const record = asRecord(node);
@@ -417,6 +429,11 @@ export function validateEditorContract(value: unknown) {
 				typeof record.id !== "string" ||
 				typeof record.text !== "string" ||
 				!isEditorCommentColor(record.color) ||
+				(record.font_size !== undefined &&
+					(typeof record.font_size !== "number" ||
+						!Number.isFinite(record.font_size) ||
+						record.font_size < 12 ||
+						record.font_size > 72)) ||
 				!position ||
 				typeof position.x !== "number" ||
 				typeof position.y !== "number" ||
@@ -431,7 +448,7 @@ export function validateEditorContract(value: unknown) {
 				size.height <= 0
 			) {
 				errors.push(
-					"editor.json comments must contain id, text, color, finite position x/y, and positive size width/height values.",
+					"editor.json comments must contain id, text, color, finite position x/y, positive size width/height values, and optional font_size from 12 to 72.",
 				);
 				break;
 			}

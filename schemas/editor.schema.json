@@ -14,6 +14,16 @@
 			"type": "string",
 			"minLength": 1
 		},
+		"canvas": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"edge_style": {
+					"type": "string",
+					"enum": ["smoothstep", "bezier", "straight", "step"]
+				}
+			}
+		},
 		"nodes": {
 			"type": "array",
 			"items": {
@@ -58,6 +68,11 @@
 					"color": {
 						"type": "string",
 						"enum": ["amber", "blue", "green", "rose", "violet"]
+					},
+					"font_size": {
+						"type": "number",
+						"minimum": 12,
+						"maximum": 72
 					},
 					"position": {
 						"type": "object",

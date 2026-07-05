@@ -50,23 +50,29 @@ for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 }
 
 function createProgramSchema(programSchema) {
-	const triggerRefs = definitions
-		.filter((definition) => definition.kind === "trigger")
-		.map((definition) => schemaRef(definition.actionType));
-	const controlRefs = definitions
-		.filter((definition) => definition.kind === "control")
-		.map((definition) => schemaRef(definition.actionType));
+	const triggerDefinitions = definitions.filter((definition) => definition.kind === "trigger");
+	const controlDefinitions = definitions.filter((definition) => definition.kind === "control");
+	const executableActionDefinitions = definitions.filter(
+		(definition) => definition.kind === "action" && definition.actionType !== "runtime.set_variable",
+	);
+	const triggerRefs = triggerDefinitions.map((definition) => schemaRef(definition.actionType));
+	const controlRefs = controlDefinitions.map((definition) => schemaRef(definition.actionType));
 	const variableOperationRefs = definitions
 		.filter((definition) => definition.actionType === "runtime.set_variable")
 		.map((definition) => schemaRef(definition.actionType));
-	const actionRefs = definitions
-		.filter((definition) => definition.kind === "action" && definition.actionType !== "runtime.set_variable")
-		.map((definition) => schemaRef(definition.actionType));
+	const actionRefs = executableActionDefinitions.map((definition) => schemaRef(definition.actionType));
 
 	return {
 		...programSchema,
 		$defs: {
 			...programSchema.$defs,
+			actionType: stringEnum(definitions.map((definition) => definition.actionType)),
+			actionRunnerType: stringEnum(executableActionDefinitions.map((definition) => definition.runnerType)),
+			controlActionType: stringEnum(controlDefinitions.map((definition) => definition.actionType)),
+			controlStepType: stringEnum(controlDefinitions.map((definition) => definition.controlType)),
+			executableActionType: stringEnum(executableActionDefinitions.map((definition) => definition.actionType)),
+			triggerActionType: stringEnum(triggerDefinitions.map((definition) => definition.actionType)),
+			triggerType: stringEnum(triggerDefinitions.map((definition) => definition.runnerType)),
 			trigger: { oneOf: triggerRefs },
 			controlStep: { oneOf: controlRefs },
 			variableOperationStep: { oneOf: variableOperationRefs },
@@ -79,6 +85,13 @@ function createProgramSchema(programSchema) {
 				],
 			},
 		},
+	};
+}
+
+function stringEnum(values) {
+	return {
+		type: "string",
+		enum: [...new Set(values.filter(Boolean))],
 	};
 }
 

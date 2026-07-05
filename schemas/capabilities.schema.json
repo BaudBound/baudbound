@@ -43,6 +43,7 @@
 					"runtime.if",
 					"runtime.switch",
 					"runtime.loop",
+					"runtime.while",
 					"runtime.for_each",
 					"runtime.sub_script",
 					"runtime.error_handling",

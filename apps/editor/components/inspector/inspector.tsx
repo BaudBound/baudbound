@@ -81,6 +81,7 @@ type InspectorProps = {
 	onAddSimulationOverride: (nodeId: string) => void;
 	onRemoveSimulationOverride: (nodeId: string) => void;
 	onSimulationSettingsChange: (settings: SimulationSettings) => void;
+	onStopSimulation: () => void;
 	onTabChange: (tab: InspectorTab) => void;
 	onTriggerSimulation: (triggerNodeId: string, payload: SimulationTriggerPayload) => void;
 	onUpdateNodeConfig: (nodeId: string, key: string, value: JsonValue) => void;
@@ -101,6 +102,7 @@ export function Inspector({
 	onAddSimulationOverride,
 	onRemoveSimulationOverride,
 	onSimulationSettingsChange,
+	onStopSimulation,
 	onTabChange,
 	onTriggerSimulation,
 	onUpdateNodeConfig,
@@ -147,6 +149,7 @@ export function Inspector({
 						onAddOverride={onAddSimulationOverride}
 						onRemoveOverride={onRemoveSimulationOverride}
 						onSettingsChange={onSimulationSettingsChange}
+						onStopSimulation={onStopSimulation}
 						onTriggerSimulation={onTriggerSimulation}
 						onUpdateOverride={onUpdateSimulationOverride}
 					/>
@@ -259,7 +262,7 @@ function PropertiesPanel({
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
-						{selectedNode.data.actionType === "control.if" && (
+						{usesConditionRows(selectedNode.data.actionType) && (
 							<IfElseConfigPanel
 								config={selectedNode.data.config}
 								variableCompletions={variableCompletions}
@@ -396,7 +399,7 @@ function IfElseConfigPanel({
 
 	return (
 		<div className="space-y-3">
-			<ul ref={conditionReorder.listRef} className="space-y-3" aria-label="If else conditions">
+			<ul ref={conditionReorder.listRef} className="space-y-3" aria-label="Condition rows">
 				{conditionReorder.entries.map((entry) => {
 					if (entry.type === "drop-space") {
 						return <ReorderDropSpace key={entry.id} height={entry.height} />;
@@ -446,6 +449,10 @@ function IfElseConfigPanel({
 										value={condition.operator}
 										options={comparisonOperatorOptions}
 										onChange={(value) => updateCondition(conditions, condition.id, { operator: value }, onChange)}
+									/>
+									<ConditionInvertCheckbox
+										checked={condition.invert === true}
+										onChange={(checked) => updateCondition(conditions, condition.id, { invert: checked }, onChange)}
 									/>
 									<TextInput
 										label="Target"
@@ -698,6 +705,18 @@ function ConditionCombinatorRow({
 				ariaLabel="Condition combinator"
 			/>
 			<div className="h-px flex-1 bg-baud-border" />
+		</div>
+	);
+}
+
+function ConditionInvertCheckbox({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+	return (
+		<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg border border-baud-border bg-baud-panel/70 px-3 py-2 transition-colors hover:border-baud-line">
+			<div>
+				<span className="block text-sm text-baud-text">Invert condition</span>
+				<span className="font-mono text-xs text-baud-muted">{checked ? "Enabled" : "Disabled"}</span>
+			</div>
+			<Switch checked={checked} onCheckedChange={onChange} />
 		</div>
 	);
 }
@@ -1077,6 +1096,16 @@ function NodeSpecificHelp({ actionType }: { actionType: ActionType }) {
 		);
 	}
 
+	if (actionType === "control.while") {
+		return (
+			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
+				The while node checks its conditions before every iteration. The loop output runs while the conditions pass. Let
+				the body branch end naturally; do not connect it back to the while input. The done output runs when the
+				conditions fail.
+			</p>
+		);
+	}
+
 	return null;
 }
 
@@ -1203,9 +1232,12 @@ function ReorderDropSpace({ height }: { height: number }) {
 function FloatingConditionCard({ condition, drag }: { condition: ConditionRow; drag: ActiveReorderDragState }) {
 	return (
 		<FloatingReorderCard drag={drag}>
-			<div className="flex items-center gap-2">
-				<GripVertical size={15} className="text-baud-muted" />
-				<span className="font-mono text-sm text-baud-muted">Condition</span>
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<GripVertical size={15} className="text-baud-muted" />
+					<span className="font-mono text-sm text-baud-muted">Condition</span>
+				</div>
+				{condition.invert === true && <span className="font-mono text-xs uppercase text-baud-red">Inverted</span>}
 			</div>
 			<GhostField label="Value" value={condition.left} />
 			<GhostField label="Expression" value={condition.operator} />
@@ -1268,7 +1300,7 @@ function hasCustomConfigPanel(actionType: ActionType) {
 		actionType === "runtime.set_variable" ||
 		actionType === "action.text.format" ||
 		usesKeyReference(actionType) ||
-		actionType === "control.if" ||
+		usesConditionRows(actionType) ||
 		actionType === "control.switch" ||
 		actionType === "action.http" ||
 		actionType === "action.webhook_response" ||
@@ -1339,6 +1371,10 @@ function normalizeLineEnding(value: string) {
 
 function usesKeyReference(actionType: ActionType) {
 	return actionType === "trigger.hotkey" || actionType === "action.keyboard";
+}
+
+function usesConditionRows(actionType: ActionType) {
+	return actionType === "control.if" || actionType === "control.while";
 }
 
 function getConfiguredKey(config: Record<string, JsonValue>) {
@@ -1431,12 +1467,16 @@ function normalizeConditionRows(conditions: ConditionRow[]) {
 }
 
 function createSerializableConditionRow(condition: ConditionRow, combinator: string | undefined): ConditionRow {
-	const row = {
+	const row: ConditionRow = {
 		id: condition.id,
 		left: condition.left,
 		operator: condition.operator,
 		right: condition.right,
 	};
+
+	if (condition.invert === true) {
+		row.invert = true;
+	}
 
 	return combinator === undefined ? row : { ...row, combinator: normalizeCombinator(combinator) };
 }

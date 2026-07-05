@@ -6,15 +6,17 @@ const SCRIPT_NODE_ESTIMATED_HEIGHT = 144;
 
 export const DUPLICATE_OFFSET = 44;
 
-export function createGraphNodeCopy(sourceNode: Node<ScriptNodeData>, position: XYPosition): Node<ScriptNodeData> {
+export function createGraphNodeCopy<NodeType extends Node>(sourceNode: NodeType, position: XYPosition): NodeType {
+	const idPrefix = sourceNode.type === "commentNode" ? "c" : "n";
+
 	return {
 		...cloneGraphValue(sourceNode),
-		id: `n-${createGraphElementId()}`,
+		id: `${idPrefix}-${createGraphElementId()}`,
 		position,
 		selected: false,
 		dragging: false,
 		data: cloneGraphValue(sourceNode.data),
-	};
+	} as NodeType;
 }
 
 export function getCenteredScriptNodePosition(center: XYPosition): XYPosition {

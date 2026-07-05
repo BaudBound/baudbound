@@ -1,4 +1,4 @@
-import { CircleHelp, Download, PackageOpen, Play, ShieldCheck, SlidersHorizontal, Square, Upload } from "lucide-react";
+import { CircleHelp, Download, PackageOpen, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
 import Image from "next/image";
 import type { ChangeEvent, RefObject } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,6 @@ type TopBarProps = {
 	importInputRef: RefObject<HTMLInputElement | null>;
 	leftWidth: number;
 	rightWidth: number;
-	isSimulationRunning: boolean;
 	targetRuntime: TargetRuntime;
 	verificationStatus: VerificationStatus;
 	onAssetEditorClick: () => void;
@@ -19,14 +18,11 @@ type TopBarProps = {
 	onExportClick: () => void;
 	onHelpClick: () => void;
 	onProjectSettingsClick: () => void;
-	onSimulateClick: () => void;
-	onStopSimulationClick: () => void;
 	onVerifyClick: () => void;
 };
 
 export function TopBar({
 	importInputRef,
-	isSimulationRunning,
 	leftWidth,
 	rightWidth,
 	targetRuntime,
@@ -37,8 +33,6 @@ export function TopBar({
 	onExportClick,
 	onHelpClick,
 	onProjectSettingsClick,
-	onSimulateClick,
-	onStopSimulationClick,
 	onVerifyClick,
 }: TopBarProps) {
 	return (
@@ -91,16 +85,6 @@ export function TopBar({
 					{getVerificationLabel(verificationStatus)}
 				</Badge>
 				<div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5">
-					<Button
-						type="button"
-						onClick={isSimulationRunning ? onStopSimulationClick : onSimulateClick}
-						aria-label={isSimulationRunning ? "Stop simulation" : "Start simulation"}
-						size="sm"
-						variant={isSimulationRunning ? "destructive" : "toolbar"}
-					>
-						{isSimulationRunning ? <Square size={14} /> : <Play size={14} />}
-						<span className="hidden xl:inline">{isSimulationRunning ? "Stop" : "Simulate"}</span>
-					</Button>
 					<Button type="button" onClick={onVerifyClick} aria-label="Verify script" size="sm" variant="toolbarActive">
 						<ShieldCheck size={14} />
 						<span className="hidden xl:inline">Verify</span>

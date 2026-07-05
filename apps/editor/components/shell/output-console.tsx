@@ -1,7 +1,8 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 import type { DependencyList, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { logLevelClassName } from "@/data/editor/output-console";
 import type { EditorVariable } from "@/data/project/variables";
 import type { LogEntry, SimulationTraceEntry } from "@/lib/types";
@@ -386,42 +387,22 @@ function VariablesFooter({
 		<fieldset className="flex h-8 min-h-0 items-center justify-between gap-3 overflow-hidden border-t border-baud-border px-3">
 			<legend className="sr-only">Variable display options</legend>
 			<div className="flex min-w-0 items-center gap-4 overflow-hidden">
-				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
-					<input
-						type="checkbox"
-						checked={sortUpdatedFirst}
-						onChange={(event) => onSortUpdatedFirstChange(event.target.checked)}
-						className="size-3 accent-baud-red"
-					/>
-					Updated first
-				</label>
-				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
-					<input
-						type="checkbox"
-						checked={showDerivedMetadata}
-						onChange={(event) => onShowDerivedMetadataChange(event.target.checked)}
-						className="size-3 accent-baud-red"
-					/>
-					Show metadata
-				</label>
-				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
-					<input
-						type="checkbox"
-						checked={showBuiltInVariables}
-						onChange={(event) => onShowBuiltInVariablesChange(event.target.checked)}
-						className="size-3 accent-baud-red"
-					/>
-					Show built-ins
-				</label>
-				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
-					<input
-						type="checkbox"
-						checked={showSystemVariables}
-						onChange={(event) => onShowSystemVariablesChange(event.target.checked)}
-						className="size-3 accent-baud-red"
-					/>
-					Show system
-				</label>
+				<FooterCheckbox checked={sortUpdatedFirst} label="Updated first" onCheckedChange={onSortUpdatedFirstChange} />
+				<FooterCheckbox
+					checked={showDerivedMetadata}
+					label="Show metadata"
+					onCheckedChange={onShowDerivedMetadataChange}
+				/>
+				<FooterCheckbox
+					checked={showBuiltInVariables}
+					label="Show built-ins"
+					onCheckedChange={onShowBuiltInVariablesChange}
+				/>
+				<FooterCheckbox
+					checked={showSystemVariables}
+					label="Show system"
+					onCheckedChange={onShowSystemVariablesChange}
+				/>
 			</div>
 		</fieldset>
 	);
@@ -477,20 +458,38 @@ function LogFooter({
 	return (
 		<fieldset className="flex h-8 min-h-0 items-center justify-between overflow-hidden border-t border-baud-border px-3">
 			<legend className="sr-only">{label}</legend>
-			<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
-				<input
-					type="checkbox"
-					checked={follow}
-					onChange={(event) => onFollowChange(event.target.checked)}
-					className="size-3 accent-baud-red"
-				/>
-				Follow
-			</label>
+			<FooterCheckbox checked={follow} label="Follow" onCheckedChange={onFollowChange} />
 			<Button type="button" onClick={onClear} size="xs" variant="ghost">
 				<Trash2 size={12} />
 				Clear
 			</Button>
 		</fieldset>
+	);
+}
+
+function FooterCheckbox({
+	checked,
+	label,
+	onCheckedChange,
+}: {
+	checked: boolean;
+	label: string;
+	onCheckedChange: (checked: boolean) => void;
+}) {
+	const checkboxId = useId();
+
+	return (
+		<div className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
+			<Checkbox
+				id={checkboxId}
+				checked={checked}
+				onCheckedChange={(value) => onCheckedChange(value === true)}
+				className="size-3 border-baud-border bg-baud-panel data-checked:border-baud-red data-checked:bg-baud-red data-checked:text-white"
+			/>
+			<label htmlFor={checkboxId} className="cursor-pointer select-none">
+				{label}
+			</label>
+		</div>
 	);
 }
 

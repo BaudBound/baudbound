@@ -1,4 +1,7 @@
+import type { JsonValue } from "@/lib/types";
 import { defaultInputPort, triggerOutputPort } from "../node-definition";
+import { comparisonOperatorOptions } from "./options";
+import { isConditionRow } from "./rows";
 
 export const triggerPorts = () => ({ inputs: [], outputs: [triggerOutputPort] });
 
@@ -49,6 +52,36 @@ function canReachNode(startNodeId: string, targetNodeId: string, edges: { source
 	}
 
 	return false;
+}
+
+const comparisonOperators = new Set(comparisonOperatorOptions.map((option) => option.value));
+const conditionCombinators = new Set(["and", "or"]);
+
+export function validateConditionRowsConfig(config: Record<string, JsonValue>, label: string) {
+	const conditions = config.conditions;
+	if (!Array.isArray(conditions) || conditions.length === 0) {
+		return [`${label} must have at least one condition.`];
+	}
+
+	return conditions.flatMap((condition, index) => {
+		const rowLabel = `${label} condition ${index + 1}`;
+		if (!isConditionRow(condition)) {
+			return [`${rowLabel} is malformed.`];
+		}
+
+		const errors: string[] = [];
+		if (!condition.left.trim()) {
+			errors.push(`${rowLabel} value is required.`);
+		}
+		if (!comparisonOperators.has(condition.operator)) {
+			errors.push(`${rowLabel} uses unknown expression "${condition.operator}".`);
+		}
+		if (index > 0 && !conditionCombinators.has(condition.combinator ?? "")) {
+			errors.push(`${rowLabel} combinator must be AND or OR.`);
+		}
+
+		return errors;
+	});
 }
 
 export const actionAudio = ["action.sound"];

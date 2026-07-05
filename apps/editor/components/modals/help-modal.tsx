@@ -168,6 +168,11 @@ const nodeBehaviorRows = [
 			"Runs the loop output branch once per iteration. The body branch should end naturally and must not connect back to the Loop input. The done output runs after all iterations complete.",
 	},
 	{
+		label: "While",
+		description:
+			"Checks condition rows before every iteration. The loop output branch runs while the conditions pass and should end naturally. The done output runs when the conditions fail.",
+	},
+	{
 		label: "For Each",
 		description:
 			"Loops through a list value. The loop output branch runs once for each item and should end naturally. The items field can reference a list variable or nested list such as {{payload.users}}.",
@@ -208,7 +213,7 @@ const simulationRows = [
 	{
 		label: "Trigger inputs",
 		description:
-			"The Simulator tab lets you fire trigger nodes with sample payloads. Schedule triggers run from their configured interval.",
+			"The Simulator tab lets you fire trigger nodes with sample payloads. Pressing a trigger verifies the script first, then starts that branch. Schedule triggers run from their configured interval while the simulator is active.",
 	},
 	{
 		label: "Overrides",
@@ -409,8 +414,9 @@ function ExpressionsSection() {
 			<div className="space-y-3">
 				<SectionTitle icon={Calculator} title="If / Else Comparisons" />
 				<InfoCard>
-					If / Else does not use typed expression syntax. Each condition row has a Value field, a comparison dropdown,
-					and a Target field. Multiple rows can be combined with AND or OR between the rows.
+					If / Else and While do not use typed expression syntax. Each condition row has a Value field, a comparison
+					dropdown, and a Target field. Enable Invert condition on a row to flip that row result before it is combined
+					with AND or OR.
 				</InfoCard>
 				<DocTable
 					columns={["Dropdown option", "Description"]}

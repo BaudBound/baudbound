@@ -67,6 +67,11 @@ type SimulationFrame =
 			kind: "node";
 			nodeId: string;
 			stopAtNodeId?: string;
+	  }
+	| {
+			index: number;
+			kind: "while";
+			nodeId: string;
 	  };
 
 const nodeSimulationApi: NodeSimulationApi = {
@@ -197,6 +202,11 @@ async function processSimulationFrame(context: SimulationContext, frame: Simulat
 		return;
 	}
 
+	if (frame.kind === "while") {
+		await processWhileFrame(context, frames, frame);
+		return;
+	}
+
 	await processForEachFrame(context, frames, frame);
 }
 
@@ -298,6 +308,11 @@ async function executeNodeFrame(
 		return;
 	}
 
+	if (node.data.actionType === "control.while") {
+		frames.push({ kind: "while", nodeId: node.id, index: 0 });
+		return;
+	}
+
 	if (node.data.actionType === "control.for_each") {
 		const items = getForEachItems(node, context);
 		frames.push({ kind: "for_each", nodeId: node.id, index: 0, items });
@@ -340,6 +355,38 @@ async function processLoopFrame(
 		message: `[Simulation] Loop ${node.id} iteration ${frame.index + 1} of ${frame.count}.`,
 	});
 	frames.push({ kind: "loop", nodeId: node.id, index: frame.index + 1, count: frame.count });
+	frames.push({ kind: "follow", sourceNodeId: node.id, handle: "loop", stopAtNodeId: node.id });
+}
+
+async function processWhileFrame(
+	context: SimulationContext,
+	frames: SimulationFrame[],
+	frame: Extract<SimulationFrame, { kind: "while" }>,
+) {
+	const node = context.nodesById.get(frame.nodeId);
+	if (!node) {
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] Missing while node ${frame.nodeId}; branch stopped.`,
+		});
+		return;
+	}
+
+	const conditionPassed = evaluateIfNode(node, context);
+	if (!conditionPassed) {
+		await pushStep(context, {
+			level: "info",
+			message: `[Simulation] While ${node.id} condition failed after ${frame.index} iteration${frame.index === 1 ? "" : "s"}.`,
+		});
+		frames.push({ kind: "follow", sourceNodeId: node.id, handle: "done" });
+		return;
+	}
+
+	await pushStep(context, {
+		level: "info",
+		message: `[Simulation] While ${node.id} iteration ${frame.index + 1}; condition passed.`,
+	});
+	frames.push({ kind: "while", nodeId: node.id, index: frame.index + 1 });
 	frames.push({ kind: "follow", sourceNodeId: node.id, handle: "loop", stopAtNodeId: node.id });
 }
 
@@ -471,11 +518,12 @@ function evaluateIfNode(node: Node<ScriptNodeData>, context: SimulationContext) 
 	}
 
 	return rows.reduce((result, row, index) => {
-		const rowResult = compareValues(
+		const compared = compareValues(
 			resolveTemplate(row.left, context),
 			row.operator,
 			resolveTemplate(row.right, context),
 		);
+		const rowResult = row.invert === true ? !compared : compared;
 
 		if (index === 0) {
 			return rowResult;

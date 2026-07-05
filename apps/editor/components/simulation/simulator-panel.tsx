@@ -1,4 +1,4 @@
-import { Info, X } from "lucide-react";
+import { Info, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OptionCombobox } from "@/components/ui/option-combobox";
 import { AddOverrideControl } from "./add-override-control";
@@ -14,6 +14,7 @@ export function SimulatorPanel({
 	onAddOverride,
 	onRemoveOverride,
 	onSettingsChange,
+	onStopSimulation,
 	onTriggerSimulation,
 	onUpdateOverride,
 }: SimulatorPanelProps) {
@@ -21,6 +22,7 @@ export function SimulatorPanel({
 	const availableNodes = nodes.filter((node) => !overrideNodeIds.has(node.id));
 	const selectedDefaultNode = availableNodes[0]?.id ?? "";
 	const triggerNodes = nodes.filter((node) => node.data.kind === "trigger");
+	const isSimulationActive = status === "waiting" || status === "running";
 	const nodeOptions = availableNodes.map((node) => ({
 		label: `${node.data.label} (${node.id})`,
 		value: node.id,
@@ -65,12 +67,25 @@ export function SimulatorPanel({
 			</section>
 
 			<section className="space-y-3 rounded border border-baud-border bg-baud-soft/60 p-3">
-				<div>
-					<h3 className="text-xs font-bold tracking-[0.18em] text-baud-muted uppercase">Trigger Input</h3>
-					<p className="mt-1 text-xs leading-5 text-baud-muted">
-						Every trigger node is available here. Manual and event triggers can be fired while the simulation is
-						waiting. Schedule triggers run automatically from their configured interval.
-					</p>
+				<div className="flex items-start justify-between gap-3">
+					<div>
+						<h3 className="text-xs font-bold tracking-[0.18em] text-baud-muted uppercase">Trigger Input</h3>
+						<p className="mt-1 text-xs leading-5 text-baud-muted">
+							Press a trigger to verify the script and start that branch. Schedule triggers run automatically while the
+							simulator is active.
+						</p>
+					</div>
+					<Button
+						type="button"
+						onClick={onStopSimulation}
+						disabled={!isSimulationActive}
+						aria-label="Stop simulation"
+						size="sm"
+						variant={isSimulationActive ? "destructive" : "toolbar"}
+					>
+						<Square size={13} />
+						Stop
+					</Button>
 				</div>
 				{triggerNodes.length === 0 ? (
 					<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">

@@ -22,7 +22,6 @@ export function TriggerInputCard({ status, triggerNode, onTrigger }: TriggerInpu
 	const [payload, setPayload] = useState<SimulationTriggerPayload>(() => createDefaultTriggerPayload(triggerNode));
 	const [webhookHeaders, setWebhookHeaders] = useState<HeaderRow[]>(() => createDefaultWebhookHeaders());
 	const [webhookQuery, setWebhookQuery] = useState<HeaderRow[]>(() => []);
-	const canTrigger = status === "waiting";
 
 	useEffect(() => {
 		setPayload(createDefaultTriggerPayload(triggerNode));
@@ -45,7 +44,7 @@ export function TriggerInputCard({ status, triggerNode, onTrigger }: TriggerInpu
 					<div className="mt-1 break-all font-mono text-xs text-baud-muted">{triggerNode.id}</div>
 				</div>
 				{triggerNode.data.actionType !== "trigger.schedule" && (
-					<Button type="button" disabled={!canTrigger} onClick={handleTrigger} size="sm" variant="toolbarActive">
+					<Button type="button" onClick={handleTrigger} size="sm" variant="toolbarActive">
 						<Play size={13} />
 						Trigger
 					</Button>
@@ -187,7 +186,7 @@ export function TriggerInputCard({ status, triggerNode, onTrigger }: TriggerInpu
 			)}
 			{triggerNode.data.actionType === "trigger.manual" && (
 				<div className="rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
-					Manual triggers do not require input. Press Trigger to start this branch.
+					Manual triggers do not require input. Press Trigger to verify the script and start this branch.
 				</div>
 			)}
 		</div>

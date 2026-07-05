@@ -4,6 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(appRoot, "..", "..");
@@ -112,13 +114,19 @@ test("schemas are served with public canonical ids", () => {
 	}
 });
 
-test("editor schema and package contract support editor comments", () => {
+test("editor schema and package contract support editor-only metadata", () => {
 	const editorSchema = JSON.parse(read(join(schemasRoot, "editor.schema.json")));
 	const programSchema = JSON.parse(read(join(schemasRoot, "program.schema.json")));
 	const packageContractSource = read(join(appRoot, "utils", "package-contract.ts"));
 	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
 
 	assert.ok(editorSchema.properties.comments, "editor.schema.json should define editor-only comments");
+	assert.deepEqual(editorSchema.properties.canvas.properties.edge_style.enum, [
+		"smoothstep",
+		"bezier",
+		"straight",
+		"step",
+	]);
 	assert.deepEqual(editorSchema.properties.comments.items.properties.color.enum, [
 		"amber",
 		"blue",
@@ -126,7 +134,16 @@ test("editor schema and package contract support editor comments", () => {
 		"rose",
 		"violet",
 	]);
+	assert.deepEqual(editorSchema.properties.comments.items.properties.font_size, {
+		type: "number",
+		minimum: 12,
+		maximum: 72,
+	});
 	assert.match(packageContractSource, /editor\.json comments/);
+	assert.match(packageContractSource, /canvas\.edge_style/);
+	assert.match(packageContractSource, /font_size from 12 to 72/);
+	assert.match(packageSource, /edge_style/);
+	assert.match(packageSource, /font_size/);
 	assert.match(packageSource, /comments: comments\.map/);
 	assert.match(packageSource, /function toEditorComments/);
 	assert.equal(
@@ -134,6 +151,18 @@ test("editor schema and package contract support editor comments", () => {
 		false,
 		"comments must not be program nodes",
 	);
+});
+
+test("editor edge style metadata is mapped to valid React Flow edge types", () => {
+	const flowCanvasDataSource = read(join(appRoot, "data", "editor", "flow-canvas.ts"));
+	const flowCanvasSource = read(join(appRoot, "components", "canvas", "flow-canvas.tsx"));
+	const editorPageSource = read(join(appRoot, "app", "editor-page.tsx"));
+
+	assert.match(flowCanvasDataSource, /edgeStyle === "bezier" \? "default" : edgeStyle/);
+	assert.match(flowCanvasSource, /type: toReactFlowEdgeType\(edgeStyle\)/);
+	assert.match(flowCanvasSource, /addEdge\(\{ \.\.\.connection, id: edgeId, type: toReactFlowEdgeType\(edgeStyle\) \}/);
+	assert.match(editorPageSource, /type: toReactFlowEdgeType\(nextEdgeStyle\)/);
+	assert.match(editorPageSource, /type: toReactFlowEdgeType\(importedPackage\.edgeStyle\)/);
 });
 
 test("program schema includes every editor action type", () => {
@@ -367,6 +396,17 @@ test("asset validation has no fixed package size or count cap", () => {
 	assert.match(assetEditorSource, /No fixed editor cap/);
 });
 
+test("package asset validation requires zip assets and manifest assets to match exactly", () => {
+	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
+
+	assert.match(packageSource, /function collectPackageAssetManifest/);
+	assert.match(packageSource, /validatePackageAssetEntries\(getZipAssetEntries\(zip\)\)/);
+	assert.match(packageSource, /asset file is not declared in manifest\.json assets/);
+	assert.match(packageSource, /is listed in manifest but missing from zip/);
+	assert.match(packageSource, /duplicate manifest asset path/);
+	assert.match(packageSource, /manifest asset .* must define path/);
+});
+
 test("export does not create hidden implicit triggers", () => {
 	const analysisSource = read(join(appRoot, "utils", "analysis.ts"));
 	const verificationSource = read(join(appRoot, "utils", "verification.ts"));
@@ -389,16 +429,18 @@ test("node-specific verification is owned by node definitions", () => {
 test("loop control bodies do not require return edges", () => {
 	const sharedSource = read(join(appRoot, "data", "nodes", "definitions", "shared.ts"));
 	const loopSource = read(join(appRoot, "data", "nodes", "definitions", "control", "loop.ts"));
+	const whileSource = read(join(appRoot, "data", "nodes", "definitions", "control", "while.ts"));
 	const forEachSource = read(join(appRoot, "data", "nodes", "definitions", "control", "for-each.ts"));
 	const inspectorSource = read(join(appRoot, "components", "inspector", "inspector.tsx"));
 	const helpSource = read(join(appRoot, "components", "modals", "help-modal.tsx"));
 
-	for (const source of [sharedSource, loopSource, forEachSource, inspectorSource, helpSource]) {
+	for (const source of [sharedSource, loopSource, whileSource, forEachSource, inspectorSource, helpSource]) {
 		assert.equal(/eventually return|flow back to the loop input|must connect its loop output back/.test(source), false);
 	}
 
 	assert.match(sharedSource, /validateLoopBodyDoesNotReturn/);
 	assert.match(loopSource, /validateLoopBodyDoesNotReturn\(node\.id,\s*context\.edges,\s*"loop"\)/);
+	assert.match(whileSource, /validateLoopBodyDoesNotReturn\(node\.id,\s*context\.edges,\s*"loop"\)/);
 	assert.match(forEachSource, /validateLoopBodyDoesNotReturn\(node\.id,\s*context\.edges,\s*"loop"\)/);
 	assert.match(inspectorSource, /do not connect it\s+back to the loop input/);
 	assert.match(helpSource, /body branch should end naturally/);
@@ -426,6 +468,33 @@ test("example package fixtures contain required package files", () => {
 		}
 		for (const file of [...files].filter((entry) => entry.endsWith(".json"))) {
 			assert.doesNotThrow(() => JSON.parse(read(join(directory, file))), `${directory}/${file}`);
+		}
+	}
+});
+
+test("example package fixtures validate against public JSON schemas", () => {
+	const ajv = createSchemaValidator();
+	const schemaByPackageFile = new Map([
+		["manifest.json", "https://schemas.baudbound.app/manifest.schema.json"],
+		["program.json", "https://schemas.baudbound.app/program.schema.json"],
+		["permissions.json", "https://schemas.baudbound.app/permissions.schema.json"],
+		["capabilities.json", "https://schemas.baudbound.app/capabilities.schema.json"],
+		["editor.json", "https://schemas.baudbound.app/editor.schema.json"],
+	]);
+	const examplesRoot = join(repoRoot, "examples");
+
+	for (const entry of readdirSync(examplesRoot, { withFileTypes: true })) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+
+		const directory = join(examplesRoot, entry.name);
+		for (const [fileName, schemaId] of schemaByPackageFile) {
+			const validate = ajv.getSchema(schemaId);
+			assert.ok(validate, `${schemaId} must be registered`);
+
+			const valid = validate(JSON.parse(read(join(directory, fileName))));
+			assert.equal(valid, true, `${entry.name}/${fileName} failed ${schemaId}: ${ajv.errorsText(validate.errors)}`);
 		}
 	}
 });
@@ -468,6 +537,17 @@ test("example package declarations match their program action types", () => {
 		);
 	}
 });
+
+function createSchemaValidator() {
+	const ajv = new Ajv2020({ allErrors: true, strict: false });
+	addFormats(ajv);
+
+	for (const filePath of readJsonFiles(schemasRoot)) {
+		ajv.addSchema(JSON.parse(read(filePath)));
+	}
+
+	return ajv;
+}
 
 function readDefinitions() {
 	return readAll(join(appRoot, "data", "nodes", "definitions"));
