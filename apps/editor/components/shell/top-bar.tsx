@@ -50,7 +50,7 @@ export function TopBar({
 		>
 			<div className="flex h-full min-w-0 items-center gap-2 px-3">
 				<Image
-					src="/logo-notext.png"
+					src="/logo-notext.svg"
 					alt=""
 					width={28}
 					height={28}

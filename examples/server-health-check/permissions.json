@@ -1,4 +1,0 @@
-{
-  "declared_permissions": ["log", "http_request"],
-  "risk_level": "medium"
-}

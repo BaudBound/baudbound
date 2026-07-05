@@ -48,10 +48,11 @@ export const metadata: Metadata = {
 		description: appDescription,
 		images: [
 			{
-				url: "/logo-notext.png",
+				url: "/logo.svg",
 				width: 800,
 				height: 800,
 				alt: "BaudBound logo",
+				type: "image/svg+xml",
 			},
 		],
 	},
@@ -59,7 +60,7 @@ export const metadata: Metadata = {
 		card: "summary",
 		title: appName,
 		description: appDescription,
-		images: ["/logo-notext.png"],
+		images: ["/logo.svg"],
 	},
 	robots: {
 		index: true,
