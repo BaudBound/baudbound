@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.baudbound.app/permissions.schema.json",
+  "title": "BaudBound Permissions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["declared_permissions", "risk_level"],
+  "properties": {
+    "declared_permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "dangerous"]
+    }
+  }
+}
+

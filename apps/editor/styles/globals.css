@@ -1,0 +1,190 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+	--color-baud-bg: #090b10;
+	--color-baud-canvas: #080a0f;
+	--color-baud-panel: #0d1017;
+	--color-baud-soft: #171b27;
+	--color-baud-node: #121520;
+	--color-baud-line: #242a3a;
+	--color-baud-border: #202635;
+	--color-baud-text: #d8deec;
+	--color-baud-muted: #727d95;
+	--color-baud-red: #e62d3e;
+	--color-baud-danger: #e62d3e;
+	--color-baud-amber: #f5a623;
+	--color-baud-blue: #5b8af5;
+	--color-baud-green: #3ecf8e;
+	--color-baud-purple: #a78bfa;
+	--color-background: var(--color-baud-bg);
+	--color-foreground: var(--color-baud-text);
+	--color-card: var(--color-baud-panel);
+	--color-card-foreground: var(--color-baud-text);
+	--color-popover: var(--color-baud-panel);
+	--color-popover-foreground: var(--color-baud-text);
+	--color-primary: var(--color-baud-red);
+	--color-primary-foreground: #ffffff;
+	--color-secondary: var(--color-baud-soft);
+	--color-secondary-foreground: var(--color-baud-text);
+	--color-muted: var(--color-baud-soft);
+	--color-muted-foreground: var(--color-baud-muted);
+	--color-accent: var(--color-baud-line);
+	--color-accent-foreground: var(--color-baud-text);
+	--color-destructive: var(--color-baud-danger);
+	--color-border: var(--color-baud-border);
+	--color-input: var(--color-baud-border);
+	--color-ring: var(--color-baud-red);
+	--radius-sm: 2px;
+	--radius-md: 4px;
+	--radius-lg: 6px;
+}
+
+:root {
+	color-scheme: dark;
+	background: #090b10;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+	background: #090b10;
+}
+
+button,
+input,
+select {
+	font: inherit;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+[role="textbox"],
+[data-selectable-text="true"],
+[data-selectable-text="true"] * {
+	user-select: text;
+}
+
+.react-flow {
+	--xy-background-color: #080a0f;
+	--xy-edge-stroke-default: #53627d;
+	--xy-edge-stroke-width-default: 2;
+	--xy-selection-background-color-default: rgb(230 45 62 / 12%);
+	--xy-selection-border-default: 1px solid rgb(230 45 62 / 60%);
+	user-select: none;
+}
+
+.react-flow__pane {
+	cursor: default;
+	user-select: none;
+}
+
+.react-flow__node {
+	font-family: inherit;
+	user-select: none;
+}
+
+.react-flow__handle {
+	box-shadow: 0 0 0 3px rgb(8 10 15 / 90%);
+}
+
+.react-flow__edge-path {
+	stroke: #53627d !important;
+	transition:
+		stroke 120ms ease,
+		stroke-width 120ms ease,
+		filter 120ms ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+	stroke: #d8deec !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge.baud-edge-selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+	filter: drop-shadow(0 0 6px rgb(230 45 62 / 70%));
+	stroke: #e62d3e !important;
+	stroke-width: 4 !important;
+}
+
+.react-flow__edge.baud-edge-selected .react-flow__edge-interaction,
+.react-flow__edge.selected .react-flow__edge-interaction {
+	stroke-width: 24;
+}
+
+.react-flow__controls.baud-flow-controls {
+	display: flex;
+	overflow: hidden;
+	border: 1px solid #202635;
+	border-radius: 4px;
+	background: #0d1017;
+	box-shadow: none;
+}
+
+.react-flow__controls.baud-flow-controls .react-flow__controls-button {
+	width: 36px;
+	height: 36px;
+	border: 0;
+	border-right: 1px solid #202635;
+	background: #0d1017;
+	color: #727d95;
+	box-shadow: none;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease,
+		outline-color 120ms ease;
+}
+
+.react-flow__controls.baud-flow-controls
+	.react-flow__controls-button:last-child {
+	border-right: 0;
+}
+
+.react-flow__controls.baud-flow-controls .react-flow__controls-button:hover {
+	background: #171b27;
+	color: #d8deec;
+}
+
+.react-flow__controls.baud-flow-controls
+	.react-flow__controls-button:focus-visible {
+	position: relative;
+	z-index: 1;
+	outline: 1px solid #e62d3e;
+	outline-offset: -1px;
+}
+
+.react-flow__controls.baud-flow-controls .react-flow__controls-button svg {
+	width: 16px;
+	height: 16px;
+	max-width: none;
+	max-height: none;
+	fill: currentColor;
+}
+
+.react-flow__minimap.baud-flow-minimap {
+	overflow: hidden;
+	border: 1px solid #202635;
+	border-radius: 4px;
+	background: #0d1017 !important;
+	box-shadow: none;
+}
+
+.react-flow__minimap.baud-flow-minimap svg {
+	background: #080a0f !important;
+}
+
+.react-flow__minimap.baud-flow-minimap rect {
+	fill: #080a0f;
+}
+
+.react-flow__minimap-mask {
+	fill: rgb(8 10 15 / 62%) !important;
+}
+
+.react-flow__minimap-node {
+	stroke-width: 2;
+}

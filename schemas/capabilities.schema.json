@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.baudbound.app/capabilities.schema.json",
+  "title": "BaudBound Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["required_capabilities", "target_runtime"],
+  "properties": {
+    "required_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(trigger|action|runtime)(\\.[a-z][a-z0-9_]*)+$"
+      },
+      "uniqueItems": true
+    },
+    "target_runtime": {
+      "type": "string",
+      "enum": [
+        "Generic Headless",
+        "Linux Headless",
+        "Windows Headless",
+        "macOS Background",
+        "Generic Desktop",
+        "Windows Desktop",
+        "Linux Desktop",
+        "macOS Desktop"
+      ]
+    }
+  }
+}

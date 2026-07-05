@@ -1,0 +1,148 @@
+import {
+	serialBaudRateOptions,
+	serialDataBitsOptions,
+	serialFlowControlOptions,
+	serialParityOptions,
+	serialReadModeOptions,
+	serialStopBitsOptions,
+} from "../../project/serial";
+import {
+	variableOperationDefinitions,
+	variableOperations,
+	variableScopes,
+	variableTypes,
+} from "../../project/variables";
+
+export type SelectOption = {
+	label: string;
+	value: string;
+};
+
+export const timeUnitOptions: SelectOption[] = [
+	{ label: "Seconds", value: "seconds" },
+	{ label: "Minutes", value: "minutes" },
+	{ label: "Hours", value: "hours" },
+	{ label: "Days", value: "days" },
+];
+
+export const httpMethodOptions: SelectOption[] = [
+	{ label: "GET", value: "GET" },
+	{ label: "POST", value: "POST" },
+	{ label: "PUT", value: "PUT" },
+	{ label: "PATCH", value: "PATCH" },
+	{ label: "DELETE", value: "DELETE" },
+	{ label: "HEAD", value: "HEAD" },
+	{ label: "OPTIONS", value: "OPTIONS" },
+];
+
+export const fileWatchEventOptions: SelectOption[] = [
+	{ label: "Created", value: "created" },
+	{ label: "Modified", value: "modified" },
+	{ label: "Deleted", value: "deleted" },
+	{ label: "Renamed", value: "renamed" },
+];
+
+export const processMatchModeOptions: SelectOption[] = [
+	{ label: "Process name", value: "process_name" },
+	{ label: "Executable path", value: "executable_path" },
+	{ label: "Window title", value: "window_title" },
+];
+
+export const killProcessMatchModeOptions: SelectOption[] = [
+	...processMatchModeOptions,
+	{ label: "Process ID", value: "pid" },
+];
+
+export const comparisonOperatorOptions: SelectOption[] = [
+	{ label: "equals", value: "==" },
+	{ label: "does not equal", value: "!=" },
+	{ label: "greater than", value: ">" },
+	{ label: "greater than or equal", value: ">=" },
+	{ label: "less than", value: "<" },
+	{ label: "less than or equal", value: "<=" },
+	{ label: "contains", value: "contains" },
+	{ label: "starts with", value: "starts_with" },
+	{ label: "ends with", value: "ends_with" },
+	{ label: "regex match", value: "regex_match" },
+	{ label: "is empty", value: "is_empty" },
+	{ label: "is null", value: "is_null" },
+];
+
+export const combinatorOptions: SelectOption[] = [
+	{ label: "AND", value: "and" },
+	{ label: "OR", value: "or" },
+];
+
+export const variableTypeOptions: SelectOption[] = variableTypes.map((type) => ({
+	label: type,
+	value: type,
+}));
+
+export const variableScopeOptions: SelectOption[] = variableScopes.map((scope) => ({
+	label: scope,
+	value: scope,
+}));
+
+export const variableOperationOptions: SelectOption[] = variableOperations.map((operation) => ({
+	label: variableOperationDefinitions[operation].label,
+	value: operation,
+}));
+
+export const logLevelOptions: SelectOption[] = [
+	{ label: "Info", value: "info" },
+	{ label: "Warning", value: "warn" },
+	{ label: "Error", value: "error" },
+	{ label: "Debug", value: "debug" },
+];
+
+export const mouseButtonOptions: SelectOption[] = [
+	{ label: "Left", value: "left" },
+	{ label: "Right", value: "right" },
+	{ label: "Middle", value: "middle" },
+	{ label: "Back", value: "back" },
+	{ label: "Forward", value: "forward" },
+];
+
+export const mouseClickTypeOptions: SelectOption[] = [
+	{ label: "Single click", value: "single" },
+	{ label: "Double click", value: "double" },
+];
+
+export const fileWriteModeOptions: SelectOption[] = [
+	{ label: "Overwrite file", value: "overwrite" },
+	{ label: "Append to file", value: "append" },
+];
+
+export const fileOverwriteOptions: SelectOption[] = [
+	{ label: "Do not overwrite", value: "false" },
+	{ label: "Overwrite existing file", value: "true" },
+];
+
+export const playSoundSourceOptions: SelectOption[] = [
+	{ label: "Asset library", value: "asset" },
+	{ label: "File path", value: "file_path" },
+];
+
+export const messageBoxTypeOptions: SelectOption[] = [
+	{ label: "Info", value: "info" },
+	{ label: "Warning", value: "warning" },
+	{ label: "Error", value: "error" },
+	{ label: "Question", value: "question" },
+];
+
+export const messageBoxButtonOptions: SelectOption[] = [
+	{ label: "OK", value: "ok" },
+	{ label: "OK / Cancel", value: "ok_cancel" },
+	{ label: "Yes / No", value: "yes_no" },
+	{ label: "Yes / No / Cancel", value: "yes_no_cancel" },
+	{ label: "Retry / Cancel", value: "retry_cancel" },
+];
+
+export {
+	serialBaudRateOptions,
+	serialDataBitsOptions,
+	serialFlowControlOptions,
+	serialParityOptions,
+	serialReadModeOptions,
+	serialStopBitsOptions,
+};

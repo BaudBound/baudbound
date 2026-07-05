@@ -1,0 +1,579 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.baudbound.app/program.schema.json",
+  "title": "BaudBound Program",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entry"],
+  "properties": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "triggers", "program"],
+      "properties": {
+        "trigger": {
+          "$ref": "#/$defs/trigger"
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trigger"
+          }
+        },
+        "program": {
+          "$ref": "#/$defs/block"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "trigger.manual",
+        "trigger.schedule",
+        "trigger.file_watch",
+        "trigger.webhook",
+        "trigger.websocket",
+        "trigger.hotkey",
+        "trigger.serial_input",
+        "trigger.startup",
+        "trigger.process_started",
+        "control.if",
+        "control.switch",
+        "control.loop",
+        "control.for_each",
+        "runtime.set_variable",
+        "action.calculate",
+        "action.text.format",
+        "action.log",
+        "action.delay",
+        "action.http",
+        "action.notification",
+        "action.message_box",
+        "action.pixel.get",
+        "action.file.download",
+        "action.file.write",
+        "action.file.delete",
+        "action.file.copy",
+        "action.file.move",
+        "action.process.run",
+        "action.process.status",
+        "action.process.kill",
+        "action.script.run",
+        "action.application.open",
+        "action.sound.play",
+        "action.serial.write",
+        "action.keyboard",
+        "action.keyboard.type_text",
+        "action.mouse",
+        "action.mouse.move",
+        "action.window.active",
+        "action.window.focus",
+        "action.beep",
+        "action.clipboard",
+        "action.shell"
+      ]
+    },
+    "triggerActionType": {
+      "type": "string",
+      "enum": [
+        "trigger.manual",
+        "trigger.schedule",
+        "trigger.file_watch",
+        "trigger.webhook",
+        "trigger.websocket",
+        "trigger.hotkey",
+        "trigger.serial_input",
+        "trigger.startup",
+        "trigger.process_started"
+      ]
+    },
+    "controlActionType": {
+      "type": "string",
+      "enum": [
+        "control.if",
+        "control.switch",
+        "control.loop",
+        "control.for_each"
+      ]
+    },
+    "executableActionType": {
+      "type": "string",
+      "enum": [
+        "action.calculate",
+        "action.text.format",
+        "action.log",
+        "action.delay",
+        "action.http",
+        "action.notification",
+        "action.message_box",
+        "action.pixel.get",
+        "action.file.download",
+        "action.file.write",
+        "action.file.delete",
+        "action.file.copy",
+        "action.file.move",
+        "action.process.run",
+        "action.process.status",
+        "action.process.kill",
+        "action.script.run",
+        "action.application.open",
+        "action.sound.play",
+        "action.serial.write",
+        "action.keyboard",
+        "action.keyboard.type_text",
+        "action.mouse",
+        "action.mouse.move",
+        "action.window.active",
+        "action.window.focus",
+        "action.beep",
+        "action.clipboard",
+        "action.shell"
+      ]
+    },
+    "triggerType": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "schedule",
+        "file_watch",
+        "webhook",
+        "websocket",
+        "hotkey",
+        "serial_input",
+        "startup",
+        "process_started"
+      ]
+    },
+    "actionRunnerType": {
+      "type": "string",
+      "enum": [
+        "calculate",
+        "format_text",
+        "log",
+        "delay",
+        "http_request",
+        "show_notification",
+        "show_message_box",
+        "get_pixel_color",
+        "download_file",
+        "write_file",
+        "delete_file",
+        "copy_file",
+        "move_file",
+        "run_process",
+        "process_status",
+        "kill_process",
+        "run_script",
+        "open_application",
+        "play_sound",
+        "serial_write",
+        "press_key",
+        "type_text",
+        "mouse_click",
+        "move_mouse",
+        "get_active_window",
+        "focus_window",
+        "beep",
+        "set_clipboard",
+        "run_shell_command"
+      ]
+    },
+    "controlStepType": {
+      "type": "string",
+      "enum": ["if", "switch", "loop", "for_each"]
+    },
+    "runtimeDataType": {
+      "type": "string",
+      "enum": [
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "file_path",
+        "http_headers",
+        "http_status_code",
+        "duration_ms",
+        "process_id",
+        "exit_code",
+        "keyboard_key"
+      ]
+    },
+    "variableType": {
+      "type": "string",
+      "enum": [
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "list",
+        "http_response",
+        "datetime",
+        "duration",
+        "file_path",
+        "http_headers",
+        "http_status_code",
+        "duration_ms",
+        "process_id",
+        "exit_code",
+        "keyboard_key"
+      ]
+    },
+    "jsonValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "runtimeOutputField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "$ref": "#/$defs/runtimeDataType"
+        },
+        "description": {
+          "type": "string"
+        },
+        "example": {
+          "type": "string"
+        }
+      }
+    },
+    "runtimeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "$ref": "#/$defs/runtimeDataType"
+        },
+        "description": {
+          "type": "string"
+        },
+        "example": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutputField"
+          }
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "token", "type", "scope", "source", "read_only"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^\\{\\{[^{}]+\\}\\}$"
+        },
+        "type": {
+          "$ref": "#/$defs/variableType"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["runtime", "persistent", "global", "secret", "manifest", "system", "node_output"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["user", "built_in", "node_output"]
+        },
+        "read_only": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      }
+    },
+    "builtInVariableContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["syntax", "variables"],
+      "properties": {
+        "syntax": {
+          "const": "{{variable_name}}"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variable"
+          }
+        }
+      }
+    },
+    "nodeOutputReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_type", "outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "$ref": "#/$defs/actionType"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutput"
+          }
+        }
+      }
+    },
+    "runtimeContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expression_reference",
+        "template_reference",
+        "variables",
+        "built_in_variables",
+        "node_outputs"
+      ],
+      "properties": {
+        "expression_reference": {
+          "const": "{{node-id.data_name}}"
+        },
+        "template_reference": {
+          "const": "{{node-id.data_name}}"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variable"
+          }
+        },
+        "built_in_variables": {
+          "$ref": "#/$defs/builtInVariableContext"
+        },
+        "node_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nodeOutputReference"
+          }
+        }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_type", "type", "config", "runtime_outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "$ref": "#/$defs/triggerActionType"
+        },
+        "type": {
+          "$ref": "#/$defs/triggerType"
+        },
+        "config": {
+          "$ref": "#/$defs/config"
+        },
+        "runtime_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutput"
+          }
+        }
+      }
+    },
+    "controlStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_type", "type", "config", "runtime_outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "$ref": "#/$defs/controlActionType"
+        },
+        "type": {
+          "$ref": "#/$defs/controlStepType"
+        },
+        "config": {
+          "$ref": "#/$defs/config"
+        },
+        "runtime_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutput"
+          }
+        }
+      }
+    },
+    "setVariableStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_type", "type", "config", "runtime_outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "const": "runtime.set_variable"
+        },
+        "type": {
+          "const": "set_variable"
+        },
+        "config": {
+          "$ref": "#/$defs/config"
+        },
+        "runtime_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutput"
+          }
+        }
+      }
+    },
+    "actionStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_type", "type", "action", "config", "runtime_outputs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "$ref": "#/$defs/executableActionType"
+        },
+        "type": {
+          "const": "action"
+        },
+        "action": {
+          "$ref": "#/$defs/actionRunnerType"
+        },
+        "config": {
+          "$ref": "#/$defs/config"
+        },
+        "runtime_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtimeOutput"
+          }
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/controlStep"
+        },
+        {
+          "$ref": "#/$defs/setVariableStep"
+        },
+        {
+          "$ref": "#/$defs/actionStep"
+        }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_handle": {
+          "type": ["string", "null"]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_handle": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "runtime_context", "steps", "edges"],
+      "properties": {
+        "type": {
+          "const": "block"
+        },
+        "runtime_context": {
+          "$ref": "#/$defs/runtimeContext"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        }
+      }
+    }
+  }
+}
