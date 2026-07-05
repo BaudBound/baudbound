@@ -188,3 +188,9 @@ textarea,
 .react-flow__minimap-node {
 	stroke-width: 2;
 }
+
+@media (max-width: 960px), (max-height: 620px) {
+	.react-flow__minimap.baud-flow-minimap {
+		display: none;
+	}
+}

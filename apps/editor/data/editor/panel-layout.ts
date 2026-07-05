@@ -17,3 +17,14 @@ export const panelSizeConstraints: Record<ResizablePanel, { min: number; max: nu
 	right: { min: 280, max: 520 },
 	bottom: { min: 96, max: 560 },
 };
+
+export const responsivePanelLayout = {
+	bottomResizeHandleHeight: 4,
+	compactLeftMin: 148,
+	compactRightMin: 196,
+	horizontalResizeHandlesWidth: 8,
+	minCanvasHeight: 220,
+	minCanvasWidth: 320,
+	statusBarHeight: 24,
+	topBarHeight: 48,
+};

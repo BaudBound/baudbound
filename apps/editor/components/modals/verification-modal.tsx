@@ -45,11 +45,11 @@ export function VerificationModal({ checks, onClose, open }: VerificationModalPr
 		<Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
 			<DialogContent
 				aria-labelledby={titleId}
-				className="sm:max-w-2xl"
+				className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-2xl"
 				onInteractOutside={(event) => event.preventDefault()}
 				showCloseButton={false}
 			>
-				<DialogHeader className="flex flex-row items-start justify-between gap-4">
+				<DialogHeader className="flex flex-row items-start justify-between gap-4 border-b border-baud-border p-4">
 					<div>
 						<DialogTitle id={titleId}>Verification</DialogTitle>
 						<DialogDescription>{getVerificationSummary(true, summary.failed, summary.warnings)}</DialogDescription>
@@ -59,8 +59,10 @@ export function VerificationModal({ checks, onClose, open }: VerificationModalPr
 					</Button>
 				</DialogHeader>
 
-				<div className="space-y-4 p-4">
-					<VerificationProgress checks={checks} active={open} />
+				<div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-4 p-4">
+					<div className="min-h-0 overflow-y-auto pr-1">
+						<VerificationProgress checks={checks} active={open} />
+					</div>
 
 					<div className="flex justify-end">
 						<Button type="button" onClick={onClose} variant="toolbar">

@@ -1,5 +1,5 @@
 import "@/styles/globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 const appName = "BaudBound Editor";
 const appDescription =
@@ -66,6 +66,11 @@ export const metadata: Metadata = {
 		index: true,
 		follow: true,
 	},
+};
+
+export const viewport: Viewport = {
+	width: "device-width",
+	initialScale: 1,
 };
 
 export default function RootLayout({

@@ -141,8 +141,8 @@ export function VariableCodeInput({
 					"relative overflow-hidden rounded-lg border bg-baud-panel/70 transition-[border-color,box-shadow]",
 					!multiline && "grid-cols-1",
 					hasError
-						? "border-baud-danger shadow-[0_0_0_2px_rgb(224_92_92_/_0.14)]"
-						: "border-baud-border focus-within:border-baud-red/75 focus-within:shadow-[0_0_0_2px_rgb(230_45_62_/_0.14)]",
+						? "border-baud-danger shadow-[0_0_0_2px_rgb(224_92_92/0.14)]"
+						: "border-baud-border focus-within:border-baud-red/75 focus-within:shadow-[0_0_0_2px_rgb(230_45_62/0.14)]",
 					className,
 				)}
 			>
@@ -163,7 +163,7 @@ export function VariableCodeInput({
 						aria-hidden="true"
 						style={textLayerStyle}
 						className={cn(
-							"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-2.5 py-2 font-mono text-sm leading-5",
+							"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word px-2.5 py-2 font-mono text-sm leading-5",
 							multiline ? "min-h-8" : "h-8 whitespace-pre",
 						)}
 					>

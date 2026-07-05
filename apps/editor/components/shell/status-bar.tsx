@@ -9,8 +9,8 @@ type StatusBarProps = {
 
 export function StatusBar({ nodes, edges, riskLevel }: StatusBarProps) {
 	return (
-		<footer className="flex h-6 shrink-0 items-center justify-between border-t border-baud-border bg-baud-panel px-3 font-mono text-sm text-baud-muted">
-			<div className="flex items-center gap-4">
+		<footer className="flex h-6 shrink-0 items-center justify-between gap-3 overflow-hidden border-t border-baud-border bg-baud-panel px-3 font-mono text-xs text-baud-muted sm:text-sm">
+			<div className="flex min-w-0 items-center gap-3 overflow-hidden sm:gap-4">
 				<span className="flex items-center gap-1 text-baud-green">
 					<span className="size-1.5 rounded-full bg-baud-green" />
 					ready
@@ -18,10 +18,10 @@ export function StatusBar({ nodes, edges, riskLevel }: StatusBarProps) {
 				<span>{nodes.length} nodes</span>
 				<span>{edges.length} edges</span>
 				<span>risk {riskLevel}</span>
-				<span>format v1</span>
-				<span>lang v1</span>
+				<span className="hidden md:inline">format v1</span>
+				<span className="hidden lg:inline">lang v1</span>
 			</div>
-			<span>BaudBound Editor 0.1.0</span>
+			<span className="hidden shrink-0 sm:inline">BaudBound Editor 0.1.0</span>
 		</footer>
 	);
 }

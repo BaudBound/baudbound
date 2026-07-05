@@ -23,6 +23,7 @@ const paletteGroups = getPaletteGroups();
 export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibraryProps) {
 	const [query, setQuery] = useState("");
 	const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(defaultExpandedPaletteGroups);
+	const compact = width < 190;
 
 	const filteredGroups = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
@@ -52,7 +53,7 @@ export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibrar
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
 						aria-label="Search blocks"
-						placeholder="Search blocks..."
+						placeholder={compact ? "Search..." : "Search blocks..."}
 						className="pl-8 pr-3 font-sans"
 					/>
 				</div>
@@ -95,7 +96,7 @@ export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibrar
 											>
 												<Icon size={13} className="text-baud-muted group-hover:text-baud-text" />
 												<span className="min-w-0 flex-1 truncate">{item.label}</span>
-												<RiskBadge risk={item.risk} />
+												{!compact && <RiskBadge risk={item.risk} />}
 											</Button>
 										);
 									})}

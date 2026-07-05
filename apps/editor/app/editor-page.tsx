@@ -917,7 +917,7 @@ export function EditorPage() {
 	}, []);
 
 	return (
-		<div className="flex h-dvh min-h-[620px] select-none flex-col overflow-hidden bg-baud-bg text-baud-text">
+		<div className="flex h-dvh min-h-0 select-none flex-col overflow-hidden bg-baud-bg text-baud-text">
 			<TopBar
 				importInputRef={importInputRef}
 				isSimulationRunning={simulationStatus === "running" || simulationStatus === "waiting"}

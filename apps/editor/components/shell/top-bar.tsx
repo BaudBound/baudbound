@@ -59,26 +59,32 @@ export function TopBar({
 					className="size-7 shrink-0 rounded object-contain"
 				/>
 				<div className="min-w-0 text-sm font-semibold">
-					<span className="text-white">BaudBound</span> <span className="text-baud-muted">Editor</span>
+					<span className="text-white">BaudBound</span> <span className="hidden text-baud-muted xl:inline">Editor</span>
 				</div>
 			</div>
 
 			<div className="bg-baud-border/30" />
 
 			<div className="flex min-w-0 items-center gap-2 overflow-hidden px-2">
-				<Button type="button" onClick={onAssetEditorClick} size="sm" variant="toolbar">
+				<Button type="button" onClick={onAssetEditorClick} aria-label="Open asset editor" size="sm" variant="toolbar">
 					<PackageOpen size={14} />
-					Assets
+					<span className="hidden xl:inline">Assets</span>
 				</Button>
-				<Button type="button" onClick={onProjectSettingsClick} size="sm" variant="toolbar">
+				<Button
+					type="button"
+					onClick={onProjectSettingsClick}
+					aria-label="Open project settings"
+					size="sm"
+					variant="toolbar"
+				>
 					<SlidersHorizontal size={14} />
-					Project Settings
+					<span className="hidden 2xl:inline">Project Settings</span>
 				</Button>
-				<Button type="button" onClick={onHelpClick} size="sm" variant="toolbar">
+				<Button type="button" onClick={onHelpClick} aria-label="Open help" size="sm" variant="toolbar">
 					<CircleHelp size={14} />
-					Help
+					<span className="hidden xl:inline">Help</span>
 				</Button>
-				<Badge className="px-1.5 py-0.5 text-xs font-bold" variant="medium">
+				<Badge className="hidden px-1.5 py-0.5 text-xs font-bold lg:inline-flex" variant="medium">
 					{targetRuntime.toLowerCase().includes("headless") ? "Headless" : "Desktop"}
 				</Badge>
 				<Badge className="px-1.5 py-0.5 text-xs font-bold" variant={getVerificationBadgeVariant(verificationStatus)}>
@@ -88,15 +94,16 @@ export function TopBar({
 					<Button
 						type="button"
 						onClick={isSimulationRunning ? onStopSimulationClick : onSimulateClick}
+						aria-label={isSimulationRunning ? "Stop simulation" : "Start simulation"}
 						size="sm"
 						variant={isSimulationRunning ? "destructive" : "toolbar"}
 					>
 						{isSimulationRunning ? <Square size={14} /> : <Play size={14} />}
-						{isSimulationRunning ? "Stop" : "Simulate"}
+						<span className="hidden xl:inline">{isSimulationRunning ? "Stop" : "Simulate"}</span>
 					</Button>
-					<Button type="button" onClick={onVerifyClick} size="sm" variant="toolbarActive">
+					<Button type="button" onClick={onVerifyClick} aria-label="Verify script" size="sm" variant="toolbarActive">
 						<ShieldCheck size={14} />
-						Verify
+						<span className="hidden xl:inline">Verify</span>
 					</Button>
 				</div>
 			</div>
@@ -111,13 +118,13 @@ export function TopBar({
 					accept=".bbs,application/zip"
 					onChange={onImportFileChange}
 				/>
-				<Button type="button" onClick={onImportClick} size="sm" variant="toolbar">
+				<Button type="button" onClick={onImportClick} aria-label="Import package" size="sm" variant="toolbar">
 					<Upload size={14} />
-					Import
+					<span className="hidden xl:inline">Import</span>
 				</Button>
-				<Button type="button" onClick={onExportClick} size="sm" variant="primary">
+				<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
 					<Download size={14} />
-					Export
+					<span className="hidden xl:inline">Export</span>
 				</Button>
 			</div>
 		</header>
@@ -146,11 +153,11 @@ function getVerificationLabel(status: VerificationStatus) {
 	}
 
 	if (status === "warning") {
-		return "Verified with warnings";
+		return "Warnings";
 	}
 
 	if (status === "failed") {
-		return "Verification failed";
+		return "Failed";
 	}
 
 	return "Not verified";

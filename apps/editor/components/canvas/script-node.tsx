@@ -58,7 +58,7 @@ export function ScriptNode({ data, selected }: NodeProps<ScriptFlowNode>) {
 					type="target"
 					id={input.id}
 					position={Position.Left}
-					className="!size-3 !border-baud-blue !bg-baud-panel"
+					className="size-3! border-baud-blue! bg-baud-panel!"
 				/>
 			))}
 			{data.outputs.map((output, index) => {

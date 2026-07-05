@@ -57,13 +57,13 @@ export function OutputConsole({
 	return (
 		<section className="shrink-0 border-t border-baud-border bg-baud-panel" style={{ height: open ? height : 36 }}>
 			<div className="flex h-9 items-center justify-between border-b border-baud-border">
-				<div className="flex h-full min-w-0">
+				<div className="flex h-full min-w-0 overflow-x-auto">
 					{bottomPanelTabs.map((tab) => (
 						<Button
 							key={tab.id}
 							type="button"
 							onClick={() => handleTabClick(tab.id)}
-							className={`h-full rounded-none border-b-2 px-4 text-xs font-bold tracking-[0.16em] uppercase ${
+							className={`h-full shrink-0 rounded-none border-b-2 px-4 text-xs font-bold tracking-[0.16em] uppercase ${
 								activeTab === tab.id ? "border-baud-red text-baud-text" : "border-transparent text-baud-muted"
 							}`}
 							size="none"
@@ -77,7 +77,7 @@ export function OutputConsole({
 					type="button"
 					onClick={onToggle}
 					aria-label={open ? "Collapse bottom panel" : "Expand bottom panel"}
-					className="h-full w-10 rounded-none"
+					className="h-full w-10 shrink-0 rounded-none"
 					size="none"
 					variant="ghost"
 				>
@@ -245,32 +245,34 @@ function VariablesTab({ variables }: { variables: EditorVariable[] }) {
 
 	return (
 		<div className="h-full overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
-			<div className="overflow-hidden rounded border border-baud-border bg-baud-soft">
-				<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
-					<div>Name</div>
-					<div>Type</div>
-					<div>Scope</div>
-					<div>Source</div>
-					<div>Value</div>
-				</div>
-				<div className="divide-y divide-baud-border/80">
-					{variables.map((variable) => (
-						<div
-							key={`${variable.source}-${variable.name}`}
-							className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
-						>
-							<div className="min-w-0">
-								<div className="break-all text-baud-text">{variable.name}</div>
-								<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
+			<div className="overflow-x-auto rounded border border-baud-border bg-baud-soft">
+				<div className="min-w-[720px]">
+					<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
+						<div>Name</div>
+						<div>Type</div>
+						<div>Scope</div>
+						<div>Source</div>
+						<div>Value</div>
+					</div>
+					<div className="divide-y divide-baud-border/80">
+						{variables.map((variable) => (
+							<div
+								key={`${variable.source}-${variable.name}`}
+								className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
+							>
+								<div className="min-w-0">
+									<div className="break-all text-baud-text">{variable.name}</div>
+									<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
+								</div>
+								<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
+								<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
+								<div className="text-baud-muted">{variable.source}</div>
+								<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
+									{formatVariableValue(variable.value)}
+								</pre>
 							</div>
-							<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
-							<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
-							<div className="text-baud-muted">{variable.source}</div>
-							<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
-								{formatVariableValue(variable.value)}
-							</pre>
-						</div>
-					))}
+						))}
+					</div>
 				</div>
 			</div>
 		</div>
