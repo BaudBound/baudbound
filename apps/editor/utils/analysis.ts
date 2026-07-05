@@ -15,7 +15,6 @@ import type {
 	EditorAsset,
 	ExecutableActionType,
 	ExportSummary,
-	JsonValue,
 	LogEntry,
 	PermissionSummary,
 	ProjectSettings,
@@ -130,12 +129,17 @@ export function toProgramJson(nodes: Node<ScriptNodeData>[], edges: Edge[], proj
 	const builtInVariableContext = createBuiltInVariableRuntimeContext(projectSettings);
 	const nodeOutputVariables = createNodeOutputVariables(nodes);
 
+	if (triggers.length === 0) {
+		throw new Error("Cannot export a script without at least one trigger node.");
+	}
+
 	return {
 		entry: {
-			trigger: triggers[0] ?? createManualTriggerFallback(),
+			trigger: triggers[0],
 			triggers,
 			program: {
 				type: "block",
+				execution_model: "directed_graph",
 				runtime_context: {
 					expression_reference: "{{node-id.data_name}}",
 					template_reference: "{{node-id.data_name}}",
@@ -207,22 +211,6 @@ function toStepJson(node: Node<ScriptNodeData>) {
 		...base,
 		type: "action",
 		action: getRunnerActionType(node.data.actionType),
-	};
-}
-
-function createManualTriggerFallback(): {
-	id: string;
-	action_type: "trigger.manual";
-	type: "manual";
-	config: Record<string, JsonValue>;
-	runtime_outputs: [];
-} {
-	return {
-		id: "implicit-manual-trigger",
-		action_type: "trigger.manual",
-		type: "manual",
-		config: {},
-		runtime_outputs: [],
 	};
 }
 

@@ -2,6 +2,7 @@ import { Code } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const runProcessNode = defineNode({
 	actionType: "action.process.run",
@@ -29,6 +30,7 @@ export const runProcessNode = defineNode({
 		},
 	]),
 	runnerType: "run_process",
+	validateConfig: (config) => [requiredConfig(config, "executable", "process executable")].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: { process_id: 4242 } }),
 		describe: ({ api, context, node }) => [

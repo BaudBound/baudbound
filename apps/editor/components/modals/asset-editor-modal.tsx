@@ -5,15 +5,7 @@ import { type ChangeEvent, type DragEvent, useId, useRef, useState } from "react
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-	createEditorAssets,
-	formatBytes,
-	MAX_ASSET_COUNT,
-	MAX_ASSET_SIZE_BYTES,
-	MAX_TOTAL_ASSET_SIZE_BYTES,
-	supportedAssetExtensions,
-	validateEditorAssets,
-} from "@/data/project/assets";
+import { createEditorAssets, formatBytes, supportedAssetExtensions, validateEditorAssets } from "@/data/project/assets";
 import type { AssetKind, EditorAsset } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -114,7 +106,7 @@ export function AssetEditorModal({ assets, onAssetsChange, onClose, open }: Asse
 										{isProcessing ? "Checking assets..." : "Drop assets here"}
 									</p>
 									<p className="mt-1 text-sm leading-5 text-baud-muted">
-										Files are checked by type, package path, size, and content signature before being added.
+										Files are checked by package path, browser media type, and content signature before being added.
 									</p>
 								</div>
 								<span className="mx-auto inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-baud-blue/25 bg-[#11172a] px-2.5 text-sm font-medium text-white">
@@ -127,15 +119,12 @@ export function AssetEditorModal({ assets, onAssetsChange, onClose, open }: Asse
 						<div className="rounded-lg border border-baud-border bg-baud-elevated p-4">
 							<div className="flex items-center gap-2 text-sm font-semibold text-baud-text">
 								<PackageCheck size={15} />
-								Package limits
+								Package checks
 							</div>
 							<div className="mt-3 space-y-2 text-sm text-baud-muted">
-								<LimitRow label="Assets" value={`${assets.length} / ${MAX_ASSET_COUNT}`} />
-								<LimitRow
-									label="Total size"
-									value={`${formatBytes(totalBytes)} / ${formatBytes(MAX_TOTAL_ASSET_SIZE_BYTES)}`}
-								/>
-								<LimitRow label="Per file" value={formatBytes(MAX_ASSET_SIZE_BYTES)} />
+								<InfoRow label="Assets" value={`${assets.length} attached`} />
+								<InfoRow label="Total size" value={formatBytes(totalBytes)} />
+								<InfoRow label="Size policy" value="No fixed editor cap" />
 							</div>
 							<div className="mt-4 flex flex-wrap gap-1.5">
 								{supportedAssetExtensions.map((extension) => (
@@ -209,7 +198,7 @@ function AssetRow({ asset, onRemove }: { asset: EditorAsset; onRemove: () => voi
 	);
 }
 
-function LimitRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="flex items-center justify-between gap-3">
 			<span>{label}</span>

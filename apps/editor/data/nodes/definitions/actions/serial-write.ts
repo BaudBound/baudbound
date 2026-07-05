@@ -1,5 +1,6 @@
 import { Usb } from "lucide-react";
 import { defineNode } from "../../node-definition";
+import { configString, requiredConfig } from "../validators";
 
 export const serialWriteNode = defineNode({
 	actionType: "action.serial.write",
@@ -15,6 +16,22 @@ export const serialWriteNode = defineNode({
 	permission: { name: "serial_write", risk: "medium" },
 	risk: "medium",
 	runnerType: "serial_write",
+	validateConfig: (config) =>
+		[requiredConfig(config, "deviceId", "serial device"), requiredConfig(config, "data", "serial write data")].filter(
+			Boolean,
+		),
+	validateGraph: ({ context, node }) => {
+		const deviceId = configString(node.data.config, "deviceId").trim();
+		const hasTrigger = context.nodes.some(
+			(otherNode) =>
+				otherNode.data.actionType === "trigger.serial_input" &&
+				configString(otherNode.data.config, "deviceId").trim() === deviceId,
+		);
+
+		return deviceId && !hasTrigger
+			? [`${node.id} writes to unknown serial device "${deviceId}". Add a Serial Input Trigger for it.`]
+			: [];
+	},
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: {} }),
 		describe: ({ api, context, node }) => [

@@ -1,5 +1,6 @@
 import { Bell } from "lucide-react";
 import { defineNode } from "../../node-definition";
+import { requiredConfig } from "../validators";
 
 export const notificationNode = defineNode({
 	actionType: "action.notification",
@@ -18,6 +19,11 @@ export const notificationNode = defineNode({
 	permission: { name: "show_notification", risk: "medium" },
 	risk: "medium",
 	runnerType: "show_notification",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "title", "notification title"),
+			requiredConfig(config, "message", "notification message"),
+		].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

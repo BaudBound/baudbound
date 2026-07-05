@@ -2,6 +2,7 @@ import { FileText } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fileWriteModeOptions } from "../options";
 import { actionFile } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const writeFileNode = defineNode({
 	actionType: "action.file.write",
@@ -21,6 +22,7 @@ export const writeFileNode = defineNode({
 	permission: { name: "file_write_limited", risk: "high" },
 	risk: "high",
 	runnerType: "write_file",
+	validateConfig: (config) => [requiredConfig(config, "path", "file path")].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

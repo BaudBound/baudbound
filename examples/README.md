@@ -1,10 +1,8 @@
 # Examples
 
-Example `.bbs` packages and source fixtures live here.
+Example package source fixtures live here. Zip a fixture folder and rename it to `.bbs` to create a package archive.
 
 Start with:
 
-- `hello-world.bbs`
-- `server-health-check.bbs`
-- `json-api-monitor.bbs`
-
+- `hello-world/`
+- `server-health-check/`

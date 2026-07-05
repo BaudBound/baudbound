@@ -1,10 +1,11 @@
 import { Pipette } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
+import { staticNonNegativeNumberConfig } from "../validators";
 
 export const getPixelColorNode = defineNode({
 	actionType: "action.pixel.get",
-	capabilities: ["action.screen"],
+	capabilities: ["action.pixel"],
 	configFields: [
 		{ key: "x", label: "Screen X", type: "number", usesVariables: true },
 		{ key: "y", label: "Screen Y", type: "number", usesVariables: true },
@@ -17,8 +18,8 @@ export const getPixelColorNode = defineNode({
 	icon: Pipette,
 	kind: "action",
 	label: "Get Pixel Color",
-	permission: { name: "screen_pixel_read", risk: "high" },
-	risk: "high",
+	permission: { name: "screen_pixel_read", risk: "medium" },
+	risk: "medium",
 	runtimeOutputs: fallible([
 		{ name: "hex", type: "string", description: "Pixel color as a hex string.", example: "n-mr3zyt6f-19.hex" },
 		{
@@ -51,6 +52,11 @@ export const getPixelColorNode = defineNode({
 		{ name: "integer", type: "number", description: "Packed RGB integer value.", example: "n-mr3zyt6f-19.integer" },
 	]),
 	runnerType: "get_pixel_color",
+	validateConfig: (config) =>
+		[
+			staticNonNegativeNumberConfig(config, "x", "screen X coordinate"),
+			staticNonNegativeNumberConfig(config, "y", "screen Y coordinate"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

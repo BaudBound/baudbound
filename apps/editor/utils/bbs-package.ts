@@ -1,7 +1,12 @@
 import type { Edge, Node } from "@xyflow/react";
 import JSZip from "jszip";
 import { getNodeDefinition, getNodePorts, getRuntimeDataOutputs } from "@/data/nodes/registry";
-import { toAssetManifestEntry, validateAssetFileContent } from "@/data/project/assets";
+import {
+	getAssetKindForMediaType,
+	toAssetManifestEntry,
+	validateAssetFileContent,
+	validatePackageAssetEntries,
+} from "@/data/project/assets";
 import { targetRuntimes } from "@/data/project/runtimes";
 import type {
 	ActionType,
@@ -14,7 +19,13 @@ import type {
 	TargetRuntime,
 } from "../lib/types";
 import { calculateCapabilities, calculatePermissions, calculateRiskLevel, toProgramJson } from "./analysis";
-import { createPackageVerificationChecks, getRequiredPackageFiles, summarizeVerification } from "./verification";
+import { validatePackageJsonContracts } from "./package-contract";
+import {
+	createPackageVerificationChecks,
+	getRequiredPackageFiles,
+	summarizeVerification,
+	type VerificationCheck,
+} from "./verification";
 
 type ImportedBbsPackage = {
 	assets: EditorAsset[];
@@ -37,65 +48,59 @@ export async function exportBbsPackage(params: {
 	const assetManifest = params.assets.map(toAssetManifestEntry);
 	const now = new Date().toISOString();
 	const zip = new JSZip();
+	const manifestJson = compactObject({
+		format_version: 1,
+		script_language_version: 1,
+		id: crypto.randomUUID(),
+		name: params.projectSettings.name,
+		description: params.projectSettings.description,
+		author: params.projectSettings.author,
+		website: params.projectSettings.website,
+		repository: params.projectSettings.repository,
+		created_with: "BaudBound Editor 0.1.0",
+		created_at: now,
+		updated_at: now,
+		tags: params.projectSettings.tags,
+		minimum_runner_version: params.projectSettings.minimumRunnerVersion,
+		assets: assetManifest.map((asset) => ({
+			id: asset.id,
+			kind: asset.kind,
+			media_type: asset.mediaType,
+			name: asset.name,
+			path: asset.packagePath,
+			size: asset.size,
+		})),
+	});
+	const programJson = toProgramJson(params.nodes, params.edges, params.projectSettings);
+	const editorJson = toEditorJson(params.nodes);
+	const permissionsJson = {
+		declared_permissions: permissions.map((permission) => permission.name),
+		risk_level: calculateRiskLevel(permissions),
+	};
+	const capabilitiesJson = {
+		required_capabilities: capabilities.map((capability) => capability.name),
+		target_runtime: params.projectSettings.targetRuntime,
+	};
+	const contractErrors = validatePackageJsonContracts({
+		"manifest.json": manifestJson,
+		"program.json": programJson,
+		"editor.json": editorJson,
+		"permissions.json": permissionsJson,
+		"capabilities.json": capabilitiesJson,
+	});
 
-	zip.file(
-		"manifest.json",
-		JSON.stringify(
-			compactObject({
-				format_version: 1,
-				script_language_version: 1,
-				id: crypto.randomUUID(),
-				name: params.projectSettings.name,
-				description: params.projectSettings.description,
-				author: params.projectSettings.author,
-				website: params.projectSettings.website,
-				repository: params.projectSettings.repository,
-				created_with: "BaudBound Editor 0.1.0",
-				created_at: now,
-				updated_at: now,
-				tags: params.projectSettings.tags,
-				minimum_runner_version: params.projectSettings.minimumRunnerVersion,
-				assets: assetManifest.map((asset) => ({
-					id: asset.id,
-					kind: asset.kind,
-					media_type: asset.mediaType,
-					name: asset.name,
-					path: asset.packagePath,
-					size: asset.size,
-				})),
-			}),
-			null,
-			2,
-		),
-	);
+	if (contractErrors.length > 0) {
+		throw new Error(`Export package contract failed: ${contractErrors.join(" ")}`);
+	}
 
-	zip.file("program.json", JSON.stringify(toProgramJson(params.nodes, params.edges, params.projectSettings), null, 2));
-	zip.file(EDITOR_PACKAGE_FILE, JSON.stringify(toEditorJson(params.nodes), null, 2));
+	zip.file("manifest.json", JSON.stringify(manifestJson, null, 2));
+	zip.file("program.json", JSON.stringify(programJson, null, 2));
+	zip.file(EDITOR_PACKAGE_FILE, JSON.stringify(editorJson, null, 2));
 	for (const asset of params.assets) {
 		zip.file(asset.packagePath, asset.file, { binary: true });
 	}
-	zip.file(
-		"permissions.json",
-		JSON.stringify(
-			{
-				declared_permissions: permissions.map((permission) => permission.name),
-				risk_level: calculateRiskLevel(permissions),
-			},
-			null,
-			2,
-		),
-	);
-	zip.file(
-		"capabilities.json",
-		JSON.stringify(
-			{
-				required_capabilities: capabilities.map((capability) => capability.name),
-				target_runtime: params.projectSettings.targetRuntime,
-			},
-			null,
-			2,
-		),
-	);
+	zip.file("permissions.json", JSON.stringify(permissionsJson, null, 2));
+	zip.file("capabilities.json", JSON.stringify(capabilitiesJson, null, 2));
 	zip.file("README.md", `# ${params.projectSettings.name}\n\nExported from BaudBound Editor.\n`);
 
 	const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
@@ -137,7 +142,10 @@ export async function verifyBbsPackage(file: File) {
 		}
 	}
 
-	const checks = createPackageVerificationChecks({ fileNames, jsonFiles, parseErrors });
+	const checks = [
+		...createPackageVerificationChecks({ fileNames, jsonFiles, parseErrors }),
+		await createPackageAssetContentCheck(zip, jsonFiles),
+	];
 
 	return {
 		checks,
@@ -152,11 +160,14 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 		.filter((name) => !zip.files[name]?.dir)
 		.sort();
 	const jsonFiles = await readPackageJsonFiles(zip);
-	const checks = createPackageVerificationChecks({ fileNames, jsonFiles, parseErrors: {} });
+	const checks = [
+		...createPackageVerificationChecks({ fileNames, jsonFiles, parseErrors: {} }),
+		await createPackageAssetContentCheck(zip, jsonFiles),
+	];
 	const summary = summarizeVerification(checks);
 
-	if (summary.status === "failed") {
-		throw new Error("Package failed verification and cannot be imported.");
+	if (summary.status !== "verified") {
+		throw new Error("Package did not pass verification and cannot be imported.");
 	}
 
 	const manifest = requireRecord(jsonFiles["manifest.json"], "manifest.json");
@@ -252,6 +263,11 @@ async function readPackageAssets(zip: JSZip, manifest: Record<string, unknown>):
 		return [];
 	}
 
+	const entryValidation = validatePackageAssetEntries(getZipAssetEntries(zip));
+	if (entryValidation.errors.length > 0) {
+		throw new Error(entryValidation.errors.join(" "));
+	}
+
 	const assets: EditorAsset[] = [];
 	for (const entry of manifest.assets) {
 		const asset = requireRecord(entry, "manifest asset");
@@ -265,7 +281,18 @@ async function readPackageAssets(zip: JSZip, manifest: Record<string, unknown>):
 		const name = stringOrDefault(asset.name, assetFileNameFromPath(packagePath));
 		const mediaType = stringOrDefault(asset.media_type, "application/octet-stream");
 		const kind = asAssetKind(asset.kind);
+		const declaredSize = typeof asset.size === "number" ? asset.size : undefined;
+
+		const zipSize = getZipEntryUncompressedSize(packageEntry);
+		if (declaredSize !== undefined && zipSize !== undefined && declaredSize !== zipSize) {
+			throw new Error(`${packagePath}: manifest size ${declaredSize} does not match package size ${zipSize}.`);
+		}
+
 		const blob = await packageEntry.async("blob");
+		if (declaredSize !== undefined && declaredSize !== blob.size) {
+			throw new Error(`${packagePath}: manifest size ${declaredSize} does not match asset size ${blob.size}.`);
+		}
+
 		const file = new File([blob], name, { type: mediaType });
 		const extension = getExtension(packagePath);
 		const contentValidation = await validateAssetFileContent(file, extension);
@@ -273,20 +300,98 @@ async function readPackageAssets(zip: JSZip, manifest: Record<string, unknown>):
 		if (!contentValidation.ok) {
 			throw new Error(`${packagePath}: ${contentValidation.reason}`);
 		}
+		const detectedMediaType = contentValidation.mediaType ?? mediaType;
+		const detectedKind = getAssetKindForMediaType(detectedMediaType);
+
+		if (detectedKind && detectedKind !== kind) {
+			throw new Error(`${packagePath}: manifest kind ${kind} does not match detected ${detectedMediaType}.`);
+		}
 
 		assets.push({
 			id: stringOrDefault(asset.id, `asset-${crypto.randomUUID()}`),
 			createdAt: new Date().toISOString(),
 			file,
 			kind,
-			mediaType: contentValidation.mediaType ?? mediaType,
+			mediaType: detectedMediaType,
 			name,
 			packagePath,
-			size: typeof asset.size === "number" ? asset.size : file.size,
+			size: declaredSize ?? file.size,
 		});
 	}
 
 	return assets;
+}
+
+async function createPackageAssetContentCheck(
+	zip: JSZip,
+	jsonFiles: Record<string, unknown>,
+): Promise<VerificationCheck> {
+	const manifest = isRecord(jsonFiles["manifest.json"]) ? jsonFiles["manifest.json"] : null;
+	const entryValidation = validatePackageAssetEntries(getZipAssetEntries(zip));
+	const errors: string[] = [...entryValidation.errors];
+
+	if (!manifest || !Array.isArray(manifest.assets) || manifest.assets.length === 0) {
+		return {
+			id: "package-asset-content",
+			title: "Asset content",
+			description: "Checking package asset signatures and manifest media metadata.",
+			outcome: errors.length === 0 ? "passed" : "failed",
+			message: errors.length === 0 ? "No package assets found." : errors.join(" "),
+		};
+	}
+
+	for (const entry of manifest.assets) {
+		const asset = isRecord(entry) ? entry : null;
+		const packagePath = stringOrDefault(asset?.path, "");
+		const packageEntry = packagePath ? zip.file(packagePath) : null;
+
+		if (!asset || !packageEntry) {
+			errors.push(`${packagePath || "(missing path)"} is listed in manifest but missing from zip.`);
+			continue;
+		}
+
+		const name = stringOrDefault(asset.name, assetFileNameFromPath(packagePath));
+		const mediaType = stringOrDefault(asset.media_type, "application/octet-stream");
+		const kind = asAssetKind(asset.kind);
+		const declaredSize = typeof asset.size === "number" ? asset.size : undefined;
+
+		const zipSize = getZipEntryUncompressedSize(packageEntry);
+		if (declaredSize !== undefined && zipSize !== undefined && declaredSize !== zipSize) {
+			errors.push(`${packagePath}: manifest size ${declaredSize} does not match package size ${zipSize}.`);
+			continue;
+		}
+
+		const blob = await packageEntry.async("blob");
+		if (declaredSize !== undefined && declaredSize !== blob.size) {
+			errors.push(`${packagePath}: manifest size ${declaredSize} does not match asset size ${blob.size}.`);
+			continue;
+		}
+
+		const file = new File([blob], name, { type: mediaType });
+		const contentValidation = await validateAssetFileContent(file, getExtension(packagePath));
+
+		if (!contentValidation.ok) {
+			errors.push(`${packagePath}: ${contentValidation.reason}`);
+			continue;
+		}
+
+		const detectedMediaType = contentValidation.mediaType ?? mediaType;
+		const detectedKind = getAssetKindForMediaType(detectedMediaType);
+		if (detectedKind && detectedKind !== kind) {
+			errors.push(`${packagePath}: manifest kind ${kind} does not match detected ${detectedMediaType}.`);
+		}
+	}
+
+	return {
+		id: "package-asset-content",
+		title: "Asset content",
+		description: "Checking package asset signatures and manifest media metadata.",
+		outcome: errors.length === 0 ? "passed" : "failed",
+		message:
+			errors.length === 0
+				? `${manifest.assets.length} asset file${manifest.assets.length === 1 ? "" : "s"} validated.`
+				: errors.join(" "),
+	};
 }
 
 function toEditorGraph(program: Record<string, unknown>, editorMetadata: Record<string, unknown> | null) {
@@ -377,28 +482,29 @@ function toEditorEdges(value: unknown, nodeIds: ReadonlySet<string>): Edge[] {
 		return [];
 	}
 
-	return value.flatMap((edgeValue, index) => {
+	return value.map((edgeValue, index) => {
 		const edge = requireRecord(edgeValue, "program edge");
 		const source = stringOrDefault(edge.source, "");
 		const target = stringOrDefault(edge.target, "");
 
 		if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) {
-			return [];
+			throw new Error(`Program edge ${index + 1} references an unknown source or target node.`);
 		}
 
 		const sourceHandle = optionalString(edge.source_handle);
 		const targetHandle = optionalString(edge.target_handle);
+		if (!sourceHandle || !targetHandle) {
+			throw new Error(`Program edge ${index + 1} must define source_handle and target_handle.`);
+		}
 
-		return [
-			{
-				id: `${source}-${sourceHandle ?? "out"}-${target}-${targetHandle ?? "input"}-${index}`,
-				source,
-				sourceHandle,
-				target,
-				targetHandle,
-				type: "smoothstep",
-			},
-		];
+		return {
+			id: `${source}-${sourceHandle}-${target}-${targetHandle}-${index}`,
+			source,
+			sourceHandle,
+			target,
+			targetHandle,
+			type: "smoothstep",
+		};
 	});
 }
 
@@ -460,6 +566,26 @@ function stringOrDefault(value: unknown, fallback: string) {
 
 function optionalString(value: unknown) {
 	return typeof value === "string" ? value : null;
+}
+
+function getZipAssetEntries(zip: JSZip) {
+	return Object.values(zip.files)
+		.filter((entry) => !entry.dir)
+		.map((entry) => ({
+			path: entry.name,
+			size: getZipEntryUncompressedSize(entry),
+		}));
+}
+
+function getZipEntryUncompressedSize(entry: JSZip.JSZipObject) {
+	const zipEntry = entry as JSZip.JSZipObject & {
+		_data?: {
+			uncompressedSize?: unknown;
+		};
+	};
+	const size = zipEntry._data?.uncompressedSize;
+
+	return typeof size === "number" && Number.isFinite(size) && size >= 0 ? size : undefined;
 }
 
 function assetFileNameFromPath(packagePath: string) {

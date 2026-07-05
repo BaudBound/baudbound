@@ -1,0 +1,4 @@
+{
+  "required_capabilities": ["action.log", "trigger.manual"],
+  "target_runtime": "Generic Headless"
+}

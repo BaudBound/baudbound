@@ -1,6 +1,7 @@
 import { Bell } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { actionAudio } from "../shared";
+import { staticPositiveNumberConfig } from "../validators";
 
 export const beepNode = defineNode({
 	actionType: "action.beep",
@@ -16,9 +17,14 @@ export const beepNode = defineNode({
 	icon: Bell,
 	kind: "action",
 	label: "Beep",
-	permission: { name: "system_beep", risk: "low" },
+	permission: { name: "beep", risk: "low" },
 	risk: "low",
 	runnerType: "beep",
+	validateConfig: (config) =>
+		[
+			staticPositiveNumberConfig(config, "frequencyHz", "beep frequency"),
+			staticPositiveNumberConfig(config, "durationMs", "beep duration"),
+		].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

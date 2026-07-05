@@ -1,0 +1,4 @@
+{
+  "required_capabilities": ["action.http", "action.log", "trigger.schedule"],
+  "target_runtime": "Generic Headless"
+}

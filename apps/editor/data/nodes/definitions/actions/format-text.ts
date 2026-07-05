@@ -1,9 +1,10 @@
 import { TextCursorInput } from "lucide-react";
 import { defineNode } from "../../node-definition";
+import { requiredConfig } from "../validators";
 
 export const formatTextNode = defineNode({
 	actionType: "action.text.format",
-	capabilities: ["runtime.format_text"],
+	capabilities: ["action.text"],
 	configFields: [{ key: "template", label: "Template", type: "textarea", usesVariables: true }],
 	defaultConfig: () => ({ template: "Hello {{item}}" }),
 	description: "Format template text and expose the result.",
@@ -11,7 +12,7 @@ export const formatTextNode = defineNode({
 	icon: TextCursorInput,
 	kind: "action",
 	label: "Format Text",
-	permission: { name: "format_text", risk: "low" },
+	permission: { name: "text_transform", risk: "low" },
 	risk: "low",
 	runtimeOutputs: [
 		{
@@ -22,6 +23,7 @@ export const formatTextNode = defineNode({
 		},
 	],
 	runnerType: "format_text",
+	validateConfig: (config) => [requiredConfig(config, "template", "format template")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

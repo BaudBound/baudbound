@@ -10,7 +10,7 @@ export const loopPorts = () => ({
 	],
 });
 
-export const actionAudio = ["action.audio"];
+export const actionAudio = ["action.sound"];
 export const actionFile = ["action.file"];
 export const actionKeyboard = ["action.keyboard"];
 export const actionMouse = ["action.mouse"];

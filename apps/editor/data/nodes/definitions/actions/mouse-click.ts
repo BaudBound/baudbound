@@ -2,6 +2,7 @@ import { MousePointer } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { mouseButtonOptions, mouseClickTypeOptions } from "../options";
 import { actionMouse } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const mouseClickNode = defineNode({
 	actionType: "action.mouse",
@@ -21,6 +22,10 @@ export const mouseClickNode = defineNode({
 	permission: { name: "mouse_control", risk: "high" },
 	risk: "high",
 	runnerType: "mouse_click",
+	validateConfig: (config) =>
+		[requiredConfig(config, "button", "mouse button"), requiredConfig(config, "clickType", "mouse click type")].filter(
+			Boolean,
+		),
 	simulation: {
 		describe: ({ api, node }) => [
 			{

@@ -20,7 +20,8 @@ BaudBound has two separate parts:
    - Used to visually create scripts.
    - Exports `.bbs` script packages.
    - Does not connect to runners.
-   - Does not execute scripts.
+   - Does not execute scripts as a trusted runtime.
+   - Provides a browser-only simulator for previewing graph flow without a runner connection.
 
 2. **BaudBound Runner**
    - Rust-based runtime.
@@ -35,7 +36,7 @@ BaudBound has two separate parts:
 
 ```text
 Editor builds scripts.
-Runner owns execution.
+Runner owns trusted execution.
 ```
 
 The editor should never be treated as trusted. The runner must validate every imported script, even if it was exported from the official hosted BaudBound Editor.
@@ -73,7 +74,7 @@ Avoid the word **macro** in UI and user-facing docs.
 │ Hosted or self-hosted web app │
 │ Visual programming editor     │
 │ No runner connection          │
-│ No execution                  │
+│ Simulator only                  │
 └──────────────┬───────────────┘
                │
                │ Export .bbs
@@ -138,7 +139,7 @@ Check format version
   ↓
 Check minimum runner version
   ↓
-Validate program AST
+Validate program graph
   ↓
 Validate all node/action/trigger types
   ↓
@@ -253,6 +254,8 @@ Contains the actual script program.
 
 This must be a structured program format, not raw JavaScript, Python, Lua, or shell.
 
+The current editor exports `program.json` as a runner-oriented directed graph block. It contains node configuration, runtime outputs, and execution edges. Editor-only layout data, such as node positions, belongs in `editor.json`.
+
 Example:
 
 ```json
@@ -261,67 +264,13 @@ Example:
     "trigger": {
       "type": "manual"
     },
+    "triggers": [],
     "program": {
       "type": "block",
-      "steps": [
-        {
-          "type": "let",
-          "name": "status",
-          "value": {
-            "type": "string",
-            "value": "warning"
-          }
-        },
-        {
-          "type": "switch",
-          "value": {
-            "type": "variable",
-            "name": "status"
-          },
-          "cases": [
-            {
-              "match": {
-                "type": "string",
-                "value": "ok"
-              },
-              "steps": [
-                {
-                  "type": "action",
-                  "action": "log",
-                  "config": {
-                    "message": "Everything is okay."
-                  }
-                }
-              ]
-            },
-            {
-              "match": {
-                "type": "string",
-                "value": "warning"
-              },
-              "steps": [
-                {
-                  "type": "action",
-                  "action": "show_notification",
-                  "config": {
-                    "title": "Warning",
-                    "message": "Status is warning."
-                  }
-                }
-              ]
-            }
-          ],
-          "default": [
-            {
-              "type": "action",
-              "action": "log",
-              "config": {
-                "message": "Unknown status."
-              }
-            }
-          ]
-        }
-      ]
+      "execution_model": "directed_graph",
+      "runtime_context": {},
+      "steps": [],
+      "edges": []
     }
   }
 }
@@ -433,7 +382,7 @@ Asset rules:
 
 BaudBound scripts are a visual programming language represented as structured JSON.
 
-The editor shows a node/block UI, but the exported package contains a clean AST-like program.
+The editor shows a node/block UI, but the exported package contains a clean runner-oriented program. Visual layout data must stay in `editor.json`; `program.json` must only contain execution data required by the runner.
 
 ### 6.1 Core Script Concepts
 
@@ -1272,7 +1221,7 @@ services:
 - Block library
 - Properties inspector
 - Simulator panel
-- Bottom console with output, variables, and serial tabs
+- Bottom console with system, output, simulation, and variables tabs
 - Project settings modal
 - Help/documentation modal
 - Verification modal
@@ -1305,7 +1254,7 @@ Optional supporting surfaces:
 - Capability preview
 - Risk calculation
 - Simulator tab
-- Serial console tab
+- Simulation tab
 
 ### 14.5 Production Editor Feature Set
 
@@ -1322,7 +1271,7 @@ Required production features:
 - Import flow that verifies and reconstructs editable graph state from valid `.bbs` packages.
 - Export flow that compiles graph state into a runner-oriented program format.
 - Simulator panel for validating behavior without a runner connection.
-- Serial console panel for serial input/output tooling.
+- Serial trigger and serial write configuration for runner-side serial devices.
 - Help modal with controls, reference formats, built-in variables, and runtime data documentation.
 - Production-quality accessibility, focus states, resize behavior, and responsive sizing.
 
@@ -1366,7 +1315,7 @@ When user imports a `.bbs` file:
 5. Runner checks format version
 6. Runner checks minimum runner version
 7. Runner calculates package hash
-8. Runner validates program AST
+8. Runner validates program graph
 9. Runner calculates permissions
 10. Runner calculates capabilities
 11. Runner checks compatibility with current runner mode
@@ -1435,9 +1384,9 @@ Execution flow:
 ```text
 program.json
   ↓
-parse into AST
+parse into program graph
   ↓
-validate AST
+validate program graph
   ↓
 compile execution plan
   ↓
@@ -1892,7 +1841,7 @@ Deliverables:
 - Export `.bbs`
 - Import `.bbs` for editing
 - Simulator panel
-- Serial console panel
+- Simulator panel
 - Help/documentation modal
 - Project settings modal
 - Production node catalog

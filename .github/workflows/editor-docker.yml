@@ -1,0 +1,81 @@
+name: Editor Docker
+
+on:
+  pull_request:
+    paths:
+      - "apps/editor/**"
+      - ".github/workflows/editor-docker.yml"
+  push:
+    branches:
+      - main
+    tags:
+      - "editor-v*"
+      - "v*"
+    paths:
+      - "apps/editor/**"
+      - ".github/workflows/editor-docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOCKER_CONTEXT: apps/editor
+  DOCKERFILE: apps/editor/Dockerfile
+
+jobs:
+  build:
+    name: Build editor image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare image name
+        id: image
+        shell: bash
+        run: |
+          raw_image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/baudbound-editor"
+          image="$(printf '%s' "$raw_image" | tr '[:upper:]' '[:lower:]')"
+          echo "Using image name: ${image}"
+          echo "name=${image}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=BaudBound Editor
+            org.opencontainers.image.description=Web editor for building, verifying, simulating, and exporting BaudBound .bbs scripts.
+            org.opencontainers.image.vendor=BaudBound
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DOCKER_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=editor
+          cache-to: type=gha,mode=max,scope=editor

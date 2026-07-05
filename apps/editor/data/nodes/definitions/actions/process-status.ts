@@ -3,6 +3,7 @@ import { defineNode } from "../../node-definition";
 import { processMatchModeOptions } from "../options";
 import { fallible, processStatusRuntimeOutputs } from "../runtime-outputs";
 import { actionProcess } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const processStatusNode = defineNode({
 	actionType: "action.process.status",
@@ -18,10 +19,11 @@ export const processStatusNode = defineNode({
 	icon: BadgeInfo,
 	kind: "action",
 	label: "Process Status",
-	permission: { name: "process_status", risk: "medium" },
+	permission: { name: "process_query", risk: "medium" },
 	risk: "medium",
 	runtimeOutputs: fallible(processStatusRuntimeOutputs()),
 	runnerType: "process_status",
+	validateConfig: (config) => [requiredConfig(config, "target", "process target")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

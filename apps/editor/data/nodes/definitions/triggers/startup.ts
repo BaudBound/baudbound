@@ -11,7 +11,8 @@ export const startupTriggerNode = defineNode({
 	kind: "trigger",
 	label: "Startup",
 	ports: triggerPorts,
-	risk: "medium",
+	permission: { name: "startup_trigger", risk: "high" },
+	risk: "high",
 	runtimeOutputs: [
 		{
 			name: "timestamp",

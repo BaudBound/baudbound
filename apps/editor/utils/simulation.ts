@@ -2,13 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import { isConditionRow, isSwitchCaseRow } from "@/data/nodes/definitions/rows";
 import type { NodeSimulationApi } from "@/data/nodes/node-definition";
 import { fallibleActionTypes, getNodeDefinition } from "@/data/nodes/registry";
-import { evaluateCalculationExpression } from "@/data/project/calculation";
-import {
-	getClearedVariableValue,
-	normalizeVariableOperation,
-	type VariableType,
-	variableTypes,
-} from "@/data/project/variables";
+import { createSimulationBuiltInVariableValues } from "@/data/project/built-in-variables";
 import type {
 	JsonValue,
 	LogEntry,
@@ -35,12 +29,45 @@ export type {
 	SimulationStep,
 } from "./simulation-types";
 
-const MAX_SIMULATION_STEPS = 180;
-const MAX_EDGE_VISITS = 12;
+const SIMULATION_YIELD_INTERVAL = 100;
 const MAX_SIMULATION_MESSAGE_LENGTH = 4000;
 const MAX_VARIABLE_SNAPSHOT_ENTRIES = 600;
 const MAX_VARIABLE_SNAPSHOT_STRING_LENGTH = 4000;
-const MAX_SIMULATED_DELAY_MS = 30_000;
+const MAX_REGEX_PATTERN_LENGTH = 256;
+const UNSAFE_REGEX_PATTERN =
+	/(\([^)]*[+*][^)]*\)[+*?])|(\[[^\]]+\][+*?].*\[[^\]]+\][+*?])|((?:\.\*){2,})|((?:\w|\)|\]|\.|\+|\*)\{\d+,?\d*\}[+*?])/;
+
+type SimulationFrame =
+	| {
+			kind: "edge";
+			handle: string;
+			sourceNodeId: string;
+			stopAtNodeId?: string;
+			targetNodeId: string;
+	  }
+	| {
+			kind: "follow";
+			handle: string;
+			sourceNodeId: string;
+			stopAtNodeId?: string;
+	  }
+	| {
+			kind: "for_each";
+			index: number;
+			items: JsonValue[];
+			nodeId: string;
+	  }
+	| {
+			kind: "loop";
+			count: number;
+			index: number;
+			nodeId: string;
+	  }
+	| {
+			kind: "node";
+			nodeId: string;
+			stopAtNodeId?: string;
+	  };
 
 const nodeSimulationApi: NodeSimulationApi = {
 	clampNumber,
@@ -61,6 +88,7 @@ export async function createSimulationRun({
 	nodes,
 	onStep,
 	overrides,
+	projectSettings,
 	signal,
 	stepDelayMs = 0,
 	triggerNodeId,
@@ -76,13 +104,11 @@ export async function createSimulationRun({
 		nodesById: new Map(nodes.map((node) => [node.id, node])),
 		onStep,
 		overridesByNodeId: new Map(overrides.map((override) => [override.nodeId, override.outcome])),
-		runtimeVariables: {},
+		runtimeVariables: createSimulationBuiltInVariableValues(projectSettings),
 		signal,
 		stepDelayMs,
 		streamedSteps: 0,
-		steps: [],
 		triggerPayload,
-		visitedEdges: new Map(),
 	};
 
 	if (!trigger) {
@@ -91,8 +117,8 @@ export async function createSimulationRun({
 			message: "[Simulation] No trigger node exists, so the script cannot be simulated.",
 		});
 		return {
+			finalVariables: createVariableSnapshot(context),
 			status: "failed",
-			steps: context.steps,
 		};
 	}
 
@@ -100,20 +126,20 @@ export async function createSimulationRun({
 		level: "info",
 		message: `[Simulation] Starting from ${trigger.data.label} (${trigger.id}).`,
 	});
-	await executeNode(trigger.id, context, 0);
+	await processSimulationFrames(context, [{ kind: "node", nodeId: trigger.id }]);
 	if (context.signal?.aborted) {
 		await pushStep(context, {
 			level: "warn",
 			message: "[Simulation] Simulation stopped by user.",
 		});
-		return { status: "failed", steps: context.steps };
+		return { finalVariables: createVariableSnapshot(context), status: "failed" };
 	}
 	await pushStep(context, {
 		level: context.failed ? "error" : "info",
 		message: context.failed ? "[Simulation] Simulation finished with errors." : "[Simulation] Simulation completed.",
 	});
 
-	return { status: context.failed ? "failed" : "completed", steps: context.steps };
+	return { finalVariables: createVariableSnapshot(context), status: context.failed ? "failed" : "completed" };
 }
 
 function getSimulationTrigger(nodes: Node<ScriptNodeData>[], triggerNodeId: string | undefined) {
@@ -128,17 +154,58 @@ function getSimulationTrigger(nodes: Node<ScriptNodeData>[], triggerNodeId: stri
 	return triggers[0] ?? null;
 }
 
-async function executeNode(nodeId: string, context: SimulationContext, depth: number, stopAtNodeId?: string) {
-	if (context.halted || context.signal?.aborted) {
+async function processSimulationFrames(context: SimulationContext, initialFrames: SimulationFrame[]) {
+	const frames = [...initialFrames];
+
+	while (frames.length > 0) {
+		if (context.halted || context.signal?.aborted) {
+			return;
+		}
+
+		const frame = frames.pop();
+		if (!frame) {
+			continue;
+		}
+
+		await processSimulationFrame(context, frame, frames);
+	}
+}
+
+async function processSimulationFrame(context: SimulationContext, frame: SimulationFrame, frames: SimulationFrame[]) {
+	if (frame.kind === "node") {
+		await executeNodeFrame(frame.nodeId, context, frames, frame.stopAtNodeId);
 		return;
 	}
 
-	if (context.steps.length >= MAX_SIMULATION_STEPS) {
-		context.halted = true;
+	if (frame.kind === "follow") {
+		await enqueueFollowFrames(context, frames, frame.sourceNodeId, frame.handle, frame.stopAtNodeId);
+		return;
+	}
+
+	if (frame.kind === "edge") {
 		await pushStep(context, {
-			level: "error",
-			message: `[Simulation] Stopped after ${MAX_SIMULATION_STEPS} steps to prevent an infinite loop.`,
+			level: "debug",
+			message: `[Simulation] Following "${frame.handle}" from ${frame.sourceNodeId} to ${frame.targetNodeId}.`,
 		});
+		frames.push({ kind: "node", nodeId: frame.targetNodeId, stopAtNodeId: frame.stopAtNodeId });
+		return;
+	}
+
+	if (frame.kind === "loop") {
+		await processLoopFrame(context, frames, frame);
+		return;
+	}
+
+	await processForEachFrame(context, frames, frame);
+}
+
+async function executeNodeFrame(
+	nodeId: string,
+	context: SimulationContext,
+	frames: SimulationFrame[],
+	stopAtNodeId?: string,
+) {
+	if (context.halted || context.signal?.aborted) {
 		return;
 	}
 
@@ -199,6 +266,19 @@ async function executeNode(nodeId: string, context: SimulationContext, depth: nu
 		});
 	}
 
+	const afterExecuteTraces =
+		(await getNodeDefinition(node.data.actionType)?.simulation?.afterExecute?.({
+			api: nodeSimulationApi,
+			context,
+			failed,
+			node,
+			sideEffectResults,
+		})) ?? [];
+
+	for (const trace of afterExecuteTraces) {
+		await pushStep(context, trace);
+	}
+
 	const outputLogs =
 		getNodeDefinition(node.data.actionType)?.simulation?.outputLogs?.({
 			api: nodeSimulationApi,
@@ -211,52 +291,15 @@ async function executeNode(nodeId: string, context: SimulationContext, depth: nu
 		await pushOutputLog(context, log);
 	}
 
-	if (node.data.actionType === "runtime.set_variable" && !failed) {
-		const name = getConfigString(node, "name").trim();
-		if (name) {
-			const result = applyVariableOperation(node, context);
-			context.runtimeVariables[name] = result.value;
-			await pushStep(context, {
-				level: "info",
-				message: `[Simulation] ${result.message}`,
-			});
-		}
-	}
-
 	if (node.data.actionType === "control.loop") {
-		const count = Math.max(0, Math.min(50, Number(resolveTemplate(getConfigString(node, "count"), context)) || 0));
-		for (let index = 0; index < count; index += 1) {
-			await pushStep(context, {
-				level: "info",
-				message: `[Simulation] Loop ${node.id} iteration ${index + 1} of ${count}.`,
-			});
-			await followRepeatedBody(node, "loop", context, depth + 1, node.id);
-		}
-		await followHandle(node, "done", context, depth + 1);
+		const count = normalizeIterationCount(resolveTemplate(getConfigString(node, "count"), context));
+		frames.push({ kind: "loop", nodeId: node.id, index: 0, count });
 		return;
 	}
 
 	if (node.data.actionType === "control.for_each") {
-		const items = getForEachItems(node, context).slice(0, 200);
-		const itemVariable = getConfigString(node, "itemVariable").trim();
-		const indexVariable = getConfigString(node, "indexVariable").trim();
-
-		for (const [index, item] of items.entries()) {
-			context.nodeOutputs[node.id] = { item, index };
-			if (itemVariable) {
-				context.runtimeVariables[itemVariable] = item;
-			}
-			if (indexVariable) {
-				context.runtimeVariables[indexVariable] = index;
-			}
-
-			await pushStep(context, {
-				level: "info",
-				message: `[Simulation] For Each ${node.id} item ${index + 1} of ${items.length}.`,
-			});
-			await followRepeatedBody(node, "loop", context, depth + 1, node.id);
-		}
-		await followHandle(node, "done", context, depth + 1);
+		const items = getForEachItems(node, context);
+		frames.push({ kind: "for_each", nodeId: node.id, index: 0, items });
 		return;
 	}
 
@@ -269,34 +312,91 @@ async function executeNode(nodeId: string, context: SimulationContext, depth: nu
 		return;
 	}
 
-	await followHandle(node, handle, context, depth + 1);
+	frames.push({ kind: "follow", sourceNodeId: node.id, handle });
 }
 
-async function followRepeatedBody(
-	node: Node<ScriptNodeData>,
-	handle: string,
+async function processLoopFrame(
 	context: SimulationContext,
-	depth: number,
-	stopAtNodeId: string,
+	frames: SimulationFrame[],
+	frame: Extract<SimulationFrame, { kind: "loop" }>,
 ) {
-	const outerVisitedEdges = context.visitedEdges;
-	context.visitedEdges = new Map();
-
-	try {
-		await followHandle(node, handle, context, depth, stopAtNodeId);
-	} finally {
-		context.visitedEdges = outerVisitedEdges;
+	const node = context.nodesById.get(frame.nodeId);
+	if (!node) {
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] Missing loop node ${frame.nodeId}; branch stopped.`,
+		});
+		return;
 	}
+
+	if (frame.index >= frame.count) {
+		frames.push({ kind: "follow", sourceNodeId: node.id, handle: "done" });
+		return;
+	}
+
+	await pushStep(context, {
+		level: "info",
+		message: `[Simulation] Loop ${node.id} iteration ${frame.index + 1} of ${frame.count}.`,
+	});
+	frames.push({ kind: "loop", nodeId: node.id, index: frame.index + 1, count: frame.count });
+	frames.push({ kind: "follow", sourceNodeId: node.id, handle: "loop", stopAtNodeId: node.id });
 }
 
-async function followHandle(
-	node: Node<ScriptNodeData>,
-	handle: string,
+async function processForEachFrame(
 	context: SimulationContext,
-	depth: number,
+	frames: SimulationFrame[],
+	frame: Extract<SimulationFrame, { kind: "for_each" }>,
+) {
+	const node = context.nodesById.get(frame.nodeId);
+	if (!node) {
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] Missing for-each node ${frame.nodeId}; branch stopped.`,
+		});
+		return;
+	}
+
+	if (frame.index >= frame.items.length) {
+		frames.push({ kind: "follow", sourceNodeId: node.id, handle: "done" });
+		return;
+	}
+
+	const item = frame.items[frame.index];
+	const itemVariable = getConfigString(node, "itemVariable").trim();
+	const indexVariable = getConfigString(node, "indexVariable").trim();
+	context.nodeOutputs[node.id] = { item, index: frame.index };
+	if (itemVariable) {
+		context.runtimeVariables[itemVariable] = item;
+	}
+	if (indexVariable) {
+		context.runtimeVariables[indexVariable] = frame.index;
+	}
+
+	await pushStep(context, {
+		level: "info",
+		message: `[Simulation] For Each ${node.id} item ${frame.index + 1} of ${frame.items.length}.`,
+	});
+	frames.push({ kind: "for_each", nodeId: node.id, index: frame.index + 1, items: frame.items });
+	frames.push({ kind: "follow", sourceNodeId: node.id, handle: "loop", stopAtNodeId: node.id });
+}
+
+async function enqueueFollowFrames(
+	context: SimulationContext,
+	frames: SimulationFrame[],
+	nodeId: string,
+	handle: string,
 	stopAtNodeId?: string,
 ) {
 	if (context.halted || context.signal?.aborted) {
+		return;
+	}
+
+	const node = context.nodesById.get(nodeId);
+	if (!node) {
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] Missing source node ${nodeId}; branch stopped.`,
+		});
 		return;
 	}
 
@@ -314,27 +414,14 @@ async function followHandle(
 		return;
 	}
 
-	for (const edge of outgoingEdges) {
-		if (context.halted || context.signal?.aborted) {
-			return;
-		}
-
-		const visitKey = `${edge.source}:${edge.sourceHandle}->${edge.target}:${edge.targetHandle}`;
-		const visitCount = context.visitedEdges.get(visitKey) ?? 0;
-		if (visitCount >= MAX_EDGE_VISITS) {
-			await pushStep(context, {
-				level: "error",
-				message: `[Simulation] Connection ${visitKey} was visited ${MAX_EDGE_VISITS} times; branch stopped to prevent a cycle.`,
-			});
-			continue;
-		}
-
-		context.visitedEdges.set(visitKey, visitCount + 1);
-		await pushStep(context, {
-			level: "debug",
-			message: `[Simulation] Following "${handle}" from ${node.id} to ${edge.target}.`,
+	for (const edge of [...outgoingEdges].reverse()) {
+		frames.push({
+			kind: "edge",
+			sourceNodeId: node.id,
+			targetNodeId: edge.target,
+			handle,
+			stopAtNodeId,
 		});
-		await executeNode(edge.target, context, depth + 1, stopAtNodeId);
 	}
 }
 
@@ -454,6 +541,10 @@ function compareValues(left: JsonValue, operator: string, right: JsonValue) {
 }
 
 function safeRegexMatch(value: string, pattern: string) {
+	if (pattern.length > MAX_REGEX_PATTERN_LENGTH || UNSAFE_REGEX_PATTERN.test(pattern)) {
+		return false;
+	}
+
 	try {
 		return new RegExp(pattern).test(value);
 	} catch {
@@ -483,214 +574,7 @@ async function createNodeOutputData(
 		return await customOutput({ api: nodeSimulationApi, context, forcedFailed: failed, node });
 	}
 
-	switch (node.data.actionType) {
-		case "trigger.file_watch":
-			return {
-				failed: false,
-				outputData: {
-					path: context.triggerPayload.path || resolveTemplate(getConfigString(node, "path"), context),
-					event: context.triggerPayload.event || "modified",
-				},
-			};
-		case "trigger.webhook": {
-			const body = context.triggerPayload.body || '{"event":"simulation"}';
-			const json = parseJsonValue(body);
-			const headers = normalizePayloadRecord(context.triggerPayload.headers, { "content-type": "application/json" });
-			const query = normalizePayloadRecord(context.triggerPayload.query);
-			return {
-				failed: false,
-				outputData: {
-					method: context.triggerPayload.method || getConfigString(node, "method") || "POST",
-					path: context.triggerPayload.path || `/events/${getConfigString(node, "hookName") || "name"}`,
-					headers,
-					query,
-					body,
-					json: json ?? {},
-				},
-			};
-		}
-		case "trigger.websocket": {
-			const message = context.triggerPayload.message || '{"event":"simulation"}';
-			const json = parseJsonValue(message);
-			const headers = normalizePayloadRecord(context.triggerPayload.headers);
-			const query = normalizePayloadRecord(context.triggerPayload.query);
-			return {
-				failed: false,
-				outputData: {
-					path: context.triggerPayload.path || getConfigString(node, "path") || "/events/socketname",
-					connection_id: context.triggerPayload.connectionId || "simulated-connection",
-					headers,
-					query,
-					message,
-					json: json ?? {},
-					remote_address: context.triggerPayload.remoteAddress || "127.0.0.1",
-				},
-			};
-		}
-		case "trigger.hotkey":
-			return { failed: false, outputData: { key: context.triggerPayload.key || getConfigString(node, "key") } };
-		case "trigger.serial_input": {
-			const data = context.triggerPayload.data || "simulation serial input";
-			return {
-				failed: false,
-				outputData: {
-					device_id: getConfigString(node, "deviceId") || node.id,
-					data,
-					bytes: new TextEncoder().encode(data).length,
-					timestamp: new Date().toISOString(),
-				},
-			};
-		}
-		case "trigger.startup":
-			return {
-				failed: false,
-				outputData: {
-					timestamp: new Date().toISOString(),
-					reason: context.triggerPayload.reason || "runner_startup",
-				},
-			};
-		case "trigger.process_started":
-			return {
-				failed: false,
-				outputData: {
-					process_name: context.triggerPayload.processName || getConfigString(node, "target") || "app.exe",
-					process_id: Number(context.triggerPayload.processId) || 4244,
-					executable_path: context.triggerPayload.executablePath || "",
-					window_title: context.triggerPayload.windowTitle || "",
-					timestamp: new Date().toISOString(),
-				},
-			};
-		case "action.calculate":
-			return executeCalculateNode(node, context);
-		case "action.text.format":
-			return {
-				failed: false,
-				outputData: {
-					text: String(resolveTemplate(getConfigString(node, "template"), context)),
-				},
-			};
-		case "action.http":
-			return executeHttpRequestNode(node, context);
-		case "action.message_box":
-			return { failed: false, outputData: {} };
-		case "action.pixel.get":
-			return {
-				failed: false,
-				outputData: createSimulatedPixelColorOutput(
-					Number(resolveTemplate(getConfigString(node, "x"), context)) || 0,
-					Number(resolveTemplate(getConfigString(node, "y"), context)) || 0,
-				),
-			};
-		case "action.file.download":
-			return {
-				failed: false,
-				outputData: {
-					url: String(resolveTemplate(getConfigString(node, "url"), context)),
-					path: String(resolveTemplate(getConfigString(node, "destinationPath"), context)),
-				},
-			};
-		case "action.file.delete":
-			return {
-				failed: false,
-				outputData: {
-					path: String(resolveTemplate(getConfigString(node, "path"), context)),
-				},
-			};
-		case "action.file.copy":
-			return {
-				failed: false,
-				outputData: {
-					source_path: String(resolveTemplate(getConfigString(node, "sourcePath"), context)),
-					destination_path: String(resolveTemplate(getConfigString(node, "destinationPath"), context)),
-				},
-			};
-		case "action.file.move":
-			return {
-				failed: false,
-				outputData: {
-					source_path: String(resolveTemplate(getConfigString(node, "sourcePath"), context)),
-					destination_path: String(resolveTemplate(getConfigString(node, "destinationPath"), context)),
-				},
-			};
-		case "action.process.run":
-			return { failed: false, outputData: { process_id: 4242 } };
-		case "action.process.status":
-			return {
-				failed: false,
-				outputData: {
-					running: true,
-					state: "running",
-					process_id: 4242,
-					process_name: String(resolveTemplate(getConfigString(node, "target"), context)) || "app.exe",
-				},
-			};
-		case "action.process.kill":
-			return {
-				failed: false,
-				outputData: {
-					process_id: getSimulatedProcessId(node, context),
-					process_name:
-						getConfigString(node, "matchMode") === "pid"
-							? `pid:${getSimulatedProcessId(node, context)}`
-							: String(resolveTemplate(getConfigString(node, "target"), context)) || "app.exe",
-				},
-			};
-		case "action.script.run":
-			return {
-				failed: false,
-				outputData: {
-					status: "completed",
-					exit_code: 0,
-				},
-			};
-		case "action.application.open":
-			return {
-				failed: false,
-				outputData: { application_id: getConfigString(node, "application") || "application", process_id: 4243 },
-			};
-		case "action.window.active":
-			return {
-				failed: false,
-				outputData: {
-					title: "Simulated Active Window",
-					process_name: "app.exe",
-					process_id: 4245,
-					executable_path: "C:\\Program Files\\App\\app.exe",
-				},
-			};
-		case "action.sound.play":
-			return validatePlaySoundNode(node, context);
-		case "action.serial.write":
-			return { failed: false, outputData: {} };
-		case "action.shell":
-			return { failed: false, outputData: { exit_code: 0, stdout: "Simulated shell output", stderr: "" } };
-		default:
-			return { failed: false, outputData: {} };
-	}
-}
-
-function executeCalculateNode(node: Node<ScriptNodeData>, context: SimulationContext): NodeExecutionResult {
-	const expression = String(resolveTemplate(getConfigString(node, "expression"), context));
-	const result = evaluateCalculationExpression(expression);
-
-	if (!result.ok) {
-		return {
-			failed: true,
-			outputData: {
-				error: {
-					message: result.message,
-					code: "CALCULATION_FAILED",
-					type: "validation",
-					retryable: false,
-					details: {
-						expression,
-					},
-				},
-			},
-		};
-	}
-
-	return { failed: false, outputData: { result: result.value } };
+	return { failed: false, outputData: {} };
 }
 
 function getForEachItems(node: Node<ScriptNodeData>, context: SimulationContext): JsonValue[] {
@@ -767,7 +651,7 @@ async function simulateDelayNode(node: Node<ScriptNodeData>, context: Simulation
 	const delay = getDelaySimulationDuration(node, context);
 	await pushStep(context, {
 		level: "info",
-		message: `[Simulation] Delay (${node.id}) waiting ${delay.label}${delay.capped ? `; simulator wait capped to ${formatDurationMs(delay.waitMs)}` : ""}.`,
+		message: `[Simulation] Delay (${node.id}) waiting ${delay.label}.`,
 	});
 
 	await sleepSimulationStep(delay.waitMs, context.signal);
@@ -777,7 +661,7 @@ async function simulateDelayNode(node: Node<ScriptNodeData>, context: Simulation
 
 	await pushStep(context, {
 		level: "info",
-		message: `[Simulation] Delay (${node.id}) completed after ${delay.capped ? formatDurationMs(delay.waitMs) : delay.label}.`,
+		message: `[Simulation] Delay (${node.id}) completed after ${delay.label}.`,
 	});
 }
 
@@ -785,12 +669,10 @@ function getDelaySimulationDuration(node: Node<ScriptNodeData>, context: Simulat
 	const amountValue = Number(resolveTemplate(getConfigString(node, "amount"), context));
 	const safeAmount = Number.isFinite(amountValue) && amountValue > 0 ? amountValue : 0;
 	const configuredMs = Math.round(safeAmount * getDelayUnitMultiplier(getConfigString(node, "unit")));
-	const waitMs = Math.min(configuredMs, MAX_SIMULATED_DELAY_MS);
 
 	return {
-		capped: configuredMs > waitMs,
 		label: `${formatValue(resolveTemplate(getConfigString(node, "amount"), context))} ${normalizeDelayUnit(getConfigString(node, "unit"))}`,
-		waitMs,
+		waitMs: configuredMs,
 	};
 }
 
@@ -812,27 +694,6 @@ function getDelayUnitMultiplier(unit: string) {
 
 function normalizeDelayUnit(unit: string) {
 	return unit === "days" || unit === "hours" || unit === "minutes" ? unit : "seconds";
-}
-
-function formatDurationMs(milliseconds: number) {
-	if (milliseconds < 1000) {
-		return `${milliseconds}ms`;
-	}
-
-	const totalSeconds = Math.round(milliseconds / 1000);
-	const hours = Math.floor(totalSeconds / 3600);
-	const minutes = Math.floor((totalSeconds % 3600) / 60);
-	const seconds = totalSeconds % 60;
-
-	if (hours > 0) {
-		return `${hours}h ${minutes}m ${seconds}s`;
-	}
-
-	if (minutes > 0) {
-		return `${minutes}m ${seconds}s`;
-	}
-
-	return `${seconds}s`;
 }
 
 function createPlaySoundErrorObject(message: string, details: Record<string, JsonValue>): Record<string, JsonValue> {
@@ -981,82 +842,10 @@ function createHttpErrorObject(
 	};
 }
 
-function getHttpExecutionDetail(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const output = context.nodeOutputs[node.id];
-	const method = getConfigString(node, "method");
-	const url = formatValue(resolveTemplate(getConfigString(node, "url"), context));
-
-	if (output?.error && typeof output.error === "object" && !Array.isArray(output.error)) {
-		return `${method} ${url} failed: ${String(output.error.message ?? "request failed")}.`;
-	}
-
-	if (typeof output?.status_code === "number") {
-		return `${method} ${url} returned ${output.status_code} ${String(output.status_text ?? "")} in ${String(output.duration_ms ?? "?")}ms.`;
-	}
-
-	return `${method} ${url} was skipped because the simulation stopped.`;
-}
-
-function getPixelColorExecutionDetail(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const output = context.nodeOutputs[node.id];
-	const x = formatValue(resolveTemplate(getConfigString(node, "x"), context));
-	const y = formatValue(resolveTemplate(getConfigString(node, "y"), context));
-
-	return `Captured simulated screen pixel at x=${x}, y=${y} as ${String(output?.hex ?? "unknown")}.`;
-}
-
 function createNodeSideEffects(node: Node<ScriptNodeData>, context: SimulationContext): SimulationSideEffect[] {
 	const customSideEffects = getNodeDefinition(node.data.actionType)?.simulation?.sideEffects;
 	if (customSideEffects) {
 		return customSideEffects({ api: nodeSimulationApi, context, node });
-	}
-
-	if (node.data.actionType === "action.notification") {
-		return [
-			{
-				type: "notification_toast",
-				nodeId: node.id,
-				title: String(resolveTemplate(getConfigString(node, "title"), context)),
-				message: String(resolveTemplate(getConfigString(node, "message"), context)),
-			},
-		];
-	}
-
-	if (node.data.actionType === "action.message_box") {
-		return [
-			{
-				type: "message_box",
-				nodeId: node.id,
-				title: String(resolveTemplate(getConfigString(node, "title"), context)),
-				message: String(resolveTemplate(getConfigString(node, "message"), context)),
-				variant: normalizeMessageBoxVariant(getConfigString(node, "type")),
-				buttons: getMessageBoxButtons(node),
-			},
-		];
-	}
-
-	if (node.data.actionType === "action.sound.play") {
-		if (getConfigString(node, "source") === "file_path") {
-			return [];
-		}
-
-		const assetPath = String(resolveTemplate(getConfigString(node, "assetPath"), context)).trim();
-		return assetPath ? [{ type: "play_audio_asset", nodeId: node.id, assetPath }] : [];
-	}
-
-	if (node.data.actionType === "action.beep") {
-		return [
-			{
-				type: "system_beep",
-				nodeId: node.id,
-				frequencyHz: clampNumber(
-					Number(resolveTemplate(getConfigString(node, "frequencyHz"), context)) || 800,
-					20,
-					20000,
-				),
-				durationMs: clampNumber(Number(resolveTemplate(getConfigString(node, "durationMs"), context)) || 200, 10, 5000),
-			},
-		];
 	}
 
 	return [];
@@ -1086,153 +875,12 @@ function describeNodeExecution(
 	];
 }
 
-function getExecutionDetail(node: Node<ScriptNodeData>, context: SimulationContext, failed: boolean) {
+function getExecutionDetail(node: Node<ScriptNodeData>, _context: SimulationContext, failed: boolean) {
 	if (failed) {
-		if (node.data.actionType === "action.http") {
-			return getHttpExecutionDetail(node, context);
-		}
-
 		return "The failed output will be used when it is connected.";
 	}
 
-	switch (node.data.actionType) {
-		case "trigger.manual":
-			return "Manual trigger fired.";
-		case "trigger.schedule":
-			return `Schedule fired every ${getConfigString(node, "every")} ${getConfigString(node, "unit")}.`;
-		case "trigger.file_watch":
-			return getFileWatchExecutionDetail(node, context);
-		case "trigger.webhook":
-			return `Webhook ${getConfigString(node, "method")} /events/${getConfigString(node, "hookName")} received simulated JSON.`;
-		case "trigger.websocket":
-			return `WebSocket ${getConfigString(node, "path")} received a simulated message.`;
-		case "trigger.hotkey":
-			return `Hotkey ${getConfigString(node, "key")} was pressed.`;
-		case "trigger.serial_input":
-			return `Serial device ${getConfigString(node, "deviceId")} on ${getConfigString(node, "port")} received simulated data.`;
-		case "trigger.startup":
-			return "Startup event fired.";
-		case "trigger.process_started":
-			return `Process start detected for ${getConfigString(node, "target")}.`;
-		case "runtime.set_variable":
-			return `Preparing to ${normalizeVariableOperation(getConfigString(node, "operation")).replaceAll("_", " ")} ${getConfigString(node, "name")}.`;
-		case "action.calculate": {
-			const output = context.nodeOutputs[node.id];
-			return typeof output?.result === "number"
-				? `Calculated ${formatValue(resolveTemplate(getConfigString(node, "expression"), context))} = ${output.result}.`
-				: `Would calculate ${formatValue(resolveTemplate(getConfigString(node, "expression"), context))}.`;
-		}
-		case "action.text.format":
-			return `Formatted text as "${String(context.nodeOutputs[node.id]?.text ?? "")}".`;
-		case "action.log":
-			return `Emitted a ${normalizeLogLevel(getConfigString(node, "level"))} runner log to the Output tab.`;
-		case "action.delay":
-			return `Waited ${formatValue(resolveTemplate(getConfigString(node, "amount"), context))} ${getConfigString(node, "unit")}.`;
-		case "action.http":
-			return getHttpExecutionDetail(node, context);
-		case "action.notification":
-			return `Would show notification "${resolveTemplate(getConfigString(node, "title"), context)}" with message "${resolveTemplate(getConfigString(node, "message"), context)}".`;
-		case "action.message_box":
-			return `Would show ${getConfigString(node, "type")} message box "${resolveTemplate(getConfigString(node, "title"), context)}".`;
-		case "action.pixel.get":
-			return getPixelColorExecutionDetail(node, context);
-		case "action.file.download":
-			return `Would download ${formatValue(resolveTemplate(getConfigString(node, "url"), context))} to ${formatValue(resolveTemplate(getConfigString(node, "destinationPath"), context))}${getOverwriteDetail(node)}.`;
-		case "action.file.write":
-			return `Would ${getConfigString(node, "mode") === "append" ? "append to" : "overwrite"} ${formatValue(resolveTemplate(getConfigString(node, "path"), context))}.`;
-		case "action.file.delete":
-			return `Would delete ${formatValue(resolveTemplate(getConfigString(node, "path"), context))}.`;
-		case "action.file.copy":
-			return `Would copy ${formatValue(resolveTemplate(getConfigString(node, "sourcePath"), context))} to ${formatValue(resolveTemplate(getConfigString(node, "destinationPath"), context))}${getOverwriteDetail(node)}.`;
-		case "action.file.move":
-			return `Would move ${formatValue(resolveTemplate(getConfigString(node, "sourcePath"), context))} to ${formatValue(resolveTemplate(getConfigString(node, "destinationPath"), context))}${getOverwriteDetail(node)}.`;
-		case "action.process.run":
-			return `Would run ${formatValue(resolveTemplate(getConfigString(node, "executable"), context))} ${formatValue(resolveTemplate(getConfigString(node, "arguments"), context))}.`;
-		case "action.process.status":
-			return `Would check ${getConfigString(node, "matchMode")} ${formatValue(resolveTemplate(getConfigString(node, "target"), context))}; simulated state is running.`;
-		case "action.process.kill":
-			return `Would terminate ${getConfigString(node, "matchMode")} ${formatValue(resolveTemplate(getConfigString(node, "target"), context))}.`;
-		case "action.script.run":
-			return `Would run the manual trigger in sub-script ${formatValue(resolveTemplate(getConfigString(node, "script"), context))}.`;
-		case "action.application.open":
-			return `Would open application ${formatValue(resolveTemplate(getConfigString(node, "application"), context))}.`;
-		case "action.window.active":
-			return `Captured active window "${String(context.nodeOutputs[node.id]?.title ?? "unknown")}".`;
-		case "action.window.focus":
-			return `Would focus window using ${getConfigString(node, "matchMode")} ${formatValue(resolveTemplate(getConfigString(node, "target"), context))}.`;
-		case "action.sound.play":
-			return getPlaySoundExecutionDetail(node, context);
-		case "action.serial.write":
-			return `Would write ${formatValue(resolveTemplate(getConfigString(node, "data"), context))} to ${getSerialWriteTarget(node, context)} ${getSerialLineEndingDetail(node)}.`;
-		case "action.keyboard":
-			return `Would press keys ${getConfigString(node, "key")}.`;
-		case "action.keyboard.type_text":
-			return `Would type text ${formatValue(resolveTemplate(getConfigString(node, "text"), context))}.`;
-		case "action.mouse":
-			return `Would ${getConfigString(node, "clickType")} ${getConfigString(node, "button")} mouse button.`;
-		case "action.mouse.move":
-			return `Would move mouse ${getConfigString(node, "relative") === "true" ? "relatively by" : "to"} x=${formatValue(resolveTemplate(getConfigString(node, "x"), context))}, y=${formatValue(resolveTemplate(getConfigString(node, "y"), context))}.`;
-		case "action.beep":
-			return `Played simulated beep at ${formatValue(resolveTemplate(getConfigString(node, "frequencyHz"), context))}Hz for ${formatValue(resolveTemplate(getConfigString(node, "durationMs"), context))}ms.`;
-		case "action.clipboard":
-			return `Would write clipboard value ${formatValue(resolveTemplate(getConfigString(node, "value"), context))}.`;
-		case "action.shell":
-			return `Would run shell command ${formatValue(resolveTemplate(getConfigString(node, "command"), context))}.`;
-		default:
-			return "";
-	}
-}
-
-function getPlaySoundExecutionDetail(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const source = getConfigString(node, "source") === "file_path" ? "file_path" : "asset";
-	if (source === "file_path") {
-		return `Would play audio file ${formatValue(resolveTemplate(getConfigString(node, "filePath"), context))}.`;
-	}
-
-	return `Would play packaged audio asset ${formatValue(resolveTemplate(getConfigString(node, "assetPath"), context))}.`;
-}
-
-function getFileWatchExecutionDetail(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const output = context.nodeOutputs[node.id];
-	const event = typeof output?.event === "string" ? output.event : "modified";
-	const path =
-		typeof output?.path === "string"
-			? output.path
-			: formatValue(resolveTemplate(getConfigString(node, "path"), context));
-
-	return `File watcher received ${event} event for ${path}.`;
-}
-
-function getSerialWriteTarget(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const deviceId = getConfigString(node, "deviceId");
-	const trigger = [...context.nodesById.values()].find(
-		(candidate) =>
-			candidate.data.actionType === "trigger.serial_input" && getConfigString(candidate, "deviceId") === deviceId,
-	);
-
-	if (!trigger) {
-		return `serial device ${deviceId}`;
-	}
-
-	const port = getConfigString(trigger, "port");
-	return port ? `serial device ${deviceId} on ${port}` : `serial device ${deviceId}`;
-}
-
-function getSerialLineEndingDetail(node: Node<ScriptNodeData>) {
-	const lineEnding = getConfigString(node, "lineEnding");
-	if (lineEnding === "crlf") {
-		return "with CRLF line ending";
-	}
-
-	if (lineEnding === "lf") {
-		return "with LF line ending";
-	}
-
-	return "without an added line ending";
-}
-
-function getOverwriteDetail(node: Node<ScriptNodeData>) {
-	return getConfigString(node, "overwrite") === "true" ? " and overwrite an existing destination" : "";
+	return node.data.kind === "trigger" ? "Trigger fired." : "";
 }
 
 function getMessageBoxButtons(node: Node<ScriptNodeData>) {
@@ -1248,94 +896,6 @@ function getMessageBoxButtons(node: Node<ScriptNodeData>) {
 		default:
 			return ["ok"];
 	}
-}
-
-function normalizeMessageBoxVariant(value: string): Extract<SimulationSideEffect, { type: "message_box" }>["variant"] {
-	if (value === "warning" || value === "error" || value === "question") {
-		return value;
-	}
-
-	return "info";
-}
-
-function applyVariableOperation(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const name = getConfigString(node, "name").trim();
-	const type = normalizeVariableType(getConfigString(node, "valueType"));
-	const operation = normalizeVariableOperation(getConfigString(node, "operation"));
-	const currentValue = context.runtimeVariables[name];
-
-	if (operation === "increment") {
-		const amount = Number(resolveTemplate(getConfigString(node, "value"), context));
-		const currentNumber = typeof currentValue === "number" ? currentValue : Number(currentValue);
-		const value = (Number.isFinite(currentNumber) ? currentNumber : 0) + (Number.isFinite(amount) ? amount : 0);
-
-		return {
-			value,
-			message: `Incremented runtime variable "${name}" by ${formatValue(amount)} to ${formatValue(value)}.`,
-		};
-	}
-
-	if (operation === "append_list") {
-		const item = resolveJsonCompatibleInput(getConfigString(node, "value"), context);
-		const value = [...(Array.isArray(currentValue) ? currentValue : []), item];
-
-		return {
-			value,
-			message: `Appended ${formatValue(item)} to list variable "${name}".`,
-		};
-	}
-
-	if (operation === "set_object_field") {
-		const fieldPath = getConfigString(node, "fieldPath").trim();
-		const fieldValue = resolveJsonCompatibleInput(getConfigString(node, "value"), context);
-		const value = setObjectPathValue(currentValue, fieldPath, fieldValue);
-
-		return {
-			value,
-			message: `Set object field "${name}.${fieldPath}" to ${formatValue(fieldValue)}.`,
-		};
-	}
-
-	if (operation === "clear") {
-		const value = resolveVariableInput(getClearedVariableValue(type), type, context);
-
-		return {
-			value,
-			message: `Cleared runtime variable "${name}" to ${formatValue(value)}.`,
-		};
-	}
-
-	const value = resolveVariableInput(getConfigString(node, "value"), type, context);
-	return {
-		value,
-		message: `Set runtime variable "${name}" to ${formatValue(value)}.`,
-	};
-}
-
-function normalizeVariableType(value: string): VariableType {
-	return variableTypes.includes(value as VariableType) ? (value as VariableType) : "string";
-}
-
-function resolveVariableInput(value: string, type: VariableType, context: SimulationContext): JsonValue {
-	const resolved = resolveTemplate(value, context);
-	if (typeof resolved !== "string") {
-		return resolved;
-	}
-
-	if (type === "number") {
-		const numberValue = Number(resolved);
-		return Number.isFinite(numberValue) ? numberValue : resolved;
-	}
-
-	if (type === "boolean") {
-		return resolved.trim() === "true" ? true : resolved.trim() === "false" ? false : resolved;
-	}
-
-	if (type === "list" || type === "object" || type === "duration" || type === "datetime" || type === "http_response") {
-		return parseJsonValue(resolved) ?? resolved;
-	}
-
-	return resolved;
 }
 
 function resolveJsonCompatibleInput(value: string, context: SimulationContext): JsonValue {
@@ -1364,60 +924,6 @@ function resolveJsonCompatibleInput(value: string, context: SimulationContext): 
 	return parseJsonValue(trimmed) ?? resolved;
 }
 
-function setObjectPathValue(currentValue: JsonValue | undefined, path: string, value: JsonValue): JsonValue {
-	const root =
-		currentValue && typeof currentValue === "object" && !Array.isArray(currentValue) ? cloneJson(currentValue) : {};
-	const parts = parseObjectPath(path);
-	let cursor: Record<string, JsonValue> | JsonValue[] = root;
-
-	for (let index = 0; index < parts.length; index += 1) {
-		const part = parts[index];
-		const isLast = index === parts.length - 1;
-
-		if (isLast) {
-			setPathContainerValue(cursor, part, value);
-			break;
-		}
-
-		const nextPart = parts[index + 1];
-		const existing = getPathContainerValue(cursor, part);
-		const nextValue =
-			existing && typeof existing === "object" ? cloneJson(existing) : typeof nextPart === "number" ? [] : {};
-
-		setPathContainerValue(cursor, part, nextValue);
-		cursor = nextValue as Record<string, JsonValue> | JsonValue[];
-	}
-
-	return root;
-}
-
-function getPathContainerValue(container: Record<string, JsonValue> | JsonValue[], key: string | number) {
-	return Array.isArray(container) ? container[Number(key)] : container[String(key)];
-}
-
-function setPathContainerValue(
-	container: Record<string, JsonValue> | JsonValue[],
-	key: string | number,
-	value: JsonValue,
-) {
-	if (Array.isArray(container)) {
-		container[Number(key)] = value;
-		return;
-	}
-
-	container[String(key)] = value;
-}
-
-function parseObjectPath(path: string): Array<string | number> {
-	return [...path.matchAll(/[A-Za-z_][A-Za-z0-9_]*|\[(0|[1-9][0-9]*)\]/g)].map((match) =>
-		match[1] === undefined ? match[0] : Number(match[1]),
-	);
-}
-
-function cloneJson<T extends JsonValue>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
-}
-
 function resolveTemplate(value: string, context: SimulationContext): JsonValue {
 	const exactReference = value.match(/^\{\{\s*([^}]+?)\s*\}\}$/);
 	if (exactReference) {
@@ -1427,6 +933,19 @@ function resolveTemplate(value: string, context: SimulationContext): JsonValue {
 	return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, reference: string) =>
 		String(getReferenceValue(reference.trim(), context)),
 	);
+}
+
+function normalizeIterationCount(value: JsonValue) {
+	if (typeof value === "number") {
+		return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+	}
+
+	if (typeof value === "string") {
+		const count = Number(value.trim());
+		return Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
+	}
+
+	return 0;
 }
 
 function getReferenceValue(reference: string, context: SimulationContext): JsonValue {
@@ -1522,7 +1041,6 @@ async function pushOutputLog(context: SimulationContext, log: LogEntry) {
 }
 
 async function emitStep(context: SimulationContext, step: SimulationStep) {
-	context.steps.push(step);
 	if (!context.onStep) {
 		return [];
 	}
@@ -1536,7 +1054,25 @@ async function emitStep(context: SimulationContext, step: SimulationStep) {
 	}
 
 	context.streamedSteps += 1;
+	if (context.streamedSteps % SIMULATION_YIELD_INTERVAL === 0) {
+		await yieldSimulationFrame(context.signal);
+	}
+
+	if (context.signal?.aborted) {
+		return [];
+	}
+
 	return (await context.onStep(step)) ?? [];
+}
+
+function yieldSimulationFrame(signal: AbortSignal | undefined) {
+	if (signal?.aborted) {
+		return Promise.resolve();
+	}
+
+	return new Promise<void>((resolve) => {
+		window.setTimeout(resolve, 0);
+	});
 }
 
 function sleepSimulationStep(ms: number, signal: AbortSignal | undefined) {
@@ -1660,17 +1196,6 @@ function getConfigString(node: Node<ScriptNodeData>, key: string) {
 	return "";
 }
 
-function getSimulatedProcessId(node: Node<ScriptNodeData>, context: SimulationContext) {
-	if (getConfigString(node, "matchMode") !== "pid") {
-		return 4242;
-	}
-
-	const target = resolveTemplate(getConfigString(node, "target"), context);
-	const processId = Number(target);
-
-	return Number.isFinite(processId) && processId >= 0 ? Math.trunc(processId) : 4242;
-}
-
 function isHeaderLike(value: JsonValue): value is { name: string; value: string } {
 	return (
 		typeof value === "object" &&
@@ -1717,35 +1242,12 @@ function isJsonValue(value: unknown): value is JsonValue {
 	return false;
 }
 
-function normalizePayloadRecord(
-	value: Record<string, string> | undefined,
-	fallback: Record<string, JsonValue> = {},
-): Record<string, JsonValue> {
-	if (!value) {
-		return fallback;
-	}
-
-	return Object.fromEntries(
-		Object.entries(value)
-			.map(([key, entry]) => [key.trim(), entry] as const)
-			.filter(([key]) => key.length > 0),
-	);
-}
-
 function clampNumber(value: number, min: number, max: number) {
 	return Math.min(Math.max(value, min), max);
 }
 
 function formatValue(value: JsonValue) {
 	return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function normalizeLogLevel(value: string): LogEntry["level"] {
-	if (value === "debug" || value === "warn" || value === "error") {
-		return value;
-	}
-
-	return "info";
 }
 
 function truncateTrace(trace: SimulationTraceEntry): SimulationTraceEntry {

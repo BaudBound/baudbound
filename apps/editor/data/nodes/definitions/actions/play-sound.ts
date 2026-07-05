@@ -5,6 +5,7 @@ import type { SimulationContext } from "@/utils/simulation-types";
 import type { NodeSimulationApi } from "../../node-definition";
 import { defineNode } from "../../node-definition";
 import { actionAudio } from "../shared";
+import { configString, requiredConfig } from "../validators";
 
 export const playSoundNode = defineNode({
 	actionType: "action.sound.play",
@@ -17,9 +18,30 @@ export const playSoundNode = defineNode({
 	icon: Volume2,
 	kind: "action",
 	label: "Play Sound",
-	permission: { name: "play_audio", risk: "medium" },
+	permission: { name: "play_sound", risk: "medium" },
 	risk: "medium",
 	runnerType: "play_sound",
+	validateConfig: (config) => {
+		const source = configString(config, "source") === "file_path" ? "file_path" : "asset";
+		return source === "file_path"
+			? [requiredConfig(config, "filePath", "audio file path")].filter(Boolean)
+			: [requiredConfig(config, "assetPath", "audio asset")].filter(Boolean);
+	},
+	validateGraph: ({ context, node }) => {
+		const source = configString(node.data.config, "source") === "file_path" ? "file_path" : "asset";
+		if (source === "file_path") {
+			return [];
+		}
+
+		const assetPath = configString(node.data.config, "assetPath").trim().toLowerCase();
+		const audioAssets = new Set(
+			context.assets.filter((asset) => asset.kind === "audio").map((asset) => asset.packagePath.toLowerCase()),
+		);
+
+		return assetPath && !audioAssets.has(assetPath)
+			? [`${node.id} references missing or non-audio asset "${assetPath}".`]
+			: [];
+	},
 	simulation: {
 		createOutput: ({ api, context, node }) => api.validatePlaySound(node, context),
 		describe: ({ api, context, node }) => [

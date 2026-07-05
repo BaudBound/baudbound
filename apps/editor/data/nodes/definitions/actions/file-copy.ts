@@ -3,6 +3,7 @@ import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible, fileTransferRuntimeOutputs } from "../runtime-outputs";
 import { actionFile } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const copyFileNode = defineNode({
 	actionType: "action.file.copy",
@@ -19,10 +20,15 @@ export const copyFileNode = defineNode({
 	icon: Copy,
 	kind: "action",
 	label: "Copy File",
-	permission: { name: "file_copy", risk: "high" },
-	risk: "high",
+	permission: { name: "file_copy", risk: "medium" },
+	risk: "medium",
 	runtimeOutputs: fallible(fileTransferRuntimeOutputs("copied")),
 	runnerType: "copy_file",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "sourcePath", "source file path"),
+			requiredConfig(config, "destinationPath", "destination file path"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

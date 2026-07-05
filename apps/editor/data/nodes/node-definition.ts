@@ -1,8 +1,9 @@
-import type { Node } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
 import type { LucideIcon } from "lucide-react";
 import type {
 	ActionType,
 	CapabilitySummary,
+	EditorAsset,
 	JsonValue,
 	LogEntry,
 	NodeKind,
@@ -14,7 +15,12 @@ import type {
 	ScriptNodeData,
 	SimulationTraceEntry,
 } from "@/lib/types";
-import type { NodeExecutionResult, SimulationContext, SimulationSideEffect } from "@/utils/simulation-types";
+import type {
+	NodeExecutionResult,
+	SimulationContext,
+	SimulationSideEffect,
+	SimulationSideEffectResult,
+} from "@/utils/simulation-types";
 import type { SelectOption } from "./definitions/options";
 
 export type NodeConfigField = {
@@ -22,6 +28,7 @@ export type NodeConfigField = {
 	label: string;
 	type: "text" | "number" | "textarea" | "select" | "switch";
 	options?: SelectOption[];
+	required?: boolean;
 	usesVariables?: boolean;
 	help?: string;
 };
@@ -58,8 +65,8 @@ export type NodeSimulationDefinition = {
 		context: SimulationContext;
 		failed: boolean;
 		node: Node<ScriptNodeData>;
-		sideEffectResults: Array<{ button: string; nodeId: string; type: "message_box" }>;
-	}) => Promise<void> | void;
+		sideEffectResults: SimulationSideEffectResult[];
+	}) => Promise<SimulationTraceEntry[] | undefined> | SimulationTraceEntry[] | undefined;
 	createOutput?: (params: {
 		api: NodeSimulationApi;
 		context: SimulationContext;
@@ -86,6 +93,12 @@ export type NodeSimulationDefinition = {
 	}) => SimulationSideEffect[];
 };
 
+export type NodeGraphValidationContext = {
+	assets: EditorAsset[];
+	edges: Edge[];
+	nodes: Node<ScriptNodeData>[];
+};
+
 export type NodeDefinition = {
 	actionType: ActionType;
 	capabilities: CapabilitySummary["name"][];
@@ -106,6 +119,8 @@ export type NodeDefinition = {
 	runnerType?: string;
 	sanitizeConfig?: (config: Record<string, JsonValue>) => Record<string, JsonValue>;
 	simulation?: NodeSimulationDefinition;
+	validateConfig?: (config: Record<string, JsonValue>) => string[];
+	validateGraph?: (params: { context: NodeGraphValidationContext; node: Node<ScriptNodeData> }) => string[];
 };
 
 export const defaultInputPort: NodePort = { id: "input", label: "input" };

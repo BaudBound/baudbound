@@ -52,6 +52,7 @@
         "action.notification",
         "action.message_box",
         "action.pixel.get",
+        "action.file.read",
         "action.file.download",
         "action.file.write",
         "action.file.delete",
@@ -109,6 +110,7 @@
         "action.notification",
         "action.message_box",
         "action.pixel.get",
+        "action.file.read",
         "action.file.download",
         "action.file.write",
         "action.file.delete",
@@ -157,6 +159,7 @@
         "show_notification",
         "show_message_box",
         "get_pixel_color",
+        "read_file",
         "download_file",
         "write_file",
         "delete_file",
@@ -165,7 +168,7 @@
         "run_process",
         "process_status",
         "kill_process",
-        "run_script",
+        "run_sub_script",
         "open_application",
         "play_sound",
         "serial_write",
@@ -191,6 +194,7 @@
         "number",
         "boolean",
         "object",
+        "file_content",
         "file_path",
         "http_headers",
         "http_status_code",
@@ -208,6 +212,7 @@
         "boolean",
         "object",
         "list",
+        "file_content",
         "http_response",
         "datetime",
         "duration",
@@ -250,6 +255,79 @@
     },
     "config": {
       "type": "object",
+      "propertyNames": {
+        "enum": [
+          "amount",
+          "application",
+          "arguments",
+          "assetPath",
+          "baudRate",
+          "body",
+          "button",
+          "buttons",
+          "cases",
+          "clickType",
+          "command",
+          "conditions",
+          "content",
+          "count",
+          "customName",
+          "data",
+          "dataBits",
+          "destinationPath",
+          "deviceId",
+          "durationMs",
+          "encoding",
+          "every",
+          "executable",
+          "expression",
+          "fieldPath",
+          "filePath",
+          "flowControl",
+          "frequencyHz",
+          "headers",
+          "hookName",
+          "indexVariable",
+          "itemVariable",
+          "items",
+          "key",
+          "label",
+          "level",
+          "lineEnding",
+          "matchMode",
+          "message",
+          "method",
+          "mode",
+          "name",
+          "operation",
+          "overwrite",
+          "parity",
+          "path",
+          "port",
+          "readMode",
+          "relative",
+          "scope",
+          "script",
+          "socketName",
+          "source",
+          "sourcePath",
+          "stopBits",
+          "target",
+          "template",
+          "text",
+          "timeoutSeconds",
+          "title",
+          "type",
+          "unit",
+          "url",
+          "userAgent",
+          "value",
+          "valueType",
+          "workingDirectory",
+          "x",
+          "y"
+        ]
+      },
       "additionalProperties": {
         "$ref": "#/$defs/jsonValue"
       }
@@ -532,31 +610,36 @@
     "edge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "target"],
+      "required": ["source", "source_handle", "target", "target_handle"],
       "properties": {
         "source": {
           "type": "string",
           "minLength": 1
         },
         "source_handle": {
-          "type": ["string", "null"]
+          "type": "string",
+          "minLength": 1
         },
         "target": {
           "type": "string",
           "minLength": 1
         },
         "target_handle": {
-          "type": ["string", "null"]
+          "type": "string",
+          "minLength": 1
         }
       }
     },
     "block": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "runtime_context", "steps", "edges"],
+      "required": ["type", "execution_model", "runtime_context", "steps", "edges"],
       "properties": {
         "type": {
           "const": "block"
+        },
+        "execution_model": {
+          "const": "directed_graph"
         },
         "runtime_context": {
           "$ref": "#/$defs/runtimeContext"

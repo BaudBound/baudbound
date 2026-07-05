@@ -7,7 +7,11 @@
 		"dev:turbo": "next dev --turbopack",
 		"build": "next build",
 		"start": "next start",
+		"e2e": "playwright test",
+		"test": "node --test tests/*.test.mjs",
+		"typecheck": "tsc --noEmit",
 		"lint": "biome check",
+		"verify:release": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
 		"format": "biome format --write"
 	},
 	"dependencies": {
@@ -27,6 +31,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.2.0",
+		"@playwright/test": "^1.61.1",
 		"@tailwindcss/postcss": "^4",
 		"@types/node": "^20",
 		"@types/react": "^19",

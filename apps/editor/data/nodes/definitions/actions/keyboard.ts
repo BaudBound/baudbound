@@ -1,6 +1,7 @@
 import { Keyboard } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { actionKeyboard } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const keyboardNode = defineNode({
 	actionType: "action.keyboard",
@@ -17,6 +18,7 @@ export const keyboardNode = defineNode({
 	permission: { name: "keyboard_control", risk: "high" },
 	risk: "high",
 	runnerType: "press_key",
+	validateConfig: (config) => [requiredConfig(config, "key", "keyboard key")].filter(Boolean),
 	simulation: {
 		describe: ({ api, node }) => [
 			{

@@ -4,6 +4,8 @@ type OperatorTokenValue = "+" | "-" | "*" | "/" | "%" | "^";
 type ParenTokenValue = "(" | ")";
 
 type Token =
+	| { type: "comma"; value: "," }
+	| { type: "identifier"; value: string }
 	| { type: "number"; value: number }
 	| { type: "operator"; value: OperatorTokenValue }
 	| { type: "paren"; value: ParenTokenValue };
@@ -63,6 +65,12 @@ function tokenizeExpression(expression: string): TokenizeResult {
 			continue;
 		}
 
+		if (char === ",") {
+			tokens.push({ type: "comma", value: char });
+			index += 1;
+			continue;
+		}
+
 		if (isOperator(char)) {
 			tokens.push({ type: "operator", value: char });
 			index += 1;
@@ -78,6 +86,13 @@ function tokenizeExpression(expression: string): TokenizeResult {
 
 			tokens.push({ type: "number", value });
 			index += numberMatch[0].length;
+			continue;
+		}
+
+		const identifierMatch = expression.slice(index).match(/^[a-z_][a-z0-9_]*/i);
+		if (identifierMatch?.[0]) {
+			tokens.push({ type: "identifier", value: identifierMatch[0].toLowerCase() });
+			index += identifierMatch[0].length;
 			continue;
 		}
 
@@ -204,7 +219,34 @@ class CalculationParser {
 			return expression;
 		}
 
+		if (token.type === "identifier") {
+			return this.parseFunctionCall(token.value);
+		}
+
 		return { ok: false, message: `Unexpected ${token.type}.` };
+	}
+
+	private parseFunctionCall(name: string): CalculationResult {
+		if (!this.matchParen("(")) {
+			return { ok: false, message: `Function "${name}" must be called with parentheses.` };
+		}
+
+		const args: number[] = [];
+		if (!this.matchParen(")")) {
+			do {
+				const arg = this.parseExpression();
+				if (!arg.ok) {
+					return arg;
+				}
+				args.push(arg.value);
+			} while (this.matchComma());
+
+			if (!this.matchParen(")")) {
+				return { ok: false, message: `Function "${name}" is missing a closing parenthesis.` };
+			}
+		}
+
+		return evaluateFunction(name, args);
 	}
 
 	private matchOperator(value: OperatorTokenValue) {
@@ -227,6 +269,16 @@ class CalculationParser {
 		return true;
 	}
 
+	private matchComma() {
+		const token = this.peek();
+		if (token?.type !== "comma") {
+			return false;
+		}
+
+		this.index += 1;
+		return true;
+	}
+
 	private advance() {
 		const token = this.peek();
 		if (token) {
@@ -242,6 +294,45 @@ class CalculationParser {
 
 	private previous() {
 		return this.tokens[this.index - 1];
+	}
+}
+
+function evaluateFunction(name: string, args: number[]): CalculationResult {
+	switch (name) {
+		case "round":
+		case "floor":
+		case "ceil":
+			if (args.length !== 1) {
+				return { ok: false, message: `${name}() expects exactly one argument.` };
+			}
+			return {
+				ok: true,
+				value:
+					name === "round"
+						? Math.round(args[0] ?? 0)
+						: name === "floor"
+							? Math.floor(args[0] ?? 0)
+							: Math.ceil(args[0] ?? 0),
+			};
+		case "min":
+		case "max":
+			if (args.length === 0) {
+				return { ok: false, message: `${name}() expects at least one argument.` };
+			}
+			return { ok: true, value: name === "min" ? Math.min(...args) : Math.max(...args) };
+		case "random":
+			if (args.length > 2) {
+				return { ok: false, message: "random() expects zero, one, or two arguments." };
+			}
+			if (args.length === 0) {
+				return { ok: true, value: Math.random() };
+			}
+			if (args.length === 1) {
+				return { ok: true, value: Math.random() * (args[0] ?? 0) };
+			}
+			return { ok: true, value: (args[0] ?? 0) + Math.random() * ((args[1] ?? 0) - (args[0] ?? 0)) };
+		default:
+			return { ok: false, message: `Unknown function "${name}".` };
 	}
 }
 

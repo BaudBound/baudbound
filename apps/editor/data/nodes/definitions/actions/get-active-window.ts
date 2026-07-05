@@ -15,7 +15,7 @@ export const getActiveWindowNode = defineNode({
 	icon: AppWindow,
 	kind: "action",
 	label: "Get Active Window",
-	permission: { name: "active_window_read", risk: "medium" },
+	permission: { name: "window_query", risk: "medium" },
 	risk: "medium",
 	runtimeOutputs: fallible([
 		{ name: "title", type: "string", description: "Active window title.", example: "n-mr3zyt6f-17.title" },

@@ -1,10 +1,11 @@
 import { Play } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
+import { requiredConfig } from "../validators";
 
 export const subScriptNode = defineNode({
 	actionType: "action.script.run",
-	capabilities: ["action.script"],
+	capabilities: ["action.sub_script"],
 	configFields: [{ key: "script", label: "Script", type: "text", usesVariables: true }],
 	defaultConfig: () => ({ script: "other-script" }),
 	description: "Run another local script through its manual trigger.",
@@ -13,8 +14,8 @@ export const subScriptNode = defineNode({
 	icon: Play,
 	kind: "action",
 	label: "Sub-script",
-	permission: { name: "run_subscript", risk: "medium" },
-	risk: "medium",
+	permission: { name: "sub_script_run", risk: "high" },
+	risk: "high",
 	runtimeOutputs: fallible([
 		{ name: "status", type: "string", description: "Sub-script run status.", example: "n-mr3zyt6f-18.status" },
 		{
@@ -24,8 +25,9 @@ export const subScriptNode = defineNode({
 			example: "n-mr3zyt6f-18.exit_code",
 		},
 	]),
-	runnerType: "run_script",
+	runnerType: "run_sub_script",
 	sanitizeConfig: ({ arguments: _arguments, ...config }) => config,
+	validateConfig: (config) => [requiredConfig(config, "script", "sub-script name or path")].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: { status: "completed", exit_code: 0 } }),
 		describe: ({ api, context, node }) => [

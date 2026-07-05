@@ -51,6 +51,7 @@ import type {
 	EditorAsset,
 	InspectorTab,
 	JsonValue,
+	ProjectSettings,
 	ScriptNodeData,
 	SimulationOverride,
 	SimulationOverrideOutcome,
@@ -58,16 +59,19 @@ import type {
 	SimulationSettings,
 	SimulationTriggerPayload,
 } from "@/lib/types";
+import { createEditorVariableRegistry } from "@/utils/editor-variables";
 import { RiskBadge } from "../shell/risk-badge";
 import { SimulatorPanel } from "../simulation/simulator-panel";
 import { KeyCaptureInput } from "./key-capture-input";
 import { KeyReferencePanel } from "./key-reference-panel";
 import { RuntimeDataPanel } from "./runtime-data-panel";
+import { VariableCodeInput, type VariableCompletion } from "./variable-code-input";
 
 type InspectorProps = {
 	activeTab: InspectorTab;
 	assets: EditorAsset[];
 	nodes: Node<ScriptNodeData>[];
+	projectSettings: ProjectSettings;
 	selectedNode: Node<ScriptNodeData> | null;
 	simulationOverrides: SimulationOverride[];
 	simulationSettings: SimulationSettings;
@@ -87,6 +91,7 @@ export function Inspector({
 	activeTab,
 	assets,
 	nodes,
+	projectSettings,
 	selectedNode,
 	simulationOverrides,
 	simulationSettings,
@@ -126,6 +131,7 @@ export function Inspector({
 					<PropertiesPanel
 						assets={assets}
 						nodes={nodes}
+						projectSettings={projectSettings}
 						selectedNode={selectedNode}
 						onUpdateNodeConfig={onUpdateNodeConfig}
 						onDeleteNode={onDeleteNode}
@@ -152,12 +158,14 @@ export function Inspector({
 function PropertiesPanel({
 	assets,
 	nodes,
+	projectSettings,
 	selectedNode,
 	onUpdateNodeConfig,
 	onDeleteNode,
 }: {
 	assets: EditorAsset[];
 	nodes: Node<ScriptNodeData>[];
+	projectSettings: ProjectSettings;
 	selectedNode: Node<ScriptNodeData> | null;
 	onUpdateNodeConfig: (nodeId: string, key: string, value: JsonValue) => void;
 	onDeleteNode: (nodeId: string) => void;
@@ -177,6 +185,7 @@ function PropertiesPanel({
 	}
 
 	const fields = getNodeConfigFields(selectedNode.data.actionType);
+	const variableCompletions = createVariableCompletions(projectSettings, nodes);
 	const visibleFields =
 		selectedNode.data.actionType === "runtime.set_variable" || usesKeyReference(selectedNode.data.actionType)
 			? []
@@ -230,6 +239,7 @@ function PropertiesPanel({
 						{selectedNode.data.actionType === "runtime.set_variable" && (
 							<SetVariableConfigPanel
 								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
@@ -242,18 +252,21 @@ function PropertiesPanel({
 						{selectedNode.data.actionType === "control.if" && (
 							<IfElseConfigPanel
 								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
 						{selectedNode.data.actionType === "control.switch" && (
 							<SwitchConfigPanel
 								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
 						{selectedNode.data.actionType === "action.http" && (
 							<HttpHeadersPanel
 								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
@@ -261,6 +274,7 @@ function PropertiesPanel({
 							<PlaySoundConfigPanel
 								assets={assets}
 								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
@@ -268,6 +282,7 @@ function PropertiesPanel({
 							<SerialWriteConfigPanel
 								config={selectedNode.data.config}
 								deviceOptions={createSerialDeviceOptions(nodes)}
+								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
@@ -276,6 +291,7 @@ function PropertiesPanel({
 								key={field.key}
 								field={field}
 								value={selectedNode.data.config[field.key]}
+								variableCompletions={variableCompletions}
 								onChange={(value) => onUpdateNodeConfig(selectedNode.id, field.key, value)}
 							/>
 						))}
@@ -299,10 +315,12 @@ function PropertiesPanel({
 function ConfigField({
 	field,
 	value,
+	variableCompletions,
 	onChange,
 }: {
 	field: NodeConfigField;
 	value: JsonValue | undefined;
+	variableCompletions: VariableCompletion[];
 	onChange: (value: JsonValue) => void;
 }) {
 	const inputValue = valueToInputString(value);
@@ -317,8 +335,23 @@ function ConfigField({
 					<span className="text-sm text-baud-text">{value === true || value === "true" ? "Enabled" : "Disabled"}</span>
 					<Switch checked={value === true || value === "true"} onCheckedChange={(checked) => onChange(checked)} />
 				</div>
+			) : field.type === "textarea" && field.usesVariables ? (
+				<VariableCodeInput
+					ariaLabel={field.label}
+					value={inputValue}
+					multiline
+					variables={variableCompletions}
+					onChange={onChange}
+				/>
 			) : field.type === "textarea" ? (
 				<Textarea value={inputValue} onChange={(event) => onChange(event.target.value)} />
+			) : field.usesVariables ? (
+				<VariableCodeInput
+					ariaLabel={field.label}
+					value={inputValue}
+					variables={variableCompletions}
+					onChange={onChange}
+				/>
 			) : (
 				<Input
 					value={inputValue}
@@ -333,9 +366,11 @@ function ConfigField({
 
 function IfElseConfigPanel({
 	config,
+	variableCompletions,
 	onChange,
 }: {
 	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const conditions = getConditionRows(config.conditions, valueToInputString(config.combinator));
@@ -391,6 +426,8 @@ function IfElseConfigPanel({
 									<TextInput
 										label="Value"
 										value={condition.left}
+										usesVariables
+										variableCompletions={variableCompletions}
 										onChange={(value) => updateCondition(conditions, condition.id, { left: value }, onChange)}
 									/>
 									<ComboboxField
@@ -402,6 +439,8 @@ function IfElseConfigPanel({
 									<TextInput
 										label="Target"
 										value={condition.right}
+										usesVariables
+										variableCompletions={variableCompletions}
 										onChange={(value) => updateCondition(conditions, condition.id, { right: value }, onChange)}
 									/>
 								</fieldset>
@@ -424,9 +463,11 @@ function IfElseConfigPanel({
 
 function SwitchConfigPanel({
 	config,
+	variableCompletions,
 	onChange,
 }: {
 	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const cases = getSwitchCaseRowsFromValue(config.cases);
@@ -444,6 +485,8 @@ function SwitchConfigPanel({
 			<TextInput
 				label="Switch value"
 				value={valueToInputString(config.value)}
+				usesVariables
+				variableCompletions={variableCompletions}
 				onChange={(value) => onChange("value", value)}
 			/>
 			<ul ref={caseReorder.listRef} className="space-y-3" aria-label="Switch cases">
@@ -489,6 +532,8 @@ function SwitchConfigPanel({
 							<TextInput
 								label="Value"
 								value={switchCase.value}
+								usesVariables
+								variableCompletions={variableCompletions}
 								onChange={(value) => updateSwitchCase(cases, switchCase.id, { value }, onChange)}
 							/>
 						</li>
@@ -527,9 +572,11 @@ function ConditionCombinatorRow({
 
 function SetVariableConfigPanel({
 	config,
+	variableCompletions,
 	onChange,
 }: {
 	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const operation = normalizeVariableOperation(valueToInputString(config.operation));
@@ -666,14 +713,13 @@ function SetVariableConfigPanel({
 						This operation clears the variable to the empty value for its type. No manual value is required.
 					</div>
 				) : (
-					<Textarea
+					<VariableCodeInput
+						ariaLabel={operationDefinition.valueLabel}
 						value={draftValue}
-						onChange={(event) => handleValueChange(event.target.value)}
-						className={
-							validationMessage
-								? "border-baud-danger focus-visible:border-baud-danger"
-								: "border-baud-border focus-visible:border-baud-red/75"
-						}
+						multiline
+						hasError={!!validationMessage}
+						variables={variableCompletions}
+						onChange={handleValueChange}
 					/>
 				)}
 				<p className="mt-1 text-xs leading-4 text-baud-muted">{definition.description}</p>
@@ -688,9 +734,11 @@ function SetVariableConfigPanel({
 
 function HttpHeadersPanel({
 	config,
+	variableCompletions,
 	onChange,
 }: {
 	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const headers = getHeaderRows(config.headers);
@@ -709,11 +757,12 @@ function HttpHeadersPanel({
 						placeholder="Header"
 						className="min-w-0 bg-baud-panel px-2"
 					/>
-					<Input
+					<VariableCodeInput
+						ariaLabel="Header value"
 						value={header.value}
-						onChange={(event) => updateHeader(headers, header.id, { value: event.target.value }, onChange)}
+						variables={variableCompletions}
+						onChange={(value) => updateHeader(headers, header.id, { value }, onChange)}
 						placeholder="Value"
-						className="min-w-0 bg-baud-panel px-2"
 					/>
 					<Button
 						type="button"
@@ -738,10 +787,12 @@ function HttpHeadersPanel({
 function PlaySoundConfigPanel({
 	assets,
 	config,
+	variableCompletions,
 	onChange,
 }: {
 	assets: EditorAsset[];
 	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const source = normalizePlaySoundSource(valueToInputString(config.source));
@@ -779,6 +830,8 @@ function PlaySoundConfigPanel({
 				<TextInput
 					label="File path"
 					value={valueToInputString(config.filePath)}
+					usesVariables
+					variableCompletions={variableCompletions}
 					onChange={(value) => onChange("filePath", value)}
 				/>
 			)}
@@ -789,10 +842,12 @@ function PlaySoundConfigPanel({
 function SerialWriteConfigPanel({
 	config,
 	deviceOptions,
+	variableCompletions,
 	onChange,
 }: {
 	config: Record<string, JsonValue>;
 	deviceOptions: SelectOption[];
+	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const selectedDeviceId = valueToInputString(config.deviceId);
@@ -821,7 +876,13 @@ function SerialWriteConfigPanel({
 				options={serialLineEndingOptions}
 				onChange={(value) => onChange("lineEnding", value)}
 			/>
-			<TextInput label="Data" value={valueToInputString(config.data)} onChange={(value) => onChange("data", value)} />
+			<TextInput
+				label="Data"
+				value={valueToInputString(config.data)}
+				usesVariables
+				variableCompletions={variableCompletions}
+				onChange={(value) => onChange("data", value)}
+			/>
 		</div>
 	);
 }
@@ -892,11 +953,15 @@ function TextInput({
 	value,
 	onChange,
 	hasError,
+	usesVariables,
+	variableCompletions = [],
 }: {
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
 	hasError?: boolean;
+	usesVariables?: boolean;
+	variableCompletions?: VariableCompletion[];
 }) {
 	const inputId = useId();
 
@@ -905,16 +970,27 @@ function TextInput({
 			<label htmlFor={inputId} className="mb-1 block font-mono text-sm text-baud-muted">
 				{label}
 			</label>
-			<Input
-				id={inputId}
-				value={value}
-				onChange={(event) => onChange(event.target.value)}
-				className={
-					hasError
-						? "border-baud-danger focus-visible:border-baud-danger"
-						: "border-baud-border focus-visible:border-baud-red/75"
-				}
-			/>
+			{usesVariables ? (
+				<VariableCodeInput
+					id={inputId}
+					ariaLabel={label}
+					value={value}
+					hasError={hasError}
+					variables={variableCompletions}
+					onChange={onChange}
+				/>
+			) : (
+				<Input
+					id={inputId}
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+					className={
+						hasError
+							? "border-baud-danger focus-visible:border-baud-danger"
+							: "border-baud-border focus-visible:border-baud-red/75"
+					}
+				/>
+			)}
 		</div>
 	);
 }
@@ -1109,6 +1185,25 @@ function valueToInputString(value: JsonValue | undefined) {
 	}
 
 	return "";
+}
+
+function createVariableCompletions(
+	projectSettings: ProjectSettings,
+	nodes: Node<ScriptNodeData>[],
+): VariableCompletion[] {
+	const completionsByName = new Map<string, VariableCompletion>();
+
+	for (const variable of createEditorVariableRegistry(projectSettings, nodes)) {
+		completionsByName.set(variable.name, {
+			description: variable.description,
+			name: variable.name,
+			readOnly: variable.read_only,
+			token: variable.token,
+			type: variable.type,
+		});
+	}
+
+	return [...completionsByName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function getConditionRows(value: JsonValue | undefined, legacyCombinator = "and"): ConditionRow[] {

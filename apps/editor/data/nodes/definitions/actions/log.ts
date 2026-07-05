@@ -1,6 +1,7 @@
 import { Terminal } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { logLevelOptions } from "../options";
+import { requiredConfig } from "../validators";
 
 export const logNode = defineNode({
 	actionType: "action.log",
@@ -21,6 +22,7 @@ export const logNode = defineNode({
 	permission: { name: "log", risk: "low" },
 	risk: "low",
 	runnerType: "log",
+	validateConfig: (config) => [requiredConfig(config, "message", "log message")].filter(Boolean),
 	simulation: {
 		outputLogs: ({ api, context, failed, node }) =>
 			failed

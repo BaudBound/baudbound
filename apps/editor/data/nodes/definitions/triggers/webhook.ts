@@ -2,6 +2,7 @@ import { Globe } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { httpMethodOptions } from "../options";
 import { triggerPorts } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const webhookTriggerNode = defineNode({
 	actionType: "trigger.webhook",
@@ -17,7 +18,8 @@ export const webhookTriggerNode = defineNode({
 	kind: "trigger",
 	label: "Webhook",
 	ports: triggerPorts,
-	risk: "medium",
+	permission: { name: "webhook_public_bind", risk: "high" },
+	risk: "high",
 	runtimeOutputs: [
 		{
 			name: "method",
@@ -57,6 +59,7 @@ export const webhookTriggerNode = defineNode({
 		},
 	],
 	runnerType: "webhook",
+	validateConfig: (config) => [requiredConfig(config, "hookName", "webhook hook name")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => {
 			const body = context.triggerPayload.body || '{"event":"simulation"}';

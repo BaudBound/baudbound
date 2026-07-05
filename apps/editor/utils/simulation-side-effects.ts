@@ -182,43 +182,54 @@ async function playSimulationAudioAsset(asset: EditorAsset, signal: AbortSignal)
 	audio.preload = "auto";
 
 	let cleanupDone = false;
-	let cleanupTimeoutId: number | null = null;
 	const cleanup = () => {
 		if (cleanupDone) {
 			return;
 		}
 
 		cleanupDone = true;
-		if (cleanupTimeoutId !== null) {
-			window.clearTimeout(cleanupTimeoutId);
-			cleanupTimeoutId = null;
-		}
-
 		signal.removeEventListener("abort", handleAbort);
-		audio.removeEventListener("ended", cleanup);
-		audio.removeEventListener("error", cleanup);
+		audio.removeEventListener("ended", handleEnded);
+		audio.removeEventListener("error", handleError);
 		audio.pause();
 		audio.removeAttribute("src");
 		audio.load();
 		URL.revokeObjectURL(audioUrl);
 	};
-	const handleAbort = () => cleanup();
-
-	signal.addEventListener("abort", handleAbort, { once: true });
-	audio.addEventListener("ended", cleanup, { once: true });
-	audio.addEventListener("error", cleanup, { once: true });
-	cleanupTimeoutId = window.setTimeout(cleanup, 10 * 60 * 1000);
+	let rejectPlayback: ((error: unknown) => void) | null = null;
+	let resolvePlayback: (() => void) | null = null;
+	const finish = () => {
+		cleanup();
+		resolvePlayback?.();
+	};
+	const fail = (error: unknown) => {
+		cleanup();
+		rejectPlayback?.(error);
+	};
+	const handleAbort = () => fail(new DOMException("Simulation stopped during audio playback.", "AbortError"));
+	const handleEnded = () => finish();
+	const handleError = () =>
+		fail(audio.error ?? new DOMException("Browser audio playback failed.", "NotSupportedError"));
 
 	try {
-		await audio.play();
-	} catch (error) {
-		cleanup();
-		throw error;
-	}
+		await new Promise<void>((resolve, reject) => {
+			resolvePlayback = resolve;
+			rejectPlayback = reject;
+			signal.addEventListener("abort", handleAbort, { once: true });
+			audio.addEventListener("ended", handleEnded, { once: true });
+			audio.addEventListener("error", handleError, { once: true });
 
-	if (signal.aborted) {
+			audio
+				.play()
+				.then(() => {
+					if (signal.aborted) {
+						handleAbort();
+					}
+				})
+				.catch(fail);
+		});
+	} finally {
 		cleanup();
-		throw new DOMException("Simulation stopped while audio playback was starting.", "AbortError");
 	}
 }
 

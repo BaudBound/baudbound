@@ -2,6 +2,7 @@ import { Clock } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { timeUnitOptions } from "../options";
 import { triggerPorts } from "../shared";
+import { staticPositiveNumberConfig } from "../validators";
 
 export const scheduleTriggerNode = defineNode({
 	actionType: "trigger.schedule",
@@ -19,4 +20,5 @@ export const scheduleTriggerNode = defineNode({
 	ports: triggerPorts,
 	risk: "low",
 	runnerType: "schedule",
+	validateConfig: (config) => [staticPositiveNumberConfig(config, "every", "schedule interval")].filter(Boolean),
 });

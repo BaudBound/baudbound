@@ -7,6 +7,7 @@ import { defineNode } from "../../node-definition";
 import { httpMethodOptions } from "../options";
 import { createHeaderRow } from "../rows";
 import { fallible } from "../runtime-outputs";
+import { requiredConfig, staticHttpUrlConfig, staticPositiveNumberConfig } from "../validators";
 
 export const httpRequestNode = defineNode({
 	actionType: "action.http",
@@ -68,6 +69,12 @@ export const httpRequestNode = defineNode({
 		},
 	]),
 	runnerType: "http_request",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "url", "request URL"),
+			staticHttpUrlConfig(config, "url", "request URL"),
+			staticPositiveNumberConfig(config, "timeoutSeconds", "timeout seconds"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => api.executeHttpRequest(node, context),
 		describe: ({ api, context, failed, node }) => [

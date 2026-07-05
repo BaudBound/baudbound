@@ -6,15 +6,15 @@ export const clipboardNode = defineNode({
 	capabilities: ["action.clipboard"],
 	configFields: [{ key: "value", label: "Value", type: "textarea", usesVariables: true }],
 	defaultConfig: () => ({ value: "Copied text: {{status}}" }),
-	description: "Read or write clipboard data.",
+	description: "Write clipboard data.",
 	desktopOnly: true,
 	fallible: true,
 	group: "actions",
 	icon: Clipboard,
 	kind: "action",
 	label: "Clipboard",
-	permission: { name: "read_clipboard", risk: "high" },
-	risk: "high",
+	permission: { name: "write_clipboard", risk: "medium" },
+	risk: "medium",
 	runnerType: "set_clipboard",
 	simulation: {
 		describe: ({ api, context, node }) => [

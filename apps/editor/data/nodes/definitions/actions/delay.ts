@@ -1,6 +1,7 @@
 import { Clock } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { timeUnitOptions } from "../options";
+import { staticPositiveNumberConfig } from "../validators";
 
 export const delayNode = defineNode({
 	actionType: "action.delay",
@@ -18,6 +19,7 @@ export const delayNode = defineNode({
 	permission: { name: "delay", risk: "low" },
 	risk: "low",
 	runnerType: "delay",
+	validateConfig: (config) => [staticPositiveNumberConfig(config, "amount", "delay amount")].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

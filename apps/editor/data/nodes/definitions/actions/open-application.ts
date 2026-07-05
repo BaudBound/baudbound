@@ -2,6 +2,7 @@ import { AppWindow } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionWindow } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const openApplicationNode = defineNode({
 	actionType: "action.application.open",
@@ -41,6 +42,7 @@ export const openApplicationNode = defineNode({
 		},
 	]),
 	runnerType: "open_application",
+	validateConfig: (config) => [requiredConfig(config, "application", "application")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, node }) => ({
 			failed: false,

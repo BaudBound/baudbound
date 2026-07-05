@@ -1,7 +1,8 @@
-import type { Node, XYPosition } from "@xyflow/react";
+import type { Edge, Node, XYPosition } from "@xyflow/react";
 import { FolderTree, Shapes, Zap } from "lucide-react";
 import type {
 	ActionType,
+	EditorAsset,
 	ExecutableActionType,
 	JsonValue,
 	PaletteGroup,
@@ -17,6 +18,7 @@ import { copyFileNode } from "./definitions/actions/file-copy";
 import { deleteFileNode } from "./definitions/actions/file-delete";
 import { downloadFileNode } from "./definitions/actions/file-download";
 import { moveFileNode } from "./definitions/actions/file-move";
+import { readFileNode } from "./definitions/actions/file-read";
 import { writeFileNode } from "./definitions/actions/file-write";
 import { formatTextNode } from "./definitions/actions/format-text";
 import { getActiveWindowNode } from "./definitions/actions/get-active-window";
@@ -57,6 +59,7 @@ import {
 	defaultOutputPort,
 	failureErrorOutput,
 	fallibleActionOutputs,
+	type NodeConfigField,
 	type NodeDefinition,
 	type NodeDefinitionGroupId,
 	triggerOutputPort,
@@ -85,6 +88,7 @@ const nodeDefinitions: NodeDefinition[] = [
 	notificationNode,
 	messageBoxNode,
 	getPixelColorNode,
+	readFileNode,
 	writeFileNode,
 	downloadFileNode,
 	deleteFileNode,
@@ -261,6 +265,74 @@ export function getControlStepType(actionType: ActionType) {
 
 export function sanitizeNodeConfig(actionType: ActionType, config: Record<string, JsonValue>) {
 	return getNodeDefinition(actionType)?.sanitizeConfig?.(config) ?? config;
+}
+
+export function validateNodeConfigKeys(actionType: ActionType, config: Record<string, JsonValue>) {
+	const definition = getNodeDefinition(actionType);
+	if (!definition) {
+		return [`Unsupported action type: ${actionType}.`];
+	}
+
+	const allowedKeys = getAllowedNodeConfigKeys(definition);
+	const unknownKeys = Object.keys(config).filter((key) => !allowedKeys.has(key));
+
+	return unknownKeys.length > 0
+		? [`Unknown config field${unknownKeys.length === 1 ? "" : "s"}: ${unknownKeys.join(", ")}.`]
+		: [];
+}
+
+export function validateNodeConfig(actionType: ActionType, config: Record<string, JsonValue>) {
+	const keyErrors = validateNodeConfigKeys(actionType, config);
+	const definition = getNodeDefinition(actionType);
+
+	return [
+		...keyErrors,
+		...(definition ? validateDeclaredConfigFields(definition.configFields ?? [], config) : []),
+		...(definition?.validateConfig?.(config) ?? []),
+	];
+}
+
+export function validateNodeGraph(
+	node: Node<ScriptNodeData>,
+	context: { assets: EditorAsset[]; edges: Edge[]; nodes: Node<ScriptNodeData>[] },
+) {
+	return getNodeDefinition(node.data.actionType)?.validateGraph?.({ context, node }) ?? [];
+}
+
+function getAllowedNodeConfigKeys(definition: NodeDefinition) {
+	const defaultConfig = definition.defaultConfig?.() ?? {};
+
+	return new Set([
+		"customName",
+		...Object.keys(defaultConfig),
+		...(definition.configFields ?? []).map((field) => field.key),
+	]);
+}
+
+function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<string, JsonValue>) {
+	return fields.flatMap((field) => {
+		if (field.required !== false && !(field.key in config)) {
+			return [`Missing required config field: ${field.key}.`];
+		}
+
+		if (!(field.key in config)) {
+			return [];
+		}
+
+		const value = config[field.key];
+		if (field.type === "select" && field.options && typeof value === "string") {
+			const allowedValues = new Set(field.options.map((option) => option.value));
+			if (!allowedValues.has(value)) {
+				return [`Invalid value for ${field.key}: ${value}. Expected one of ${[...allowedValues].join(", ")}.`];
+			}
+		}
+
+		if (field.type === "switch" && typeof value !== "boolean") {
+			return [`Invalid value for ${field.key}: expected boolean.`];
+		}
+
+		return [];
+	});
 }
 
 function getRequiredRunnerType(actionType: ActionType) {

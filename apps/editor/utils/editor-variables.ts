@@ -12,6 +12,14 @@ export function createVariablePanelEntries(
 	nodes: Node<ScriptNodeData>[],
 	snapshots: SimulationVariableSnapshot[],
 ): EditorVariable[] {
+	return createEditorVariableRegistry(projectSettings, nodes, snapshots);
+}
+
+export function createEditorVariableRegistry(
+	projectSettings: ProjectSettings,
+	nodes: Node<ScriptNodeData>[],
+	snapshots: SimulationVariableSnapshot[] = [],
+): EditorVariable[] {
 	const variables = new Map<string, EditorVariable>();
 
 	for (const variable of [

@@ -2,6 +2,7 @@ import { Trash2 } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionFile } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const deleteFileNode = defineNode({
 	actionType: "action.file.delete",
@@ -14,12 +15,13 @@ export const deleteFileNode = defineNode({
 	icon: Trash2,
 	kind: "action",
 	label: "Delete File",
-	permission: { name: "file_delete", risk: "high" },
-	risk: "high",
+	permission: { name: "delete_file", risk: "dangerous" },
+	risk: "dangerous",
 	runtimeOutputs: fallible([
 		{ name: "path", type: "file_path", description: "Deleted file path.", example: "n-mr3zyt6f-20.path" },
 	]),
 	runnerType: "delete_file",
+	validateConfig: (config) => [requiredConfig(config, "path", "file path")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

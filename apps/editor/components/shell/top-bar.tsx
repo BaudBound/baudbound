@@ -1,4 +1,5 @@
 import { CircleHelp, Download, PackageOpen, Play, ShieldCheck, SlidersHorizontal, Square, Upload } from "lucide-react";
+import Image from "next/image";
 import type { ChangeEvent, RefObject } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,15 @@ export function TopBar({
 			}}
 		>
 			<div className="flex h-full min-w-0 items-center gap-2 px-3">
-				<div className="grid size-7 place-items-center rounded bg-baud-red text-xs font-bold text-white">BB</div>
+				<Image
+					src="/logo-notext.png"
+					alt=""
+					width={28}
+					height={28}
+					priority
+					aria-hidden="true"
+					className="size-7 shrink-0 rounded object-contain"
+				/>
 				<div className="min-w-0 text-sm font-semibold">
 					<span className="text-white">BaudBound</span> <span className="text-baud-muted">Editor</span>
 				</div>
@@ -56,35 +65,36 @@ export function TopBar({
 
 			<div className="bg-baud-border/30" />
 
-			<div className="flex min-w-0 items-center gap-3 px-3">
-				<Button type="button" onClick={onAssetEditorClick} variant="toolbar">
+			<div className="flex min-w-0 items-center gap-2 overflow-hidden px-2">
+				<Button type="button" onClick={onAssetEditorClick} size="sm" variant="toolbar">
 					<PackageOpen size={14} />
 					Assets
 				</Button>
-				<Button type="button" onClick={onProjectSettingsClick} variant="toolbar">
+				<Button type="button" onClick={onProjectSettingsClick} size="sm" variant="toolbar">
 					<SlidersHorizontal size={14} />
 					Project Settings
 				</Button>
-				<Button type="button" onClick={onHelpClick} variant="toolbar">
+				<Button type="button" onClick={onHelpClick} size="sm" variant="toolbar">
 					<CircleHelp size={14} />
 					Help
 				</Button>
-				<Badge className="px-2 py-1 text-sm font-bold" variant="medium">
+				<Badge className="px-1.5 py-0.5 text-xs font-bold" variant="medium">
 					{targetRuntime.toLowerCase().includes("headless") ? "Headless" : "Desktop"}
 				</Badge>
-				<Badge className="px-2 py-1 text-sm font-bold" variant={getVerificationBadgeVariant(verificationStatus)}>
+				<Badge className="px-1.5 py-0.5 text-xs font-bold" variant={getVerificationBadgeVariant(verificationStatus)}>
 					{getVerificationLabel(verificationStatus)}
 				</Badge>
-				<div className="ml-auto flex items-center gap-2">
+				<div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5">
 					<Button
 						type="button"
 						onClick={isSimulationRunning ? onStopSimulationClick : onSimulateClick}
+						size="sm"
 						variant={isSimulationRunning ? "destructive" : "toolbar"}
 					>
 						{isSimulationRunning ? <Square size={14} /> : <Play size={14} />}
 						{isSimulationRunning ? "Stop" : "Simulate"}
 					</Button>
-					<Button type="button" onClick={onVerifyClick} variant="toolbarActive">
+					<Button type="button" onClick={onVerifyClick} size="sm" variant="toolbarActive">
 						<ShieldCheck size={14} />
 						Verify
 					</Button>
@@ -93,7 +103,7 @@ export function TopBar({
 
 			<div className="bg-baud-border/30" />
 
-			<div className="flex h-full min-w-0 items-center justify-end gap-2 px-3">
+			<div className="flex h-full min-w-0 items-center justify-end gap-1.5 px-2">
 				<input
 					ref={importInputRef}
 					className="hidden"
@@ -101,11 +111,11 @@ export function TopBar({
 					accept=".bbs,application/zip"
 					onChange={onImportFileChange}
 				/>
-				<Button type="button" onClick={onImportClick} variant="toolbar">
+				<Button type="button" onClick={onImportClick} size="sm" variant="toolbar">
 					<Upload size={14} />
 					Import
 				</Button>
-				<Button type="button" onClick={onExportClick} variant="primary">
+				<Button type="button" onClick={onExportClick} size="sm" variant="primary">
 					<Download size={14} />
 					Export
 				</Button>

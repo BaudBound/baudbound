@@ -1,0 +1,20 @@
+{
+  "format_version": 1,
+  "created_with": "BaudBound Editor 0.1.0",
+  "nodes": [
+    {
+      "id": "n-example-manual-1",
+      "position": {
+        "x": 96,
+        "y": 80
+      }
+    },
+    {
+      "id": "n-example-log-1",
+      "position": {
+        "x": 380,
+        "y": 80
+      }
+    }
+  ]
+}

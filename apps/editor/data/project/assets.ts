@@ -1,13 +1,15 @@
 import type { AssetKind, AssetManifestEntry, EditorAsset } from "@/lib/types";
 
 export const ASSET_PACKAGE_DIR = "assets";
-export const MAX_ASSET_COUNT = 64;
-export const MAX_ASSET_SIZE_BYTES = 25 * 1024 * 1024;
-export const MAX_TOTAL_ASSET_SIZE_BYTES = 100 * 1024 * 1024;
 
 export type AssetValidationResult = {
 	errors: string[];
 	warnings: string[];
+};
+
+export type PackageAssetEntry = {
+	path: string;
+	size?: number;
 };
 
 type AssetTypeRule = {
@@ -51,8 +53,6 @@ export async function createEditorAssets(files: File[], existingAssets: EditorAs
 	const accepted: EditorAsset[] = [];
 	const rejected: string[] = [];
 	const reservedPaths = new Set(existingAssets.map((asset) => asset.packagePath.toLowerCase()));
-	let nextAssetCount = existingAssets.length;
-	let nextTotalBytes = existingAssets.reduce((total, asset) => total + asset.size, 0);
 
 	for (const file of files) {
 		const extension = getExtension(file.name);
@@ -68,21 +68,6 @@ export async function createEditorAssets(files: File[], existingAssets: EditorAs
 			continue;
 		}
 
-		if (nextAssetCount >= MAX_ASSET_COUNT) {
-			rejected.push(`${file.name}: package can contain at most ${MAX_ASSET_COUNT} assets.`);
-			continue;
-		}
-
-		if (file.size > MAX_ASSET_SIZE_BYTES) {
-			rejected.push(`${file.name}: asset is larger than ${formatBytes(MAX_ASSET_SIZE_BYTES)}.`);
-			continue;
-		}
-
-		if (nextTotalBytes + file.size > MAX_TOTAL_ASSET_SIZE_BYTES) {
-			rejected.push(`${file.name}: total asset size would exceed ${formatBytes(MAX_TOTAL_ASSET_SIZE_BYTES)}.`);
-			continue;
-		}
-
 		const contentValidation = await validateAssetFileContent(file, extension);
 		if (!contentValidation.ok) {
 			rejected.push(`${file.name}: ${contentValidation.reason}`);
@@ -92,8 +77,6 @@ export async function createEditorAssets(files: File[], existingAssets: EditorAs
 		const name = sanitizeAssetFileName(file.name);
 		const packagePath = createUniqueAssetPath(name, reservedPaths);
 		reservedPaths.add(packagePath.toLowerCase());
-		nextAssetCount += 1;
-		nextTotalBytes += file.size;
 
 		accepted.push({
 			id: `asset-${crypto.randomUUID()}`,
@@ -125,15 +108,6 @@ export function validateEditorAssets(assets: EditorAsset[]): AssetValidationResu
 	const errors: string[] = [];
 	const warnings: string[] = [];
 	const paths = new Set<string>();
-	const totalSize = assets.reduce((total, asset) => total + asset.size, 0);
-
-	if (assets.length > MAX_ASSET_COUNT) {
-		errors.push(`Package has ${assets.length} assets, maximum is ${MAX_ASSET_COUNT}.`);
-	}
-
-	if (totalSize > MAX_TOTAL_ASSET_SIZE_BYTES) {
-		errors.push(`Assets use ${formatBytes(totalSize)}, maximum is ${formatBytes(MAX_TOTAL_ASSET_SIZE_BYTES)}.`);
-	}
 
 	for (const asset of assets) {
 		const pathError = validateAssetPackagePath(asset.packagePath);
@@ -151,10 +125,8 @@ export function validateEditorAssets(assets: EditorAsset[]): AssetValidationResu
 		const rule = extension ? getAssetRuleByExtension(extension) : undefined;
 		if (!rule || !rule.mediaTypes.includes(asset.mediaType)) {
 			errors.push(`${asset.name}: unsupported asset type.`);
-		}
-
-		if (asset.size > MAX_ASSET_SIZE_BYTES) {
-			errors.push(`${asset.name}: asset is larger than ${formatBytes(MAX_ASSET_SIZE_BYTES)}.`);
+		} else if (rule.kind !== asset.kind) {
+			errors.push(`${asset.name}: asset kind ${asset.kind} does not match ${asset.mediaType}.`);
 		}
 	}
 
@@ -162,24 +134,37 @@ export function validateEditorAssets(assets: EditorAsset[]): AssetValidationResu
 }
 
 export function validatePackageAssetPaths(fileNames: string[]): AssetValidationResult {
+	return validatePackageAssetEntries(fileNames.map((fileName) => ({ path: fileName })));
+}
+
+export function validatePackageAssetEntries(entries: PackageAssetEntry[]): AssetValidationResult {
 	const errors: string[] = [];
 	const warnings: string[] = [];
-	const assetPaths = fileNames.filter((fileName) => fileName.startsWith(`${ASSET_PACKAGE_DIR}/`));
+	const assetEntries = entries.filter((entry) => entry.path.startsWith(`${ASSET_PACKAGE_DIR}/`));
+	const paths = new Set<string>();
 
-	if (assetPaths.length > MAX_ASSET_COUNT) {
-		errors.push(`Package contains ${assetPaths.length} asset files, maximum is ${MAX_ASSET_COUNT}.`);
-	}
-
-	for (const fileName of assetPaths) {
-		const pathError = validateAssetPackagePath(fileName);
+	for (const entry of assetEntries) {
+		const pathError = validateAssetPackagePath(entry.path);
 		if (pathError) {
-			errors.push(`${fileName}: ${pathError}`);
+			errors.push(`${entry.path}: ${pathError}`);
 			continue;
 		}
 
-		const extension = getExtension(fileName);
+		const normalizedPath = entry.path.toLowerCase();
+		if (paths.has(normalizedPath)) {
+			errors.push(`${entry.path}: duplicate asset path.`);
+		}
+		paths.add(normalizedPath);
+
+		const extension = getExtension(entry.path);
 		if (!extension || !allowedExtensions.has(extension)) {
-			errors.push(`${fileName}: unsupported asset extension.`);
+			errors.push(`${entry.path}: unsupported asset extension.`);
+		}
+
+		if (entry.size !== undefined) {
+			if (!Number.isFinite(entry.size) || entry.size < 0) {
+				errors.push(`${entry.path}: asset size is invalid.`);
+			}
 		}
 	}
 
@@ -215,12 +200,21 @@ function validateAssetPackagePath(packagePath: string) {
 		return `asset path must be inside ${ASSET_PACKAGE_DIR}/.`;
 	}
 
-	if (packagePath.includes("\\") || packagePath.includes("..") || packagePath.startsWith("/")) {
+	if (hasControlCharacter(packagePath)) {
+		return "asset path cannot contain control characters.";
+	}
+
+	if (packagePath.includes("\\") || packagePath.startsWith("/") || packagePath.includes(":")) {
 		return "asset path must be relative and cannot contain path traversal.";
 	}
 
 	if (packagePath.endsWith("/") || packagePath === `${ASSET_PACKAGE_DIR}/`) {
 		return "asset path must point to a file.";
+	}
+
+	const segments = packagePath.split("/");
+	if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+		return "asset path must not contain empty, current-directory, or parent-directory segments.";
 	}
 
 	return "";
@@ -255,6 +249,10 @@ function sanitizeAssetFileName(fileName: string) {
 
 function getAssetRuleByExtension(extension: string) {
 	return assetTypeRules.find((rule) => rule.extensions.includes(extension));
+}
+
+export function getAssetKindForMediaType(mediaType: string): AssetKind | null {
+	return assetTypeRules.find((rule) => rule.mediaTypes.includes(mediaType))?.kind ?? null;
 }
 
 function inferMediaType(extension: string, kind: AssetKind) {
@@ -438,4 +436,11 @@ function asciiAt(bytes: Uint8Array, start: number, length: number) {
 
 function stripUtf8Bom(text: string) {
 	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+function hasControlCharacter(value: string) {
+	return [...value].some((character) => {
+		const code = character.charCodeAt(0);
+		return code < 32 || code === 127;
+	});
 }

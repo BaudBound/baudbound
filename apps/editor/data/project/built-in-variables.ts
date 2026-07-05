@@ -219,6 +219,26 @@ export function getBuiltInVariableRuntimeEntries(projectSettings: ProjectSetting
 	);
 }
 
+export function createSimulationBuiltInVariableValues(projectSettings: ProjectSettings, now = new Date()) {
+	const manifestValues = Object.fromEntries(
+		Object.entries(manifestValueResolvers).map(([name, resolver]) => [name, resolver(projectSettings)]),
+	);
+	const locale = getSimulationLocale();
+	const timezone = getSimulationTimeZone();
+
+	return {
+		...manifestValues,
+		system_os: getSimulationOperatingSystem(),
+		system_arch: "simulated",
+		system_hostname: "simulator",
+		system_user: "simulator",
+		system_locale: locale,
+		system_timezone: timezone,
+		system_date: formatSimulationDate(now),
+		system_time: formatSimulationTime(now),
+	} satisfies Record<string, BuiltInVariableValue>;
+}
+
 function resolveBuiltInVariableValue(
 	scope: BuiltInVariableScope,
 	name: string,
@@ -234,4 +254,53 @@ function resolveBuiltInVariableValue(
 	}
 
 	return resolver(projectSettings);
+}
+
+function getSimulationOperatingSystem() {
+	const platform =
+		typeof navigator === "undefined"
+			? ""
+			: String(
+					(navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+						navigator.platform,
+				);
+	const normalizedPlatform = platform.toLowerCase();
+
+	if (normalizedPlatform.includes("win")) {
+		return "windows";
+	}
+
+	if (normalizedPlatform.includes("mac")) {
+		return "macos";
+	}
+
+	if (normalizedPlatform.includes("linux")) {
+		return "linux";
+	}
+
+	return "simulated";
+}
+
+function getSimulationLocale() {
+	if (typeof navigator !== "undefined" && navigator.language) {
+		return navigator.language;
+	}
+
+	return "en-US";
+}
+
+function getSimulationTimeZone() {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+	} catch {
+		return "UTC";
+	}
+}
+
+function formatSimulationDate(date: Date) {
+	return date.toISOString().slice(0, 10);
+}
+
+function formatSimulationTime(date: Date) {
+	return date.toTimeString().slice(0, 8);
 }

@@ -3,6 +3,7 @@ import { defineNode } from "../../node-definition";
 import { killProcessMatchModeOptions } from "../options";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
+import { configString, requiredConfig, staticNonNegativeIntegerConfig } from "../validators";
 
 export const killProcessNode = defineNode({
 	actionType: "action.process.kill",
@@ -18,7 +19,7 @@ export const killProcessNode = defineNode({
 	icon: Skull,
 	kind: "action",
 	label: "Kill Process",
-	permission: { name: "kill_process", risk: "high" },
+	permission: { name: "process_kill", risk: "high" },
 	risk: "high",
 	runtimeOutputs: fallible([
 		{
@@ -35,6 +36,11 @@ export const killProcessNode = defineNode({
 		},
 	]),
 	runnerType: "kill_process",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "target", "process target"),
+			configString(config, "matchMode") === "pid" ? staticNonNegativeIntegerConfig(config, "target", "process ID") : "",
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => {
 			const processId = getSimulatedProcessId(

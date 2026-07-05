@@ -1,4 +1,5 @@
 import { Usb } from "lucide-react";
+import { normalizeSerialDeviceId } from "@/data/project/serial";
 import { defineNode } from "../../node-definition";
 import {
 	serialBaudRateOptions,
@@ -9,10 +10,11 @@ import {
 	serialStopBitsOptions,
 } from "../options";
 import { triggerPorts } from "../shared";
+import { configString, requiredConfig } from "../validators";
 
 export const serialInputTriggerNode = defineNode({
 	actionType: "trigger.serial_input",
-	capabilities: ["trigger.serial"],
+	capabilities: ["trigger.serial_input"],
 	configFields: [
 		{ key: "deviceId", label: "Device id", type: "text" },
 		{ key: "label", label: "Label", type: "text" },
@@ -46,7 +48,8 @@ export const serialInputTriggerNode = defineNode({
 	kind: "trigger",
 	label: "Serial Input",
 	ports: triggerPorts,
-	risk: "medium",
+	permission: { name: "serial_input", risk: "high" },
+	risk: "high",
 	runtimeOutputs: [
 		{
 			name: "device_id",
@@ -69,6 +72,27 @@ export const serialInputTriggerNode = defineNode({
 		},
 	],
 	runnerType: "serial_input",
+	validateConfig: (config) => {
+		const deviceId = configString(config, "deviceId").trim();
+		const normalizedDeviceId = normalizeSerialDeviceId(deviceId);
+		return [
+			requiredConfig(config, "deviceId", "serial device id"),
+			deviceId && deviceId !== normalizedDeviceId
+				? "serial device id must use lowercase letters, numbers, underscores, or hyphens."
+				: "",
+			requiredConfig(config, "port", "runner serial port such as COM3 or /dev/ttyUSB0"),
+		].filter(Boolean);
+	},
+	validateGraph: ({ context, node }) => {
+		const deviceId = configString(node.data.config, "deviceId").trim();
+		const duplicate = context.nodes.some(
+			(otherNode) =>
+				otherNode.id !== node.id &&
+				otherNode.data.actionType === "trigger.serial_input" &&
+				configString(otherNode.data.config, "deviceId").trim() === deviceId,
+		);
+		return duplicate && deviceId ? [`${node.id} serial device id "${deviceId}" is used by more than one trigger.`] : [];
+	},
 	simulation: {
 		createOutput: ({ api, context, node }) => {
 			const data = context.triggerPayload.data || "simulation serial input";

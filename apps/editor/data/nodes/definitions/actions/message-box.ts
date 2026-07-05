@@ -2,6 +2,7 @@ import { MessageSquareWarning } from "lucide-react";
 import type { SimulationSideEffect } from "@/utils/simulation-types";
 import { defineNode } from "../../node-definition";
 import { messageBoxButtonOptions, messageBoxTypeOptions } from "../options";
+import { requiredConfig } from "../validators";
 
 export const messageBoxNode = defineNode({
 	actionType: "action.message_box",
@@ -31,6 +32,11 @@ export const messageBoxNode = defineNode({
 		},
 	],
 	runnerType: "show_message_box",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "title", "message box title"),
+			requiredConfig(config, "message", "message box message"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: {} }),
 		describe: ({ api, context, node }) => [

@@ -3,6 +3,7 @@ import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible, fileTransferRuntimeOutputs } from "../runtime-outputs";
 import { actionFile } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const moveFileNode = defineNode({
 	actionType: "action.file.move",
@@ -19,10 +20,15 @@ export const moveFileNode = defineNode({
 	icon: MoveRight,
 	kind: "action",
 	label: "Move File",
-	permission: { name: "file_move", risk: "high" },
-	risk: "high",
+	permission: { name: "file_move", risk: "medium" },
+	risk: "medium",
 	runtimeOutputs: fallible(fileTransferRuntimeOutputs("moved")),
 	runnerType: "move_file",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "sourcePath", "source file path"),
+			requiredConfig(config, "destinationPath", "destination file path"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

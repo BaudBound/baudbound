@@ -1,12 +1,12 @@
 import { Calculator } from "lucide-react";
-import { evaluateCalculationExpression } from "@/data/project/calculation";
+import { evaluateCalculationExpression, validateCalculationExpression } from "@/data/project/calculation";
 import type { NodeExecutionResult } from "@/utils/simulation-types";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 
 export const calculateNode = defineNode({
 	actionType: "action.calculate",
-	capabilities: ["runtime.calculate"],
+	capabilities: ["action.calculate"],
 	configFields: [{ key: "expression", label: "Expression", type: "textarea", usesVariables: true }],
 	defaultConfig: () => ({ expression: "1 + 1" }),
 	description: "Calculate a numeric expression and expose the result.",
@@ -26,6 +26,12 @@ export const calculateNode = defineNode({
 		},
 	]),
 	runnerType: "calculate",
+	validateConfig: (config) => {
+		const expression = typeof config.expression === "string" ? config.expression : "";
+		const error = validateCalculationExpression(expression);
+
+		return error ? [`has invalid calculation expression: ${error}`] : [];
+	},
 	simulation: {
 		createOutput: ({ api, context, node }): NodeExecutionResult => {
 			const expression = String(api.resolveTemplate(api.getConfigString(node, "expression"), context));

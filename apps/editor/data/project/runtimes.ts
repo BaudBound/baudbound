@@ -10,3 +10,7 @@ export const targetRuntimes: TargetRuntime[] = [
 	"Linux Desktop",
 	"macOS Desktop",
 ];
+
+export function isDesktopTargetRuntime(targetRuntime: TargetRuntime) {
+	return targetRuntime.endsWith("Desktop");
+}

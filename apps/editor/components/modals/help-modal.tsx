@@ -1,10 +1,24 @@
 "use client";
 
-import { BookOpenText, Keyboard, LifeBuoy, type LucideIcon, MousePointer2, Variable } from "lucide-react";
+import {
+	BookOpenText,
+	Calculator,
+	Database,
+	FlaskConical,
+	Keyboard,
+	LifeBuoy,
+	type LucideIcon,
+	MousePointer2,
+	PackageCheck,
+	Variable,
+} from "lucide-react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { runtimeErrorFields } from "@/data/nodes/node-definition";
+import { getNodeConfigFields, getPaletteGroups, getRuntimeDataOutputs } from "@/data/nodes/registry";
 import { builtInVariableGroups } from "@/data/project/built-in-variables";
+import { variableOperationDefinitions, variableTypeDefinitions } from "@/data/project/variables";
 
 type HelpModalProps = {
 	onClose: () => void;
@@ -72,9 +86,108 @@ const referenceRuleRows = [
 	"Node output references only have data after that node has executed in the current run.",
 ];
 
+const expressionOperatorRows = [
+	{ syntax: "+", description: "Add numbers." },
+	{ syntax: "-", description: "Subtract numbers or negate a value." },
+	{ syntax: "*", description: "Multiply numbers." },
+	{ syntax: "/", description: "Divide numbers. Division by zero is rejected." },
+	{ syntax: "%", description: "Remainder after division." },
+	{ syntax: "^", description: "Exponent power, for example 2 ^ 3." },
+	{ syntax: "()", description: "Group parts of an expression." },
+];
+
+const calculationFunctionRows = [
+	{ syntax: "round(value)", description: "Round to the nearest whole number.", example: "round(3.6)" },
+	{ syntax: "floor(value)", description: "Round down.", example: "floor(3.9)" },
+	{ syntax: "ceil(value)", description: "Round up.", example: "ceil(3.1)" },
+	{ syntax: "min(a, b, ...)", description: "Return the smallest value.", example: "min(3, 8, 2)" },
+	{ syntax: "max(a, b, ...)", description: "Return the largest value.", example: "max(3, 8, 2)" },
+	{ syntax: "random()", description: "Random number between 0 and 1.", example: "random()" },
+	{ syntax: "random(max)", description: "Random number from 0 up to max.", example: "random(10)" },
+	{ syntax: "random(min, max)", description: "Random number between min and max.", example: "random(5, 15)" },
+];
+
+const conditionComparisonRows = [
+	{ label: "Equal", description: "Passes when Value and Target are the same." },
+	{ label: "Not equal", description: "Passes when Value and Target are different." },
+	{ label: "Greater than / at least", description: "Numeric comparison against the Target value." },
+	{ label: "Less than / at most", description: "Numeric comparison against the Target value." },
+	{ label: "Contains", description: "Passes when Value text contains the Target text." },
+	{ label: "Starts with", description: "Passes when Value text starts with the Target text." },
+	{ label: "Ends with", description: "Passes when Value text ends with the Target text." },
+	{ label: "Regex match", description: "Passes when Value matches the selected safe regex pattern." },
+	{ label: "Is empty", description: "Passes when Value is empty text." },
+	{ label: "Is null", description: "Passes when Value is null or the text null." },
+];
+
+const nodeBehaviorRows = [
+	{
+		label: "Success / failed outputs",
+		description:
+			"Fallible nodes continue through success when the operation works and failed when the runner reports an error.",
+	},
+	{
+		label: "Runtime data",
+		description:
+			"Nodes can expose read-only runtime outputs. Select a node and open Runtime Data in Properties to see available fields.",
+	},
+	{
+		label: "Custom node names",
+		description:
+			"Every node can have a custom display name. The node type remains visible so users can still identify what it does.",
+	},
+	{
+		label: "For Each",
+		description:
+			"Loops through a list value. The items field can reference a list variable or nested list such as {{payload.users}}.",
+	},
+	{
+		label: "HTTP Request",
+		description:
+			"Simulation sends the request from the browser, so CORS and mixed-content browser rules still apply. The runner will execute it locally.",
+	},
+	{
+		label: "Assets",
+		description:
+			"Assets stay client-side in the editor and are packed into the exported package under assets/. File signatures are checked before import/export.",
+	},
+];
+
+const simulationRows = [
+	{
+		label: "Verify before export",
+		description:
+			"Verification checks graph structure, variables, node configs, assets, serial device ids, package declarations, and export readiness.",
+	},
+	{
+		label: "Simulation",
+		description:
+			"Simulation previews graph flow without a runner connection. Unsupported runner actions log what would happen instead of touching the local machine.",
+	},
+	{
+		label: "Trigger inputs",
+		description:
+			"The Simulator tab lets you fire trigger nodes with sample payloads. Schedule triggers run from their configured interval.",
+	},
+	{
+		label: "Overrides",
+		description:
+			"Add a node override in the Simulator tab to force a fallible node through success or failed during simulation.",
+	},
+	{
+		label: "Export package",
+		description:
+			"Export writes manifest.json, program.json, editor.json, permissions.json, capabilities.json, README.md, and assets/.",
+	},
+];
+
 const staticHelpSections = [
 	{ id: "controls", label: "Controls", icon: Keyboard },
 	{ id: "references", label: "References", icon: BookOpenText },
+	{ id: "expressions", label: "Expressions", icon: Calculator },
+	{ id: "variables", label: "Variables", icon: Database },
+	{ id: "nodes", label: "Nodes", icon: FlaskConical },
+	{ id: "packages", label: "Simulation & Export", icon: PackageCheck },
 ];
 
 export function HelpModal({ onClose, open }: HelpModalProps) {
@@ -106,7 +219,7 @@ export function HelpModal({ onClose, open }: HelpModalProps) {
 							<div>
 								<DialogTitle className="text-lg text-baud-text">Editor Help</DialogTitle>
 								<DialogDescription>
-									Keyboard shortcuts, variable references, and always-available built-in values.
+									Editor controls, references, expressions, variables, simulation, and package behavior.
 								</DialogDescription>
 							</div>
 						</div>
@@ -131,6 +244,10 @@ export function HelpModal({ onClose, open }: HelpModalProps) {
 						<div className="min-h-0 overflow-y-scroll px-6 py-5 [scrollbar-gutter:stable]">
 							{activeSection === "controls" && <ControlsSection />}
 							{activeSection === "references" && <ReferencesSection />}
+							{activeSection === "expressions" && <ExpressionsSection />}
+							{activeSection === "variables" && <VariablesSection />}
+							{activeSection === "nodes" && <NodesSection />}
+							{activeSection === "packages" && <SimulationAndExportSection />}
 							{activeBuiltInGroup && <BuiltInVariableSection group={activeBuiltInGroup} />}
 						</div>
 					</div>
@@ -198,6 +315,198 @@ function ControlsSection() {
 						</div>
 					))}
 				</div>
+			</div>
+		</section>
+	);
+}
+
+function ExpressionsSection() {
+	return (
+		<section className="space-y-6">
+			<div className="space-y-3">
+				<SectionTitle icon={Calculator} title="Calculate Node" />
+				<InfoCard>
+					The Calculate node evaluates numeric expressions and exposes the result as runtime data. Variable references
+					are resolved before the expression is evaluated, so expressions can combine constants and runtime values.
+				</InfoCard>
+				<DocTable
+					columns={["Syntax", "Example", "Description"]}
+					rows={calculationFunctionRows.map((row) => [row.syntax, row.example, row.description])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Calculator} title="Math Operators" />
+				<DocTable
+					columns={["Operator", "Description"]}
+					rows={expressionOperatorRows.map((row) => [row.syntax, row.description])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Calculator} title="If / Else Comparisons" />
+				<InfoCard>
+					If / Else does not use typed expression syntax. Each condition row has a Value field, a comparison dropdown,
+					and a Target field. Multiple rows can be combined with AND or OR between the rows.
+				</InfoCard>
+				<DocTable
+					columns={["Dropdown option", "Description"]}
+					rows={conditionComparisonRows.map((row) => [row.label, row.description])}
+				/>
+			</div>
+		</section>
+	);
+}
+
+function VariablesSection() {
+	return (
+		<section className="space-y-6">
+			<div className="space-y-3">
+				<SectionTitle icon={Database} title="Set Variable Operations" />
+				<InfoCard>
+					Set Variable creates or edits user-writable variables. Built-in variables and node output references are
+					read-only, and variable names cannot start with <Code>{"manifest_"}</Code> or <Code>{"system_"}</Code>.
+				</InfoCard>
+				<DocTable
+					columns={["Operation", "What it does"]}
+					rows={Object.values(variableOperationDefinitions).map((definition) => [
+						definition.label,
+						definition.description,
+					])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Variable} title="Variable Types" />
+				<DocTable
+					columns={["Type", "Example", "Description"]}
+					rows={Object.entries(variableTypeDefinitions).map(([type, definition]) => [
+						type,
+						definition.example,
+						definition.description,
+					])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Variable} title="Scopes" />
+				<div className="grid gap-2">
+					<InfoCard>
+						<Code>{"runtime"}</Code> exists for one script run. <Code>{"persistent"}</Code> is stored between runs.{" "}
+						<Code>{"global"}</Code> is provided by the runner. <Code>{"secret"}</Code> is for sensitive encrypted
+						values.
+					</InfoCard>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function NodesSection() {
+	const paletteGroups = getPaletteGroups();
+
+	return (
+		<section className="space-y-6">
+			<div className="space-y-3">
+				<SectionTitle icon={FlaskConical} title="Node Behavior" />
+				<DocTable
+					columns={["Feature", "Description"]}
+					rows={nodeBehaviorRows.map((row) => [row.label, row.description])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={BookOpenText} title="Node Reference" />
+				<div className="grid gap-3">
+					{paletteGroups.map((group) => (
+						<div key={group.id} className="rounded-lg border border-baud-border bg-baud-elevated">
+							<div className="border-b border-baud-border px-4 py-3">
+								<h3 className="font-semibold text-baud-text">{group.label}</h3>
+							</div>
+							<div className="divide-y divide-baud-border">
+								{group.items.map((item) => {
+									const configFields = getNodeConfigFields(item.actionType);
+									const runtimeOutputs = getRuntimeDataOutputs(item.actionType);
+
+									return (
+										<div
+											key={item.actionType}
+											className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[220px_minmax(0,1fr)]"
+										>
+											<div className="min-w-0">
+												<div className="font-semibold text-baud-text">{item.label}</div>
+												<Code>{item.actionType}</Code>
+												<div className="mt-2 font-mono text-xs uppercase text-baud-muted">risk {item.risk}</div>
+											</div>
+											<div className="min-w-0 space-y-2 text-baud-muted">
+												<p>{item.description}</p>
+												<NodeReferenceLine
+													label="Config"
+													value={
+														configFields.length > 0
+															? configFields.map((field) => field.label).join(", ")
+															: "No editable config fields"
+													}
+												/>
+												<NodeReferenceLine
+													label="Runtime data"
+													value={
+														runtimeOutputs.length > 0
+															? runtimeOutputs.map((output) => output.name).join(", ")
+															: "No runtime data"
+													}
+												/>
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					))}
+				</div>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={BookOpenText} title="Common Runtime Outputs" />
+				<div className="grid gap-2">
+					<InfoCard>
+						HTTP Request exposes status code, status text, headers, body, parsed JSON, and duration. File Read exposes
+						path, content, and bytes. Get Pixel Color exposes hex, rgb, rgba, and channel values. Process, window,
+						serial, sound, message box, and file nodes expose operation-specific data when relevant.
+					</InfoCard>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function NodeReferenceLine({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="grid gap-2 sm:grid-cols-[120px_1fr]">
+			<span className="font-mono text-xs font-bold tracking-[0.14em] text-baud-muted uppercase">{label}</span>
+			<span>{value}</span>
+		</div>
+	);
+}
+
+function SimulationAndExportSection() {
+	return (
+		<section className="space-y-6">
+			<div className="space-y-3">
+				<SectionTitle icon={PackageCheck} title="Simulation And Export" />
+				<DocTable
+					columns={["Feature", "Description"]}
+					rows={simulationRows.map((row) => [row.label, row.description])}
+				/>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={PackageCheck} title="Package Contents" />
+				<InfoCard>
+					Executable graph data is exported to <Code>{"program.json"}</Code>. Canvas positions are exported to{" "}
+					<Code>{"editor.json"}</Code>. Permissions and capabilities are recalculated and written separately so the
+					runner can compare declared values against its own calculation.
+				</InfoCard>
 			</div>
 		</section>
 	);
@@ -280,6 +589,50 @@ function ReferencesSection() {
 	);
 }
 
+function InfoCard({ children }: { children: ReactNode }) {
+	return (
+		<div className="rounded-lg border border-baud-border bg-baud-elevated p-4 text-sm leading-6 text-baud-muted">
+			{children}
+		</div>
+	);
+}
+
+function DocTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
+	const columnClassName =
+		columns.length === 2
+			? "sm:grid-cols-[minmax(140px,220px)_minmax(0,1fr)]"
+			: "sm:grid-cols-[minmax(140px,200px)_minmax(150px,240px)_minmax(0,1fr)]";
+
+	return (
+		<div className="rounded-lg border border-baud-border bg-baud-elevated">
+			<div
+				className={`grid gap-3 border-b border-baud-border px-4 py-2 text-xs font-bold tracking-[0.16em] text-baud-muted uppercase ${columnClassName}`}
+			>
+				{columns.map((column) => (
+					<span key={column}>{column}</span>
+				))}
+			</div>
+			<div className="divide-y divide-baud-border">
+				{rows.map((row) => (
+					<div key={row.join("|")} className={`grid gap-3 px-4 py-3 text-sm ${columnClassName}`}>
+						{row.map((cell, index) => {
+							const column = columns[index] ?? cell;
+							const key = `${column}-${cell}`;
+							return index === 0 || looksLikeCode(cell) ? (
+								<Code key={key}>{cell}</Code>
+							) : (
+								<p key={key} className="text-baud-muted">
+									{cell}
+								</p>
+							);
+						})}
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
 function BuiltInVariableSection({ group }: { group: (typeof builtInVariableGroups)[number] }) {
 	return (
 		<section className="space-y-4">
@@ -321,6 +674,28 @@ function Code({ children }: { children: string }) {
 		<code className="max-w-full break-words rounded border border-baud-border bg-baud-bg px-1.5 py-0.5 font-mono text-baud-text">
 			{children}
 		</code>
+	);
+}
+
+function looksLikeCode(value: string) {
+	return (
+		value.includes("(") ||
+		value.includes(")") ||
+		value.includes("{") ||
+		value.includes("[") ||
+		value.includes("_") ||
+		value === "+" ||
+		value === "-" ||
+		value === "*" ||
+		value === "/" ||
+		value === "%" ||
+		value === "^" ||
+		value === "==" ||
+		value === "!=" ||
+		value === ">" ||
+		value === ">=" ||
+		value === "<" ||
+		value === "<="
 	);
 }
 

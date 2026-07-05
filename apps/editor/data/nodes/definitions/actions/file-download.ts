@@ -3,6 +3,7 @@ import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible } from "../runtime-outputs";
 import { actionFile } from "../shared";
+import { requiredConfig, staticHttpUrlConfig } from "../validators";
 
 export const downloadFileNode = defineNode({
 	actionType: "action.file.download",
@@ -23,8 +24,8 @@ export const downloadFileNode = defineNode({
 	icon: Download,
 	kind: "action",
 	label: "Download File",
-	permission: { name: "file_download", risk: "high" },
-	risk: "high",
+	permission: { name: "download_file", risk: "medium" },
+	risk: "medium",
 	runtimeOutputs: fallible([
 		{
 			name: "path",
@@ -35,6 +36,12 @@ export const downloadFileNode = defineNode({
 		{ name: "url", type: "string", description: "Source URL used for the download.", example: "n-mr3zyt6f-19.url" },
 	]),
 	runnerType: "download_file",
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "url", "download URL"),
+			staticHttpUrlConfig(config, "url", "download URL"),
+			requiredConfig(config, "destinationPath", "destination file path"),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

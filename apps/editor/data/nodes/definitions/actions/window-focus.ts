@@ -2,6 +2,7 @@ import { AppWindow } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { processMatchModeOptions } from "../options";
 import { actionWindow } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const windowFocusNode = defineNode({
 	actionType: "action.window.focus",
@@ -18,9 +19,10 @@ export const windowFocusNode = defineNode({
 	icon: AppWindow,
 	kind: "action",
 	label: "Window Focus",
-	permission: { name: "window_focus", risk: "medium" },
-	risk: "medium",
+	permission: { name: "window_focus", risk: "high" },
+	risk: "high",
 	runnerType: "focus_window",
+	validateConfig: (config) => [requiredConfig(config, "target", "window focus target")].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

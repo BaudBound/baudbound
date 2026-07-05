@@ -26,6 +26,7 @@ import {
 	isDevelopmentGraphEnabled,
 } from "@/data/nodes/development-graph";
 import { createNodeFromPaletteItem } from "@/data/nodes/registry";
+import { isDesktopTargetRuntime } from "@/data/project/runtimes";
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
 import type {
 	EditorAsset,
@@ -96,6 +97,12 @@ type VerificationErrorDialog = {
 
 type SimulationMessageBoxState = Extract<SimulationSideEffect, { type: "message_box" }> | null;
 
+type SimulationLifecycle = {
+	abortController: AbortController | null;
+	active: boolean;
+	runId: number;
+};
+
 const MAX_OUTPUT_LOG_ENTRIES = 800;
 const MAX_SIMULATION_LOG_ENTRIES = 800;
 const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -116,10 +123,8 @@ export function EditorPage() {
 	const importInputRef = useRef<HTMLInputElement>(null);
 	const nodesRef = useRef<Node<ScriptNodeData>[]>([]);
 	const selectedNodeIdRef = useRef<string | null>(null);
-	const simulationAbortControllerRef = useRef<AbortController | null>(null);
+	const simulationLifecycleRef = useRef<SimulationLifecycle>({ abortController: null, active: false, runId: 0 });
 	const simulationMessageBoxResolveRef = useRef<((button: string) => void) | null>(null);
-	const simulationRunIdRef = useRef(0);
-	const simulationRunningRef = useRef(false);
 	const viewportCenterRef = useRef<XYPosition | null>(null);
 	const initialNodes = useMemo(() => createInitialEditorNodes(), []);
 	const initialEdges = useMemo(() => createInitialEditorEdges(), []);
@@ -205,7 +210,7 @@ export function EditorPage() {
 		() => createVariablePanelEntries(projectSettings, nodes, simulationVariables),
 		[projectSettings, nodes, simulationVariables],
 	);
-	const isDesktopTarget = projectSettings.targetRuntime.toLowerCase().includes("desktop");
+	const isDesktopTarget = isDesktopTargetRuntime(projectSettings.targetRuntime);
 
 	const normalizedProjectSettings = {
 		...projectSettings,
@@ -227,6 +232,32 @@ export function EditorPage() {
 		);
 	}, []);
 
+	const abortSimulationLifecycle = useCallback((reason: string) => {
+		const lifecycle = simulationLifecycleRef.current;
+		lifecycle.abortController?.abort(reason);
+		lifecycle.abortController = null;
+		lifecycle.active = false;
+		lifecycle.runId += 1;
+	}, []);
+
+	const startSimulationLifecycle = useCallback((abortController: AbortController) => {
+		const lifecycle = simulationLifecycleRef.current;
+		lifecycle.abortController = abortController;
+		lifecycle.active = true;
+		lifecycle.runId += 1;
+		return lifecycle.runId;
+	}, []);
+
+	const completeSimulationLifecycle = useCallback((runId: number) => {
+		const lifecycle = simulationLifecycleRef.current;
+		if (lifecycle.runId !== runId) {
+			return;
+		}
+
+		lifecycle.abortController = null;
+		lifecycle.active = false;
+	}, []);
+
 	useEffect(() => {
 		const disableNativeContextMenu = (event: MouseEvent) => event.preventDefault();
 
@@ -237,11 +268,9 @@ export function EditorPage() {
 
 	useEffect(() => {
 		return () => {
-			simulationAbortControllerRef.current?.abort("editor unmounted");
-			simulationAbortControllerRef.current = null;
-			simulationRunningRef.current = false;
+			abortSimulationLifecycle("editor unmounted");
 		};
-	}, []);
+	}, [abortSimulationLifecycle]);
 
 	useEffect(() => {
 		setVerificationRecord((currentRecord) => {
@@ -253,11 +282,8 @@ export function EditorPage() {
 		});
 		setSimulationStatus("idle");
 		setSimulationVariables([]);
-		simulationAbortControllerRef.current?.abort("graph changed");
-		simulationAbortControllerRef.current = null;
-		simulationRunIdRef.current += 1;
-		simulationRunningRef.current = false;
-	}, [verificationSignature]);
+		abortSimulationLifecycle("graph changed");
+	}, [abortSimulationLifecycle, verificationSignature]);
 
 	useEffect(() => {
 		const nodeIds = new Set(nodes.map((node) => node.id));
@@ -339,7 +365,7 @@ export function EditorPage() {
 
 	const handleSimulationStep = useCallback(
 		async (step: SimulationStep, runId: number, signal: AbortSignal): Promise<SimulationSideEffectResult[]> => {
-			if (simulationRunIdRef.current !== runId || signal.aborted) {
+			if (simulationLifecycleRef.current.runId !== runId || signal.aborted) {
 				return [];
 			}
 
@@ -388,13 +414,14 @@ export function EditorPage() {
 					nodes,
 					edges,
 					overrides: simulationOverrides,
+					projectSettings,
 					signal: abortController.signal,
 					stepDelayMs: getSimulationStepDelay(simulationSettings.speed),
 					triggerNodeId,
 					triggerPayload: payload,
 					onStep: (step) => handleSimulationStep(step, runId, abortController.signal),
 				});
-				if (simulationRunIdRef.current !== runId) {
+				if (simulationLifecycleRef.current.runId !== runId) {
 					return;
 				}
 
@@ -403,17 +430,26 @@ export function EditorPage() {
 					appendSimulationLogs([{ level: "info", message: "[Simulation] Waiting for the next trigger input." }]);
 				}
 			} finally {
-				if (simulationRunIdRef.current === runId && !keepWaiting) {
-					simulationRunningRef.current = false;
-					simulationAbortControllerRef.current = null;
+				if (simulationLifecycleRef.current.runId === runId && !keepWaiting) {
+					completeSimulationLifecycle(runId);
 				}
 			}
 		},
-		[appendSimulationLogs, assets, edges, handleSimulationStep, nodes, simulationOverrides, simulationSettings.speed],
+		[
+			appendSimulationLogs,
+			assets,
+			completeSimulationLifecycle,
+			edges,
+			handleSimulationStep,
+			nodes,
+			projectSettings,
+			simulationOverrides,
+			simulationSettings.speed,
+		],
 	);
 
 	const handleSimulate = async () => {
-		if (simulationRunningRef.current) {
+		if (simulationLifecycleRef.current.active) {
 			handleStopSimulation();
 			return;
 		}
@@ -457,11 +493,8 @@ export function EditorPage() {
 			return;
 		}
 
-		simulationRunningRef.current = true;
 		const abortController = new AbortController();
-		simulationAbortControllerRef.current = abortController;
-		const runId = simulationRunIdRef.current + 1;
-		simulationRunIdRef.current = runId;
+		startSimulationLifecycle(abortController);
 		setActiveTab("simulator");
 		setBottomPanelOpen(true);
 		setSimulationStatus("waiting");
@@ -476,15 +509,16 @@ export function EditorPage() {
 
 	const handleTriggerSimulation = useCallback(
 		(triggerNodeId: string, payload: SimulationTriggerPayload) => {
-			if (simulationStatus !== "waiting" || !simulationAbortControllerRef.current) {
+			const lifecycle = simulationLifecycleRef.current;
+			if (simulationStatus !== "waiting" || !lifecycle.abortController) {
 				return;
 			}
 
 			void runSimulationTrigger({
-				abortController: simulationAbortControllerRef.current,
+				abortController: lifecycle.abortController,
 				keepWaiting: true,
 				payload,
-				runId: simulationRunIdRef.current,
+				runId: lifecycle.runId,
 				triggerNodeId,
 			});
 		},
@@ -492,14 +526,11 @@ export function EditorPage() {
 	);
 
 	const handleStopSimulation = () => {
-		if (!simulationRunningRef.current) {
+		if (!simulationLifecycleRef.current.active) {
 			return;
 		}
 
-		simulationAbortControllerRef.current?.abort("stopped by user");
-		simulationAbortControllerRef.current = null;
-		simulationRunIdRef.current += 1;
-		simulationRunningRef.current = false;
+		abortSimulationLifecycle("stopped by user");
 		setSimulationStatus("stopped");
 		appendSimulationLogs([{ level: "warn", message: "[Simulation] Stop requested by user." }]);
 	};
@@ -512,14 +543,16 @@ export function EditorPage() {
 
 		try {
 			const verification = await verifyBbsPackage(file);
-			if (verification.summary.status === "failed") {
+			if (verification.summary.status !== "verified") {
 				setVerificationErrorDialog({
 					open: true,
 					title: "Import Rejected",
-					description: "The imported package failed verification and was not loaded.",
+					description: "The imported package did not pass verification cleanly and was not loaded.",
 					checks: verification.checks,
 				});
-				appendSystemLogs([{ level: "error", message: `Import rejected: ${file.name} failed package verification.` }]);
+				appendSystemLogs([
+					{ level: "error", message: `Import rejected: ${file.name} did not pass package verification.` },
+				]);
 				setBottomPanelOpen(true);
 				return;
 			}
@@ -542,10 +575,7 @@ export function EditorPage() {
 				importedPackage.assets,
 			);
 
-			simulationAbortControllerRef.current?.abort("imported package loaded");
-			simulationAbortControllerRef.current = null;
-			simulationRunIdRef.current += 1;
-			simulationRunningRef.current = false;
+			abortSimulationLifecycle("imported package loaded");
 			setProjectSettings(importedPackage.projectSettings);
 			setAssets(importedPackage.assets);
 			setNodes(importedPackage.nodes);
@@ -971,6 +1001,7 @@ export function EditorPage() {
 					activeTab={activeTab}
 					assets={assets}
 					nodes={nodes}
+					projectSettings={projectSettings}
 					selectedNode={selectedNode}
 					simulationOverrides={simulationOverrides}
 					simulationSettings={simulationSettings}

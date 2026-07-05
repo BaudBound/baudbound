@@ -2,6 +2,7 @@ import { Terminal } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const shellCommandNode = defineNode({
 	actionType: "action.shell",
@@ -27,6 +28,7 @@ export const shellCommandNode = defineNode({
 		{ name: "stderr", type: "string", description: "Captured standard error.", example: "n-mr3zyt6f-20.stderr" },
 	]),
 	runnerType: "run_shell_command",
+	validateConfig: (config) => [requiredConfig(config, "command", "shell command")].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: { exit_code: 0, stdout: "Simulated shell output", stderr: "" } }),
 		describe: ({ api, context, node }) => [

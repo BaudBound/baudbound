@@ -2,10 +2,11 @@ import { AppWindow } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { processMatchModeOptions } from "../options";
 import { triggerPorts } from "../shared";
+import { requiredConfig } from "../validators";
 
 export const processStartedTriggerNode = defineNode({
 	actionType: "trigger.process_started",
-	capabilities: ["trigger.process"],
+	capabilities: ["trigger.process_started"],
 	configFields: [
 		{ key: "matchMode", label: "Match by", type: "select", options: processMatchModeOptions },
 		{
@@ -56,6 +57,7 @@ export const processStartedTriggerNode = defineNode({
 		},
 	],
 	runnerType: "process_started",
+	validateConfig: (config) => [requiredConfig(config, "target", "process start target")].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

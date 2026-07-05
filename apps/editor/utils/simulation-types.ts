@@ -3,6 +3,7 @@ import type {
 	EditorAsset,
 	JsonValue,
 	LogEntry,
+	ProjectSettings,
 	ScriptNodeData,
 	SimulationOverride,
 	SimulationTraceEntry,
@@ -18,6 +19,7 @@ export type SimulationRunOptions = {
 		step: SimulationStep,
 	) => Promise<SimulationSideEffectResult[] | undefined> | SimulationSideEffectResult[] | undefined;
 	overrides: SimulationOverride[];
+	projectSettings: ProjectSettings;
 	signal?: AbortSignal;
 	stepDelayMs?: number;
 	triggerNodeId?: string;
@@ -64,7 +66,7 @@ export type SimulationSideEffectResult = {
 };
 
 export type SimulationRun = {
-	steps: SimulationStep[];
+	finalVariables: SimulationVariableSnapshot[];
 	status: "completed" | "failed";
 };
 
@@ -83,9 +85,7 @@ export type SimulationContext = {
 	signal?: AbortSignal;
 	stepDelayMs: number;
 	streamedSteps: number;
-	steps: SimulationStep[];
 	triggerPayload: SimulationTriggerPayload;
-	visitedEdges: Map<string, number>;
 };
 
 export type NodeExecutionResult = {

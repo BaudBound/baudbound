@@ -1,6 +1,7 @@
 import { MousePointer2 } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { actionMouse } from "../shared";
+import { configString, staticNonNegativeNumberConfig, staticNumberConfig } from "../validators";
 
 export const moveMouseNode = defineNode({
 	actionType: "action.mouse.move",
@@ -21,6 +22,17 @@ export const moveMouseNode = defineNode({
 	permission: { name: "mouse_control", risk: "high" },
 	risk: "high",
 	runnerType: "move_mouse",
+	validateConfig: (config) => {
+		const relative = configString(config, "relative") === "true" || config.relative === true;
+		return [
+			relative
+				? staticNumberConfig(config, "x", "mouse X offset")
+				: staticNonNegativeNumberConfig(config, "x", "mouse X coordinate"),
+			relative
+				? staticNumberConfig(config, "y", "mouse Y offset")
+				: staticNonNegativeNumberConfig(config, "y", "mouse Y coordinate"),
+		].filter(Boolean);
+	},
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

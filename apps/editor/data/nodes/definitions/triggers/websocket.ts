@@ -1,6 +1,7 @@
 import { Radio } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { triggerPorts } from "../shared";
+import { configString, requiredConfig } from "../validators";
 
 export const websocketTriggerNode = defineNode({
 	actionType: "trigger.websocket",
@@ -21,7 +22,8 @@ export const websocketTriggerNode = defineNode({
 	kind: "trigger",
 	label: "WebSocket",
 	ports: triggerPorts,
-	risk: "medium",
+	permission: { name: "websocket_public_bind", risk: "high" },
+	risk: "high",
 	runtimeOutputs: [
 		{
 			name: "path",
@@ -62,6 +64,14 @@ export const websocketTriggerNode = defineNode({
 		},
 	],
 	runnerType: "websocket",
+	validateConfig: (config) => {
+		const path = configString(config, "path").trim();
+		return [
+			requiredConfig(config, "socketName", "WebSocket socket name"),
+			requiredConfig(config, "path", "WebSocket path"),
+			path && !path.startsWith("/") ? 'WebSocket path must start with "/".' : "",
+		].filter(Boolean);
+	},
 	simulation: {
 		createOutput: ({ api, context, node }) => {
 			const message = context.triggerPayload.message || '{"event":"simulation"}';
