@@ -12,12 +12,19 @@ FROM deps AS build
 COPY . .
 RUN pnpm build
 
-FROM base AS runner
+FROM node:24-alpine AS runner
 ENV NODE_ENV="production"
+ENV HOSTNAME="0.0.0.0"
+ENV PORT="3000"
 WORKDIR /app
-COPY --from=build /app/.next ./.next
+
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-COPY --from=build /app/package.json ./package.json
-COPY --from=deps /app/node_modules ./node_modules
+
+USER nextjs
+
 EXPOSE 3000
-CMD ["pnpm", "start"]
+CMD ["node", "server.js"]
