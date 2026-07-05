@@ -19,7 +19,7 @@ export function createDefaultTriggerPayload(triggerNode: Node<ScriptNodeData>): 
 			};
 		case "trigger.websocket":
 			return {
-				path: String(triggerNode.data.config.path ?? "/events/socketname"),
+				path: String(triggerNode.data.config.path ?? "/events/messages"),
 				connectionId: "simulated-connection",
 				remoteAddress: "127.0.0.1",
 				message: '{\n  "event": "simulation"\n}',

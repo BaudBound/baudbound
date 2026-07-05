@@ -1,0 +1,68 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-file-download.schema.json",
+	"title": "BaudBound Node - Download File",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.file.download"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "download_file"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"destinationPath",
+				"overwrite",
+				"url"
+			],
+			"properties": {
+				"customName": {
+					"type": "string"
+				},
+				"destinationPath": {
+					"type": "string"
+				},
+				"overwrite": {
+					"type": "string",
+					"enum": [
+						"false",
+						"true"
+					]
+				},
+				"url": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

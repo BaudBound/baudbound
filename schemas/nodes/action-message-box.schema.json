@@ -1,0 +1,81 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-message-box.schema.json",
+	"title": "BaudBound Node - MessageBox",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.message_box"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "show_message_box"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"buttons",
+				"message",
+				"title",
+				"type"
+			],
+			"properties": {
+				"buttons": {
+					"type": "string",
+					"enum": [
+						"ok",
+						"ok_cancel",
+						"yes_no",
+						"yes_no_cancel",
+						"retry_cancel"
+					]
+				},
+				"customName": {
+					"type": "string"
+				},
+				"message": {
+					"type": "string"
+				},
+				"title": {
+					"type": "string"
+				},
+				"type": {
+					"type": "string",
+					"enum": [
+						"info",
+						"warning",
+						"error",
+						"question"
+					]
+				}
+			}
+		}
+	}
+}

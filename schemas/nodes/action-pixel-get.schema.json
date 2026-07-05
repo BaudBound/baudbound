@@ -1,0 +1,76 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-pixel-get.schema.json",
+	"title": "BaudBound Node - Get Pixel Color",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.pixel.get"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "get_pixel_color"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"x",
+				"y"
+			],
+			"properties": {
+				"customName": {
+					"type": "string"
+				},
+				"x": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
+				},
+				"y": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
+				}
+			}
+		}
+	}
+}

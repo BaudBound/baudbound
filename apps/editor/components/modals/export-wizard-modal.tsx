@@ -275,8 +275,8 @@ function ProjectReviewStep({
 				<SectionTitle title="Export Preview" />
 				<div className="rounded border border-baud-border bg-baud-elevated p-4">
 					<SummaryRow label="Filename" value={exportSummary.filename} />
-					<SummaryRow label="Format" value={`v${exportSummary.formatVersion}`} />
-					<SummaryRow label="Language" value={`v${exportSummary.languageVersion}`} />
+					<SummaryRow label="Package" value={`v${exportSummary.formatVersion}`} />
+					<SummaryRow label="Runtime" value={`v${exportSummary.languageVersion}`} />
 					<SummaryRow label="Target" value={exportSummary.targetRuntime} />
 				</div>
 				<div className="rounded border border-baud-border bg-baud-elevated p-4">

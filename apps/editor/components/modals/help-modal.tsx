@@ -10,6 +10,7 @@ import {
 	type LucideIcon,
 	MousePointer2,
 	PackageCheck,
+	StickyNote,
 	Variable,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -28,6 +29,7 @@ type HelpModalProps = {
 const shortcutRows = [
 	{ keys: "Ctrl / Cmd + C", description: "Copy the selected node." },
 	{ keys: "Ctrl / Cmd + V", description: "Paste the copied node at the center of the current canvas view." },
+	{ keys: "Ctrl / Cmd + drag", description: "Box-select nodes and comments from empty canvas space." },
 	{ keys: "Delete / Backspace", description: "Delete the selected node or connection." },
 ];
 
@@ -37,12 +39,21 @@ const contextMenuRows = [
 	{ target: "Canvas", action: "Right click empty canvas space to paste a copied node when one is available." },
 ];
 
+const canvasToolRows = [
+	{
+		icon: StickyNote,
+		tool: "Add comment",
+		description:
+			"Adds an editor-only comment at the center of the current canvas view. Comments are saved in editor metadata and do not run.",
+	},
+];
+
 const referenceFormatRows = [
 	{
 		label: "Saved variable",
 		pattern: "{{variable_name}}",
 		example: "{{status}}",
-		description: "Reads a value saved by Set Variable or provided by the runner.",
+		description: "Reads a value saved by Variable Operation or provided by the runner.",
 	},
 	{
 		label: "Node output",
@@ -56,6 +67,13 @@ const referenceFormatRows = [
 		pattern: "{{variable_or_node.path.to.field}}",
 		example: "{{n-mr3zyt6f-12.json.user.name}}",
 		description: "Reads nested object fields from saved variables or node output data with dot notation.",
+	},
+	{
+		label: "Derived metadata",
+		pattern: "{{variable_or_node.path.$metadata}}",
+		example: "{{n-mr3zyt6f-12.json.players.$length}}",
+		description:
+			"Reads generated facts such as length, count, type, or empty state from variables, nested data, or node outputs.",
 	},
 	{
 		label: "List item",
@@ -81,7 +99,8 @@ const referenceRuleRows = [
 	"Use double braces for saved variables, built-in values, and node runtime data.",
 	"Do not add spaces inside reference braces.",
 	"Replace node-id with the real node id, for example n-mr3zyt6f-12.",
-	"Built-in variables and node output variables are read-only and cannot be changed with Set Variable.",
+	"Use $metadata fields for generated value facts, for example {{foo.$length}} or {{node-id.output.$count}}. Plain .length and .count always mean real data fields.",
+	"Built-in variables and node output variables are read-only and cannot be changed with Variable Operation.",
 	"User variable names cannot start with manifest_ or system_; those prefixes are reserved for built-ins.",
 	"Node output references only have data after that node has executed in the current run.",
 ];
@@ -105,6 +124,13 @@ const calculationFunctionRows = [
 	{ syntax: "random()", description: "Random number between 0 and 1.", example: "random()" },
 	{ syntax: "random(max)", description: "Random number from 0 up to max.", example: "random(10)" },
 	{ syntax: "random(min, max)", description: "Random number between min and max.", example: "random(5, 15)" },
+];
+
+const derivedMetadataRows = [
+	["$length", "String characters, list items, object keys, or 0 for scalar values."],
+	["$count", "Alias for $length."],
+	["$type", "Value type such as string, number, boolean, list, object, null, or missing."],
+	["$is_empty", "True for empty strings, empty lists, empty objects, null, or missing values."],
 ];
 
 const conditionComparisonRows = [
@@ -137,14 +163,29 @@ const nodeBehaviorRows = [
 			"Every node can have a custom display name. The node type remains visible so users can still identify what it does.",
 	},
 	{
+		label: "Loop",
+		description:
+			"Runs the loop output branch once per iteration. The body branch should end naturally and must not connect back to the Loop input. The done output runs after all iterations complete.",
+	},
+	{
 		label: "For Each",
 		description:
-			"Loops through a list value. The items field can reference a list variable or nested list such as {{payload.users}}.",
+			"Loops through a list value. The loop output branch runs once for each item and should end naturally. The items field can reference a list variable or nested list such as {{payload.users}}.",
 	},
 	{
 		label: "HTTP Request",
 		description:
 			"Simulation sends the request from the browser, so CORS and mixed-content browser rules still apply. The runner will execute it locally.",
+	},
+	{
+		label: "Webhook responses",
+		description:
+			"Webhook Trigger can wait for a response node. Webhook Response sends the first response for that request; if no response is reached before timeout, the trigger fallback response is used.",
+	},
+	{
+		label: "WebSocket Write",
+		description:
+			"WebSocket Write sends a message to an active connection id, usually from a WebSocket Trigger output such as {{node-id.connection_id}}.",
 	},
 	{
 		label: "Assets",
@@ -316,6 +357,28 @@ function ControlsSection() {
 					))}
 				</div>
 			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={StickyNote} title="Comments" />
+				<div className="grid gap-2">
+					{canvasToolRows.map((row) => {
+						const Icon = row.icon;
+
+						return (
+							<div
+								key={row.tool}
+								className="grid gap-3 rounded-lg border border-baud-border bg-baud-elevated px-4 py-3 text-sm sm:grid-cols-[180px_1fr]"
+							>
+								<span className="flex items-center gap-2 font-semibold text-baud-text">
+									<Icon size={15} className="text-baud-red" />
+									{row.tool}
+								</span>
+								<p className="text-baud-muted">{row.description}</p>
+							</div>
+						);
+					})}
+				</div>
+			</div>
 		</section>
 	);
 }
@@ -362,9 +425,9 @@ function VariablesSection() {
 	return (
 		<section className="space-y-6">
 			<div className="space-y-3">
-				<SectionTitle icon={Database} title="Set Variable Operations" />
+				<SectionTitle icon={Database} title="Variable Operations" />
 				<InfoCard>
-					Set Variable creates or edits user-writable variables. Built-in variables and node output references are
+					Variable Operation creates or edits user-writable variables. Built-in variables and node output references are
 					read-only, and variable names cannot start with <Code>{"manifest_"}</Code> or <Code>{"system_"}</Code>.
 				</InfoCard>
 				<DocTable
@@ -424,42 +487,7 @@ function NodesSection() {
 								<h3 className="font-semibold text-baud-text">{group.label}</h3>
 							</div>
 							<div className="divide-y divide-baud-border">
-								{group.items.map((item) => {
-									const configFields = getNodeConfigFields(item.actionType);
-									const runtimeOutputs = getRuntimeDataOutputs(item.actionType);
-
-									return (
-										<div
-											key={item.actionType}
-											className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[220px_minmax(0,1fr)]"
-										>
-											<div className="min-w-0">
-												<div className="font-semibold text-baud-text">{item.label}</div>
-												<Code>{item.actionType}</Code>
-												<div className="mt-2 font-mono text-xs uppercase text-baud-muted">risk {item.risk}</div>
-											</div>
-											<div className="min-w-0 space-y-2 text-baud-muted">
-												<p>{item.description}</p>
-												<NodeReferenceLine
-													label="Config"
-													value={
-														configFields.length > 0
-															? configFields.map((field) => field.label).join(", ")
-															: "No editable config fields"
-													}
-												/>
-												<NodeReferenceLine
-													label="Runtime data"
-													value={
-														runtimeOutputs.length > 0
-															? runtimeOutputs.map((output) => output.name).join(", ")
-															: "No runtime data"
-													}
-												/>
-											</div>
-										</div>
-									);
-								})}
+								<NodeReferenceGroup group={group} />
 							</div>
 						</div>
 					))}
@@ -470,13 +498,69 @@ function NodesSection() {
 				<SectionTitle icon={BookOpenText} title="Common Runtime Outputs" />
 				<div className="grid gap-2">
 					<InfoCard>
-						HTTP Request exposes status code, status text, headers, body, parsed JSON, and duration. File Read exposes
-						path, content, and bytes. Get Pixel Color exposes hex, rgb, rgba, and channel values. Process, window,
-						serial, sound, message box, and file nodes expose operation-specific data when relevant.
+						HTTP Request exposes status code, status text, headers, body, parsed JSON, and duration. Webhook Trigger
+						exposes request method, path, headers, query, body, JSON, and response state. Webhook Response exposes sent
+						status, status code, content type, headers, body, and trigger id. WebSocket Trigger exposes path, connection
+						id, headers, query, message, parsed JSON, and remote address. WebSocket Write exposes connection id,
+						message, and bytes sent. File Read exposes path, content, and bytes. Get Pixel Color exposes hex, rgb, rgba,
+						and channel values. Process, window, serial, sound, message box, and file nodes expose operation-specific
+						data when relevant.
 					</InfoCard>
 				</div>
 			</div>
 		</section>
+	);
+}
+
+function NodeReferenceGroup({
+	group,
+	nested = false,
+}: {
+	group: ReturnType<typeof getPaletteGroups>[number];
+	nested?: boolean;
+}) {
+	return (
+		<>
+			{nested && (
+				<div className="bg-baud-panel/40 px-4 py-2 text-xs font-bold tracking-[0.14em] text-baud-muted uppercase">
+					{group.label}
+				</div>
+			)}
+			{group.items.map((item) => (
+				<NodeReferenceItem key={item.actionType} item={item} />
+			))}
+			{group.children?.map((child) => (
+				<NodeReferenceGroup key={child.id} group={child} nested />
+			))}
+		</>
+	);
+}
+
+function NodeReferenceItem({ item }: { item: ReturnType<typeof getPaletteGroups>[number]["items"][number] }) {
+	const configFields = getNodeConfigFields(item.actionType);
+	const runtimeOutputs = getRuntimeDataOutputs(item.actionType);
+
+	return (
+		<div className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[220px_minmax(0,1fr)]">
+			<div className="min-w-0">
+				<div className="font-semibold text-baud-text">{item.label}</div>
+				<Code>{item.actionType}</Code>
+				<div className="mt-2 font-mono text-xs uppercase text-baud-muted">risk {item.risk}</div>
+			</div>
+			<div className="min-w-0 space-y-2 text-baud-muted">
+				<p>{item.description}</p>
+				<NodeReferenceLine
+					label="Config"
+					value={
+						configFields.length > 0 ? configFields.map((field) => field.label).join(", ") : "No editable config fields"
+					}
+				/>
+				<NodeReferenceLine
+					label="Runtime data"
+					value={runtimeOutputs.length > 0 ? runtimeOutputs.map((output) => output.name).join(", ") : "No runtime data"}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -548,6 +632,17 @@ function ReferencesSection() {
 						))}
 					</div>
 				</div>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Variable} title="Derived Metadata" />
+				<InfoCard>
+					Metadata fields are calculated from the current value when the reference is read. They are not stored into the
+					variable and cannot overwrite real object fields because they use the reserved <Code>{"$"}</Code> prefix. Use
+					them on saved variables like <Code>{"{{foo.$length}}"}</Code> or on node outputs like{" "}
+					<Code>{"{{n-mr3zyt6f-12.items.$count}}"}</Code>.
+				</InfoCard>
+				<DocTable columns={["Field", "Description"]} rows={derivedMetadataRows} />
 			</div>
 
 			<div className="space-y-3">

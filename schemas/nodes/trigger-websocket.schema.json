@@ -1,0 +1,52 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/trigger-websocket.schema.json",
+	"title": "BaudBound Node - WebSocket",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "trigger.websocket"
+		},
+		"type": {
+			"const": "websocket"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"path"
+			],
+			"properties": {
+				"customName": {
+					"type": "string"
+				},
+				"path": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

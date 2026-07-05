@@ -1,0 +1,94 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/runtime-set-variable.schema.json",
+	"title": "BaudBound Node - Variable Operation",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "runtime.set_variable"
+		},
+		"type": {
+			"const": "set_variable"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"name",
+				"operation",
+				"scope",
+				"valueType"
+			],
+			"properties": {
+				"customName": {
+					"type": "string"
+				},
+				"fieldPath": {
+					"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/jsonValue"
+				},
+				"name": {
+					"type": "string"
+				},
+				"operation": {
+					"type": "string",
+					"enum": [
+						"set",
+						"increment",
+						"append_list",
+						"set_object_field",
+						"clear"
+					]
+				},
+				"scope": {
+					"type": "string",
+					"enum": [
+						"runtime",
+						"persistent",
+						"global",
+						"secret"
+					]
+				},
+				"value": {
+					"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/jsonValue"
+				},
+				"valueType": {
+					"type": "string",
+					"enum": [
+						"string",
+						"number",
+						"boolean",
+						"object",
+						"list",
+						"http_response",
+						"datetime",
+						"duration",
+						"file_path"
+					]
+				}
+			}
+		}
+	}
+}

@@ -1,9 +1,10 @@
 "use client";
 
-import { type Edge, type Node, useEdgesState, useNodesState, type XYPosition } from "@xyflow/react";
+import { type Edge, useEdgesState, useNodesState, type XYPosition } from "@xyflow/react";
 import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlowCanvas } from "@/components/canvas/flow-canvas";
+import type { CommentFlowNode } from "@/components/canvas/comment-card";
+import { type EditorFlowNode, FlowCanvas, type ScriptFlowNode } from "@/components/canvas/flow-canvas";
 import { Inspector } from "@/components/inspector/inspector";
 import { AssetEditorModal } from "@/components/modals/asset-editor-modal";
 import { ExportWizardModal } from "@/components/modals/export-wizard-modal";
@@ -25,17 +26,18 @@ import {
 	createInitialEditorNodes,
 	isDevelopmentGraphEnabled,
 } from "@/data/nodes/development-graph";
-import { createNodeFromPaletteItem } from "@/data/nodes/registry";
+import { createNodeFromPaletteItem, getFlatPaletteItems } from "@/data/nodes/registry";
 import { isDesktopTargetRuntime } from "@/data/project/runtimes";
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
 import type {
+	CommentNodeData,
 	EditorAsset,
+	EditorComment,
 	InspectorTab,
 	JsonValue,
 	LogEntry,
 	PaletteItem,
 	ProjectSettings,
-	ScriptNodeData,
 	SimulationOverride,
 	SimulationOverrideOutcome,
 	SimulationRunStatus,
@@ -79,7 +81,7 @@ import {
 } from "@/utils/verification";
 
 type EditorClipboard = {
-	node: Node<ScriptNodeData>;
+	node: ScriptFlowNode;
 	type: "node";
 };
 
@@ -105,6 +107,13 @@ type SimulationLifecycle = {
 
 const MAX_OUTPUT_LOG_ENTRIES = 800;
 const MAX_SIMULATION_LOG_ENTRIES = 800;
+const DEFAULT_COMMENT_SIZE = {
+	width: 280,
+	height: 156,
+};
+const paletteItemByActionType: ReadonlyMap<string, PaletteItem> = new Map(
+	getFlatPaletteItems().map((item) => [item.actionType, item]),
+);
 const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 	name: "untitled-script",
 	description: "",
@@ -112,7 +121,7 @@ const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 	website: "",
 	repository: "",
 	tags: [],
-	targetRuntime: "Generic Headless",
+	targetRuntime: "Generic Desktop",
 	minimumRunnerVersion: "0.1.0",
 };
 
@@ -121,12 +130,12 @@ export function EditorPage() {
 	const handlePasteClipboardRef = useRef<(position: XYPosition) => void>(() => undefined);
 	const clipboardRef = useRef<EditorClipboard | null>(null);
 	const importInputRef = useRef<HTMLInputElement>(null);
-	const nodesRef = useRef<Node<ScriptNodeData>[]>([]);
+	const nodesRef = useRef<ScriptFlowNode[]>([]);
 	const selectedNodeIdRef = useRef<string | null>(null);
 	const simulationLifecycleRef = useRef<SimulationLifecycle>({ abortController: null, active: false, runId: 0 });
 	const simulationMessageBoxResolveRef = useRef<((button: string) => void) | null>(null);
 	const viewportCenterRef = useRef<XYPosition | null>(null);
-	const initialNodes = useMemo(() => createInitialEditorNodes(), []);
+	const initialNodes = useMemo<EditorFlowNode[]>(() => createInitialEditorNodes() as ScriptFlowNode[], []);
 	const initialEdges = useMemo(() => createInitialEditorEdges(), []);
 	const [projectSettings, setProjectSettings] = useState<ProjectSettings>(DEFAULT_PROJECT_SETTINGS);
 	const [activeTab, setActiveTab] = useState<InspectorTab>("properties");
@@ -158,7 +167,7 @@ export function EditorPage() {
 		simulation: true,
 	});
 	const [simulationSettings, setSimulationSettings] = useState<SimulationSettings>({
-		speed: "normal",
+		speed: "instant",
 	});
 	const [simulationOverrides, setSimulationOverrides] = useState<SimulationOverride[]>([]);
 	const [simulationStatus, setSimulationStatus] = useState<SimulationRunStatus>("idle");
@@ -169,22 +178,28 @@ export function EditorPage() {
 		createConsoleLogs(
 			DEFAULT_PROJECT_SETTINGS.name,
 			DEFAULT_PROJECT_SETTINGS.targetRuntime,
-			calculatePermissions(initialNodes),
+			calculatePermissions(initialNodes.filter(isScriptFlowNode)),
 		),
 	);
 	const [logs, setLogs] = useState<LogEntry[]>([]);
-	const [nodes, setNodes, onNodesChange] = useNodesState<Node<ScriptNodeData>>(initialNodes);
+	const [nodes, setNodes, onNodesChange] = useNodesState<EditorFlowNode>(initialNodes);
 	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges);
 	const { sizes, startResize } = useEditorPanelSizes();
 
-	nodesRef.current = nodes;
-	selectedNodeIdRef.current = selectedNodeId ?? nodes.find((node) => node.selected)?.id ?? null;
+	const scriptNodes = useMemo(() => nodes.filter(isScriptFlowNode), [nodes]);
+	const comments = useMemo(() => nodes.filter(isCommentFlowNode).map(toEditorComment), [nodes]);
+
+	nodesRef.current = scriptNodes;
+	selectedNodeIdRef.current = selectedNodeId ?? scriptNodes.find((node) => node.selected)?.id ?? null;
 	clipboardRef.current = clipboard;
 	viewportCenterRef.current = viewportCenter;
 
-	const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
-	const permissions = useMemo(() => calculatePermissions(nodes), [nodes]);
-	const capabilities = useMemo(() => calculateCapabilities(nodes), [nodes]);
+	const selectedNode = useMemo(
+		() => scriptNodes.find((node) => node.id === selectedNodeId) ?? null,
+		[scriptNodes, selectedNodeId],
+	);
+	const permissions = useMemo(() => calculatePermissions(scriptNodes), [scriptNodes]);
+	const capabilities = useMemo(() => calculateCapabilities(scriptNodes), [scriptNodes]);
 	const riskLevel = useMemo(() => calculateRiskLevel(permissions), [permissions]);
 	const exportSummary = useMemo(
 		() => createExportSummary(projectSettings.name, projectSettings.targetRuntime, assets),
@@ -195,20 +210,20 @@ export function EditorPage() {
 			createVerificationChecks({
 				assets,
 				edges,
-				nodes,
+				nodes: scriptNodes,
 				permissions,
 				scriptName: projectSettings.name,
 				targetRuntime: projectSettings.targetRuntime,
 			}),
-		[assets, edges, nodes, permissions, projectSettings.name, projectSettings.targetRuntime],
+		[assets, edges, scriptNodes, permissions, projectSettings.name, projectSettings.targetRuntime],
 	);
 	const verificationSignature = useMemo(
-		() => createEditorVerificationSignature(projectSettings, nodes, edges, assets),
-		[projectSettings, nodes, edges, assets],
+		() => createEditorVerificationSignature(projectSettings, scriptNodes, edges, assets),
+		[projectSettings, scriptNodes, edges, assets],
 	);
 	const variableEntries = useMemo(
-		() => createVariablePanelEntries(projectSettings, nodes, simulationVariables),
-		[projectSettings, nodes, simulationVariables],
+		() => createVariablePanelEntries(projectSettings, scriptNodes, simulationVariables),
+		[projectSettings, scriptNodes, simulationVariables],
 	);
 	const isDesktopTarget = isDesktopTargetRuntime(projectSettings.targetRuntime);
 
@@ -286,9 +301,9 @@ export function EditorPage() {
 	}, [abortSimulationLifecycle, verificationSignature]);
 
 	useEffect(() => {
-		const nodeIds = new Set(nodes.map((node) => node.id));
+		const nodeIds = new Set(scriptNodes.map((node) => node.id));
 		setSimulationOverrides((currentOverrides) => currentOverrides.filter((override) => nodeIds.has(override.nodeId)));
-	}, [nodes]);
+	}, [scriptNodes]);
 
 	const handleExport = () => {
 		setExportOpen(true);
@@ -297,9 +312,10 @@ export function EditorPage() {
 	const handleDownloadExport = async () => {
 		await exportBbsPackage({
 			projectSettings: normalizedProjectSettings,
-			nodes,
+			nodes: scriptNodes,
 			edges,
 			assets,
+			comments,
 		});
 	};
 
@@ -411,7 +427,7 @@ export function EditorPage() {
 			try {
 				const run = await createSimulationRun({
 					assets,
-					nodes,
+					nodes: scriptNodes,
 					edges,
 					overrides: simulationOverrides,
 					projectSettings,
@@ -441,8 +457,8 @@ export function EditorPage() {
 			completeSimulationLifecycle,
 			edges,
 			handleSimulationStep,
-			nodes,
 			projectSettings,
+			scriptNodes,
 			simulationOverrides,
 			simulationSettings.speed,
 		],
@@ -474,7 +490,7 @@ export function EditorPage() {
 			return;
 		}
 
-		const triggerNodes = getSimulationTriggers(nodes);
+		const triggerNodes = getSimulationTriggers(scriptNodes);
 		if (triggerNodes.length === 0) {
 			setVerificationErrorDialog({
 				open: true,
@@ -578,7 +594,10 @@ export function EditorPage() {
 			abortSimulationLifecycle("imported package loaded");
 			setProjectSettings(importedPackage.projectSettings);
 			setAssets(importedPackage.assets);
-			setNodes(importedPackage.nodes);
+			setNodes([
+				...(importedPackage.nodes as ScriptFlowNode[]),
+				...importedPackage.comments.map((comment) => toCommentFlowNode(comment)),
+			]);
 			setEdges(importedPackage.edges);
 			setSelectedNodeId(null);
 			setSelectedEdgeId(null);
@@ -711,24 +730,80 @@ export function EditorPage() {
 		setBottomPanelFollow((currentFollow) => ({ ...currentFollow, [tab]: enabled }));
 	};
 
-	const handleAddBlock = (item: PaletteItem) => {
-		if (item.actionType === "trigger.manual" && hasManualTrigger(nodes)) {
+	const handleAddBlock = (item: PaletteItem, centerPosition = viewportCenter) => {
+		if (item.actionType === "trigger.manual" && hasManualTrigger(scriptNodes)) {
 			showManualTriggerLimitError();
 			return;
 		}
 
-		const node = createNodeFromPaletteItem(item, nodes.length, {
-			position: viewportCenter ? getCenteredScriptNodePosition(viewportCenter) : undefined,
-		});
-		setNodes((currentNodes) => [...currentNodes, node]);
+		const node = createNodeFromPaletteItem(item, scriptNodes.length, {
+			position: centerPosition ? getCenteredScriptNodePosition(centerPosition) : undefined,
+		}) as ScriptFlowNode;
+		setNodes((currentNodes) => [
+			...currentNodes.map((currentNode) => ({ ...currentNode, selected: false })),
+			{ ...node, selected: true },
+		]);
 		setSelectedNodeId((currentNodeId) => (currentNodeId === node.id ? currentNodeId : node.id));
 		setSelectedEdgeId((currentEdgeId) => (currentEdgeId === null ? currentEdgeId : null));
 		setActiveTab("properties");
 	};
 
+	const handleDropPaletteNode = (actionType: string, position: XYPosition) => {
+		const item = paletteItemByActionType.get(actionType);
+		if (!item) {
+			return;
+		}
+
+		handleAddBlock(item, position);
+	};
+
+	const handleCreateComment = (position: XYPosition) => {
+		const commentNode = createCommentFlowNode({
+			x: position.x - DEFAULT_COMMENT_SIZE.width / 2,
+			y: position.y - 20,
+		});
+
+		setNodes((currentNodes) => [...currentNodes.map((node) => ({ ...node, selected: false })), commentNode]);
+		setSelectedNodeId(null);
+		setSelectedEdgeId(null);
+	};
+
+	const handleUpdateComment = (commentId: string, patch: Partial<CommentNodeData>) => {
+		setNodes((currentNodes) => {
+			let changed = false;
+			const nextNodes = currentNodes.map((node) => {
+				if (!isCommentFlowNode(node) || node.id !== commentId) {
+					return node;
+				}
+
+				const nextData = { ...node.data, ...patch };
+				if (areCommentNodeDataEqual(node.data, nextData)) {
+					return node;
+				}
+
+				changed = true;
+				return {
+					...node,
+					data: nextData,
+					style: {
+						...node.style,
+						width: nextData.size.width,
+						height: nextData.size.height,
+					},
+				};
+			});
+
+			return changed ? nextNodes : currentNodes;
+		});
+	};
+
+	const handleDeleteComment = (commentId: string) => {
+		setNodes((currentNodes) => currentNodes.filter((node) => node.id !== commentId));
+	};
+
 	const handleSpawnDevelopmentNodes = () => {
 		const developmentNodes = createDevelopmentEditorNodes(viewportCenter ?? undefined);
-		setNodes(developmentNodes);
+		setNodes(developmentNodes as ScriptFlowNode[]);
 		setEdges([]);
 		setSelectedNodeId(null);
 		setSelectedEdgeId(null);
@@ -747,7 +822,7 @@ export function EditorPage() {
 
 		setNodes((currentNodes) =>
 			currentNodes.map((node) => {
-				if (node.id !== nodeId) {
+				if (!isScriptFlowNode(node) || node.id !== nodeId) {
 					return node;
 				}
 
@@ -807,7 +882,7 @@ export function EditorPage() {
 	};
 
 	const handleCopyNode = (nodeId: string) => {
-		const node = nodes.find((currentNode) => currentNode.id === nodeId);
+		const node = scriptNodes.find((currentNode) => currentNode.id === nodeId);
 		if (!node) {
 			return;
 		}
@@ -816,12 +891,12 @@ export function EditorPage() {
 	};
 
 	const handleDuplicateNode = (nodeId: string) => {
-		const node = nodes.find((currentNode) => currentNode.id === nodeId);
+		const node = scriptNodes.find((currentNode) => currentNode.id === nodeId);
 		if (!node) {
 			return;
 		}
 
-		if (node.data.actionType === "trigger.manual" && hasManualTrigger(nodes)) {
+		if (node.data.actionType === "trigger.manual" && hasManualTrigger(scriptNodes)) {
 			showManualTriggerLimitError();
 			return;
 		}
@@ -829,7 +904,7 @@ export function EditorPage() {
 		const duplicatedNode = createGraphNodeCopy(node, {
 			x: node.position.x + DUPLICATE_OFFSET,
 			y: node.position.y + DUPLICATE_OFFSET,
-		});
+		}) as ScriptFlowNode;
 
 		setNodes((currentNodes) => [...currentNodes, duplicatedNode]);
 		setSelectedNodeId(duplicatedNode.id);
@@ -842,12 +917,12 @@ export function EditorPage() {
 			return;
 		}
 
-		if (clipboard.node.data.actionType === "trigger.manual" && hasManualTrigger(nodes)) {
+		if (clipboard.node.data.actionType === "trigger.manual" && hasManualTrigger(scriptNodes)) {
 			showManualTriggerLimitError();
 			return;
 		}
 
-		const pastedNode = createGraphNodeCopy(clipboard.node, position);
+		const pastedNode = createGraphNodeCopy(clipboard.node, position) as ScriptFlowNode;
 		setNodes((currentNodes) => [...currentNodes, pastedNode]);
 		setSelectedNodeId(pastedNode.id);
 		setSelectedEdgeId(null);
@@ -857,8 +932,8 @@ export function EditorPage() {
 	handleCopyNodeRef.current = handleCopyNode;
 	handlePasteClipboardRef.current = handlePasteClipboard;
 
-	const handleNodesDelete = (deletedNodes: Node<ScriptNodeData>[]) => {
-		const deletedNodeIds = new Set(deletedNodes.map((node) => node.id));
+	const handleNodesDelete = (deletedNodes: EditorFlowNode[]) => {
+		const deletedNodeIds = new Set(deletedNodes.filter(isScriptFlowNode).map((node) => node.id));
 		setEdges((currentEdges) =>
 			currentEdges.filter((edge) => {
 				const shouldDelete = deletedNodeIds.has(edge.source) || deletedNodeIds.has(edge.target);
@@ -944,7 +1019,7 @@ export function EditorPage() {
 					onPointerDown={(event) => startResize("left", event)}
 				/>
 
-				<main className="flex min-w-0 flex-1 flex-col">
+				<main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 					<FlowCanvas
 						nodes={nodes}
 						edges={edges}
@@ -965,8 +1040,12 @@ export function EditorPage() {
 						onCopyNode={handleCopyNode}
 						onDeleteNode={handleDeleteNode}
 						onDeleteEdge={handleDeleteEdge}
+						onCreateComment={handleCreateComment}
+						onDeleteComment={handleDeleteComment}
+						onUpdateComment={handleUpdateComment}
 						onDuplicateNode={handleDuplicateNode}
 						onPaste={handlePasteClipboard}
+						onDropPaletteNode={handleDropPaletteNode}
 						onSpawnDevelopmentNodes={handleSpawnDevelopmentNodes}
 						showDevelopmentNodeSpawner={isDevelopmentGraphEnabled}
 						onViewportCenterChange={setViewportCenter}
@@ -1000,7 +1079,7 @@ export function EditorPage() {
 				<Inspector
 					activeTab={activeTab}
 					assets={assets}
-					nodes={nodes}
+					nodes={scriptNodes}
 					projectSettings={projectSettings}
 					selectedNode={selectedNode}
 					simulationOverrides={simulationOverrides}
@@ -1018,7 +1097,7 @@ export function EditorPage() {
 				/>
 			</div>
 
-			<StatusBar nodes={nodes} edges={edges} riskLevel={riskLevel} />
+			<StatusBar nodes={scriptNodes} edges={edges} riskLevel={riskLevel} />
 			<VerificationModal
 				checks={verificationChecks}
 				open={verificationOpen}
@@ -1059,5 +1138,71 @@ export function EditorPage() {
 			<SimulationMessageBoxDialog messageBox={simulationMessageBox} onSelect={handleSimulationMessageBoxSelect} />
 			<Toaster position="bottom-right" closeButton richColors />
 		</div>
+	);
+}
+
+function createCommentFlowNode(position: XYPosition): CommentFlowNode {
+	return toCommentFlowNode(
+		{
+			id: `c-${crypto.randomUUID()}`,
+			text: "",
+			position,
+			size: DEFAULT_COMMENT_SIZE,
+			color: "amber",
+		},
+		true,
+	);
+}
+
+function toCommentFlowNode(comment: EditorComment, selected = false): CommentFlowNode {
+	return {
+		id: comment.id,
+		type: "commentNode",
+		position: comment.position,
+		data: {
+			editorOnly: true,
+			text: comment.text,
+			size: comment.size,
+			color: comment.color,
+		},
+		style: {
+			width: comment.size.width,
+			height: comment.size.height,
+		},
+		className: "baud-comment-flow-node",
+		connectable: false,
+		deletable: true,
+		draggable: true,
+		dragHandle: ".baud-comment-drag-handle",
+		selectable: true,
+		selected,
+		zIndex: 5,
+	};
+}
+
+function toEditorComment(node: CommentFlowNode): EditorComment {
+	return {
+		id: node.id,
+		text: node.data.text,
+		position: node.position,
+		size: node.data.size,
+		color: node.data.color,
+	};
+}
+
+function isCommentFlowNode(node: EditorFlowNode): node is CommentFlowNode {
+	return node.type === "commentNode";
+}
+
+function isScriptFlowNode(node: EditorFlowNode): node is ScriptFlowNode {
+	return node.type !== "commentNode";
+}
+
+function areCommentNodeDataEqual(first: CommentNodeData, second: CommentNodeData) {
+	return (
+		first.text === second.text &&
+		first.color === second.color &&
+		first.size.width === second.size.width &&
+		first.size.height === second.size.height
 	);
 }

@@ -53,9 +53,16 @@ Do not treat exported editor packages as inherently trusted. The runner must enf
 
 The editor is a Next.js application in `apps/editor`.
 
+Public hosted editor:
+
+```text
+https://editor.baudbound.app/
+```
+
 It currently supports:
 
 - React Flow based visual node editor
+- editor-only canvas comments for documenting graph intent
 - project settings and manifest metadata
 - `.bbs` import and export
 - package assets managed fully client-side

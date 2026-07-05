@@ -1,5 +1,16 @@
 import type { Edge, Node, XYPosition } from "@xyflow/react";
-import { FolderTree, Shapes, Zap } from "lucide-react";
+import {
+	Bot,
+	Database,
+	FileCog,
+	FolderTree,
+	Keyboard,
+	MessageSquare,
+	Network,
+	Shapes,
+	Terminal,
+	Zap,
+} from "lucide-react";
 import type {
 	ActionType,
 	EditorAsset,
@@ -36,10 +47,12 @@ import { playSoundNode } from "./definitions/actions/play-sound";
 import { processStatusNode } from "./definitions/actions/process-status";
 import { runProcessNode } from "./definitions/actions/run-process";
 import { serialWriteNode } from "./definitions/actions/serial-write";
-import { setVariableNode } from "./definitions/actions/set-variable";
 import { shellCommandNode } from "./definitions/actions/shell-command";
 import { subScriptNode } from "./definitions/actions/sub-script";
 import { typeTextNode } from "./definitions/actions/type-text";
+import { variableOperationNode } from "./definitions/actions/variable-operation";
+import { webhookResponseNode } from "./definitions/actions/webhook-response";
+import { websocketWriteNode } from "./definitions/actions/websocket-write";
 import { windowFocusNode } from "./definitions/actions/window-focus";
 import { forEachNode } from "./definitions/control/for-each";
 import { ifElseNode } from "./definitions/control/if-else";
@@ -79,12 +92,14 @@ const nodeDefinitions: NodeDefinition[] = [
 	switchNode,
 	loopNode,
 	forEachNode,
-	setVariableNode,
+	variableOperationNode,
 	calculateNode,
 	formatTextNode,
 	logNode,
 	delayNode,
 	httpRequestNode,
+	webhookResponseNode,
+	websocketWriteNode,
 	notificationNode,
 	messageBoxNode,
 	getPixelColorNode,
@@ -118,6 +133,91 @@ const groupMetadata: Record<NodeDefinitionGroupId, Pick<PaletteGroup, "id" | "la
 	actions: { id: "actions", label: "Actions", icon: Shapes },
 };
 
+const riskSortOrder = {
+	low: 0,
+	medium: 1,
+	high: 2,
+	dangerous: 3,
+};
+
+const actionPaletteCategories = [
+	{
+		id: "actions-data",
+		label: "Data & Variables",
+		icon: Database,
+		actionTypes: ["runtime.set_variable", "action.calculate", "action.text.format"] satisfies ActionType[],
+	},
+	{
+		id: "actions-output",
+		label: "Output & Timing",
+		icon: MessageSquare,
+		actionTypes: [
+			"action.log",
+			"action.delay",
+			"action.beep",
+			"action.notification",
+			"action.message_box",
+			"action.sound.play",
+		] satisfies ActionType[],
+	},
+	{
+		id: "actions-network",
+		label: "Network & Serial",
+		icon: Network,
+		actionTypes: [
+			"action.http",
+			"action.webhook_response",
+			"action.websocket.write",
+			"action.serial.write",
+		] satisfies ActionType[],
+	},
+	{
+		id: "actions-files",
+		label: "Files",
+		icon: FileCog,
+		actionTypes: [
+			"action.file.read",
+			"action.file.download",
+			"action.file.copy",
+			"action.file.move",
+			"action.file.write",
+			"action.file.delete",
+		] satisfies ActionType[],
+	},
+	{
+		id: "actions-window-process",
+		label: "Windows & Processes",
+		icon: Bot,
+		actionTypes: [
+			"action.window.active",
+			"action.process.status",
+			"action.application.open",
+			"action.window.focus",
+			"action.process.run",
+			"action.process.kill",
+		] satisfies ActionType[],
+	},
+	{
+		id: "actions-input",
+		label: "Input Control",
+		icon: Keyboard,
+		actionTypes: [
+			"action.clipboard",
+			"action.keyboard",
+			"action.keyboard.type_text",
+			"action.mouse",
+			"action.mouse.move",
+			"action.pixel.get",
+		] satisfies ActionType[],
+	},
+	{
+		id: "actions-scripts-system",
+		label: "Scripts & System",
+		icon: Terminal,
+		actionTypes: ["action.script.run", "action.shell"] satisfies ActionType[],
+	},
+];
+
 type CreateNodeOptions = {
 	idPrefix?: string;
 	baseX?: number;
@@ -147,23 +247,89 @@ export function getNodeDefinition(actionType: ActionType) {
 export function getPaletteGroups(): PaletteGroup[] {
 	return (Object.keys(groupMetadata) as NodeDefinitionGroupId[]).map((groupId) => ({
 		...groupMetadata[groupId],
-		items: nodeDefinitions
-			.filter((definition) => definition.group === groupId)
-			.map(
-				(definition): PaletteItem => ({
-					actionType: definition.actionType,
-					description: definition.description,
-					icon: definition.icon,
-					kind: definition.kind,
-					label: definition.label,
-					risk: definition.risk,
-				}),
-			),
+		items: groupId === "actions" ? [] : createPaletteItemsForGroup(groupId),
+		children: groupId === "actions" ? createActionPaletteChildren() : undefined,
 	}));
+}
+
+export function getFlatPaletteItems() {
+	return getPaletteGroups().flatMap(flattenPaletteGroupItems);
 }
 
 export function createDefaultNodeConfig(actionType: ActionType): Record<string, JsonValue> {
 	return getNodeDefinition(actionType)?.defaultConfig?.() ?? {};
+}
+
+function createPaletteItemsForGroup(groupId: NodeDefinitionGroupId) {
+	return sortPaletteItems(nodeDefinitions.filter((definition) => definition.group === groupId).map(createPaletteItem));
+}
+
+function createActionPaletteChildren(): PaletteGroup[] {
+	const actionDefinitions = new Map(
+		nodeDefinitions
+			.filter((definition) => definition.group === "actions")
+			.map((definition) => [definition.actionType, definition]),
+	);
+	const categorizedActionTypes = new Set<ActionType>();
+
+	const children = actionPaletteCategories
+		.map((category) => {
+			const items = sortPaletteItems(
+				category.actionTypes.flatMap((actionType) => {
+					const definition = actionDefinitions.get(actionType);
+					if (!definition) {
+						return [];
+					}
+
+					categorizedActionTypes.add(actionType);
+					return [createPaletteItem(definition)];
+				}),
+			);
+
+			return {
+				id: category.id,
+				label: category.label,
+				icon: category.icon,
+				items,
+			};
+		})
+		.filter((category) => category.items.length > 0);
+
+	const uncategorizedItems = sortPaletteItems(
+		[...actionDefinitions.values()]
+			.filter((definition) => !categorizedActionTypes.has(definition.actionType))
+			.map(createPaletteItem),
+	);
+
+	if (uncategorizedItems.length > 0) {
+		children.push({
+			id: "actions-other",
+			label: "Other",
+			icon: Shapes,
+			items: uncategorizedItems,
+		});
+	}
+
+	return children;
+}
+
+function createPaletteItem(definition: NodeDefinition): PaletteItem {
+	return {
+		actionType: definition.actionType,
+		description: definition.description,
+		icon: definition.icon,
+		kind: definition.kind,
+		label: definition.label,
+		risk: definition.risk,
+	};
+}
+
+function sortPaletteItems(items: PaletteItem[]) {
+	return [...items].sort((a, b) => riskSortOrder[a.risk] - riskSortOrder[b.risk] || a.label.localeCompare(b.label));
+}
+
+function flattenPaletteGroupItems(group: PaletteGroup): PaletteItem[] {
+	return [...group.items, ...(group.children?.flatMap(flattenPaletteGroupItems) ?? [])];
 }
 
 export function createNodeFromPaletteItem(
@@ -246,6 +412,15 @@ export function getNodePermission(actionType: ActionType) {
 	return getNodeDefinition(actionType)?.permission;
 }
 
+export function getNodePermissions(actionType: ActionType, config: Record<string, JsonValue> = {}) {
+	const definition = getNodeDefinition(actionType);
+	if (!definition) {
+		return [];
+	}
+
+	return definition.derivePermissions?.(config) ?? (definition.permission ? [definition.permission] : []);
+}
+
 export function getRunnerTriggerType(actionType: TriggerActionType) {
 	return getRequiredRunnerType(actionType);
 }
@@ -320,11 +495,25 @@ function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<
 		}
 
 		const value = config[field.key];
+		if ((field.type === "text" || field.type === "textarea") && typeof value !== "string") {
+			return [`Invalid value for ${field.key}: expected string.`];
+		}
+
 		if (field.type === "select" && field.options && typeof value === "string") {
 			const allowedValues = new Set(field.options.map((option) => option.value));
 			if (!allowedValues.has(value)) {
 				return [`Invalid value for ${field.key}: ${value}. Expected one of ${[...allowedValues].join(", ")}.`];
 			}
+		}
+
+		if (field.type === "select" && typeof value !== "string") {
+			return [`Invalid value for ${field.key}: expected string.`];
+		}
+
+		if (field.type === "number" && !isValidNumberConfigValue(value, field.usesVariables === true)) {
+			return [
+				`Invalid value for ${field.key}: expected a finite number${field.usesVariables ? " or variable expression" : ""}.`,
+			];
 		}
 
 		if (field.type === "switch" && typeof value !== "boolean") {
@@ -333,6 +522,27 @@ function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<
 
 		return [];
 	});
+}
+
+function isValidNumberConfigValue(value: JsonValue, allowsVariables: boolean) {
+	if (typeof value === "number") {
+		return Number.isFinite(value);
+	}
+
+	if (typeof value !== "string") {
+		return false;
+	}
+
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return false;
+	}
+
+	if (allowsVariables && /\{\{[^}]+\}\}/.test(trimmed)) {
+		return true;
+	}
+
+	return Number.isFinite(Number(trimmed));
 }
 
 function getRequiredRunnerType(actionType: ActionType) {

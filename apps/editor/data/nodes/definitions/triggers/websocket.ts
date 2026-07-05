@@ -7,15 +7,14 @@ export const websocketTriggerNode = defineNode({
 	actionType: "trigger.websocket",
 	capabilities: ["trigger.websocket"],
 	configFields: [
-		{ key: "socketName", label: "Socket name", type: "text" },
 		{
 			key: "path",
 			label: "Path",
 			type: "text",
-			help: "Runner-side WebSocket path, for example /events/socketname. The runner decides host and port.",
+			help: "Runner-side WebSocket path, for example /events/messages. The runner decides host and port.",
 		},
 	],
-	defaultConfig: () => ({ socketName: "socketname", path: "/events/socketname" }),
+	defaultConfig: () => ({ path: "/events/messages" }),
 	description: "Start when a WebSocket message is received.",
 	group: "triggers",
 	icon: Radio,
@@ -67,7 +66,6 @@ export const websocketTriggerNode = defineNode({
 	validateConfig: (config) => {
 		const path = configString(config, "path").trim();
 		return [
-			requiredConfig(config, "socketName", "WebSocket socket name"),
 			requiredConfig(config, "path", "WebSocket path"),
 			path && !path.startsWith("/") ? 'WebSocket path must start with "/".' : "",
 		].filter(Boolean);
@@ -80,7 +78,7 @@ export const websocketTriggerNode = defineNode({
 			return {
 				failed: false,
 				outputData: {
-					path: context.triggerPayload.path || api.getConfigString(node, "path") || "/events/socketname",
+					path: context.triggerPayload.path || api.getConfigString(node, "path") || "/events/messages",
 					connection_id: context.triggerPayload.connectionId || "simulated-connection",
 					headers: context.triggerPayload.headers ?? {},
 					query: context.triggerPayload.query ?? {},

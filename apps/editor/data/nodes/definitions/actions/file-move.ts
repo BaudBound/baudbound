@@ -1,4 +1,11 @@
 import { MoveRight } from "lucide-react";
+import {
+	createReadFilePermission,
+	createWriteFilePermission,
+	fileReadPermission,
+	fileWriteLimitedPermission,
+} from "@/data/project/file-permissions";
+import type { JsonValue } from "@/lib/types";
 import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible, fileTransferRuntimeOutputs } from "../runtime-outputs";
@@ -21,6 +28,10 @@ export const moveFileNode = defineNode({
 	kind: "action",
 	label: "Move File",
 	permission: { name: "file_move", risk: "medium" },
+	derivePermissions: (config) => [
+		{ name: "file_move", risk: "medium" },
+		...extraFilePermissions(config.sourcePath, config.destinationPath),
+	],
 	risk: "medium",
 	runtimeOutputs: fallible(fileTransferRuntimeOutputs("moved")),
 	runnerType: "move_file",
@@ -45,3 +56,13 @@ export const moveFileNode = defineNode({
 		],
 	},
 });
+
+function extraFilePermissions(sourcePath: JsonValue | undefined, destinationPath: JsonValue | undefined) {
+	const readPermission = createReadFilePermission(sourcePath);
+	const writePermission = createWriteFilePermission(destinationPath);
+
+	return [
+		...(readPermission.name === fileReadPermission.name ? [] : [readPermission]),
+		...(writePermission.name === fileWriteLimitedPermission.name ? [] : [writePermission]),
+	];
+}

@@ -1,4 +1,5 @@
 import { FileInput } from "lucide-react";
+import { createReadFilePermission } from "@/data/project/file-permissions";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionFile } from "../shared";
@@ -19,6 +20,7 @@ export const readFileNode = defineNode({
 	kind: "action",
 	label: "Read File",
 	permission: { name: "file_read", risk: "medium" },
+	derivePermissions: (config) => [createReadFilePermission(config.path)],
 	risk: "medium",
 	runtimeOutputs: fallible([
 		{ name: "path", type: "file_path", description: "File path read by the runner.", example: "n-mr3zyt6f-19.path" },

@@ -13,6 +13,7 @@ import {
 	comparisonOperatorOptions,
 	playSoundSourceOptions,
 	type SelectOption,
+	textTransformOperationOptions,
 	variableOperationOptions,
 	variableScopeOptions,
 	variableTypeOptions,
@@ -187,7 +188,9 @@ function PropertiesPanel({
 	const fields = getNodeConfigFields(selectedNode.data.actionType);
 	const variableCompletions = createVariableCompletions(projectSettings, nodes);
 	const visibleFields =
-		selectedNode.data.actionType === "runtime.set_variable" || usesKeyReference(selectedNode.data.actionType)
+		selectedNode.data.actionType === "runtime.set_variable" ||
+		selectedNode.data.actionType === "action.text.format" ||
+		usesKeyReference(selectedNode.data.actionType)
 			? []
 			: fields;
 	const showsKeyReference = usesKeyReference(selectedNode.data.actionType);
@@ -237,7 +240,14 @@ function PropertiesPanel({
 				) : (
 					<div className="space-y-3 rounded border border-baud-border bg-baud-soft/60 p-3">
 						{selectedNode.data.actionType === "runtime.set_variable" && (
-							<SetVariableConfigPanel
+							<VariableOperationConfigPanel
+								config={selectedNode.data.config}
+								variableCompletions={variableCompletions}
+								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
+							/>
+						)}
+						{selectedNode.data.actionType === "action.text.format" && (
+							<TextTransformConfigPanel
 								config={selectedNode.data.config}
 								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
@@ -263,7 +273,8 @@ function PropertiesPanel({
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
 							/>
 						)}
-						{selectedNode.data.actionType === "action.http" && (
+						{(selectedNode.data.actionType === "action.http" ||
+							selectedNode.data.actionType === "action.webhook_response") && (
 							<HttpHeadersPanel
 								config={selectedNode.data.config}
 								variableCompletions={variableCompletions}
@@ -546,6 +557,127 @@ function SwitchConfigPanel({
 	);
 }
 
+function TextTransformConfigPanel({
+	config,
+	variableCompletions,
+	onChange,
+}: {
+	config: Record<string, JsonValue>;
+	variableCompletions: VariableCompletion[];
+	onChange: (key: string, value: JsonValue) => void;
+}) {
+	const operation = normalizeTextTransformOperation(valueToInputString(config.operation));
+
+	return (
+		<div className="space-y-3">
+			<ComboboxField
+				label="Operation"
+				value={operation}
+				options={textTransformOperationOptions}
+				onChange={(value) => onChange("operation", value)}
+			/>
+			<p className="text-xs leading-4 text-baud-muted">{getTextTransformHelp(operation)}</p>
+
+			{operation === "template" && (
+				<TextInput
+					label="Template"
+					value={valueToInputString(config.template)}
+					usesVariables
+					variableCompletions={variableCompletions}
+					onChange={(value) => onChange("template", value)}
+				/>
+			)}
+
+			{usesTextTransformInput(operation) && (
+				<TextInput
+					label="Input"
+					value={valueToInputString(config.input)}
+					usesVariables
+					variableCompletions={variableCompletions}
+					onChange={(value) => onChange("input", value)}
+				/>
+			)}
+
+			{(operation === "replace" || operation === "regex_replace") && (
+				<>
+					<TextInput
+						label={operation === "replace" ? "Search" : "Regex pattern"}
+						value={valueToInputString(config.search)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("search", value)}
+					/>
+					<TextInput
+						label="Replacement"
+						value={valueToInputString(config.replacement)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("replacement", value)}
+					/>
+				</>
+			)}
+
+			{operation === "join" && (
+				<TextInput
+					label="Items"
+					value={valueToInputString(config.items)}
+					usesVariables
+					variableCompletions={variableCompletions}
+					onChange={(value) => onChange("items", value)}
+				/>
+			)}
+
+			{(operation === "split" || operation === "join") && (
+				<TextInput
+					label="Delimiter"
+					value={valueToInputString(config.delimiter)}
+					usesVariables
+					variableCompletions={variableCompletions}
+					onChange={(value) => onChange("delimiter", value)}
+				/>
+			)}
+
+			{operation === "substring" && (
+				<div className="grid grid-cols-2 gap-2">
+					<TextInput
+						label="Start"
+						value={valueToInputString(config.start)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("start", value)}
+					/>
+					<TextInput
+						label="Length"
+						value={valueToInputString(config.length)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("length", value)}
+					/>
+				</div>
+			)}
+
+			{(operation === "pad_start" || operation === "pad_end") && (
+				<div className="grid grid-cols-2 gap-2">
+					<TextInput
+						label="Target length"
+						value={valueToInputString(config.targetLength)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("targetLength", value)}
+					/>
+					<TextInput
+						label="Pad text"
+						value={valueToInputString(config.pad)}
+						usesVariables
+						variableCompletions={variableCompletions}
+						onChange={(value) => onChange("pad", value)}
+					/>
+				</div>
+			)}
+		</div>
+	);
+}
+
 function ConditionCombinatorRow({
 	conditions,
 	condition,
@@ -570,7 +702,7 @@ function ConditionCombinatorRow({
 	);
 }
 
-function SetVariableConfigPanel({
+function VariableOperationConfigPanel({
 	config,
 	variableCompletions,
 	onChange,
@@ -911,7 +1043,7 @@ function NodeSpecificHelp({ actionType }: { actionType: ActionType }) {
 		return (
 			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
 				Connect to this trigger through the runner WebSocket server. The runner decides host and port; this node defines
-				the path and logical socket name.
+				the WebSocket path.
 			</p>
 		);
 	}
@@ -939,8 +1071,8 @@ function NodeSpecificHelp({ actionType }: { actionType: ActionType }) {
 	if (actionType === "control.loop") {
 		return (
 			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
-				The done output runs after the loop completes. The loop output represents the repeated body and must eventually
-				flow back to the loop input.
+				The loop output runs the repeated body once per iteration. Let the body branch end naturally; do not connect it
+				back to the loop input. The done output runs after all iterations complete.
 			</p>
 		);
 	}
@@ -1134,10 +1266,12 @@ function RemoveRowButton({ label, onClick }: { label: string; onClick: () => voi
 function hasCustomConfigPanel(actionType: ActionType) {
 	return (
 		actionType === "runtime.set_variable" ||
+		actionType === "action.text.format" ||
 		usesKeyReference(actionType) ||
 		actionType === "control.if" ||
 		actionType === "control.switch" ||
 		actionType === "action.http" ||
+		actionType === "action.webhook_response" ||
 		actionType === "action.sound.play" ||
 		actionType === "action.serial.write"
 	);
@@ -1145,6 +1279,58 @@ function hasCustomConfigPanel(actionType: ActionType) {
 
 function normalizePlaySoundSource(value: string) {
 	return value === "file_path" ? "file_path" : "asset";
+}
+
+function normalizeTextTransformOperation(value: string) {
+	return textTransformOperationOptions.some((option) => option.value === value) ? value : "template";
+}
+
+function usesTextTransformInput(operation: string) {
+	return operation !== "template" && operation !== "join";
+}
+
+function getTextTransformHelp(operation: string) {
+	if (operation === "template") {
+		return "Build text from normal content and {{variables}}.";
+	}
+
+	if (operation === "replace") {
+		return "Replace every exact text match in the input.";
+	}
+
+	if (operation === "regex_replace") {
+		return "Replace matches using a JavaScript-style regular expression pattern.";
+	}
+
+	if (operation === "split") {
+		return "Split input text into list output items.";
+	}
+
+	if (operation === "join") {
+		return "Join a JSON array or list reference into one text value.";
+	}
+
+	if (operation === "substring") {
+		return "Read part of the input text. Leave length empty to continue to the end.";
+	}
+
+	if (operation === "pad_start" || operation === "pad_end") {
+		return "Pad the input text until it reaches the target length.";
+	}
+
+	if (operation === "json_escape" || operation === "json_unescape") {
+		return "Convert text to or from a JSON-safe string literal.";
+	}
+
+	if (operation === "base64_encode" || operation === "base64_decode") {
+		return "Encode or decode UTF-8 text with Base64.";
+	}
+
+	if (operation === "url_encode" || operation === "url_decode") {
+		return "Encode or decode text for URL query/path usage.";
+	}
+
+	return "Transform the input text and expose the result as runtime data.";
 }
 
 function normalizeLineEnding(value: string) {

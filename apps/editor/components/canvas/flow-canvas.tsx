@@ -12,26 +12,32 @@ import {
 	type OnNodesChange,
 	ReactFlow,
 	ReactFlowProvider,
+	SelectionMode,
 	useReactFlow,
 	type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Grid3X3 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Grid3X3, StickyNote } from "lucide-react";
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { paletteNodeDragDataType } from "@/data/editor/drag-drop";
 import { defaultEdgeOptions, edgeColors, reactFlowProOptions } from "@/data/editor/flow-canvas";
-import type { ScriptNodeData } from "@/lib/types";
+import type { CommentNodeData, ScriptNodeData } from "@/lib/types";
 import { CanvasContextMenu, type CanvasContextMenuState } from "./canvas-context-menu";
+import { CommentCard, type CommentFlowNode, CommentNodeActionsContext } from "./comment-card";
 import { ScriptNode } from "./script-node";
 
+export type ScriptFlowNode = Node<ScriptNodeData, "scriptNode">;
+export type EditorFlowNode = ScriptFlowNode | CommentFlowNode;
+
 type FlowCanvasProps = {
-	nodes: Node<ScriptNodeData>[];
+	nodes: EditorFlowNode[];
 	edges: Edge[];
 	selectedEdgeId: string | null;
-	onNodesChange: OnNodesChange<Node<ScriptNodeData>>;
+	onNodesChange: OnNodesChange<EditorFlowNode>;
 	onEdgesChange: OnEdgesChange<Edge>;
 	onEdgesCommit: (updater: (edges: Edge[]) => Edge[]) => void;
-	onNodesDelete: (deletedNodes: Node<ScriptNodeData>[]) => void;
+	onNodesDelete: (deletedNodes: EditorFlowNode[]) => void;
 	onSelectNode: (nodeId: string | null) => void;
 	onSelectEdge: (edgeId: string | null) => void;
 	onEdgesDelete: (deletedEdges: Edge[]) => void;
@@ -41,12 +47,17 @@ type FlowCanvasProps = {
 	onDeleteEdge: (edgeId: string) => void;
 	onDuplicateNode: (nodeId: string) => void;
 	onPaste: (position: XYPosition) => void;
+	onCreateComment: (position: XYPosition) => void;
+	onDeleteComment: (commentId: string) => void;
+	onUpdateComment: (commentId: string, patch: Partial<CommentNodeData>) => void;
+	onDropPaletteNode: (actionType: string, position: XYPosition) => void;
 	onSpawnDevelopmentNodes?: () => void;
 	showDevelopmentNodeSpawner?: boolean;
 	onViewportCenterChange: (position: XYPosition) => void;
 };
 
 const nodeTypes = {
+	commentNode: CommentCard,
 	scriptNode: ScriptNode,
 };
 
@@ -61,10 +72,13 @@ export function FlowCanvas({
 	canPaste,
 	edges,
 	nodes,
+	onCreateComment,
 	onCopyNode,
+	onDeleteComment,
 	onDeleteEdge,
 	onDeleteNode,
 	onDuplicateNode,
+	onDropPaletteNode,
 	onEdgesChange,
 	onEdgesCommit,
 	onEdgesDelete,
@@ -74,6 +88,7 @@ export function FlowCanvas({
 	onSpawnDevelopmentNodes,
 	onSelectEdge,
 	onSelectNode,
+	onUpdateComment,
 	showDevelopmentNodeSpawner,
 	onViewportCenterChange,
 	selectedEdgeId,
@@ -84,10 +99,13 @@ export function FlowCanvas({
 				canPaste={canPaste}
 				edges={edges}
 				nodes={nodes}
+				onCreateComment={onCreateComment}
 				onCopyNode={onCopyNode}
+				onDeleteComment={onDeleteComment}
 				onDeleteEdge={onDeleteEdge}
 				onDeleteNode={onDeleteNode}
 				onDuplicateNode={onDuplicateNode}
+				onDropPaletteNode={onDropPaletteNode}
 				onEdgesChange={onEdgesChange}
 				onEdgesCommit={onEdgesCommit}
 				onEdgesDelete={onEdgesDelete}
@@ -97,6 +115,7 @@ export function FlowCanvas({
 				onSpawnDevelopmentNodes={onSpawnDevelopmentNodes}
 				onSelectEdge={onSelectEdge}
 				onSelectNode={onSelectNode}
+				onUpdateComment={onUpdateComment}
 				showDevelopmentNodeSpawner={showDevelopmentNodeSpawner}
 				onViewportCenterChange={onViewportCenterChange}
 				selectedEdgeId={selectedEdgeId}
@@ -120,13 +139,17 @@ function FlowCanvasContent({
 	onCopyNode,
 	onDeleteNode,
 	onDeleteEdge,
+	onDeleteComment,
 	onDuplicateNode,
+	onCreateComment,
+	onUpdateComment,
+	onDropPaletteNode,
 	onPaste,
 	onSpawnDevelopmentNodes,
 	showDevelopmentNodeSpawner,
 	onViewportCenterChange,
 }: FlowCanvasProps) {
-	const { screenToFlowPosition } = useReactFlow<Node<ScriptNodeData>, Edge>();
+	const { screenToFlowPosition } = useReactFlow<EditorFlowNode, Edge>();
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const initFrameRef = useRef<number | null>(null);
 	const lastViewportCenterRef = useRef<XYPosition | null>(null);
@@ -145,6 +168,19 @@ function FlowCanvasContent({
 	);
 
 	const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+	const getViewportCenterPosition = useCallback(() => {
+		const viewport = viewportRef.current;
+		if (!viewport) {
+			return { x: 0, y: 0 };
+		}
+
+		const bounds = viewport.getBoundingClientRect();
+		return screenToFlowPosition({
+			x: bounds.left + bounds.width / 2,
+			y: bounds.top + bounds.height / 2,
+		});
+	}, [screenToFlowPosition]);
 
 	const updateViewportCenter = useCallback(() => {
 		const viewport = viewportRef.current;
@@ -206,6 +242,35 @@ function FlowCanvasContent({
 		[screenToFlowPosition],
 	);
 
+	const handleDragOver = useCallback((event: DragEvent) => {
+		if (!event.dataTransfer.types.includes(paletteNodeDragDataType)) {
+			return;
+		}
+
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "copy";
+	}, []);
+
+	const handleDrop = useCallback(
+		(event: DragEvent) => {
+			const actionType = event.dataTransfer.getData(paletteNodeDragDataType);
+			if (!actionType) {
+				return;
+			}
+
+			event.preventDefault();
+			closeContextMenu();
+			onDropPaletteNode(
+				actionType,
+				screenToFlowPosition({
+					x: event.clientX,
+					y: event.clientY,
+				}),
+			);
+		},
+		[closeContextMenu, onDropPaletteNode, screenToFlowPosition],
+	);
+
 	useEffect(() => {
 		if (!contextMenu) {
 			return;
@@ -251,86 +316,113 @@ function FlowCanvasContent({
 
 	return (
 		<div ref={viewportRef} className="relative min-h-0 flex-1 bg-baud-canvas">
-			<ReactFlow
-				nodes={nodes}
-				edges={displayedEdges}
-				nodeTypes={nodeTypes}
-				onNodesChange={onNodesChange}
-				onEdgesChange={onEdgesChange}
-				onConnect={onConnect}
-				onNodeClick={(_, node) => {
-					closeContextMenu();
-					onSelectEdge(null);
-					onSelectNode(node.id);
-				}}
-				onNodeContextMenu={(event, node) => {
-					onSelectEdge(null);
-					onSelectNode(node.id);
-					openContextMenu(event, { type: "node", id: node.id });
-				}}
-				onEdgeClick={(event, edge) => {
-					event.stopPropagation();
-					closeContextMenu();
-					onSelectNode(null);
-					onSelectEdge(edge.id);
-				}}
-				onEdgeContextMenu={(event, edge) => {
-					onSelectNode(null);
-					onSelectEdge(edge.id);
-					openContextMenu(event, { type: "edge", id: edge.id });
-				}}
-				onPaneClick={() => {
-					closeContextMenu();
-					onSelectNode(null);
-					onSelectEdge(null);
-				}}
-				onPaneContextMenu={(event) => {
-					onSelectNode(null);
-					onSelectEdge(null);
-					openContextMenu(event, { type: "pane" });
-				}}
-				onInit={() => {
-					if (initFrameRef.current !== null) {
-						window.cancelAnimationFrame(initFrameRef.current);
-					}
-					initFrameRef.current = window.requestAnimationFrame(() => {
-						initFrameRef.current = null;
-						updateViewportCenter();
-					});
-				}}
-				onMoveStart={closeContextMenu}
-				onMoveEnd={updateViewportCenter}
-				onNodesDelete={onNodesDelete}
-				onEdgesDelete={onEdgesDelete}
-				deleteKeyCode={["Backspace", "Delete"]}
-				edgesFocusable
-				elementsSelectable
-				nodesFocusable
-				minZoom={0.02}
-				fitView
-				fitViewOptions={{ padding: 0.25 }}
-				defaultEdgeOptions={defaultEdgeOptions}
-				proOptions={reactFlowProOptions}
-			>
-				<Background color="#25304a" gap={22} size={1.2} />
-				<Controls
-					className="baud-flow-controls"
-					position="bottom-left"
-					showInteractive={false}
+			<CommentNodeActionsContext.Provider value={{ onDelete: onDeleteComment, onUpdate: onUpdateComment }}>
+				<ReactFlow
+					nodes={nodes}
+					edges={displayedEdges}
+					nodeTypes={nodeTypes}
+					onNodesChange={onNodesChange}
+					onEdgesChange={onEdgesChange}
+					onConnect={onConnect}
+					onDragOver={handleDragOver}
+					onDrop={handleDrop}
+					onNodeClick={(_, node) => {
+						closeContextMenu();
+						onSelectEdge(null);
+						onSelectNode(isCommentFlowNode(node) ? null : node.id);
+					}}
+					onNodeContextMenu={(event, node) => {
+						if (isCommentFlowNode(node)) {
+							event.preventDefault();
+							event.stopPropagation();
+							closeContextMenu();
+							onSelectEdge(null);
+							onSelectNode(null);
+							return;
+						}
+
+						openContextMenu(event, { type: "node", id: node.id });
+						onSelectEdge(null);
+						onSelectNode(node.id);
+					}}
+					onEdgeClick={(event, edge) => {
+						event.stopPropagation();
+						closeContextMenu();
+						onSelectNode(null);
+						onSelectEdge(edge.id);
+					}}
+					onEdgeContextMenu={(event, edge) => {
+						onSelectNode(null);
+						onSelectEdge(edge.id);
+						openContextMenu(event, { type: "edge", id: edge.id });
+					}}
+					onPaneClick={() => {
+						closeContextMenu();
+						onSelectNode(null);
+						onSelectEdge(null);
+					}}
+					onPaneContextMenu={(event) => {
+						onSelectNode(null);
+						onSelectEdge(null);
+						openContextMenu(event, { type: "pane" });
+					}}
+					onInit={() => {
+						if (initFrameRef.current !== null) {
+							window.cancelAnimationFrame(initFrameRef.current);
+						}
+						initFrameRef.current = window.requestAnimationFrame(() => {
+							initFrameRef.current = null;
+							updateViewportCenter();
+						});
+					}}
+					onMoveStart={closeContextMenu}
+					onMoveEnd={updateViewportCenter}
+					onNodesDelete={onNodesDelete}
+					onEdgesDelete={onEdgesDelete}
+					deleteKeyCode={["Backspace", "Delete"]}
+					edgesFocusable
+					elementsSelectable
+					multiSelectionKeyCode={["Control", "Meta"]}
+					nodesFocusable
+					selectionKeyCode={["Control", "Meta"]}
+					selectionMode={SelectionMode.Partial}
+					minZoom={0.02}
+					fitView
 					fitViewOptions={{ padding: 0.25 }}
-				/>
-				<MiniMap
-					className="baud-flow-minimap"
-					position="bottom-right"
-					bgColor="#080a0f"
-					nodeBorderRadius={4}
-					nodeColor="#171b27"
-					nodeStrokeColor="#53627d"
-					maskColor="rgb(8 10 15 / 62%)"
-					pannable
-					zoomable
-				/>
-			</ReactFlow>
+					defaultEdgeOptions={defaultEdgeOptions}
+					proOptions={reactFlowProOptions}
+				>
+					<Background color="#25304a" gap={22} size={1.2} />
+					<Controls
+						className="baud-flow-controls"
+						position="bottom-left"
+						showInteractive={false}
+						fitViewOptions={{ padding: 0.25 }}
+					/>
+					<MiniMap
+						className="baud-flow-minimap"
+						position="bottom-right"
+						bgColor="#080a0f"
+						nodeBorderRadius={4}
+						nodeColor="#171b27"
+						nodeStrokeColor="#53627d"
+						maskColor="rgb(8 10 15 / 62%)"
+						pannable
+						zoomable
+					/>
+				</ReactFlow>
+			</CommentNodeActionsContext.Provider>
+			<div className="pointer-events-auto absolute left-4 top-4 z-10">
+				<Button
+					type="button"
+					size="icon"
+					variant="toolbar"
+					title="Add comment"
+					onClick={() => onCreateComment(getViewportCenterPosition())}
+				>
+					<StickyNote size={15} />
+				</Button>
+			</div>
 			{showDevelopmentNodeSpawner && onSpawnDevelopmentNodes && (
 				<div className="pointer-events-none absolute top-4 right-4 z-10">
 					<Button
@@ -359,4 +451,8 @@ function FlowCanvasContent({
 			)}
 		</div>
 	);
+}
+
+function isCommentFlowNode(node: EditorFlowNode): node is CommentFlowNode {
+	return node.type === "commentNode";
 }

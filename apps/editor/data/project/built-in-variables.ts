@@ -66,7 +66,7 @@ export const builtInVariableGroups: BuiltInVariableGroup[] = [
 				name: "manifest_version",
 				token: "{{manifest_version}}",
 				type: "number",
-				description: "Manifest format version written to exported packages.",
+				description: "Package version written to exported scripts.",
 				example: "1",
 				runtimeBinding: "manifest.format_version",
 			},

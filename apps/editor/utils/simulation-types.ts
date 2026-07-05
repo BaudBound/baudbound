@@ -86,6 +86,13 @@ export type SimulationContext = {
 	stepDelayMs: number;
 	streamedSteps: number;
 	triggerPayload: SimulationTriggerPayload;
+	webhookResponse: {
+		fallback: Record<string, JsonValue>;
+		response?: Record<string, JsonValue>;
+		sent: boolean;
+		triggerNodeId: string;
+		waiting: boolean;
+	} | null;
 };
 
 export type NodeExecutionResult = {

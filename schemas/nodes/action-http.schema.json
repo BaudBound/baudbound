@@ -1,0 +1,92 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-http.schema.json",
+	"title": "BaudBound Node - HTTP Request",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.http"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "http_request"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"body",
+				"method",
+				"timeoutSeconds",
+				"url",
+				"userAgent"
+			],
+			"properties": {
+				"body": {
+					"type": "string"
+				},
+				"customName": {
+					"type": "string"
+				},
+				"headers": {
+					"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/jsonValue"
+				},
+				"method": {
+					"type": "string",
+					"enum": [
+						"GET",
+						"POST",
+						"PUT",
+						"PATCH",
+						"DELETE",
+						"HEAD",
+						"OPTIONS"
+					]
+				},
+				"timeoutSeconds": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+						}
+					]
+				},
+				"url": {
+					"type": "string"
+				},
+				"userAgent": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

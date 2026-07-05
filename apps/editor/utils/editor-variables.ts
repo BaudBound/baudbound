@@ -2,6 +2,7 @@ import type { Node } from "@xyflow/react";
 import { getBuiltInVariableRuntimeEntries } from "@/data/project/built-in-variables";
 import {
 	createConfiguredVariableDefinitions,
+	createDerivedVariableMetadataDefinitions,
 	createNodeOutputVariables,
 	type EditorVariable,
 } from "@/data/project/variables";
@@ -46,6 +47,11 @@ export function createEditorVariableRegistry(
 			type: inferVariableType(snapshot.value),
 			value: snapshot.value,
 		});
+	}
+
+	const baseVariables = [...variables.values()];
+	for (const variable of createDerivedVariableMetadataDefinitions(baseVariables)) {
+		variables.set(variable.name, variable);
 	}
 
 	return [...variables.values()].sort((a, b) => {

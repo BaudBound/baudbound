@@ -1,6 +1,6 @@
 import type { Edge, Node, XYPosition } from "@xyflow/react";
 import type { ScriptNodeData } from "@/lib/types";
-import { createNodeFromPaletteItem, getPaletteGroups } from "./registry";
+import { createNodeFromPaletteItem, getFlatPaletteItems } from "./registry";
 
 export const isDevelopmentGraphEnabled = process.env.NODE_ENV === "development";
 
@@ -13,7 +13,7 @@ export function createDevelopmentEditorNodes(center?: XYPosition): Node<ScriptNo
 		return [];
 	}
 
-	const paletteItems = getPaletteGroups().flatMap((group) => group.items);
+	const paletteItems = getFlatPaletteItems();
 	const columns = 5;
 	const columnGap = 300;
 	const rowGap = 200;

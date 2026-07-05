@@ -1,0 +1,126 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-text-format.schema.json",
+	"title": "BaudBound Node - Text Transform",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.text.format"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "format_text"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"customName": {
+					"type": "string"
+				},
+				"delimiter": {
+					"type": "string"
+				},
+				"input": {
+					"type": "string"
+				},
+				"items": {
+					"type": "string"
+				},
+				"length": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
+				},
+				"operation": {
+					"type": "string",
+					"enum": [
+						"template",
+						"trim",
+						"uppercase",
+						"lowercase",
+						"replace",
+						"regex_replace",
+						"split",
+						"join",
+						"substring",
+						"pad_start",
+						"pad_end",
+						"url_encode",
+						"url_decode",
+						"base64_encode",
+						"base64_decode",
+						"json_escape",
+						"json_unescape"
+					]
+				},
+				"pad": {
+					"type": "string"
+				},
+				"replacement": {
+					"type": "string"
+				},
+				"search": {
+					"type": "string"
+				},
+				"start": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
+				},
+				"targetLength": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
+				},
+				"template": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

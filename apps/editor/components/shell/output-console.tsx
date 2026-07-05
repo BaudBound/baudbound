@@ -1,6 +1,6 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 import type { DependencyList, ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { logLevelClassName } from "@/data/editor/output-console";
 import type { EditorVariable } from "@/data/project/variables";
@@ -55,9 +55,12 @@ export function OutputConsole({
 	};
 
 	return (
-		<section className="shrink-0 border-t border-baud-border bg-baud-panel" style={{ height: open ? height : 36 }}>
-			<div className="flex h-9 items-center justify-between border-b border-baud-border">
-				<div className="flex h-full min-w-0 overflow-x-auto">
+		<section
+			className="grid shrink-0 grid-rows-[36px_minmax(0,1fr)] overflow-hidden border-t border-baud-border bg-baud-panel"
+			style={{ height: open ? height : 36 }}
+		>
+			<div className="flex min-h-0 items-center justify-between overflow-hidden border-b border-baud-border">
+				<div className="flex h-full min-w-0 overflow-hidden">
 					{bottomPanelTabs.map((tab) => (
 						<Button
 							key={tab.id}
@@ -85,7 +88,7 @@ export function OutputConsole({
 				</Button>
 			</div>
 			{open && (
-				<div className="h-[calc(100%-36px)] overflow-hidden">
+				<div className="min-h-0 overflow-hidden">
 					{activeTab === "system" && (
 						<LogPanel
 							empty={systemLogs.length === 0}
@@ -149,7 +152,7 @@ function LogPanel({
 	const scrollRef = useAutoFollow(follow, [children]);
 
 	return (
-		<div className="grid h-full grid-rows-[minmax(0,1fr)_32px]">
+		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
 			<div ref={scrollRef} className="overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
 				{empty ? (
 					<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
@@ -233,6 +236,69 @@ function LogLine({ log }: { log: LogEntry }) {
 }
 
 function VariablesTab({ variables }: { variables: EditorVariable[] }) {
+	const [sortUpdatedFirst, setSortUpdatedFirst] = useState(true);
+	const [showDerivedMetadata, setShowDerivedMetadata] = useState(false);
+	const [showBuiltInVariables, setShowBuiltInVariables] = useState(false);
+	const [showSystemVariables, setShowSystemVariables] = useState(false);
+	const previousSignaturesRef = useRef<Map<string, string>>(new Map());
+	const updatedOrderRef = useRef<Map<string, number>>(new Map());
+	const updateSequenceRef = useRef(0);
+
+	useEffect(() => {
+		const nextSignatures = new Map<string, string>();
+		const currentNames = new Set<string>();
+
+		for (const variable of variables) {
+			const key = getVariableKey(variable);
+			const signature = createVariableSignature(variable);
+			currentNames.add(key);
+			nextSignatures.set(key, signature);
+
+			const previousSignature = previousSignaturesRef.current.get(key);
+			if (previousSignature !== undefined && previousSignature !== signature) {
+				updateSequenceRef.current += 1;
+				updatedOrderRef.current.set(key, updateSequenceRef.current);
+			}
+		}
+
+		for (const key of updatedOrderRef.current.keys()) {
+			if (!currentNames.has(key)) {
+				updatedOrderRef.current.delete(key);
+			}
+		}
+
+		previousSignaturesRef.current = nextSignatures;
+	}, [variables]);
+
+	const displayedVariables = useMemo(() => {
+		const filteredVariables = variables.filter((variable) => {
+			if (!showDerivedMetadata && isDerivedMetadataVariable(variable)) {
+				return false;
+			}
+
+			if (!showSystemVariables && isSystemVariable(variable)) {
+				return false;
+			}
+
+			if (!showBuiltInVariables && isBuiltInVariable(variable)) {
+				return false;
+			}
+
+			return true;
+		});
+
+		if (!sortUpdatedFirst) {
+			return filteredVariables;
+		}
+
+		return [...filteredVariables].sort((a, b) => {
+			const aOrder = updatedOrderRef.current.get(getVariableKey(a)) ?? 0;
+			const bOrder = updatedOrderRef.current.get(getVariableKey(b)) ?? 0;
+
+			return bOrder - aOrder;
+		});
+	}, [showBuiltInVariables, showDerivedMetadata, showSystemVariables, sortUpdatedFirst, variables]);
+
 	if (variables.length === 0) {
 		return (
 			<div className="h-full overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
@@ -244,39 +310,141 @@ function VariablesTab({ variables }: { variables: EditorVariable[] }) {
 	}
 
 	return (
-		<div className="h-full overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
-			<div className="overflow-x-auto rounded border border-baud-border bg-baud-soft">
-				<div className="min-w-[720px]">
-					<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
-						<div>Name</div>
-						<div>Type</div>
-						<div>Scope</div>
-						<div>Source</div>
-						<div>Value</div>
+		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
+			<div className="overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
+				{displayedVariables.length === 0 ? (
+					<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
+						All variables are currently hidden by display options.
 					</div>
-					<div className="divide-y divide-baud-border/80">
-						{variables.map((variable) => (
-							<div
-								key={`${variable.source}-${variable.name}`}
-								className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
-							>
-								<div className="min-w-0">
-									<div className="break-all text-baud-text">{variable.name}</div>
-									<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
-								</div>
-								<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
-								<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
-								<div className="text-baud-muted">{variable.source}</div>
-								<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
-									{formatVariableValue(variable.value)}
-								</pre>
+				) : (
+					<div className="overflow-x-auto rounded border border-baud-border bg-baud-soft">
+						<div className="min-w-[720px]">
+							<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
+								<div>Name</div>
+								<div>Type</div>
+								<div>Scope</div>
+								<div>Source</div>
+								<div>Value</div>
 							</div>
-						))}
+							<div className="divide-y divide-baud-border/80">
+								{displayedVariables.map((variable) => (
+									<div
+										key={getVariableKey(variable)}
+										className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
+									>
+										<div className="min-w-0">
+											<div className="break-all text-baud-text">{variable.name}</div>
+											<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
+										</div>
+										<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
+										<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
+										<div className="text-baud-muted">{variable.source}</div>
+										<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
+											{formatVariableValue(variable.value)}
+										</pre>
+									</div>
+								))}
+							</div>
+						</div>
 					</div>
-				</div>
+				)}
 			</div>
+			<VariablesFooter
+				showBuiltInVariables={showBuiltInVariables}
+				showDerivedMetadata={showDerivedMetadata}
+				showSystemVariables={showSystemVariables}
+				sortUpdatedFirst={sortUpdatedFirst}
+				onShowBuiltInVariablesChange={setShowBuiltInVariables}
+				onShowDerivedMetadataChange={setShowDerivedMetadata}
+				onShowSystemVariablesChange={setShowSystemVariables}
+				onSortUpdatedFirstChange={setSortUpdatedFirst}
+			/>
 		</div>
 	);
+}
+
+function VariablesFooter({
+	showBuiltInVariables,
+	showDerivedMetadata,
+	showSystemVariables,
+	sortUpdatedFirst,
+	onShowBuiltInVariablesChange,
+	onShowDerivedMetadataChange,
+	onShowSystemVariablesChange,
+	onSortUpdatedFirstChange,
+}: {
+	showBuiltInVariables: boolean;
+	showDerivedMetadata: boolean;
+	showSystemVariables: boolean;
+	sortUpdatedFirst: boolean;
+	onShowBuiltInVariablesChange: (enabled: boolean) => void;
+	onShowDerivedMetadataChange: (enabled: boolean) => void;
+	onShowSystemVariablesChange: (enabled: boolean) => void;
+	onSortUpdatedFirstChange: (enabled: boolean) => void;
+}) {
+	return (
+		<fieldset className="flex h-8 min-h-0 items-center justify-between gap-3 overflow-hidden border-t border-baud-border px-3">
+			<legend className="sr-only">Variable display options</legend>
+			<div className="flex min-w-0 items-center gap-4 overflow-hidden">
+				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
+					<input
+						type="checkbox"
+						checked={sortUpdatedFirst}
+						onChange={(event) => onSortUpdatedFirstChange(event.target.checked)}
+						className="size-3 accent-baud-red"
+					/>
+					Updated first
+				</label>
+				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
+					<input
+						type="checkbox"
+						checked={showDerivedMetadata}
+						onChange={(event) => onShowDerivedMetadataChange(event.target.checked)}
+						className="size-3 accent-baud-red"
+					/>
+					Show metadata
+				</label>
+				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
+					<input
+						type="checkbox"
+						checked={showBuiltInVariables}
+						onChange={(event) => onShowBuiltInVariablesChange(event.target.checked)}
+						className="size-3 accent-baud-red"
+					/>
+					Show built-ins
+				</label>
+				<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
+					<input
+						type="checkbox"
+						checked={showSystemVariables}
+						onChange={(event) => onShowSystemVariablesChange(event.target.checked)}
+						className="size-3 accent-baud-red"
+					/>
+					Show system
+				</label>
+			</div>
+		</fieldset>
+	);
+}
+
+function getVariableKey(variable: EditorVariable) {
+	return `${variable.source}-${variable.name}`;
+}
+
+function createVariableSignature(variable: EditorVariable) {
+	return JSON.stringify([variable.value, variable.type, variable.scope, variable.source]);
+}
+
+function isDerivedMetadataVariable(variable: EditorVariable) {
+	return /\.\$(?:length|count|type|is_empty)$/.test(variable.name);
+}
+
+function isSystemVariable(variable: EditorVariable) {
+	return variable.source === "built_in" && variable.name.startsWith("system_");
+}
+
+function isBuiltInVariable(variable: EditorVariable) {
+	return variable.source === "built_in" && !isSystemVariable(variable);
 }
 
 function formatVariableValue(value: EditorVariable["value"]) {
@@ -307,9 +475,9 @@ function LogFooter({
 	onFollowChange: (enabled: boolean) => void;
 }) {
 	return (
-		<fieldset className="flex items-center justify-between border-t border-baud-border px-3">
+		<fieldset className="flex h-8 min-h-0 items-center justify-between overflow-hidden border-t border-baud-border px-3">
 			<legend className="sr-only">{label}</legend>
-			<label className="flex items-center gap-2 text-xs text-baud-muted">
+			<label className="flex shrink-0 items-center gap-2 text-xs text-baud-muted">
 				<input
 					type="checkbox"
 					checked={follow}

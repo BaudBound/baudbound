@@ -7,6 +7,7 @@ type SelectOption = {
 };
 
 export type SerialDeviceConfig = {
+	autoReconnect: boolean;
 	baudRate: number;
 	dataBits: number;
 	deviceId: string;
@@ -14,7 +15,10 @@ export type SerialDeviceConfig = {
 	label: string;
 	parity: string;
 	port: string;
+	productId: string;
 	stopBits: number;
+	validateUsbIdentity: boolean;
+	vendorId: string;
 };
 
 export const serialBaudRateOptions: SelectOption[] = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].map(
@@ -82,6 +86,7 @@ export function createSerialDeviceConfigs(nodes: Node<ScriptNodeData>[]): Serial
 		}
 
 		devices.set(deviceId, {
+			autoReconnect: node.data.config.autoReconnect !== false,
 			baudRate: normalizeBaudRate(configString(node.data.config.baudRate)),
 			dataBits: normalizeDataBits(configString(node.data.config.dataBits)),
 			deviceId,
@@ -89,7 +94,10 @@ export function createSerialDeviceConfigs(nodes: Node<ScriptNodeData>[]): Serial
 			label: configString(node.data.config.label).trim() || "Serial device",
 			parity: normalizeParity(configString(node.data.config.parity)),
 			port: configString(node.data.config.port).trim(),
+			productId: normalizeUsbHexId(configString(node.data.config.productId)),
 			stopBits: normalizeStopBits(configString(node.data.config.stopBits)),
+			validateUsbIdentity: node.data.config.validateUsbIdentity === true,
+			vendorId: normalizeUsbHexId(configString(node.data.config.vendorId)),
 		});
 	}
 
@@ -125,6 +133,11 @@ function normalizeParity(value: string) {
 
 function normalizeFlowControl(value: string) {
 	return ["none", "hardware", "software"].includes(value) ? value : "none";
+}
+
+function normalizeUsbHexId(value: string) {
+	const trimmed = value.trim().replace(/^0x/i, "");
+	return /^[0-9a-fA-F]{1,4}$/.test(trimmed) ? trimmed.toUpperCase().padStart(4, "0") : "";
 }
 
 function configString(value: JsonValue | undefined) {

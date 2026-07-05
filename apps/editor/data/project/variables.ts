@@ -98,7 +98,7 @@ export const variableOperationDefinitions: Record<
 	set: {
 		label: "Set",
 		valueLabel: "Value",
-		description: "Create or replace the variable value. This keeps the original Set Variable behavior.",
+		description: "Create or replace the variable value.",
 	},
 	increment: {
 		label: "Increment",
@@ -407,7 +407,7 @@ export function createConfiguredVariableDefinitions(nodes: Node<ScriptNodeData>[
 		const operation = normalizeVariableOperation(configString(node.data.config.operation));
 
 		variables.set(name, {
-			description: `Written by Set Variable node ${node.id} using ${variableOperationDefinitions[operation].label}.`,
+			description: `Written by Variable Operation node ${node.id} using ${variableOperationDefinitions[operation].label}.`,
 			name,
 			read_only: false,
 			scope: normalizeVariableScope(configString(node.data.config.scope)),
@@ -419,6 +419,114 @@ export function createConfiguredVariableDefinitions(nodes: Node<ScriptNodeData>[
 	}
 
 	return [...variables.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function createDerivedVariableMetadataDefinitions(variables: EditorVariable[]): EditorVariable[] {
+	return variables.flatMap((variable) => {
+		if (variable.name.includes(".$")) {
+			return [];
+		}
+
+		return derivedVariableMetadataFields.map((field) => {
+			const name = `${variable.name}.${field.name}`;
+			return {
+				description: `${field.description} Derived from ${variable.name}.`,
+				name,
+				read_only: true,
+				scope: variable.scope,
+				source: variable.source,
+				token: `{{${name}}}`,
+				type: field.type,
+				value: getDerivedVariableMetadataValue(variable.value, field.name),
+			} satisfies EditorVariable;
+		});
+	});
+}
+
+const derivedVariableMetadataFields = [
+	{
+		name: "$length",
+		type: "number",
+		description: "Length for strings, item count for lists, key count for objects.",
+	},
+	{
+		name: "$count",
+		type: "number",
+		description: "Alias for $length.",
+	},
+	{
+		name: "$type",
+		type: "string",
+		description: "Current value type.",
+	},
+	{
+		name: "$is_empty",
+		type: "boolean",
+		description: "Whether the value is empty, null, or missing.",
+	},
+] as const;
+
+function getDerivedVariableMetadataValue(
+	value: JsonValue | undefined,
+	field: (typeof derivedVariableMetadataFields)[number]["name"],
+) {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (field === "$length" || field === "$count") {
+		return getValueLength(value);
+	}
+
+	if (field === "$type") {
+		return getValueType(value);
+	}
+
+	return isValueEmpty(value);
+}
+
+function getValueLength(value: JsonValue | undefined) {
+	if (typeof value === "string" || Array.isArray(value)) {
+		return value.length;
+	}
+
+	if (value && typeof value === "object") {
+		return Object.keys(value).length;
+	}
+
+	return 0;
+}
+
+function getValueType(value: JsonValue | undefined) {
+	if (Array.isArray(value)) {
+		return "list";
+	}
+
+	if (value === null) {
+		return "null";
+	}
+
+	if (value === undefined) {
+		return "missing";
+	}
+
+	return typeof value;
+}
+
+function isValueEmpty(value: JsonValue | undefined) {
+	if (value === undefined || value === null) {
+		return true;
+	}
+
+	if (typeof value === "string" || Array.isArray(value)) {
+		return value.length === 0;
+	}
+
+	if (typeof value === "object") {
+		return Object.keys(value).length === 0;
+	}
+
+	return false;
 }
 
 function configString(value: JsonValue | undefined) {

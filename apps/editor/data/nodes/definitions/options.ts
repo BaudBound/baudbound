@@ -88,6 +88,26 @@ export const variableOperationOptions: SelectOption[] = variableOperations.map((
 	value: operation,
 }));
 
+export const textTransformOperationOptions: SelectOption[] = [
+	{ label: "Template", value: "template" },
+	{ label: "Trim", value: "trim" },
+	{ label: "Uppercase", value: "uppercase" },
+	{ label: "Lowercase", value: "lowercase" },
+	{ label: "Replace text", value: "replace" },
+	{ label: "Regex replace", value: "regex_replace" },
+	{ label: "Split", value: "split" },
+	{ label: "Join", value: "join" },
+	{ label: "Substring", value: "substring" },
+	{ label: "Pad start", value: "pad_start" },
+	{ label: "Pad end", value: "pad_end" },
+	{ label: "URL encode", value: "url_encode" },
+	{ label: "URL decode", value: "url_decode" },
+	{ label: "Base64 encode", value: "base64_encode" },
+	{ label: "Base64 decode", value: "base64_decode" },
+	{ label: "JSON escape", value: "json_escape" },
+	{ label: "JSON unescape", value: "json_unescape" },
+];
+
 export const logLevelOptions: SelectOption[] = [
 	{ label: "Info", value: "info" },
 	{ label: "Warning", value: "warn" },

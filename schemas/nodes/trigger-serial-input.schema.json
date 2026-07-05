@@ -1,0 +1,133 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/trigger-serial-input.schema.json",
+	"title": "BaudBound Node - Serial Input",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "trigger.serial_input"
+		},
+		"type": {
+			"const": "serial_input"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"baudRate",
+				"dataBits",
+				"deviceId",
+				"flowControl",
+				"label",
+				"parity",
+				"port",
+				"readMode",
+				"stopBits"
+			],
+			"properties": {
+				"autoReconnect": {
+					"type": "boolean"
+				},
+				"baudRate": {
+					"type": "string",
+					"enum": [
+						"9600",
+						"19200",
+						"38400",
+						"57600",
+						"115200",
+						"230400",
+						"460800",
+						"921600"
+					]
+				},
+				"customName": {
+					"type": "string"
+				},
+				"dataBits": {
+					"type": "string",
+					"enum": [
+						"5",
+						"6",
+						"7",
+						"8"
+					]
+				},
+				"deviceId": {
+					"type": "string"
+				},
+				"flowControl": {
+					"type": "string",
+					"enum": [
+						"none",
+						"hardware",
+						"software"
+					]
+				},
+				"label": {
+					"type": "string"
+				},
+				"parity": {
+					"type": "string",
+					"enum": [
+						"none",
+						"even",
+						"odd",
+						"mark",
+						"space"
+					]
+				},
+				"port": {
+					"type": "string"
+				},
+				"productId": {
+					"type": "string"
+				},
+				"readMode": {
+					"type": "string",
+					"enum": [
+						"line",
+						"raw"
+					]
+				},
+				"stopBits": {
+					"type": "string",
+					"enum": [
+						"1",
+						"1.5",
+						"2"
+					]
+				},
+				"validateUsbIdentity": {
+					"type": "boolean"
+				},
+				"vendorId": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

@@ -1,45 +1,94 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.baudbound.app/editor.schema.json",
-  "title": "BaudBound Editor Metadata",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["format_version", "created_with", "nodes"],
-  "properties": {
-    "format_version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "created_with": {
-      "type": "string",
-      "minLength": 1
-    },
-    "nodes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "position"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "position": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["x", "y"],
-            "properties": {
-              "x": {
-                "type": "number"
-              },
-              "y": {
-                "type": "number"
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/editor.schema.json",
+	"title": "BaudBound Editor Metadata",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["format_version", "created_with", "nodes"],
+	"properties": {
+		"format_version": {
+			"type": "integer",
+			"minimum": 1
+		},
+		"created_with": {
+			"type": "string",
+			"minLength": 1
+		},
+		"nodes": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["id", "position"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"position": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": ["x", "y"],
+						"properties": {
+							"x": {
+								"type": "number"
+							},
+							"y": {
+								"type": "number"
+							}
+						}
+					}
+				}
+			}
+		},
+		"comments": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["id", "text", "color", "position", "size"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"text": {
+						"type": "string"
+					},
+					"color": {
+						"type": "string",
+						"enum": ["amber", "blue", "green", "rose", "violet"]
+					},
+					"position": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": ["x", "y"],
+						"properties": {
+							"x": {
+								"type": "number"
+							},
+							"y": {
+								"type": "number"
+							}
+						}
+					},
+					"size": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": ["width", "height"],
+						"properties": {
+							"width": {
+								"type": "number",
+								"exclusiveMinimum": 0
+							},
+							"height": {
+								"type": "number",
+								"exclusiveMinimum": 0
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }

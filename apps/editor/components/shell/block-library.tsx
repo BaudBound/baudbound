@@ -2,8 +2,9 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { paletteNodeDragDataType } from "@/data/editor/drag-drop";
 import { desktopOnlyActionTypes, getPaletteGroups } from "@/data/nodes/registry";
-import type { PaletteItem } from "@/lib/types";
+import type { PaletteGroup, PaletteItem } from "@/lib/types";
 import { RiskBadge } from "./risk-badge";
 
 type BlockLibraryProps = {
@@ -19,26 +20,16 @@ const defaultExpandedPaletteGroups: Record<string, boolean> = {
 };
 
 const paletteGroups = getPaletteGroups();
+const defaultExpandedGroups = createDefaultExpandedGroups(paletteGroups);
 
 export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibraryProps) {
 	const [query, setQuery] = useState("");
-	const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(defaultExpandedPaletteGroups);
+	const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(defaultExpandedGroups);
 	const compact = width < 190;
 
 	const filteredGroups = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
-		return paletteGroups
-			.map((group) => ({
-				...group,
-				items: group.items.filter((item) => {
-					if (!normalizedQuery) {
-						return true;
-					}
-
-					return `${item.label} ${item.description} ${item.actionType}`.toLowerCase().includes(normalizedQuery);
-				}),
-			}))
-			.filter((group) => group.items.length > 0);
+		return paletteGroups.flatMap((group) => filterPaletteGroup(group, normalizedQuery));
 	}, [query]);
 
 	return (
@@ -61,51 +52,166 @@ export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibrar
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
 				{filteredGroups.map((group) => {
-					const Icon = group.icon;
-					const expanded = expandedGroups[group.id];
-
 					return (
-						<section key={group.id} className="mb-3">
-							<Button
-								type="button"
-								onClick={() => setExpandedGroups((current) => ({ ...current, [group.id]: !expanded }))}
-								className="w-full justify-start px-1.5 text-left text-baud-muted font-bold uppercase tracking-[0.18em] hover:bg-transparent hover:text-baud-text"
-								size="sm"
-								variant="ghost"
-							>
-								{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-								<Icon size={13} />
-								<span>{group.label}</span>
-							</Button>
-
-							{expanded && (
-								<div className="mt-1 ml-3 space-y-1 border-l border-baud-border/80 pl-2">
-									{group.items.map((item) => {
-										const Icon = item.icon;
-										const unavailable = desktopOnlyActionTypes.has(item.actionType) && !isDesktopTarget;
-
-										return (
-											<Button
-												type="button"
-												key={item.actionType}
-												onClick={() => onAddBlock(item)}
-												className="group w-full justify-start gap-2 px-2 text-left text-[0.9rem] font-normal"
-												disabled={unavailable}
-												title={unavailable ? "Requires a desktop target runtime" : item.description}
-												variant="ghost"
-											>
-												<Icon size={13} className="text-baud-muted group-hover:text-baud-text" />
-												<span className="min-w-0 flex-1 truncate">{item.label}</span>
-												{!compact && <RiskBadge risk={item.risk} />}
-											</Button>
-										);
-									})}
-								</div>
-							)}
-						</section>
+						<PaletteGroupSection
+							key={group.id}
+							compact={compact}
+							expandedGroups={expandedGroups}
+							forceExpanded={query.trim().length > 0}
+							group={group}
+							isDesktopTarget={isDesktopTarget}
+							onAddBlock={onAddBlock}
+							onToggleGroup={(groupId) =>
+								setExpandedGroups((current) => ({ ...current, [groupId]: !current[groupId] }))
+							}
+						/>
 					);
 				})}
 			</div>
 		</aside>
 	);
+}
+
+function PaletteGroupSection({
+	compact,
+	expandedGroups,
+	forceExpanded,
+	group,
+	isDesktopTarget,
+	nested = false,
+	onAddBlock,
+	onToggleGroup,
+}: {
+	compact: boolean;
+	expandedGroups: Record<string, boolean>;
+	forceExpanded: boolean;
+	group: PaletteGroup;
+	isDesktopTarget: boolean;
+	nested?: boolean;
+	onAddBlock: (item: PaletteItem) => void;
+	onToggleGroup: (groupId: string) => void;
+}) {
+	const Icon = group.icon;
+	const expanded = forceExpanded || (expandedGroups[group.id] ?? false);
+	const hasChildren = group.items.length > 0 || (group.children?.length ?? 0) > 0;
+
+	return (
+		<section className={nested ? "mt-2" : "mb-3"}>
+			<Button
+				type="button"
+				onClick={() => onToggleGroup(group.id)}
+				className={`w-full justify-start px-1.5 text-left font-bold uppercase hover:bg-transparent hover:text-baud-text ${
+					nested ? "text-[0.68rem] tracking-[0.12em] text-baud-muted/90" : "tracking-[0.18em] text-baud-muted"
+				}`}
+				disabled={!hasChildren}
+				size="sm"
+				variant="ghost"
+			>
+				{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+				<Icon size={13} />
+				<span className="min-w-0 truncate">{group.label}</span>
+			</Button>
+
+			{expanded && (
+				<div className="mt-1 ml-3 space-y-1 border-l border-baud-border/80 pl-2">
+					{group.children?.map((child) => (
+						<PaletteGroupSection
+							key={child.id}
+							compact={compact}
+							expandedGroups={expandedGroups}
+							forceExpanded={forceExpanded}
+							group={child}
+							isDesktopTarget={isDesktopTarget}
+							nested
+							onAddBlock={onAddBlock}
+							onToggleGroup={onToggleGroup}
+						/>
+					))}
+					{group.items.map((item) => (
+						<PaletteItemButton
+							key={item.actionType}
+							compact={compact}
+							isDesktopTarget={isDesktopTarget}
+							item={item}
+							onAddBlock={onAddBlock}
+						/>
+					))}
+				</div>
+			)}
+		</section>
+	);
+}
+
+function PaletteItemButton({
+	compact,
+	isDesktopTarget,
+	item,
+	onAddBlock,
+}: {
+	compact: boolean;
+	isDesktopTarget: boolean;
+	item: PaletteItem;
+	onAddBlock: (item: PaletteItem) => void;
+}) {
+	const Icon = item.icon;
+	const unavailable = desktopOnlyActionTypes.has(item.actionType) && !isDesktopTarget;
+
+	return (
+		<Button
+			type="button"
+			onClick={() => onAddBlock(item)}
+			draggable={!unavailable}
+			onDragStart={(event) => {
+				if (unavailable) {
+					event.preventDefault();
+					return;
+				}
+
+				event.dataTransfer.effectAllowed = "copy";
+				event.dataTransfer.setData(paletteNodeDragDataType, item.actionType);
+				event.dataTransfer.setData("text/plain", item.actionType);
+			}}
+			className="group w-full justify-start gap-2 px-2 text-left text-[0.9rem] font-normal"
+			disabled={unavailable}
+			title={unavailable ? "Requires a desktop target runtime" : item.description}
+			variant="ghost"
+		>
+			<Icon size={13} className="text-baud-muted group-hover:text-baud-text" />
+			<span className="min-w-0 flex-1 truncate">{item.label}</span>
+			{!compact && <RiskBadge risk={item.risk} />}
+		</Button>
+	);
+}
+
+function createDefaultExpandedGroups(groups: PaletteGroup[]) {
+	return groups.reduce<Record<string, boolean>>((expanded, group) => {
+		expanded[group.id] = defaultExpandedPaletteGroups[group.id] ?? false;
+		for (const child of group.children ?? []) {
+			expanded[child.id] = false;
+		}
+		return expanded;
+	}, {});
+}
+
+function filterPaletteGroup(group: PaletteGroup, normalizedQuery: string): PaletteGroup[] {
+	const items = group.items.filter((item) => {
+		if (!normalizedQuery) {
+			return true;
+		}
+
+		return `${item.label} ${item.description} ${item.actionType}`.toLowerCase().includes(normalizedQuery);
+	});
+	const children = group.children?.flatMap((child) => filterPaletteGroup(child, normalizedQuery));
+
+	if (items.length === 0 && (!children || children.length === 0)) {
+		return [];
+	}
+
+	return [
+		{
+			...group,
+			items,
+			children,
+		},
+	];
 }

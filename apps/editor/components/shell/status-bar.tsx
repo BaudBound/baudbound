@@ -18,8 +18,8 @@ export function StatusBar({ nodes, edges, riskLevel }: StatusBarProps) {
 				<span>{nodes.length} nodes</span>
 				<span>{edges.length} edges</span>
 				<span>risk {riskLevel}</span>
-				<span className="hidden md:inline">format v1</span>
-				<span className="hidden lg:inline">lang v1</span>
+				<span className="hidden md:inline">package v1</span>
+				<span className="hidden lg:inline">runtime v1</span>
 			</div>
 			<span className="hidden shrink-0 sm:inline">BaudBound Editor 0.1.0</span>
 		</footer>

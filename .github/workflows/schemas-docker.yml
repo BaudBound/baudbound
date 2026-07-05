@@ -1,0 +1,104 @@
+name: Schemas Docker
+
+on:
+  pull_request:
+    paths:
+      - "schemas/**"
+      - "apps/editor/**"
+      - "deploy/schemas/**"
+      - ".github/workflows/schemas-docker.yml"
+  push:
+    branches:
+      - v2
+      - master
+    tags:
+      - "schemas-v*"
+      - "v*"
+    paths:
+      - "schemas/**"
+      - "apps/editor/**"
+      - "deploy/schemas/**"
+      - ".github/workflows/schemas-docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BUILD_CONTEXT: .
+  DOCKERFILE: deploy/schemas/Dockerfile
+
+jobs:
+  build:
+    name: Build schemas image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/editor/pnpm-lock.yaml
+
+      - name: Install editor dependencies
+        run: pnpm --dir apps/editor install --frozen-lockfile
+
+      - name: Verify generated schemas are current
+        run: pnpm --dir apps/editor schemas:check
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Prepare image name
+        id: image
+        shell: bash
+        run: |
+          raw_image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/baudbound-schemas"
+          image="$(printf '%s' "$raw_image" | tr '[:upper:]' '[:lower:]')"
+          echo "Using image name: ${image}"
+          echo "name=${image}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=BaudBound Schemas
+            org.opencontainers.image.description=Static JSON Schema contract files for BaudBound packages and nodes.
+            org.opencontainers.image.vendor=BaudBound
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=schemas
+          cache-to: type=gha,mode=max,scope=schemas

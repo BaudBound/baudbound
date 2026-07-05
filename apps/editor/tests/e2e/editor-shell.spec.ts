@@ -6,13 +6,13 @@ test("editor shell loads the core controls", async ({ page }) => {
 	await page.goto("/");
 
 	await expect(page.getByText("BaudBound Editor", { exact: true })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Assets" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Project Settings" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Help" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Simulate" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Verify" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Import" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Export" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Open asset editor" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Open project settings" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Open help" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Start simulation" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Verify script" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Import package" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Properties" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Simulator" })).toBeVisible();
@@ -21,7 +21,7 @@ test("editor shell loads the core controls", async ({ page }) => {
 test("help modal exposes controls, references, expressions, and node docs", async ({ page }) => {
 	await page.goto("/");
 
-	await page.getByRole("button", { name: "Help" }).click();
+	await page.getByRole("button", { name: "Open help" }).click();
 	await expect(page.getByRole("heading", { name: "Editor Help" })).toBeVisible();
 	await expect(page.getByRole("heading", { name: "Hotkeys" })).toBeVisible();
 
@@ -42,7 +42,7 @@ test("help modal exposes controls, references, expressions, and node docs", asyn
 test("project settings target runtime can be changed with the combobox", async ({ page }) => {
 	await page.goto("/");
 
-	await page.getByRole("button", { name: "Project Settings" }).click();
+	await page.getByRole("button", { name: "Open project settings" }).click();
 	await expect(page.getByRole("heading", { name: "Project Settings" })).toBeVisible();
 
 	await page.getByRole("button", { name: "Target runtime" }).click();
@@ -56,11 +56,11 @@ test("project settings target runtime can be changed with the combobox", async (
 test("verification reports graph errors when the script has no trigger", async ({ page }) => {
 	await page.goto("/");
 
-	await page.getByRole("button", { name: "Verify" }).click();
+	await page.getByRole("button", { name: "Verify script" }).click();
 
 	await expect(page.getByRole("heading", { name: "Verification" })).toBeVisible();
 	await expect(page.getByText("No trigger node found. Add at least one trigger before export.")).toBeVisible();
-	await expect(page.getByText("Verification failed", { exact: true })).toBeVisible();
+	await expect(page.getByText("3 failed checks must be resolved.", { exact: true }).first()).toBeVisible();
 });
 
 test("manual trigger creation is limited to one node", async ({ page }) => {
@@ -76,7 +76,7 @@ test("manual trigger creation is limited to one node", async ({ page }) => {
 test("asset editor shows content checks without fixed size caps", async ({ page }) => {
 	await page.goto("/");
 
-	await page.getByRole("button", { name: "Assets" }).click();
+	await page.getByRole("button", { name: "Open asset editor" }).click();
 
 	await expect(page.getByRole("heading", { name: "Asset Editor" })).toBeVisible();
 	await expect(page.getByText("Package checks")).toBeVisible();

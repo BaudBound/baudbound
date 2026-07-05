@@ -13,7 +13,7 @@ import type { SimulationContext } from "@/utils/simulation-types";
 import { defineNode, type NodeSimulationApi } from "../../node-definition";
 import { variableOperationOptions, variableScopeOptions, variableTypeOptions } from "../options";
 
-export const setVariableNode = defineNode({
+export const variableOperationNode = defineNode({
 	actionType: "runtime.set_variable",
 	capabilities: ["runtime.variables"],
 	configFields: [
@@ -34,7 +34,7 @@ export const setVariableNode = defineNode({
 	group: "actions",
 	icon: Database,
 	kind: "action",
-	label: "Set Variable",
+	label: "Variable Operation",
 	permission: { name: "set_local_variable", risk: "low" },
 	risk: "low",
 	runnerType: "set_variable",
@@ -89,13 +89,13 @@ export const setVariableNode = defineNode({
 		describe: ({ api, node }) => [
 			{
 				level: "info",
-				message: `[Simulation] Set Variable (${node.id}) succeeded. Preparing to ${api.getConfigString(node, "operation").replaceAll("_", " ")} ${api.getConfigString(node, "name")}.`,
+				message: `[Simulation] Variable Operation (${node.id}) succeeded. Preparing to ${api.getConfigString(node, "operation").replaceAll("_", " ")} ${api.getConfigString(node, "name")}.`,
 			},
 		],
 	},
 });
 
-type SetVariableSimulationApi = {
+type VariableOperationSimulationApi = {
 	formatValue: (value: JsonValue) => string;
 	getConfigString: NodeSimulationApi["getConfigString"];
 	parseJsonValue: (value: string) => JsonValue | undefined;
@@ -106,7 +106,7 @@ type SetVariableSimulationApi = {
 function applyVariableOperation(
 	config: Record<string, JsonValue>,
 	context: SimulationContext,
-	api: SetVariableSimulationApi,
+	api: VariableOperationSimulationApi,
 ) {
 	const name = configString(config.name).trim();
 	const operation = normalizeVariableOperation(configString(config.operation));
@@ -169,7 +169,7 @@ function resolveVariableInput(
 	value: string,
 	type: VariableType,
 	context: SimulationContext,
-	api: SetVariableSimulationApi,
+	api: VariableOperationSimulationApi,
 ): JsonValue {
 	const resolved = api.resolveTemplate(value, context);
 	if (typeof resolved !== "string") {

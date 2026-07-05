@@ -109,6 +109,7 @@ export async function createSimulationRun({
 		stepDelayMs,
 		streamedSteps: 0,
 		triggerPayload,
+		webhookResponse: null,
 	};
 
 	if (!trigger) {
@@ -993,11 +994,15 @@ function getPathValue(value: JsonValue, path: string): JsonValue | undefined {
 
 	const parts = path.match(/[^.[\]]+|\[(?:0|[1-9][0-9]*)\]|\["([^"]+)"\]|\['([^']+)'\]/g) ?? [];
 	return parts.reduce<JsonValue | undefined>((currentValue, part) => {
+		const key = getPathPartKey(part);
+		if (key.startsWith("$")) {
+			return getDerivedValueMetadata(currentValue, key);
+		}
+
 		if (currentValue === undefined || currentValue === null || typeof currentValue !== "object") {
 			return undefined;
 		}
 
-		const key = getPathPartKey(part);
 		if (Array.isArray(currentValue)) {
 			const index = Number(key);
 			return Number.isInteger(index) ? currentValue[index] : undefined;
@@ -1017,6 +1022,66 @@ function getPathPartKey(part: string) {
 	}
 
 	return part.slice(2, -2);
+}
+
+function getDerivedValueMetadata(value: JsonValue | undefined, key: string): JsonValue | undefined {
+	if (key === "$length" || key === "$count") {
+		return getValueLength(value);
+	}
+
+	if (key === "$type") {
+		return getValueType(value);
+	}
+
+	if (key === "$is_empty") {
+		return isValueEmpty(value);
+	}
+
+	return undefined;
+}
+
+function getValueLength(value: JsonValue | undefined) {
+	if (typeof value === "string" || Array.isArray(value)) {
+		return value.length;
+	}
+
+	if (value && typeof value === "object") {
+		return Object.keys(value).length;
+	}
+
+	return 0;
+}
+
+function getValueType(value: JsonValue | undefined) {
+	if (Array.isArray(value)) {
+		return "list";
+	}
+
+	if (value === null) {
+		return "null";
+	}
+
+	if (value === undefined) {
+		return "missing";
+	}
+
+	return typeof value;
+}
+
+function isValueEmpty(value: JsonValue | undefined) {
+	if (value === undefined || value === null) {
+		return true;
+	}
+
+	if (typeof value === "string" || Array.isArray(value)) {
+		return value.length === 0;
+	}
+
+	if (typeof value === "object") {
+		return Object.keys(value).length === 0;
+	}
+
+	return false;
 }
 
 async function pushStep(

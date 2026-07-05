@@ -8,10 +8,12 @@
 		"build": "next build",
 		"start": "next start",
 		"e2e": "playwright test",
+		"schemas:check": "node scripts/generate-node-schemas.mjs --check",
+		"schemas:generate": "node scripts/generate-node-schemas.mjs",
 		"test": "node --test tests/*.test.mjs",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check",
-		"verify:release": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
+		"verify:release": "pnpm lint && pnpm typecheck && pnpm schemas:check && pnpm test && pnpm build && pnpm e2e",
 		"format": "biome format --write"
 	},
 	"dependencies": {

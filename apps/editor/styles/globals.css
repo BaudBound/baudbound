@@ -82,8 +82,17 @@ textarea,
 }
 
 .react-flow__node {
+	z-index: 20 !important;
 	font-family: inherit;
 	user-select: none;
+}
+
+.react-flow__node.baud-comment-flow-node {
+	z-index: 5 !important;
+}
+
+.baud-comment-card {
+	z-index: 5;
 }
 
 .react-flow__handle {

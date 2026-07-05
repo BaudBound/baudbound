@@ -113,6 +113,7 @@ export type NodeDefinition = {
 	kind: NodeKind;
 	label: string;
 	permission?: PermissionSummary;
+	derivePermissions?: (config: Record<string, JsonValue>) => PermissionSummary[];
 	ports?: (config?: Record<string, JsonValue>) => NodePorts;
 	risk: RiskLevel;
 	runtimeOutputs?: RuntimeDataOutput[];

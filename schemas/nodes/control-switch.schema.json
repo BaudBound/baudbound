@@ -1,0 +1,52 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/control-switch.schema.json",
+	"title": "BaudBound Node - Switch",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "control.switch"
+		},
+		"type": {
+			"const": "switch"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"cases": {
+					"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/jsonValue"
+				},
+				"customName": {
+					"type": "string"
+				},
+				"value": {
+					"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/jsonValue"
+				}
+			}
+		}
+	}
+}

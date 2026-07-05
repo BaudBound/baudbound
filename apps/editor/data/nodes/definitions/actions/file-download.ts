@@ -1,4 +1,5 @@
 import { Download } from "lucide-react";
+import { createWriteFilePermission, fileWriteLimitedPermission } from "@/data/project/file-permissions";
 import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible } from "../runtime-outputs";
@@ -25,6 +26,13 @@ export const downloadFileNode = defineNode({
 	kind: "action",
 	label: "Download File",
 	permission: { name: "download_file", risk: "medium" },
+	derivePermissions: (config) => {
+		const writePermission = createWriteFilePermission(config.destinationPath);
+		return [
+			{ name: "download_file", risk: "medium" },
+			...(writePermission.name === fileWriteLimitedPermission.name ? [] : [writePermission]),
+		];
+	},
 	risk: "medium",
 	runtimeOutputs: fallible([
 		{

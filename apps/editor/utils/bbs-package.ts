@@ -12,6 +12,7 @@ import type {
 	ActionType,
 	AssetKind,
 	EditorAsset,
+	EditorComment,
 	JsonValue,
 	ProjectSettings,
 	RiskLevel,
@@ -29,6 +30,7 @@ import {
 
 type ImportedBbsPackage = {
 	assets: EditorAsset[];
+	comments: EditorComment[];
 	edges: Edge[];
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
@@ -42,6 +44,7 @@ export async function exportBbsPackage(params: {
 	nodes: Node<ScriptNodeData>[];
 	edges: Edge[];
 	assets: EditorAsset[];
+	comments: EditorComment[];
 }) {
 	const permissions = calculatePermissions(params.nodes);
 	const capabilities = calculateCapabilities(params.nodes);
@@ -72,7 +75,7 @@ export async function exportBbsPackage(params: {
 		})),
 	});
 	const programJson = toProgramJson(params.nodes, params.edges, params.projectSettings);
-	const editorJson = toEditorJson(params.nodes);
+	const editorJson = toEditorJson(params.nodes, params.comments);
 	const permissionsJson = {
 		declared_permissions: permissions.map((permission) => permission.name),
 		risk_level: calculateRiskLevel(permissions),
@@ -178,9 +181,11 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 	const projectSettings = toProjectSettings(manifest, capabilities);
 	const assets = await readPackageAssets(zip, manifest);
 	const { nodes, edges } = toEditorGraph(program, editorMetadata);
+	const comments = toEditorComments(editorMetadata);
 
 	return {
 		assets,
+		comments,
 		edges,
 		nodes,
 		projectSettings,
@@ -209,7 +214,7 @@ function slugFromName(name: string) {
 	);
 }
 
-function toEditorJson(nodes: Node<ScriptNodeData>[]) {
+function toEditorJson(nodes: Node<ScriptNodeData>[], comments: EditorComment[]) {
 	return {
 		format_version: EDITOR_METADATA_FORMAT_VERSION,
 		created_with: "BaudBound Editor 0.1.0",
@@ -218,6 +223,19 @@ function toEditorJson(nodes: Node<ScriptNodeData>[]) {
 			position: {
 				x: finiteNumberOrZero(node.position.x),
 				y: finiteNumberOrZero(node.position.y),
+			},
+		})),
+		comments: comments.map((comment) => ({
+			id: comment.id,
+			text: comment.text,
+			color: comment.color,
+			position: {
+				x: finiteNumberOrZero(comment.position.x),
+				y: finiteNumberOrZero(comment.position.y),
+			},
+			size: {
+				width: finitePositiveNumberOrDefault(comment.size.width, 280),
+				height: finitePositiveNumberOrDefault(comment.size.height, 156),
 			},
 		})),
 	};
@@ -477,6 +495,55 @@ function getEditorNodePositions(editorMetadata: Record<string, unknown> | null) 
 	return positions;
 }
 
+function toEditorComments(editorMetadata: Record<string, unknown> | null): EditorComment[] {
+	if (!editorMetadata || !Array.isArray(editorMetadata.comments)) {
+		return [];
+	}
+
+	return editorMetadata.comments
+		.map((value): EditorComment | null => {
+			if (!isRecord(value) || !isRecord(value.position) || !isRecord(value.size)) {
+				return null;
+			}
+
+			const id = stringOrDefault(value.id, "");
+			const x = value.position.x;
+			const y = value.position.y;
+			const width = value.size.width;
+			const height = value.size.height;
+			if (
+				!id ||
+				typeof x !== "number" ||
+				typeof y !== "number" ||
+				typeof width !== "number" ||
+				typeof height !== "number" ||
+				!Number.isFinite(x) ||
+				!Number.isFinite(y) ||
+				!Number.isFinite(width) ||
+				!Number.isFinite(height) ||
+				width <= 0 ||
+				height <= 0
+			) {
+				return null;
+			}
+
+			return {
+				id,
+				text: stringOrDefault(value.text, ""),
+				color: asCommentColor(value.color),
+				position: { x, y },
+				size: { width, height },
+			};
+		})
+		.filter((comment): comment is EditorComment => comment !== null);
+}
+
+function asCommentColor(value: unknown): EditorComment["color"] {
+	return value === "amber" || value === "blue" || value === "green" || value === "rose" || value === "violet"
+		? value
+		: "amber";
+}
+
 function toEditorEdges(value: unknown, nodeIds: ReadonlySet<string>): Edge[] {
 	if (!Array.isArray(value)) {
 		return [];
@@ -603,4 +670,8 @@ function getPackageJsonFiles(fileNames: string[]) {
 
 function finiteNumberOrZero(value: number) {
 	return Number.isFinite(value) ? value : 0;
+}
+
+function finitePositiveNumberOrDefault(value: number, fallback: number) {
+	return Number.isFinite(value) && value > 0 ? value : fallback;
 }

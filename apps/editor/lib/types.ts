@@ -26,6 +26,8 @@ export type ActionType =
 	| "action.log"
 	| "action.delay"
 	| "action.http"
+	| "action.webhook_response"
+	| "action.websocket.write"
 	| "action.notification"
 	| "action.message_box"
 	| "action.pixel.get"
@@ -87,6 +89,7 @@ export type RuntimeDataType =
 	| "number"
 	| "boolean"
 	| "object"
+	| "list"
 	| "file_content"
 	| "file_path"
 	| "http_headers"
@@ -126,6 +129,30 @@ export type ScriptNodeData = {
 	runtimeOutputs: RuntimeDataOutput[];
 };
 
+export type CommentNodeData = {
+	editorOnly: true;
+	text: string;
+	size: {
+		width: number;
+		height: number;
+	};
+	color: "amber" | "blue" | "green" | "rose" | "violet";
+};
+
+export type EditorComment = {
+	id: string;
+	text: string;
+	position: {
+		x: number;
+		y: number;
+	};
+	size: {
+		width: number;
+		height: number;
+	};
+	color: "amber" | "blue" | "green" | "rose" | "violet";
+};
+
 export type PaletteItem = {
 	label: string;
 	actionType: ActionType;
@@ -140,6 +167,7 @@ export type PaletteGroup = {
 	label: string;
 	icon: LucideIcon;
 	items: PaletteItem[];
+	children?: PaletteGroup[];
 };
 
 export type PermissionSummary = {

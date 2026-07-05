@@ -30,6 +30,34 @@ export const serialInputTriggerNode = defineNode({
 		{ key: "stopBits", label: "Stop bits", type: "select", options: serialStopBitsOptions },
 		{ key: "flowControl", label: "Flow control", type: "select", options: serialFlowControlOptions },
 		{ key: "readMode", label: "Read mode", type: "select", options: serialReadModeOptions },
+		{
+			key: "autoReconnect",
+			label: "Auto reconnect",
+			type: "switch",
+			required: false,
+			help: "Reconnect automatically if the serial port disconnects while the runner is active.",
+		},
+		{
+			key: "validateUsbIdentity",
+			label: "Validate USB identity",
+			type: "switch",
+			required: false,
+			help: "Optionally require the runner to match vendor id and product id before opening the port.",
+		},
+		{
+			key: "vendorId",
+			label: "Vendor id",
+			type: "text",
+			required: false,
+			help: "Optional USB vendor id in hexadecimal, for example 1A86 or 0x1A86. Used only when USB identity validation is enabled.",
+		},
+		{
+			key: "productId",
+			label: "Product id",
+			type: "text",
+			required: false,
+			help: "Optional USB product id in hexadecimal, for example 7523 or 0x7523. Used only when USB identity validation is enabled.",
+		},
 	],
 	defaultConfig: () => ({
 		deviceId: "serial-device",
@@ -41,6 +69,10 @@ export const serialInputTriggerNode = defineNode({
 		stopBits: "1",
 		flowControl: "none",
 		readMode: "line",
+		autoReconnect: true,
+		validateUsbIdentity: false,
+		vendorId: "",
+		productId: "",
 	}),
 	description: "Start when a serial device outputs data.",
 	group: "triggers",
@@ -75,12 +107,23 @@ export const serialInputTriggerNode = defineNode({
 	validateConfig: (config) => {
 		const deviceId = configString(config, "deviceId").trim();
 		const normalizedDeviceId = normalizeSerialDeviceId(deviceId);
+		const validateUsbIdentity = config.validateUsbIdentity === true;
+		const vendorId = configString(config, "vendorId").trim();
+		const productId = configString(config, "productId").trim();
 		return [
 			requiredConfig(config, "deviceId", "serial device id"),
 			deviceId && deviceId !== normalizedDeviceId
 				? "serial device id must use lowercase letters, numbers, underscores, or hyphens."
 				: "",
 			requiredConfig(config, "port", "runner serial port such as COM3 or /dev/ttyUSB0"),
+			validateUsbIdentity && !vendorId ? "must define USB vendor id when USB identity validation is enabled." : "",
+			validateUsbIdentity && !productId ? "must define USB product id when USB identity validation is enabled." : "",
+			validateUsbIdentity && vendorId && !isUsbHexId(vendorId)
+				? "USB vendor id must be a 1-4 digit hexadecimal value."
+				: "",
+			validateUsbIdentity && productId && !isUsbHexId(productId)
+				? "USB product id must be a 1-4 digit hexadecimal value."
+				: "",
 		].filter(Boolean);
 	},
 	validateGraph: ({ context, node }) => {
@@ -108,3 +151,7 @@ export const serialInputTriggerNode = defineNode({
 		},
 	},
 });
+
+function isUsbHexId(value: string) {
+	return /^(?:0x)?[0-9a-fA-F]{1,4}$/.test(value.trim());
+}

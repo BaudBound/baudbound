@@ -2,7 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import {
 	getControlStepType,
 	getNodeCapabilities,
-	getNodePermission,
+	getNodePermissions,
 	getRunnerActionType,
 	getRunnerTriggerType,
 	sanitizeNodeConfig,
@@ -35,14 +35,11 @@ export function calculatePermissions(nodes: Node<ScriptNodeData>[]): PermissionS
 	const permissions = new Map<string, PermissionSummary>();
 
 	for (const node of nodes) {
-		const permission = getNodePermission(node.data.actionType);
-		if (!permission) {
-			continue;
-		}
-
-		const existing = permissions.get(permission.name);
-		if (!existing || riskWeight[permission.risk] > riskWeight[existing.risk]) {
-			permissions.set(permission.name, permission);
+		for (const permission of getNodePermissions(node.data.actionType, node.data.config)) {
+			const existing = permissions.get(permission.name);
+			if (!existing || riskWeight[permission.risk] > riskWeight[existing.risk]) {
+				permissions.set(permission.name, permission);
+			}
 		}
 	}
 

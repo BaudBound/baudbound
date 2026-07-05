@@ -1,61 +1,63 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.baudbound.app/permissions.schema.json",
-  "title": "BaudBound Permissions",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["declared_permissions", "risk_level"],
-  "properties": {
-    "declared_permissions": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "log",
-          "delay",
-          "beep",
-          "math",
-          "calculate",
-          "text_transform",
-          "set_local_variable",
-          "read_runtime_data",
-          "show_notification",
-          "show_message_box",
-          "http_request",
-          "download_file",
-          "file_read",
-          "file_copy",
-          "file_move",
-          "write_clipboard",
-          "open_application",
-          "window_query",
-          "process_query",
-          "serial_write",
-          "keyboard_control",
-          "mouse_control",
-          "screen_pixel_read",
-          "play_sound",
-          "file_write_limited",
-          "run_process",
-          "run_shell_command",
-          "delete_file",
-          "read_sensitive_file",
-          "write_any_file",
-          "read_clipboard",
-          "startup_trigger",
-          "webhook_public_bind",
-          "websocket_public_bind",
-          "serial_input",
-          "window_focus",
-          "process_kill",
-          "sub_script_run"
-        ]
-      },
-      "uniqueItems": true
-    },
-    "risk_level": {
-      "type": "string",
-      "enum": ["low", "medium", "high", "dangerous"]
-    }
-  }
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/permissions.schema.json",
+	"title": "BaudBound Permissions",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["declared_permissions", "risk_level"],
+	"properties": {
+		"declared_permissions": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"enum": [
+					"log",
+					"delay",
+					"beep",
+					"math",
+					"calculate",
+					"text_transform",
+					"set_local_variable",
+					"read_runtime_data",
+					"show_notification",
+					"show_message_box",
+					"http_request",
+					"download_file",
+					"file_read",
+					"file_copy",
+					"file_move",
+					"write_clipboard",
+					"open_application",
+					"window_query",
+					"process_query",
+					"serial_write",
+					"keyboard_control",
+					"mouse_control",
+					"screen_pixel_read",
+					"play_sound",
+					"file_write_limited",
+					"run_process",
+					"run_shell_command",
+					"delete_file",
+					"read_sensitive_file",
+					"write_any_file",
+					"read_clipboard",
+					"startup_trigger",
+					"webhook_public_bind",
+					"webhook_response",
+					"websocket_public_bind",
+					"websocket_write",
+					"serial_input",
+					"window_focus",
+					"process_kill",
+					"sub_script_run"
+				]
+			},
+			"uniqueItems": true
+		},
+		"risk_level": {
+			"type": "string",
+			"enum": ["low", "medium", "high", "dangerous"]
+		}
+	}
 }

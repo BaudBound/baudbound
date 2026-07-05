@@ -5,15 +5,15 @@ import { RiskBadge } from "../shell/risk-badge";
 
 type ScriptFlowNode = Node<ScriptNodeData, "scriptNode">;
 
-const compactHeaderHeight = 44;
 const namedHeaderHeight = 58;
 const outputHandleSpacing = 30;
 const baseBodyHeight = 62;
 
-export function ScriptNode({ data, selected }: NodeProps<ScriptFlowNode>) {
+export function ScriptNode({ data, id, selected }: NodeProps<ScriptFlowNode>) {
 	const customName = typeof data.config.customName === "string" ? data.config.customName.trim() : "";
+	const subtitle = customName || id;
 	const configEntries = Object.entries(data.config).filter(([key]) => key !== "customName");
-	const headerHeight = customName ? namedHeaderHeight : compactHeaderHeight;
+	const headerHeight = namedHeaderHeight;
 	const bodyMinHeight = getBodyMinHeight(data.outputs.length);
 
 	return (
@@ -29,7 +29,7 @@ export function ScriptNode({ data, selected }: NodeProps<ScriptFlowNode>) {
 				<span className={`size-2.5 rounded-sm ${kindAccentClassName[data.kind]}`} />
 				<div className="min-w-0 flex-1">
 					<div className="truncate text-base leading-5 font-bold text-white">{data.label}</div>
-					{customName && <div className="mt-0.5 truncate font-mono text-xs leading-4 text-baud-text">{customName}</div>}
+					<div className="mt-0.5 truncate font-mono text-xs leading-4 text-baud-text">{subtitle}</div>
 				</div>
 				<div className="shrink-0 self-start pt-0.5 font-mono text-xs text-baud-muted uppercase">{data.kind}</div>
 			</div>

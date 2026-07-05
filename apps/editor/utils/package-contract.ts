@@ -2,7 +2,7 @@ import {
 	getControlStepType,
 	getNodeCapabilities,
 	getNodeDefinition,
-	getNodePermission,
+	getNodePermissions,
 	getNodePorts,
 	getRunnerActionType,
 	getRunnerTriggerType,
@@ -26,6 +26,8 @@ export const canonicalCapabilities = [
 	"action.notification",
 	"action.message_box",
 	"action.http",
+	"action.webhook_response",
+	"action.websocket",
 	"action.file",
 	"action.process",
 	"action.keyboard",
@@ -83,7 +85,9 @@ export const canonicalPermissions = [
 	"read_clipboard",
 	"startup_trigger",
 	"webhook_public_bind",
+	"webhook_response",
 	"websocket_public_bind",
+	"websocket_write",
 	"serial_input",
 	"window_focus",
 	"process_kill",
@@ -398,7 +402,47 @@ export function validateEditorContract(value: unknown) {
 		}
 	}
 
+	if (editor.comments !== undefined) {
+		if (!Array.isArray(editor.comments)) {
+			errors.push("editor.json comments must be an array when present.");
+			return errors;
+		}
+
+		for (const comment of editor.comments) {
+			const record = asRecord(comment);
+			const position = asRecord(record?.position);
+			const size = asRecord(record?.size);
+			if (
+				!record ||
+				typeof record.id !== "string" ||
+				typeof record.text !== "string" ||
+				!isEditorCommentColor(record.color) ||
+				!position ||
+				typeof position.x !== "number" ||
+				typeof position.y !== "number" ||
+				!Number.isFinite(position.x) ||
+				!Number.isFinite(position.y) ||
+				!size ||
+				typeof size.width !== "number" ||
+				typeof size.height !== "number" ||
+				!Number.isFinite(size.width) ||
+				!Number.isFinite(size.height) ||
+				size.width <= 0 ||
+				size.height <= 0
+			) {
+				errors.push(
+					"editor.json comments must contain id, text, color, finite position x/y, and positive size width/height values.",
+				);
+				break;
+			}
+		}
+	}
+
 	return errors;
+}
+
+function isEditorCommentColor(value: unknown) {
+	return value === "amber" || value === "blue" || value === "green" || value === "rose" || value === "violet";
 }
 
 export function recalculateProgramDeclarations(programValue: unknown) {
@@ -407,22 +451,23 @@ export function recalculateProgramDeclarations(programValue: unknown) {
 	const block = asRecord(entry?.program);
 	const triggers = Array.isArray(entry?.triggers) ? entry.triggers : [];
 	const steps = Array.isArray(block?.steps) ? block.steps : [];
-	const actionTypes = [...triggers, ...steps]
-		.map((node) => asRecord(node)?.action_type)
-		.filter(
-			(actionType): actionType is ActionType =>
-				typeof actionType === "string" && !!getNodeDefinition(actionType as ActionType),
-		);
+	const programNodes = [...triggers, ...steps]
+		.map((node) => asRecord(node))
+		.filter((node): node is Record<string, unknown> => {
+			const actionType = node?.action_type;
+			return typeof actionType === "string" && !!getNodeDefinition(actionType as ActionType);
+		});
 	const capabilities = new Set<string>();
 	const permissions = new Map<string, PermissionSummary>();
 
-	for (const actionType of actionTypes) {
+	for (const node of programNodes) {
+		const actionType = node.action_type as ActionType;
 		for (const capability of getNodeCapabilities(actionType)) {
 			capabilities.add(capability);
 		}
 
-		const permission = getNodePermission(actionType);
-		if (permission) {
+		const config = isJsonObject(node.config) ? node.config : {};
+		for (const permission of getNodePermissions(actionType, config)) {
 			const existing = permissions.get(permission.name);
 			if (!existing || riskWeight[permission.risk] > riskWeight[existing.risk]) {
 				permissions.set(permission.name, permission);
@@ -488,7 +533,7 @@ function validateProgramNode(value: unknown, label: "step" | "trigger") {
 
 	if (actionType === "runtime.set_variable") {
 		if (node.type !== "set_variable") {
-			errors.push(`program.json set variable step ${String(node.id ?? actionType)} must use type set_variable.`);
+			errors.push(`program.json variable operation step ${String(node.id ?? actionType)} must use type set_variable.`);
 		}
 		return errors;
 	}

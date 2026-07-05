@@ -1,0 +1,68 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.baudbound.app/nodes/action-file-write.schema.json",
+	"title": "BaudBound Node - Write File",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"id",
+		"action_type",
+		"type",
+		"action",
+		"config",
+		"runtime_outputs"
+	],
+	"properties": {
+		"id": {
+			"type": "string",
+			"minLength": 1
+		},
+		"action_type": {
+			"const": "action.file.write"
+		},
+		"type": {
+			"const": "action"
+		},
+		"config": {
+			"$ref": "#/$defs/config"
+		},
+		"runtime_outputs": {
+			"type": "array",
+			"items": {
+				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
+			}
+		},
+		"action": {
+			"const": "write_file"
+		}
+	},
+	"$defs": {
+		"config": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"content",
+				"mode",
+				"path"
+			],
+			"properties": {
+				"content": {
+					"type": "string"
+				},
+				"customName": {
+					"type": "string"
+				},
+				"mode": {
+					"type": "string",
+					"enum": [
+						"overwrite",
+						"append"
+					]
+				},
+				"path": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}
