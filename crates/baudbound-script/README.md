@@ -9,3 +9,11 @@ Planned responsibilities:
 - JSON schema-aligned data types
 - AST validation helpers
 
+Current implementation:
+
+- Reads `.bbs` zip packages
+- Requires core package JSON files
+- Rejects unexpected package files
+- Validates asset package paths
+- Requires zip asset files and `manifest.assets` entries to match
+

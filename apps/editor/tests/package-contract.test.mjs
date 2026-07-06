@@ -73,7 +73,6 @@ test("node schemas restrict each node config object", () => {
 test("select config fields produce enum values in generated node schemas", () => {
 	const httpSchema = JSON.parse(read(join(schemasRoot, "nodes", "action-http.schema.json")));
 	const variableSchema = JSON.parse(read(join(schemasRoot, "nodes", "runtime-set-variable.schema.json")));
-	const serialSchema = JSON.parse(read(join(schemasRoot, "nodes", "trigger-serial-input.schema.json")));
 
 	assert.deepEqual(httpSchema.$defs.config.properties.method.enum, [
 		"GET",
@@ -90,16 +89,6 @@ test("select config fields produce enum values in generated node schemas", () =>
 		"append_list",
 		"set_object_field",
 		"clear",
-	]);
-	assert.deepEqual(serialSchema.$defs.config.properties.baudRate.enum, [
-		"9600",
-		"19200",
-		"38400",
-		"57600",
-		"115200",
-		"230400",
-		"460800",
-		"921600",
 	]);
 });
 
@@ -178,24 +167,17 @@ test("program schema includes every editor action type", () => {
 	}
 });
 
-test("serial input supports optional reconnect and USB identity config", () => {
+test("serial input stores only logical device ids in script packages", () => {
 	const serialInputSource = read(join(appRoot, "data", "nodes", "definitions", "triggers", "serial-input.ts"));
 	const serialProjectSource = read(join(appRoot, "data", "project", "serial.ts"));
 	const serialSchema = JSON.parse(read(join(schemasRoot, "nodes", "trigger-serial-input.schema.json")));
 	const configKeys = new Set(Object.keys(serialSchema.$defs.config.properties));
 
-	for (const key of ["autoReconnect", "validateUsbIdentity", "vendorId", "productId"]) {
-		assert.ok(configKeys.has(key), `${key} is missing from trigger-serial-input.schema.json config keys`);
-		assert.match(serialInputSource, new RegExp(`key:\\s*"${key}"`));
-	}
-
-	assert.match(serialInputSource, /required:\s*false/);
-	assert.match(serialInputSource, /USB vendor id must be a 1-4 digit hexadecimal value/);
-	assert.match(serialInputSource, /USB product id must be a 1-4 digit hexadecimal value/);
-	assert.match(serialInputSource, /validateUsbIdentity && vendorId && !isUsbHexId/);
-	assert.match(serialInputSource, /validateUsbIdentity && productId && !isUsbHexId/);
-	assert.match(serialProjectSource, /autoReconnect:\s*node\.data\.config\.autoReconnect !== false/);
-	assert.match(serialProjectSource, /normalizeUsbHexId/);
+	assert.deepEqual([...configKeys].sort(), ["customName", "deviceId"].sort());
+	assert.match(serialInputSource, /key:\s*"deviceId"/);
+	assert.doesNotMatch(serialInputSource, /key:\s*"port"/);
+	assert.doesNotMatch(serialInputSource, /validateUsbIdentity/);
+	assert.doesNotMatch(serialProjectSource, /baudRate|vendorId|productId|\bport\b/);
 });
 
 test("runner types used by node definitions are declared by the program schema", () => {

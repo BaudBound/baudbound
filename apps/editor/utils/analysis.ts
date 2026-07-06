@@ -173,7 +173,7 @@ function toTriggerJson(node: Node<ScriptNodeData>) {
 		id: node.id,
 		action_type: actionType,
 		type: getRunnerTriggerType(actionType),
-		config: node.data.config,
+		config: sanitizeNodeConfig(actionType, node.data.config),
 		runtime_outputs: node.data.runtimeOutputs ?? [],
 	};
 }

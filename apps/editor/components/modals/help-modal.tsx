@@ -70,7 +70,7 @@ const referenceFormatRows = [
 	},
 	{
 		label: "Derived metadata",
-		pattern: "{{variable_or_node.path.$metadata}}",
+		pattern: "{{variable_or_node.path.$length}}",
 		example: "{{n-mr3zyt6f-12.json.players.$length}}",
 		description:
 			"Reads generated facts such as length, count, type, or empty state from variables, nested data, or node outputs.",
@@ -99,7 +99,7 @@ const referenceRuleRows = [
 	"Use double braces for saved variables, built-in values, and node runtime data.",
 	"Do not add spaces inside reference braces.",
 	"Replace node-id with the real node id, for example n-mr3zyt6f-12.",
-	"Use $metadata fields for generated value facts, for example {{foo.$length}} or {{node-id.output.$count}}. Plain .length and .count always mean real data fields.",
+	"Use derived fields for generated value facts, for example {{foo.$length}} or {{node-id.output.$count}}. Plain .length and .count always mean real data fields.",
 	"Built-in variables and node output variables are read-only and cannot be changed with Variable Operation.",
 	"User variable names cannot start with manifest_ or system_; those prefixes are reserved for built-ins.",
 	"Node output references only have data after that node has executed in the current run.",

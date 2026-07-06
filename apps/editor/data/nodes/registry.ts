@@ -441,7 +441,17 @@ export function getControlStepType(actionType: ActionType) {
 }
 
 export function sanitizeNodeConfig(actionType: ActionType, config: Record<string, JsonValue>) {
-	return getNodeDefinition(actionType)?.sanitizeConfig?.(config) ?? config;
+	const definition = getNodeDefinition(actionType);
+	if (!definition) {
+		return config;
+	}
+
+	if (definition.sanitizeConfig) {
+		return definition.sanitizeConfig(config);
+	}
+
+	const allowedKeys = getAllowedNodeConfigKeys(definition);
+	return Object.fromEntries(Object.entries(config).filter(([key]) => allowedKeys.has(key)));
 }
 
 export function validateNodeConfigKeys(actionType: ActionType, config: Record<string, JsonValue>) {
@@ -459,13 +469,14 @@ export function validateNodeConfigKeys(actionType: ActionType, config: Record<st
 }
 
 export function validateNodeConfig(actionType: ActionType, config: Record<string, JsonValue>) {
-	const keyErrors = validateNodeConfigKeys(actionType, config);
 	const definition = getNodeDefinition(actionType);
+	const sanitizedConfig = sanitizeNodeConfig(actionType, config);
+	const keyErrors = validateNodeConfigKeys(actionType, sanitizedConfig);
 
 	return [
 		...keyErrors,
-		...(definition ? validateDeclaredConfigFields(definition.configFields ?? [], config) : []),
-		...(definition?.validateConfig?.(config) ?? []),
+		...(definition ? validateDeclaredConfigFields(definition.configFields ?? [], sanitizedConfig) : []),
+		...(definition?.validateConfig?.(sanitizedConfig) ?? []),
 	];
 }
 

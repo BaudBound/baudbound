@@ -1,0 +1,23 @@
+[package]
+name = "baudbound-actions"
+description = "BaudBound runner action adapter traits."
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+baudbound-runtime = { path = "../baudbound-runtime" }
+base64.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+serialport.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+urlencoding.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

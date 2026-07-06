@@ -45,7 +45,7 @@ V1 focused on mapping serial input directly to actions. V2 keeps serial automati
 
 ## Current Status
 
-The editor is the most complete part of V2. The runner folders and crates define the intended Rust runtime structure, but trusted execution belongs in the runner and must continue to validate every imported package.
+The editor is the most complete part of V2. The Rust runner workspace now has shared crates, CLI and desktop app entry points, strict `.bbs` package loading, filesystem-backed import/update storage, approval-bound package hashes, persisted run logs, manual and selected-trigger execution, runtime variables, control flow, calculations, file/process/network actions, and headless action dispatch.
 
 Do not treat exported editor packages as inherently trusted. The runner must enforce the schema, permissions, capabilities, filesystem safety, and platform rules.
 
@@ -138,19 +138,90 @@ The editor validates packages for authoring quality and export safety. The runne
 ```text
 apps/
   editor/           Web editor for building and exporting .bbs packages
-  runner-cli/       Planned command-line runner interface
-  runner-desktop/   Planned desktop runner shell and tray app
+  runner-cli/       Command-line runner app
+  runner-desktop/   Desktop runner shell and future tray app
 crates/
-  baudbound-core/
-  baudbound-runtime/
-  baudbound-script/
-  baudbound-security/
-  baudbound-actions/
-  baudbound-triggers/
-  baudbound-storage/
+  baudbound-core/       Shared runner orchestration
+  baudbound-script/     .bbs package models and package reader
+  baudbound-runtime/    Runtime context and execution primitives
+  baudbound-security/   Permission, capability, and risk policy
+  baudbound-actions/    Action adapter traits
+  baudbound-triggers/   Trigger adapter traits
+  baudbound-storage/    Storage abstractions
 schemas/            JSON schemas for package contracts
 assets/             Project logos and shared visual assets
 ```
+
+### Runner Workspace
+
+```bash
+cargo check --workspace
+cargo test --workspace
+cargo run -p baudbound-runner-cli -- validate path/to/script.bbs
+cargo run -p baudbound-runner-cli -- inspect path/to/script.bbs --json
+cargo run -p baudbound-runner-cli -- import path/to/script.bbs
+cargo run -p baudbound-runner-cli -- update path/to/script.bbs
+cargo run -p baudbound-runner-cli -- list
+cargo run -p baudbound-runner-cli -- approval <script-id-or-name>
+cargo run -p baudbound-runner-cli -- approve <script-id-or-name>
+cargo run -p baudbound-runner-cli -- revoke-approval <script-id-or-name>
+cargo run -p baudbound-runner-cli -- triggers
+cargo run -p baudbound-runner-cli -- triggers --script <script-id-or-name>
+cargo run -p baudbound-runner-cli -- dispatch-trigger <script-id-or-name> <trigger-node-id>
+cargo run -p baudbound-runner-cli -- serve
+cargo run -p baudbound-runner-cli -- serve --webhooks
+cargo run -p baudbound-runner-cli -- --config /etc/baudbound/runner.toml serve
+cargo run -p baudbound-runner-cli -- run <script-id-or-name>
+cargo run -p baudbound-runner-cli -- run <script-id-or-name> --trigger <trigger-node-id>
+cargo run -p baudbound-runner-cli -- run <script-id-or-name> --trigger <trigger-node-id> --payload-json '{"body":"ok"}'
+cargo run -p baudbound-runner-cli -- logs --script <script-id-or-name>
+cargo run -p baudbound-runner-cli -- remove <script-id-or-name>
+```
+
+The runner crate split is intentional:
+
+- app crates own user interface and platform shell concerns
+- `baudbound-core` coordinates runner behavior
+- `baudbound-script` owns package reading and script contract models
+- `baudbound-storage` owns installed package storage
+- action, trigger, storage, runtime, and security crates keep implementation families isolated
+
+Runner storage defaults to the platform data directory and can be overridden with `BAUDBOUND_HOME`. Runner daemon configuration defaults to `<BAUDBOUND_HOME>/config.toml`, can be overridden with `BAUDBOUND_CONFIG` or `--config`, and currently supports trigger service toggles plus webhook bind settings:
+
+```toml
+[runner]
+name = "Main PC Runner"
+
+[triggers]
+schedules_enabled = true
+file_watch_enabled = true
+serial_enabled = true
+webhooks_enabled = false
+
+[serial.devices.main_controller]
+port = "COM3"
+baud_rate = 115200
+data_bits = 8
+parity = "none"
+stop_bits = "1"
+flow_control = "none"
+read_mode = "line"
+auto_reconnect = true
+validate_usb_identity = false
+# vendor_id = "1A86"
+# product_id = "7523"
+
+[webhooks]
+bind = "127.0.0.1"
+port = 43891
+max_body_bytes = 1048576
+```
+
+Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines.
+
+For headless machines, run `baudbound serve` as a service and use the same `BAUDBOUND_HOME` for CLI commands such as `import`, `update`, `approve`, and `logs`. The service periodically reloads trigger registrations, so script imports, updates, removals, enables, and disables are picked up without restarting the process.
+
+Linux `systemd` templates are available in `deploy/runner/systemd`.
 
 ## Security Model
 

@@ -1,0 +1,26 @@
+[runner]
+name = "Headless BaudBound Runner"
+
+[triggers]
+schedules_enabled = true
+file_watch_enabled = true
+serial_enabled = true
+webhooks_enabled = false
+
+[serial.devices.serial-device]
+port = "COM3"
+baud_rate = 115200
+data_bits = 8
+parity = "none"
+stop_bits = "1"
+flow_control = "none"
+read_mode = "line"
+auto_reconnect = true
+validate_usb_identity = false
+# vendor_id = "1A86"
+# product_id = "7523"
+
+[webhooks]
+bind = "127.0.0.1"
+port = 43891
+max_body_bytes = 1048576

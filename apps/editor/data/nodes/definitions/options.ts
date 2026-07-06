@@ -1,12 +1,4 @@
 import {
-	serialBaudRateOptions,
-	serialDataBitsOptions,
-	serialFlowControlOptions,
-	serialParityOptions,
-	serialReadModeOptions,
-	serialStopBitsOptions,
-} from "../../project/serial";
-import {
 	variableOperationDefinitions,
 	variableOperations,
 	variableScopes,
@@ -157,12 +149,3 @@ export const messageBoxButtonOptions: SelectOption[] = [
 	{ label: "Yes / No / Cancel", value: "yes_no_cancel" },
 	{ label: "Retry / Cancel", value: "retry_cancel" },
 ];
-
-export {
-	serialBaudRateOptions,
-	serialDataBitsOptions,
-	serialFlowControlOptions,
-	serialParityOptions,
-	serialReadModeOptions,
-	serialStopBitsOptions,
-};

@@ -1,0 +1,25 @@
+[Unit]
+Description=BaudBound Runner
+Documentation=https://github.com/NATroutter/BaudBound
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=baudbound
+Group=baudbound
+EnvironmentFile=/etc/baudbound/runner.env
+ExecStart=/usr/local/bin/baudbound --config ${BAUDBOUND_CONFIG} serve
+Restart=on-failure
+RestartSec=5s
+StateDirectory=baudbound/runner
+
+# Conservative hardening. Keep filesystem/process access available for scripts;
+# script-level permissions are enforced by the runner instead of systemd.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
