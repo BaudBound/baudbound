@@ -3,9 +3,10 @@
 use std::{
     collections::BTreeMap,
     io,
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::Sender,
     },
@@ -13,6 +14,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use baudbound_actions::WebSocketMessageSink;
 use baudbound_runtime::RunReport;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -20,7 +22,14 @@ use serde_json::{Value, json};
 use serialport::{
     DataBits, FlowControl, Parity, SerialPortBuilder, SerialPortType, StopBits, available_ports,
 };
+use sysinfo::{ProcessesToUpdate, System};
 use thiserror::Error;
+use tungstenite::{
+    Error as WebSocketError, Message, WebSocket, accept_hdr,
+    handshake::server::{
+        Request as WebSocketHandshakeRequest, Response as WebSocketHandshakeResponse,
+    },
+};
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub struct TriggerRegistration {
@@ -53,6 +62,138 @@ pub trait TriggerHandler: Send + Sync {
 
 pub trait TriggerDispatcher: Send + Sync {
     fn dispatch(&self, event: TriggerEvent) -> Result<RunReport, TriggerError>;
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TriggerServiceDiagnostics {
+    pub running: bool,
+    pub state: &'static str,
+    pub summary: String,
+}
+
+impl TriggerServiceDiagnostics {
+    fn active(registrations: usize, label: &str) -> Self {
+        Self {
+            running: registrations > 0,
+            state: if registrations > 0 { "active" } else { "idle" },
+            summary: format!("{registrations} {label} registered"),
+        }
+    }
+
+    fn thread_backed(running: bool, registrations: usize, label: &str) -> Self {
+        let active = running && registrations > 0;
+        Self {
+            running: active,
+            state: if active {
+                "active"
+            } else if registrations > 0 {
+                "stopped"
+            } else {
+                "idle"
+            },
+            summary: format!("{registrations} {label} registered"),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct WebSocketConnectionRegistry {
+    connections: Mutex<BTreeMap<String, Arc<Mutex<WebSocket<TcpStream>>>>>,
+}
+
+impl WebSocketConnectionRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn insert(&self, connection_id: String, websocket: WebSocket<TcpStream>) {
+        let mut connections = self
+            .connections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        connections.insert(connection_id, Arc::new(Mutex::new(websocket)));
+    }
+
+    fn remove(&self, connection_id: &str) {
+        let mut connections = self
+            .connections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        connections.remove(connection_id);
+    }
+}
+
+impl WebSocketMessageSink for WebSocketConnectionRegistry {
+    fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String> {
+        let connection = {
+            let connections = self
+                .connections
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            connections.get(connection_id).cloned()
+        }
+        .ok_or_else(|| format!("unknown WebSocket connection id {connection_id:?}"))?;
+
+        let bytes = message.len();
+        connection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .send(Message::Text(message.to_owned().into()))
+            .map_err(|source| format!("failed to write WebSocket message: {source}"))?;
+        Ok(bytes)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StartupService {
+    events: Vec<TriggerEvent>,
+}
+
+impl StartupService {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self { events: Vec::new() }
+    }
+
+    pub fn from_registrations(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+        startup_time: SystemTime,
+    ) -> Result<Self, TriggerError> {
+        let events = registrations
+            .into_iter()
+            .filter(|registration| registration.action_type == "trigger.startup")
+            .map(|registration| TriggerEvent {
+                node_id: registration.node_id,
+                payload: json!({
+                    "reason": "runner_startup",
+                    "timestamp": unix_timestamp_millis(startup_time).to_string(),
+                }),
+                script_id: registration.script_id,
+            })
+            .collect();
+
+        Ok(Self { events })
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::active(self.len(), "startup trigger")
+    }
+
+    pub fn drain_events(&mut self) -> Vec<TriggerEvent> {
+        std::mem::take(&mut self.events)
+    }
 }
 
 pub struct FileWatchService {
@@ -132,6 +273,179 @@ impl FileWatchService {
     pub fn len(&self) -> usize {
         self.watchers.len()
     }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::active(self.len(), "file watcher")
+    }
+}
+
+pub struct ProcessStartedService {
+    handles: Vec<JoinHandle<()>>,
+    running: Arc<AtomicBool>,
+}
+
+impl ProcessStartedService {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            handles: Vec::new(),
+            running: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn start(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+        sender: Sender<TriggerEvent>,
+    ) -> Result<Self, TriggerError> {
+        let specs = registrations
+            .into_iter()
+            .filter(|registration| registration.action_type == "trigger.process_started")
+            .map(ProcessStartedSpec::from_registration)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if specs.is_empty() {
+            return Ok(Self::empty());
+        }
+
+        let running = Arc::new(AtomicBool::new(true));
+        let thread_running = Arc::clone(&running);
+        let handle = thread::spawn(move || {
+            run_process_started_watcher(specs, sender, thread_running);
+        });
+
+        Ok(Self {
+            handles: vec![handle],
+            running,
+        })
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.handles.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.handles.len()
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::thread_backed(
+            self.running.load(Ordering::Relaxed),
+            self.len(),
+            "process watcher thread",
+        )
+    }
+}
+
+impl Drop for ProcessStartedService {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        for handle in self.handles.drain(..) {
+            let _ = handle.join();
+        }
+    }
+}
+
+pub struct WebSocketService {
+    handle: Option<JoinHandle<()>>,
+    route_count: usize,
+    running: Arc<AtomicBool>,
+}
+
+impl WebSocketService {
+    #[must_use]
+    pub fn empty(_registry: Arc<WebSocketConnectionRegistry>) -> Self {
+        Self {
+            handle: None,
+            route_count: 0,
+            running: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn start(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+        bind: &str,
+        port: u16,
+        max_message_bytes: usize,
+        sender: Sender<TriggerEvent>,
+        registry: Arc<WebSocketConnectionRegistry>,
+    ) -> Result<Self, TriggerError> {
+        let routes = registrations
+            .into_iter()
+            .filter(|registration| registration.action_type == "trigger.websocket")
+            .map(WebSocketRoute::from_registration)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if routes.is_empty() {
+            return Ok(Self::empty(registry));
+        }
+
+        let address = format!("{bind}:{port}");
+        let listener = TcpListener::bind(&address).map_err(|source| {
+            TriggerError::Failed(
+                "trigger.websocket".to_owned(),
+                format!("failed to bind WebSocket listener on {address}: {source}"),
+            )
+        })?;
+        listener.set_nonblocking(true).map_err(|source| {
+            TriggerError::Failed(
+                "trigger.websocket".to_owned(),
+                format!("failed to configure WebSocket listener: {source}"),
+            )
+        })?;
+
+        let running = Arc::new(AtomicBool::new(true));
+        let thread_running = Arc::clone(&running);
+        let thread_registry = Arc::clone(&registry);
+        let route_count = routes.len();
+        let handle = thread::spawn(move || {
+            run_websocket_listener(
+                listener,
+                routes,
+                max_message_bytes,
+                sender,
+                thread_registry,
+                thread_running,
+            );
+        });
+
+        Ok(Self {
+            handle: Some(handle),
+            route_count,
+            running,
+        })
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.route_count == 0
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.route_count
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::thread_backed(
+            self.running.load(Ordering::Relaxed),
+            self.len(),
+            "WebSocket route",
+        )
+    }
+}
+
+impl Drop for WebSocketService {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 pub struct SerialInputService {
@@ -186,6 +500,15 @@ impl SerialInputService {
     pub fn len(&self) -> usize {
         self.handles.len()
     }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::thread_backed(
+            self.running.load(Ordering::Relaxed),
+            self.len(),
+            "serial reader thread",
+        )
+    }
 }
 
 impl Drop for SerialInputService {
@@ -193,6 +516,209 @@ impl Drop for SerialInputService {
         self.running.store(false, Ordering::Relaxed);
         for handle in self.handles.drain(..) {
             let _ = handle.join();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HotkeyService {
+    bindings: BTreeMap<String, Vec<TriggerRegistration>>,
+}
+
+impl HotkeyService {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            bindings: BTreeMap::new(),
+        }
+    }
+
+    pub fn from_registrations(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+    ) -> Result<Self, TriggerError> {
+        let mut bindings = BTreeMap::<String, Vec<TriggerRegistration>>::new();
+        for registration in registrations {
+            if registration.action_type != "trigger.hotkey" {
+                continue;
+            }
+
+            let hotkey = HotkeySpec::from_registration(&registration)?;
+            bindings
+                .entry(hotkey.normalized_key)
+                .or_default()
+                .push(registration);
+        }
+
+        Ok(Self { bindings })
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.bindings.values().map(Vec::len).sum()
+    }
+
+    #[must_use]
+    pub fn registered_hotkeys(&self) -> Vec<&str> {
+        self.bindings.keys().map(String::as_str).collect()
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        let hotkey_count = self.bindings.len();
+        let registration_count = self.len();
+        TriggerServiceDiagnostics {
+            running: registration_count > 0,
+            state: if registration_count > 0 {
+                "active"
+            } else {
+                "idle"
+            },
+            summary: format!(
+                "{registration_count} trigger(s) across {hotkey_count} hotkey binding(s)"
+            ),
+        }
+    }
+
+    pub fn events_for_key(
+        &self,
+        key: &str,
+        timestamp: SystemTime,
+    ) -> Result<Vec<TriggerEvent>, TriggerError> {
+        let normalized_key = normalize_hotkey(key).map_err(|message| {
+            TriggerError::Failed("trigger.hotkey".to_owned(), message.to_owned())
+        })?;
+        let Some(registrations) = self.bindings.get(&normalized_key) else {
+            return Ok(Vec::new());
+        };
+        let timestamp = unix_timestamp_millis(timestamp).to_string();
+
+        Ok(registrations
+            .iter()
+            .map(|registration| TriggerEvent {
+                node_id: registration.node_id.clone(),
+                payload: json!({
+                    "key": normalized_key,
+                    "timestamp": timestamp,
+                }),
+                script_id: registration.script_id.clone(),
+            })
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct HotkeySpec {
+    normalized_key: String,
+}
+
+impl HotkeySpec {
+    fn from_registration(registration: &TriggerRegistration) -> Result<Self, TriggerError> {
+        let key = registration
+            .config
+            .get("key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                TriggerError::Failed(
+                    registration.node_id.clone(),
+                    "hotkey trigger must define key".to_owned(),
+                )
+            })?;
+        if key.contains("{{") || key.contains("}}") {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                "hotkey trigger key cannot use runtime variable templates".to_owned(),
+            ));
+        }
+
+        Ok(Self {
+            normalized_key: normalize_hotkey(key)
+                .map_err(|message| TriggerError::Failed(registration.node_id.clone(), message))?,
+        })
+    }
+}
+
+fn normalize_hotkey(input: &str) -> Result<String, String> {
+    let mut ctrl = false;
+    let mut alt = false;
+    let mut shift = false;
+    let mut meta = false;
+    let mut primary_key = None::<String>;
+
+    for part in input
+        .split(['+', '-'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
+        match normalized_hotkey_token(part).as_str() {
+            "Ctrl" => ctrl = true,
+            "Alt" => alt = true,
+            "Shift" => shift = true,
+            "Meta" => meta = true,
+            token if primary_key.is_none() => primary_key = Some(token.to_owned()),
+            token => {
+                return Err(format!(
+                    "hotkey {input:?} contains multiple primary keys ({:?} and {token:?})",
+                    primary_key.unwrap_or_default()
+                ));
+            }
+        }
+    }
+
+    let primary_key =
+        primary_key.ok_or_else(|| format!("hotkey {input:?} must include a primary key"))?;
+    let mut parts = Vec::new();
+    if ctrl {
+        parts.push("Ctrl".to_owned());
+    }
+    if alt {
+        parts.push("Alt".to_owned());
+    }
+    if shift {
+        parts.push("Shift".to_owned());
+    }
+    if meta {
+        parts.push("Meta".to_owned());
+    }
+    parts.push(primary_key);
+
+    Ok(parts.join("+"))
+}
+
+fn normalized_hotkey_token(input: &str) -> String {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "ctrl" | "control" => "Ctrl".to_owned(),
+        "alt" | "option" => "Alt".to_owned(),
+        "shift" => "Shift".to_owned(),
+        "meta" | "cmd" | "command" | "win" | "windows" | "super" => "Meta".to_owned(),
+        "esc" | "escape" => "Escape".to_owned(),
+        "return" | "enter" => "Enter".to_owned(),
+        "space" | "spacebar" => "Space".to_owned(),
+        "tab" => "Tab".to_owned(),
+        "backspace" => "Backspace".to_owned(),
+        "delete" | "del" => "Delete".to_owned(),
+        "insert" | "ins" => "Insert".to_owned(),
+        "home" => "Home".to_owned(),
+        "end" => "End".to_owned(),
+        "pageup" | "page_up" | "page up" => "PageUp".to_owned(),
+        "pagedown" | "page_down" | "page down" => "PageDown".to_owned(),
+        "up" | "arrowup" | "arrow up" => "ArrowUp".to_owned(),
+        "down" | "arrowdown" | "arrow down" => "ArrowDown".to_owned(),
+        "left" | "arrowleft" | "arrow left" => "ArrowLeft".to_owned(),
+        "right" | "arrowright" | "arrow right" => "ArrowRight".to_owned(),
+        token if token.len() == 1 => token.to_ascii_uppercase(),
+        token => {
+            let mut chars = token.chars();
+            let Some(first) = chars.next() else {
+                return String::new();
+            };
+            format!("{}{}", first.to_uppercase(), chars.as_str())
         }
     }
 }
@@ -227,6 +753,365 @@ impl FileWatchSpec {
             path: PathBuf::from(path),
         })
     }
+}
+
+#[derive(Debug, Clone)]
+struct ProcessStartedSpec {
+    match_mode: String,
+    registration: TriggerRegistration,
+    target: String,
+}
+
+impl ProcessStartedSpec {
+    fn from_registration(registration: TriggerRegistration) -> Result<Self, TriggerError> {
+        let target = registration
+            .config
+            .get("target")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                TriggerError::Failed(
+                    registration.node_id.clone(),
+                    "process started trigger must define target".to_owned(),
+                )
+            })?
+            .to_owned();
+        let match_mode = registration
+            .config
+            .get("matchMode")
+            .and_then(Value::as_str)
+            .unwrap_or("process_name")
+            .trim()
+            .to_owned();
+        if !matches!(
+            match_mode.as_str(),
+            "process_name" | "executable_path" | "window_title"
+        ) {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                format!("unsupported process started match mode {match_mode:?}"),
+            ));
+        }
+        if match_mode == "window_title" {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                "window title process start matching requires the desktop runner".to_owned(),
+            ));
+        }
+
+        Ok(Self {
+            match_mode,
+            registration,
+            target,
+        })
+    }
+}
+
+fn run_process_started_watcher(
+    specs: Vec<ProcessStartedSpec>,
+    sender: Sender<TriggerEvent>,
+    running: Arc<AtomicBool>,
+) {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut seen_processes = system.processes().keys().copied().collect::<Vec<_>>();
+    seen_processes.sort_by_key(|pid| pid.as_u32());
+
+    while running.load(Ordering::Relaxed) {
+        thread::sleep(Duration::from_secs(1));
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        let mut current_processes = system.processes().keys().copied().collect::<Vec<_>>();
+        current_processes.sort_by_key(|pid| pid.as_u32());
+
+        for pid in current_processes.iter().copied().filter(|pid| {
+            seen_processes
+                .binary_search_by_key(&pid.as_u32(), |seen_pid| seen_pid.as_u32())
+                .is_err()
+        }) {
+            let Some(process) = system.process(pid) else {
+                continue;
+            };
+            for spec in &specs {
+                if process_matches_spec(process, spec) {
+                    let _ = sender.send(process_started_event(spec, process));
+                }
+            }
+        }
+
+        seen_processes = current_processes;
+    }
+}
+
+fn process_matches_spec(process: &sysinfo::Process, spec: &ProcessStartedSpec) -> bool {
+    match spec.match_mode.as_str() {
+        "process_name" => process
+            .name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(spec.target.trim()),
+        "executable_path" => process
+            .exe()
+            .map(|path| normalize_path_string(&path.display().to_string()))
+            .is_some_and(|path| path == normalize_path_string(&spec.target)),
+        _ => false,
+    }
+}
+
+fn process_started_event(spec: &ProcessStartedSpec, process: &sysinfo::Process) -> TriggerEvent {
+    TriggerEvent {
+        node_id: spec.registration.node_id.clone(),
+        payload: json!({
+            "executable_path": process.exe().map(|path| path.display().to_string()).unwrap_or_default(),
+            "process_id": process.pid().as_u32(),
+            "process_name": process.name().to_string_lossy(),
+            "timestamp": unix_timestamp_millis(SystemTime::now()).to_string(),
+            "window_title": "",
+        }),
+        script_id: spec.registration.script_id.clone(),
+    }
+}
+
+fn normalize_path_string(path: &str) -> String {
+    path.trim().replace('\\', "/").to_ascii_lowercase()
+}
+
+#[derive(Debug, Clone)]
+struct WebSocketRoute {
+    path: String,
+    registration: TriggerRegistration,
+}
+
+impl WebSocketRoute {
+    fn from_registration(registration: TriggerRegistration) -> Result<Self, TriggerError> {
+        let path = registration
+            .config
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                TriggerError::Failed(
+                    registration.node_id.clone(),
+                    "WebSocket trigger must define path".to_owned(),
+                )
+            })?
+            .to_owned();
+        if !path.starts_with('/') {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                "WebSocket path must start with '/'".to_owned(),
+            ));
+        }
+
+        Ok(Self { path, registration })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WebSocketHandshake {
+    headers: BTreeMap<String, String>,
+    path: String,
+    query: BTreeMap<String, String>,
+}
+
+fn run_websocket_listener(
+    listener: TcpListener,
+    routes: Vec<WebSocketRoute>,
+    max_message_bytes: usize,
+    sender: Sender<TriggerEvent>,
+    registry: Arc<WebSocketConnectionRegistry>,
+    running: Arc<AtomicBool>,
+) {
+    while running.load(Ordering::Relaxed) {
+        match listener.accept() {
+            Ok((stream, remote_address)) => {
+                let routes = routes.clone();
+                let sender = sender.clone();
+                let registry = Arc::clone(&registry);
+                let running = Arc::clone(&running);
+                thread::spawn(move || {
+                    handle_websocket_connection(
+                        stream,
+                        remote_address.to_string(),
+                        routes,
+                        max_message_bytes,
+                        sender,
+                        registry,
+                        running,
+                    );
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                tracing::warn!("WebSocket listener accept failed: {error}");
+                thread::sleep(Duration::from_millis(250));
+            }
+        }
+    }
+}
+
+#[allow(clippy::result_large_err)] // tungstenite's handshake callback uses http::Response as its error type.
+fn handle_websocket_connection(
+    stream: TcpStream,
+    remote_address: String,
+    routes: Vec<WebSocketRoute>,
+    max_message_bytes: usize,
+    sender: Sender<TriggerEvent>,
+    registry: Arc<WebSocketConnectionRegistry>,
+    running: Arc<AtomicBool>,
+) {
+    let handshake = Arc::new(Mutex::new(None::<WebSocketHandshake>));
+    let handshake_capture = Arc::clone(&handshake);
+    let Ok(mut websocket) = accept_hdr(
+        stream,
+        move |request: &WebSocketHandshakeRequest, response: WebSocketHandshakeResponse| {
+            let (path, query) = split_path_and_query(
+                request
+                    .uri()
+                    .path_and_query()
+                    .map_or("/", |value| value.as_str()),
+            );
+            let headers = request
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_ascii_lowercase(), value.to_owned()))
+                })
+                .collect();
+            *handshake_capture
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WebSocketHandshake {
+                headers,
+                path,
+                query,
+            });
+            Ok(response)
+        },
+    ) else {
+        return;
+    };
+    let _ = websocket
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_millis(250)));
+    let _ = websocket
+        .get_mut()
+        .set_write_timeout(Some(Duration::from_secs(5)));
+    let handshake = handshake
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_else(|| WebSocketHandshake {
+            headers: BTreeMap::new(),
+            path: "/".to_owned(),
+            query: BTreeMap::new(),
+        });
+    let Some(route) = routes
+        .iter()
+        .find(|route| route.path == handshake.path)
+        .cloned()
+    else {
+        let _ = websocket.close(None);
+        return;
+    };
+
+    let connection_id = format!(
+        "{}-{}",
+        route.registration.node_id,
+        unix_timestamp_millis(SystemTime::now())
+    );
+    registry.insert(connection_id.clone(), websocket);
+
+    while running.load(Ordering::Relaxed) {
+        let connection = {
+            let connections = registry
+                .connections
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            connections.get(&connection_id).cloned()
+        };
+        let Some(connection) = connection else {
+            break;
+        };
+        let result = connection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .read();
+        match result {
+            Ok(message) if message.is_text() || message.is_binary() => {
+                let payload = websocket_payload(
+                    &route,
+                    &handshake,
+                    &connection_id,
+                    &remote_address,
+                    message,
+                    max_message_bytes,
+                );
+                match payload {
+                    Ok(payload) => {
+                        let _ = sender.send(TriggerEvent {
+                            node_id: route.registration.node_id.clone(),
+                            payload,
+                            script_id: route.registration.script_id.clone(),
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!("WebSocket message rejected: {error}");
+                    }
+                }
+            }
+            Ok(message) if message.is_close() => break,
+            Ok(_) => {}
+            Err(WebSocketError::Io(error))
+                if error.kind() == io::ErrorKind::WouldBlock
+                    || error.kind() == io::ErrorKind::TimedOut => {}
+            Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => break,
+            Err(error) => {
+                tracing::warn!("WebSocket connection {connection_id} failed: {error}");
+                break;
+            }
+        }
+    }
+
+    registry.remove(&connection_id);
+}
+
+fn websocket_payload(
+    route: &WebSocketRoute,
+    handshake: &WebSocketHandshake,
+    connection_id: &str,
+    remote_address: &str,
+    message: Message,
+    max_message_bytes: usize,
+) -> Result<Value, String> {
+    let bytes = match message {
+        Message::Text(value) => value.to_string().into_bytes(),
+        Message::Binary(value) => value.to_vec(),
+        _ => Vec::new(),
+    };
+    if bytes.len() > max_message_bytes {
+        return Err(format!(
+            "message from {connection_id} exceeded {max_message_bytes} bytes"
+        ));
+    }
+    let message = String::from_utf8_lossy(&bytes).into_owned();
+    let json_body = serde_json::from_str::<Value>(&message).unwrap_or_else(|_| json!({}));
+
+    Ok(json!({
+        "connection_id": connection_id,
+        "headers": handshake.headers,
+        "json": json_body,
+        "message": message,
+        "path": handshake.path,
+        "query": handshake.query,
+        "remote_address": remote_address,
+        "trigger_id": route.registration.node_id,
+    }))
 }
 
 fn file_watch_events_from_notify_event(
@@ -606,6 +1491,11 @@ impl WebhookService {
     }
 
     #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::active(self.len(), "webhook route")
+    }
+
+    #[must_use]
     pub fn dispatch_for_request(&self, request: &WebhookRequest) -> Option<WebhookDispatch> {
         let method = request.method.to_ascii_uppercase();
         let (path, query) = split_path_and_query(&request.path_and_query);
@@ -961,6 +1851,11 @@ impl ScheduleService {
         self.schedules.len()
     }
 
+    #[must_use]
+    pub fn diagnostics(&self) -> TriggerServiceDiagnostics {
+        TriggerServiceDiagnostics::active(self.len(), "schedule")
+    }
+
     pub fn mark_all_due_now(&mut self, now: Instant) {
         for schedule in &mut self.schedules {
             schedule.next_due = now;
@@ -1161,6 +2056,113 @@ mod tests {
     }
 
     #[test]
+    fn parses_hotkey_registration_and_builds_payload() {
+        let service = HotkeyService::from_registrations([hotkey_registration(json!({
+            "key": "Control + Option + b"
+        }))])
+        .expect("hotkey should parse");
+
+        assert_eq!(service.len(), 1);
+        assert_eq!(service.registered_hotkeys(), ["Ctrl+Alt+B"]);
+
+        let events = service
+            .events_for_key("Ctrl+Alt+B", UNIX_EPOCH + Duration::from_secs(7))
+            .expect("hotkey event should build");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].script_id, "script-1");
+        assert_eq!(events[0].node_id, "n-hotkey");
+        assert_eq!(events[0].payload["key"], "Ctrl+Alt+B");
+        assert_eq!(events[0].payload["timestamp"], "7000");
+    }
+
+    #[test]
+    fn hotkey_service_supports_multiple_scripts_on_same_combo() {
+        let mut first = hotkey_registration(json!({"key": "Ctrl+Alt+B"}));
+        first.script_id = "script-1".to_owned();
+        first.node_id = "n-hotkey-1".to_owned();
+        let mut second = hotkey_registration(json!({"key": "control-option-b"}));
+        second.script_id = "script-2".to_owned();
+        second.node_id = "n-hotkey-2".to_owned();
+
+        let service =
+            HotkeyService::from_registrations([first, second]).expect("hotkeys should parse");
+        let events = service
+            .events_for_key("Ctrl+Alt+B", UNIX_EPOCH)
+            .expect("hotkey events should build");
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].script_id, "script-1");
+        assert_eq!(events[1].script_id, "script-2");
+    }
+
+    #[test]
+    fn reports_trigger_service_diagnostics() {
+        let schedule = ScheduleService::from_registrations(
+            [TriggerRegistration {
+                action_type: "trigger.schedule".to_owned(),
+                config: json!({"every": "2", "unit": "seconds"}),
+                node_id: "n-schedule".to_owned(),
+                runner_type: "schedule".to_owned(),
+                script_id: "script-1".to_owned(),
+                script_name: "Script One".to_owned(),
+            }],
+            Instant::now(),
+        )
+        .expect("schedule should parse");
+        let hotkeys = HotkeyService::from_registrations([
+            hotkey_registration(json!({"key": "Ctrl+Alt+B"})),
+            hotkey_registration(json!({"key": "Ctrl+Alt+C"})),
+        ])
+        .expect("hotkeys should parse");
+
+        let schedule_diagnostics = schedule.diagnostics();
+        let hotkey_diagnostics = hotkeys.diagnostics();
+
+        assert!(schedule_diagnostics.running);
+        assert_eq!(schedule_diagnostics.state, "active");
+        assert!(schedule_diagnostics.summary.contains("1 schedule"));
+        assert!(hotkey_diagnostics.running);
+        assert_eq!(hotkey_diagnostics.state, "active");
+        assert!(hotkey_diagnostics.summary.contains("2 hotkey binding(s)"));
+    }
+
+    #[test]
+    fn hotkey_service_ignores_unmatched_keys() {
+        let service = HotkeyService::from_registrations([hotkey_registration(json!({
+            "key": "Ctrl+Alt+B"
+        }))])
+        .expect("hotkey should parse");
+
+        assert!(
+            service
+                .events_for_key("Ctrl+Alt+C", UNIX_EPOCH)
+                .expect("unmatched key should be accepted")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn rejects_hotkey_without_primary_key() {
+        let registration = hotkey_registration(json!({"key": "Ctrl+Alt"}));
+
+        let error =
+            HotkeySpec::from_registration(&registration).expect_err("missing key should fail");
+
+        assert!(error.to_string().contains("primary key"));
+    }
+
+    #[test]
+    fn rejects_hotkey_runtime_templates() {
+        let registration = hotkey_registration(json!({"key": "{{dynamic_key}}"}));
+
+        let error =
+            HotkeySpec::from_registration(&registration).expect_err("template key should fail");
+
+        assert!(error.to_string().contains("runtime variable templates"));
+    }
+
+    #[test]
     fn validates_file_watch_path_without_runtime_templates() {
         let registration = file_watch_registration(json!({"path": "{{dynamic_path}}"}));
 
@@ -1185,6 +2187,96 @@ mod tests {
         assert_eq!(event.payload["event"], "modified");
         assert_eq!(event.payload["path"], "C:/tmp/input.txt");
         assert_eq!(event.payload["watched_path"], "C:/tmp/input.txt");
+    }
+
+    #[test]
+    fn creates_startup_events_once_and_drains_them() {
+        let registration = startup_registration();
+        let startup_time = UNIX_EPOCH + Duration::from_secs(42);
+        let mut service = StartupService::from_registrations([registration], startup_time)
+            .expect("startup trigger should parse");
+
+        assert_eq!(service.len(), 1);
+
+        let events = service.drain_events();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].script_id, "script-1");
+        assert_eq!(events[0].node_id, "n-startup");
+        assert_eq!(events[0].payload["reason"], "runner_startup");
+        assert_eq!(events[0].payload["timestamp"], "42000");
+        assert!(service.is_empty());
+    }
+
+    #[test]
+    fn parses_process_started_registration() {
+        let registration = process_started_registration(json!({
+            "matchMode": "process_name",
+            "target": "app.exe"
+        }));
+
+        let spec = ProcessStartedSpec::from_registration(registration)
+            .expect("process started trigger should parse");
+
+        assert_eq!(spec.match_mode, "process_name");
+        assert_eq!(spec.target, "app.exe");
+    }
+
+    #[test]
+    fn rejects_desktop_only_process_started_window_matching() {
+        let registration = process_started_registration(json!({
+            "matchMode": "window_title",
+            "target": "BaudBound"
+        }));
+
+        let error = ProcessStartedSpec::from_registration(registration)
+            .expect_err("window matching should require desktop runner");
+
+        assert!(error.to_string().contains("desktop runner"));
+    }
+
+    #[test]
+    fn parses_websocket_trigger_route() {
+        let registration = websocket_registration(json!({
+            "path": "/events/messages"
+        }));
+
+        let route =
+            WebSocketRoute::from_registration(registration).expect("websocket route should parse");
+
+        assert_eq!(route.path, "/events/messages");
+        assert_eq!(route.registration.node_id, "n-websocket");
+    }
+
+    #[test]
+    fn builds_websocket_trigger_payload() {
+        let route = WebSocketRoute::from_registration(websocket_registration(json!({
+            "path": "/events/messages"
+        })))
+        .expect("websocket route should parse");
+        let handshake = WebSocketHandshake {
+            headers: BTreeMap::from([("sec-websocket-protocol".to_owned(), "json".to_owned())]),
+            path: "/events/messages".to_owned(),
+            query: BTreeMap::from([("token".to_owned(), "abc".to_owned())]),
+        };
+
+        let payload = websocket_payload(
+            &route,
+            &handshake,
+            "conn-1",
+            "127.0.0.1:50000",
+            Message::Text(r#"{"event":"ok"}"#.to_owned().into()),
+            1024,
+        )
+        .expect("websocket payload should build");
+
+        assert_eq!(payload["connection_id"], "conn-1");
+        assert_eq!(payload["path"], "/events/messages");
+        assert_eq!(payload["query"]["token"], "abc");
+        assert_eq!(payload["headers"]["sec-websocket-protocol"], "json");
+        assert_eq!(payload["message"], r#"{"event":"ok"}"#);
+        assert_eq!(payload["json"]["event"], "ok");
+        assert_eq!(payload["remote_address"], "127.0.0.1:50000");
     }
 
     #[test]
@@ -1367,6 +2459,50 @@ mod tests {
             config,
             node_id: "n-webhook".to_owned(),
             runner_type: "webhook".to_owned(),
+            script_id: "script-1".to_owned(),
+            script_name: "Script One".to_owned(),
+        }
+    }
+
+    fn websocket_registration(config: Value) -> TriggerRegistration {
+        TriggerRegistration {
+            action_type: "trigger.websocket".to_owned(),
+            config,
+            node_id: "n-websocket".to_owned(),
+            runner_type: "websocket".to_owned(),
+            script_id: "script-1".to_owned(),
+            script_name: "Script One".to_owned(),
+        }
+    }
+
+    fn startup_registration() -> TriggerRegistration {
+        TriggerRegistration {
+            action_type: "trigger.startup".to_owned(),
+            config: json!({}),
+            node_id: "n-startup".to_owned(),
+            runner_type: "startup".to_owned(),
+            script_id: "script-1".to_owned(),
+            script_name: "Script One".to_owned(),
+        }
+    }
+
+    fn process_started_registration(config: Value) -> TriggerRegistration {
+        TriggerRegistration {
+            action_type: "trigger.process_started".to_owned(),
+            config,
+            node_id: "n-process-started".to_owned(),
+            runner_type: "process_started".to_owned(),
+            script_id: "script-1".to_owned(),
+            script_name: "Script One".to_owned(),
+        }
+    }
+
+    fn hotkey_registration(config: Value) -> TriggerRegistration {
+        TriggerRegistration {
+            action_type: "trigger.hotkey".to_owned(),
+            config,
+            node_id: "n-hotkey".to_owned(),
+            runner_type: "hotkey".to_owned(),
             script_id: "script-1".to_owned(),
             script_name: "Script One".to_owned(),
         }

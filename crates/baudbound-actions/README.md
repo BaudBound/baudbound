@@ -5,6 +5,9 @@ Runner action implementations for headless and shared runner execution.
 Current implementation:
 
 - `HeadlessActionHandler`
+- `DesktopActionHandler`
+  - wraps a headless handler and routes desktop-only actions through a `DesktopActionAdapter`
+  - lets the app provide native clipboard, notification, message box, audio, input, screen, and window adapters without changing runtime/core execution
 - `action.beep`
   - emits a terminal bell and waits for configured duration
   - outputs `frequency_hz`, `duration_ms`
@@ -34,6 +37,10 @@ Current implementation:
   - sends HTTP requests with method, headers, user-agent, timeout, and optional body
   - returns HTTP error statuses as runtime data instead of transport failures
   - outputs `status_code`, `status_text`, `headers`, `body`, optional `json`, `duration_ms`
+- `action.application.open`
+  - starts a configured application or executable without waiting for it to finish
+  - parses quoted arguments without invoking a shell
+  - outputs `application_id`, `process_id`, `arguments`
 - `action.process.run`
   - starts an executable and captures output
   - outputs `process_id`, `exit_code`, `success`, `stdout`, `stderr`
@@ -43,6 +50,9 @@ Current implementation:
 - `action.process.kill`
   - terminates a process by PID, process name, or executable path in the headless runner
   - outputs `running`, `state`, `process_id`, `process_name`, `executable_path`, `killed`
+- `action.pixel.get`
+  - routed through the desktop action adapter because screen capture is desktop-specific
+  - outputs `hex`, `rgb`, `rgba`, `red`, `green`, `blue`, `alpha`, `integer`
 - `action.shell`
   - runs a platform shell command and captures output
   - outputs `process_id`, `exit_code`, `success`, `stdout`, `stderr`
@@ -65,14 +75,18 @@ Current implementation:
 - `action.webhook_response`
   - prepares webhook response data for the trigger engine
   - outputs `sent`, `status_code`, `content_type`, `headers`, `body`, `trigger_id`
-- Explicit desktop-only failures in `HeadlessActionHandler`
+- `action.websocket.write`
+  - sends a text message to an active WebSocket Trigger connection through the runner-provided sink
+  - outputs `connection_id`, `message`, `bytes`
+- Explicit desktop-only failures in `HeadlessActionHandler` and `UnavailableDesktopActionAdapter`
   - `action.clipboard`
   - `action.message_box`
   - `action.notification`
+  - `action.pixel.get`
   - `action.sound.play`
 
 Planned action families:
 
 - Window-title process matching in the desktop runner
-- Desktop action adapter for clipboard, notification, message box, and audio playback
+- Package asset resolution for desktop action adapters
 

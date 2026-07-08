@@ -6,6 +6,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -27,9 +28,213 @@ use serialport::{
 };
 use sysinfo::{Pid, ProcessesToUpdate, Signal, System};
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct HeadlessActionHandler {
     serial_devices: BTreeMap<String, SerialDeviceSpec>,
+    websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
+}
+
+pub trait WebSocketMessageSink: Send + Sync {
+    fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String>;
+}
+
+pub trait DesktopActionAdapter: Send + Sync {
+    fn clipboard(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn message_box(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn notification(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn sound_play(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn keyboard(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn keyboard_type_text(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn mouse_click(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn mouse_move(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn pixel_get(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn active_window(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn window_focus(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+}
+
+#[derive(Debug, Default)]
+pub struct UnavailableDesktopActionAdapter;
+
+impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
+    fn clipboard(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "clipboard access")
+    }
+
+    fn message_box(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "message boxes")
+    }
+
+    fn notification(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "desktop notifications")
+    }
+
+    fn sound_play(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "audio playback")
+    }
+
+    fn keyboard(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "keyboard input")
+    }
+
+    fn keyboard_type_text(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "keyboard text input")
+    }
+
+    fn mouse_click(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "mouse clicks")
+    }
+
+    fn mouse_move(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "mouse movement")
+    }
+
+    fn pixel_get(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "screen pixel capture")
+    }
+
+    fn active_window(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "active window query")
+    }
+
+    fn window_focus(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "window focus")
+    }
+}
+
+pub struct DesktopActionHandler<A> {
+    adapter: A,
+    headless: HeadlessActionHandler,
+}
+
+impl<A> DesktopActionHandler<A> {
+    #[must_use]
+    pub fn new(headless: HeadlessActionHandler, adapter: A) -> Self {
+        Self { adapter, headless }
+    }
+}
+
+impl<A> RuntimeActionHandler for DesktopActionHandler<A>
+where
+    A: DesktopActionAdapter,
+{
+    fn execute_action(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        match request.action_type.as_str() {
+            "action.clipboard" => self.adapter.clipboard(request, context),
+            "action.keyboard" => self.adapter.keyboard(request, context),
+            "action.keyboard.type_text" => self.adapter.keyboard_type_text(request, context),
+            "action.message_box" => self.adapter.message_box(request, context),
+            "action.mouse" => self.adapter.mouse_click(request, context),
+            "action.mouse.move" => self.adapter.mouse_move(request, context),
+            "action.notification" => self.adapter.notification(request, context),
+            "action.pixel.get" => self.adapter.pixel_get(request, context),
+            "action.sound.play" => self.adapter.sound_play(request, context),
+            "action.window.active" => self.adapter.active_window(request, context),
+            "action.window.focus" => self.adapter.window_focus(request, context),
+            _ => self.headless.execute_action(request, context),
+        }
+    }
 }
 
 impl HeadlessActionHandler {
@@ -41,7 +246,14 @@ impl HeadlessActionHandler {
                 .filter_map(SerialDeviceSpec::from_config)
                 .map(|device| (device.device_id.clone(), device))
                 .collect(),
+            websocket_sink: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_websocket_sink(mut self, sink: Arc<dyn WebSocketMessageSink>) -> Self {
+        self.websocket_sink = Some(sink);
+        self
     }
 }
 
@@ -63,6 +275,7 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.http" => http_request_action(request),
             "action.message_box" => desktop_only_action(request, "message boxes"),
             "action.notification" => desktop_only_action(request, "desktop notifications"),
+            "action.application.open" => open_application_action(request),
             "action.process.kill" => kill_process_action(request),
             "action.process.run" => run_process_action(request),
             "action.process.status" => process_status_action(request),
@@ -71,6 +284,7 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.sound.play" => desktop_only_action(request, "audio playback"),
             "action.text.format" => text_format_action(request),
             "action.webhook_response" => webhook_response_action(request, context),
+            "action.websocket.write" => self.websocket_write_action(request),
             action_type => Err(RuntimeActionError::Unsupported(action_type.to_owned())),
         }
     }
@@ -125,6 +339,35 @@ impl HeadlessActionHandler {
                     "bytes".to_owned(),
                     Value::Number(Number::from(payload.len())),
                 ),
+            ]),
+        })
+    }
+
+    fn websocket_write_action(
+        &self,
+        request: &RuntimeActionRequest,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        let connection_id = required_string(request, "connectionId")?;
+        let message = required_string(request, "message")?;
+        let Some(sink) = &self.websocket_sink else {
+            return failed(
+                request,
+                "WebSocket Write requires an active WebSocket trigger connection",
+            );
+        };
+
+        let bytes = sink
+            .send_text(&connection_id, &message)
+            .map_err(|message| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message,
+            })?;
+
+        Ok(RuntimeActionResult {
+            output_data: Map::from_iter([
+                ("connection_id".to_owned(), Value::String(connection_id)),
+                ("message".to_owned(), Value::String(message)),
+                ("bytes".to_owned(), Value::Number(Number::from(bytes))),
             ]),
         })
     }
@@ -670,6 +913,47 @@ fn kill_process_action(
     }
 
     Ok(RuntimeActionResult { output_data })
+}
+
+fn open_application_action(
+    request: &RuntimeActionRequest,
+) -> Result<RuntimeActionResult, RuntimeActionError> {
+    let application = required_string(request, "application")?;
+    let arguments = config_string(&request.config, "arguments").unwrap_or_default();
+    let parsed_arguments = parse_command_arguments(request, &arguments)?;
+
+    let mut command = Command::new(&application);
+    command
+        .args(&parsed_arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let mut child = command
+        .spawn()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to open application {application}: {source}"),
+        })?;
+    let process_id = child.id();
+
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(RuntimeActionResult {
+        output_data: Map::from_iter([
+            ("application_id".to_owned(), Value::String(application)),
+            (
+                "process_id".to_owned(),
+                Value::Number(Number::from(process_id)),
+            ),
+            (
+                "arguments".to_owned(),
+                Value::Array(parsed_arguments.into_iter().map(Value::String).collect()),
+            ),
+        ]),
+    })
 }
 
 fn run_process_action(
@@ -1382,6 +1666,7 @@ mod tests {
         fs,
         io::{Read, Write},
         net::TcpListener,
+        sync::{Arc, Mutex},
         thread,
     };
 
@@ -1390,7 +1675,173 @@ mod tests {
     };
     use serde_json::{Map, Value, json};
 
-    use super::{HeadlessActionHandler, SerialDeviceConfig};
+    use super::{
+        DesktopActionAdapter, DesktopActionHandler, HeadlessActionHandler, SerialDeviceConfig,
+        WebSocketMessageSink,
+    };
+
+    #[derive(Default)]
+    struct FakeWebSocketSink {
+        sent: Mutex<Vec<(String, String)>>,
+    }
+
+    impl WebSocketMessageSink for FakeWebSocketSink {
+        fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String> {
+            self.sent
+                .lock()
+                .expect("fake sink lock should not be poisoned")
+                .push((connection_id.to_owned(), message.to_owned()));
+            Ok(message.as_bytes().len())
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeDesktopAdapter {
+        called: Mutex<Vec<String>>,
+    }
+
+    impl DesktopActionAdapter for FakeDesktopAdapter {
+        fn clipboard(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("clipboard"))]),
+            })
+        }
+
+        fn message_box(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("message_box"))]),
+            })
+        }
+
+        fn notification(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("notification"))]),
+            })
+        }
+
+        fn sound_play(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("sound_play"))]),
+            })
+        }
+
+        fn keyboard(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("keyboard"))]),
+            })
+        }
+
+        fn keyboard_type_text(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("keyboard_type_text"))]),
+            })
+        }
+
+        fn mouse_click(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("mouse_click"))]),
+            })
+        }
+
+        fn mouse_move(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("mouse_move"))]),
+            })
+        }
+
+        fn pixel_get(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("pixel_get"))]),
+            })
+        }
+
+        fn active_window(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("active_window"))]),
+            })
+        }
+
+        fn window_focus(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError>
+        {
+            self.record(request);
+            Ok(baudbound_runtime::RuntimeActionResult {
+                output_data: Map::from_iter([("handled".to_owned(), json!("window_focus"))]),
+            })
+        }
+    }
+
+    impl FakeDesktopAdapter {
+        fn record(&self, request: &RuntimeActionRequest) {
+            self.called
+                .lock()
+                .expect("fake adapter lock should not be poisoned")
+                .push(request.action_type.clone());
+        }
+    }
 
     #[test]
     fn reads_utf8_file() {
@@ -1596,6 +2047,36 @@ mod tests {
         assert!(error.to_string().contains("unknown serial device"));
     }
 
+    #[test]
+    fn websocket_write_uses_configured_sink() {
+        let sink = Arc::new(FakeWebSocketSink::default());
+        let handler_sink: Arc<dyn WebSocketMessageSink> = sink.clone();
+        let handler = HeadlessActionHandler::default().with_websocket_sink(handler_sink);
+        let result = execute_with_handler(
+            &handler,
+            "action.websocket.write",
+            json!({
+                "connectionId": "conn-1",
+                "message": "hello"
+            }),
+            Value::Null,
+        )
+        .expect("websocket write should use sink");
+
+        assert_eq!(
+            result.output_data.get("connection_id"),
+            Some(&json!("conn-1"))
+        );
+        assert_eq!(result.output_data.get("bytes"), Some(&json!(5)));
+        assert_eq!(
+            sink.sent
+                .lock()
+                .expect("fake sink lock should not be poisoned")
+                .as_slice(),
+            &[("conn-1".to_owned(), "hello".to_owned())]
+        );
+    }
+
     fn serial_device_config() -> SerialDeviceConfig {
         SerialDeviceConfig {
             auto_reconnect: true,
@@ -1622,6 +2103,101 @@ mod tests {
         .expect_err("notification should be desktop-only");
 
         assert!(error.to_string().contains("desktop runner action adapter"));
+    }
+
+    #[test]
+    fn desktop_action_handler_routes_desktop_actions_to_adapter() {
+        let adapter = FakeDesktopAdapter::default();
+        let handler = DesktopActionHandler::new(HeadlessActionHandler::default(), adapter);
+
+        let result = execute_with_handler(
+            &handler,
+            "action.notification",
+            json!({ "title": "BaudBound", "message": "hello" }),
+            Value::Null,
+        )
+        .expect("desktop action should route to adapter");
+
+        assert_eq!(
+            result.output_data.get("handled"),
+            Some(&json!("notification"))
+        );
+        assert_eq!(
+            handler
+                .adapter
+                .called
+                .lock()
+                .expect("fake adapter lock should not be poisoned")
+                .as_slice(),
+            &["action.notification".to_owned()]
+        );
+    }
+
+    #[test]
+    fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
+        let adapter = FakeDesktopAdapter::default();
+        let handler = DesktopActionHandler::new(HeadlessActionHandler::default(), adapter);
+
+        for (action_type, expected) in [
+            ("action.keyboard", "keyboard"),
+            ("action.keyboard.type_text", "keyboard_type_text"),
+            ("action.mouse", "mouse_click"),
+            ("action.mouse.move", "mouse_move"),
+            ("action.pixel.get", "pixel_get"),
+            ("action.window.active", "active_window"),
+            ("action.window.focus", "window_focus"),
+        ] {
+            let result = execute_with_handler(&handler, action_type, json!({}), Value::Null)
+                .expect("desktop action should route to adapter");
+            assert_eq!(result.output_data.get("handled"), Some(&json!(expected)));
+        }
+
+        assert_eq!(
+            handler
+                .adapter
+                .called
+                .lock()
+                .expect("fake adapter lock should not be poisoned")
+                .as_slice(),
+            &[
+                "action.keyboard".to_owned(),
+                "action.keyboard.type_text".to_owned(),
+                "action.mouse".to_owned(),
+                "action.mouse.move".to_owned(),
+                "action.pixel.get".to_owned(),
+                "action.window.active".to_owned(),
+                "action.window.focus".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn desktop_action_handler_delegates_headless_actions() {
+        let handler = DesktopActionHandler::new(
+            HeadlessActionHandler::default(),
+            FakeDesktopAdapter::default(),
+        );
+
+        let result = execute_with_handler(
+            &handler,
+            "action.text.format",
+            json!({
+                "operation": "uppercase",
+                "input": "baudbound"
+            }),
+            Value::Null,
+        )
+        .expect("headless action should delegate");
+
+        assert_eq!(result.output_data.get("text"), Some(&json!("BAUDBOUND")));
+        assert!(
+            handler
+                .adapter
+                .called
+                .lock()
+                .expect("fake adapter lock should not be poisoned")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1725,6 +2301,54 @@ mod tests {
                 .get("stdout")
                 .and_then(Value::as_str)
                 .is_some_and(|stdout| stdout.contains("process-ok"))
+        );
+    }
+
+    #[test]
+    fn opens_application_without_waiting_for_output() {
+        let (application, arguments) = platform_echo_process("open-ok");
+        let result = execute(
+            "action.application.open",
+            json!({
+                "application": application,
+                "arguments": arguments
+            }),
+        )
+        .expect("application should open");
+
+        assert_eq!(
+            result.output_data.get("application_id"),
+            Some(&json!(application))
+        );
+        assert!(
+            result
+                .output_data
+                .get("process_id")
+                .and_then(Value::as_u64)
+                .is_some_and(|process_id| process_id > 0)
+        );
+        assert!(
+            result
+                .output_data
+                .get("arguments")
+                .is_some_and(Value::is_array)
+        );
+    }
+
+    #[test]
+    fn rejects_open_application_with_invalid_arguments() {
+        let error = execute(
+            "action.application.open",
+            json!({
+                "application": "example-app",
+                "arguments": "\"unterminated"
+            }),
+        )
+        .expect_err("unterminated arguments should fail");
+
+        assert!(
+            error.to_string().contains("unterminated quoted string"),
+            "{error}"
         );
     }
 
@@ -1841,12 +2465,22 @@ mod tests {
         trigger_payload: Value,
     ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
         let handler = HeadlessActionHandler::default();
+        execute_with_handler(&handler, action_type, config, trigger_payload)
+    }
+
+    fn execute_with_handler(
+        handler: &dyn RuntimeActionHandler,
+        action_type: &str,
+        config: Value,
+        trigger_payload: Value,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
         let context = RuntimeContext {
             identity: RunIdentity {
                 run_id: "run-1".to_owned(),
                 script_id: "script-1".to_owned(),
                 trigger_node_id: "trigger-1".to_owned(),
             },
+            package_path: None,
             trigger_payload,
             variables: Default::default(),
         };

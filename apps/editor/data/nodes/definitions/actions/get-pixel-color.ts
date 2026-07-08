@@ -20,6 +20,7 @@ export const getPixelColorNode = defineNode({
 	label: "Get Pixel Color",
 	permission: { name: "screen_pixel_read", risk: "medium" },
 	risk: "medium",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	runtimeOutputs: fallible([
 		{ name: "hex", type: "string", description: "Pixel color as a hex string.", example: "n-mr3zyt6f-19.hex" },
 		{

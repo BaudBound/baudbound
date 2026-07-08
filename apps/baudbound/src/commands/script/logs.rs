@@ -1,0 +1,25 @@
+use anyhow::{Context, Result};
+use baudbound_storage::{FilesystemScriptStore, ScriptStore};
+
+use crate::output::print_run_record;
+
+pub(super) fn print_logs(
+    store: &FilesystemScriptStore,
+    script: Option<String>,
+    limit: usize,
+    json: bool,
+) -> Result<()> {
+    let records = store
+        .list_run_records(script.as_deref(), Some(limit))
+        .context("failed to list run logs")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&records)?);
+    } else if records.is_empty() {
+        println!("No run logs found.");
+    } else {
+        for record in records {
+            print_run_record(&record);
+        }
+    }
+    Ok(())
+}

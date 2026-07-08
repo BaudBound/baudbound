@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, HelpCircle, Info, OctagonX } from "lucide-react";
+import { AlertTriangle, Info, OctagonX } from "lucide-react";
 import type { ComponentType } from "react";
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,12 @@ type SimulationMessageBoxDialogProps = {
 const variantIcon: Record<MessageBoxSideEffect["variant"], ComponentType<{ className?: string }>> = {
 	error: OctagonX,
 	info: Info,
-	question: HelpCircle,
 	warning: AlertTriangle,
 };
 
 const variantClassName: Record<MessageBoxSideEffect["variant"], string> = {
 	error: "text-baud-danger",
 	info: "text-baud-blue",
-	question: "text-baud-purple",
 	warning: "text-baud-amber",
 };
 

@@ -13,6 +13,7 @@ export const playSoundNode = defineNode({
 	configFields: [],
 	defaultConfig: () => ({ source: "asset", assetPath: "", filePath: "" }),
 	description: "Play an audio file from assets or a file path.",
+	desktopOnly: true,
 	fallible: true,
 	group: "actions",
 	icon: Volume2,

@@ -17,6 +17,7 @@ export const getActiveWindowNode = defineNode({
 	label: "Get Active Window",
 	permission: { name: "window_query", risk: "medium" },
 	risk: "medium",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	runtimeOutputs: fallible([
 		{ name: "title", type: "string", description: "Active window title.", example: "n-mr3zyt6f-17.title" },
 		{

@@ -139,7 +139,6 @@ export const messageBoxTypeOptions: SelectOption[] = [
 	{ label: "Info", value: "info" },
 	{ label: "Warning", value: "warning" },
 	{ label: "Error", value: "error" },
-	{ label: "Question", value: "question" },
 ];
 
 export const messageBoxButtonOptions: SelectOption[] = [
@@ -147,5 +146,4 @@ export const messageBoxButtonOptions: SelectOption[] = [
 	{ label: "OK / Cancel", value: "ok_cancel" },
 	{ label: "Yes / No", value: "yes_no" },
 	{ label: "Yes / No / Cancel", value: "yes_no_cancel" },
-	{ label: "Retry / Cancel", value: "retry_cancel" },
 ];

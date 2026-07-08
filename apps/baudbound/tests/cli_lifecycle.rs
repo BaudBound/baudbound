@@ -1,0 +1,636 @@
+use std::{
+    fs,
+    io::{Cursor, Write},
+    path::Path,
+    process::{Command, Output},
+};
+
+use serde_json::Value;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+#[test]
+fn cli_initializes_runner_config_template() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let config_path = runner_home.join("config.toml");
+
+    let printed_path = run_baudbound(&runner_home, ["config", "path"]);
+    assert_success_like(&printed_path);
+    assert_eq!(
+        String::from_utf8_lossy(&printed_path.stdout).trim(),
+        config_path.display().to_string()
+    );
+
+    let printed_template = run_baudbound(&runner_home, ["config", "print"]);
+    assert_success_like(&printed_template);
+    assert!(String::from_utf8_lossy(&printed_template.stdout).contains("[triggers]"));
+
+    assert_success(run_baudbound(&runner_home, ["config", "init"]));
+    let config = fs::read_to_string(&config_path).expect("config template should be written");
+    assert!(config.contains("[serial.devices.main_controller]"));
+
+    let refused_overwrite = run_baudbound(&runner_home, ["config", "init"]);
+    assert!(
+        !refused_overwrite.status.success(),
+        "second init should refuse overwrite\n{}",
+        command_output(&refused_overwrite)
+    );
+
+    assert_success(run_baudbound(&runner_home, ["config", "init", "--force"]));
+}
+
+#[test]
+fn cli_startup_creates_runner_config_automatically() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let config_path = runner_home.join("config.toml");
+
+    assert_success(run_baudbound(&runner_home, ["script", "status"]));
+
+    let config = fs::read_to_string(config_path).expect("config should be created on startup");
+    assert!(config.contains("[webhooks]"));
+}
+
+#[test]
+fn cli_runs_installed_package_lifecycle_against_isolated_home() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
+    let updated_package_path = temporary_directory.path().join("cli-lifecycle-updated.bbs");
+
+    fs::write(
+        &package_path,
+        create_test_package("CLI Lifecycle", "hook", "initial"),
+    )
+    .expect("test package should be written");
+    fs::write(
+        &updated_package_path,
+        create_test_package("CLI Lifecycle Updated", "updated-hook", "updated"),
+    )
+    .expect("updated test package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "validate",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+
+    let failed_run = run_baudbound(&runner_home, ["script", "run", "cli-lifecycle"]);
+    assert!(
+        !failed_run.status.success(),
+        "unapproved package should fail before approval\n{}",
+        command_output(&failed_run)
+    );
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "cli-lifecycle"],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "run", "cli-lifecycle"],
+    ));
+
+    let logs = command_json(run_baudbound(
+        &runner_home,
+        ["script", "logs", "--script", "cli-lifecycle", "--json"],
+    ));
+    let records = logs.as_array().expect("logs should be a JSON array");
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["status"], "completed");
+    assert_eq!(records[1]["status"], "failed");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "update",
+            updated_package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    assert_eq!(
+        command_json(run_baudbound(
+            &runner_home,
+            ["script", "approval", "cli-lifecycle", "--json"],
+        )),
+        Value::Null
+    );
+
+    let triggers = command_json(run_baudbound(
+        &runner_home,
+        ["script", "triggers", "cli-lifecycle", "--json"],
+    ));
+    let webhook = triggers
+        .as_array()
+        .expect("triggers should be a JSON array")
+        .iter()
+        .find(|trigger| trigger["node_id"] == "n-webhook")
+        .expect("webhook trigger should be listed");
+    assert_eq!(webhook["config"]["hookName"], "updated-hook");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "remove", "cli-lifecycle"],
+    ));
+    let installed_scripts = command_json(run_baudbound(&runner_home, ["script", "list", "--json"]));
+    assert!(
+        installed_scripts
+            .as_array()
+            .expect("installed scripts should be a JSON array")
+            .is_empty()
+    );
+}
+
+#[test]
+fn cli_supports_script_group_aliases() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("cli-script-group.bbs");
+
+    fs::write(
+        &package_path,
+        create_test_package("CLI Script Group", "group-hook", "group"),
+    )
+    .expect("test package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    let scripts = command_json(run_baudbound(&runner_home, ["script", "list", "--json"]));
+    assert_eq!(
+        scripts
+            .as_array()
+            .expect("installed scripts should be a JSON array")
+            .len(),
+        1
+    );
+    let status = command_json(run_baudbound(&runner_home, ["script", "status", "--json"]));
+    assert_eq!(status["total_script_count"], 1);
+    assert_eq!(status["enabled_script_count"], 1);
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "CLI Script Group"],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "run", "CLI Script Group"],
+    ));
+    let triggers = command_json(run_baudbound(
+        &runner_home,
+        ["script", "triggers", "CLI Script Group", "--json"],
+    ));
+    assert!(
+        triggers
+            .as_array()
+            .expect("triggers should be a JSON array")
+            .iter()
+            .any(|trigger| trigger["node_id"] == "n-webhook")
+    );
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "dispatch-trigger", "CLI Script Group", "n-manual"],
+    ));
+    let logs = command_json(run_baudbound(
+        &runner_home,
+        ["script", "logs", "--script", "CLI Script Group", "--json"],
+    ));
+    assert_eq!(
+        logs.as_array().expect("logs should be a JSON array").len(),
+        2
+    );
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "remove", "CLI Script Group"],
+    ));
+}
+
+#[test]
+fn cli_status_reports_service_health() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    fs::create_dir_all(&runner_home).expect("runner home should be created");
+    fs::write(
+        runner_home.join("service-status.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "active_service_count": 1,
+            "last_heartbeat_unix": 1,
+            "pid": 1234,
+            "reload_interval_seconds": 2,
+            "services": [],
+            "state": "running"
+        }))
+        .expect("service status should serialize"),
+    )
+    .expect("service status should be written");
+
+    let status = command_json(run_baudbound(&runner_home, ["status", "--json"]));
+
+    assert_eq!(status["service_health"]["health"], "stale");
+    assert_eq!(status["service_health"]["stale"], true);
+    assert_eq!(status["service_health"]["stale_after_seconds"], 15);
+}
+
+#[test]
+fn cli_reports_serve_preflight_and_writes_service_control_requests() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
+    fs::write(
+        &package_path,
+        create_test_package("CLI Lifecycle", "hook", "preflight"),
+    )
+    .expect("test package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+
+    let preflight = command_json(run_baudbound(
+        &runner_home,
+        [
+            "serve",
+            "--dry-run",
+            "--json",
+            "--webhooks",
+            "--webhook-port",
+            "8123",
+            "--reload-interval-seconds",
+            "2",
+        ],
+    ));
+    assert_eq!(preflight["active_service_count"], 1);
+    assert_eq!(preflight["idle"], false);
+    assert_eq!(preflight["reload_interval_seconds"], 2);
+    assert_eq!(preflight["trigger_registration_count"], 2);
+    let webhook = service_row(&preflight, "webhook");
+    assert_eq!(webhook["active"], true);
+    assert_eq!(webhook["enabled"], true);
+    assert_eq!(webhook["registrations"], 1);
+    assert_eq!(webhook["target"], "127.0.0.1:8123");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "disable", "cli-lifecycle"],
+    ));
+    let disabled_preflight = command_json(run_baudbound(
+        &runner_home,
+        ["serve", "--dry-run", "--json", "--webhooks"],
+    ));
+    assert_eq!(disabled_preflight["active_service_count"], 0);
+    assert_eq!(disabled_preflight["idle"], true);
+    assert_eq!(disabled_preflight["trigger_registration_count"], 0);
+
+    assert!(!runner_home.join(".service-control.json").exists());
+}
+
+#[test]
+fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("scheduled-log.bbs");
+    fs::write(&package_path, create_schedule_package())
+        .expect("schedule test package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+
+    let preflight = command_json(run_baudbound(
+        &runner_home,
+        ["serve", "--dry-run", "--json"],
+    ));
+    assert_eq!(preflight["active_service_count"], 1);
+    assert_eq!(preflight["trigger_registration_count"], 1);
+    let schedule = service_row(&preflight, "schedule");
+    assert_eq!(schedule["active"], true);
+    assert_eq!(schedule["registrations"], 1);
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "serve",
+            "--once",
+            "--run-schedules-immediately",
+            "--reload-interval-seconds",
+            "1",
+        ],
+    ));
+
+    let logs = command_json(run_baudbound(
+        &runner_home,
+        ["script", "logs", "--script", "scheduled-log", "--json"],
+    ));
+    let records = logs.as_array().expect("logs should be a JSON array");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["status"], "completed");
+    assert_eq!(records[0]["trigger_node_id"], "n-schedule");
+    assert_eq!(
+        records[0]["variables"]["n-schedule.schedule"]["unit"],
+        "seconds"
+    );
+    assert_eq!(records[0]["variables"]["n-schedule.schedule"]["every"], 30);
+
+    let service_status = serde_json::from_slice::<Value>(
+        &fs::read(runner_home.join("service-status.json"))
+            .expect("serve should write service status"),
+    )
+    .expect("service status should be JSON");
+    assert_eq!(service_status["state"], "stopped");
+    assert_eq!(service_status["active_service_count"], 1);
+    assert_eq!(service_status["idle"], false);
+    assert_eq!(service_row(&service_status, "schedule")["registrations"], 1);
+}
+
+#[test]
+fn cli_status_reports_tampered_installed_package() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
+    fs::write(
+        &package_path,
+        create_test_package("CLI Lifecycle", "hook", "tamper"),
+    )
+    .expect("test package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    fs::write(
+        runner_home.join("scripts").join("cli-lifecycle.bbs"),
+        b"tampered package bytes",
+    )
+    .expect("installed package should be tampered");
+
+    let runner_status = command_json(run_baudbound(&runner_home, ["script", "status", "--json"]));
+    assert_eq!(runner_status["problem_count"], 1);
+    assert_eq!(
+        runner_status["scripts"][0]["package_hash_status"]["state"],
+        "mismatch"
+    );
+    assert!(runner_status["scripts"][0]["package_hash_status"]["expected"].is_string());
+    assert!(runner_status["scripts"][0]["package_hash_status"]["actual"].is_string());
+}
+
+fn run_baudbound<const N: usize>(runner_home: &Path, args: [&str; N]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_baudbound"))
+        .args(args)
+        .env("BAUDBOUND_HOME", runner_home)
+        .env_remove("BAUDBOUND_CONFIG")
+        .output()
+        .expect("baudbound command should run")
+}
+
+fn service_row<'a>(document: &'a Value, name: &str) -> &'a Value {
+    document["services"]
+        .as_array()
+        .expect("services should be a JSON array")
+        .iter()
+        .find(|service| service["name"] == name)
+        .unwrap_or_else(|| panic!("service row {name:?} should exist"))
+}
+
+fn assert_success(output: Output) {
+    assert!(
+        output.status.success(),
+        "command should succeed\n{}",
+        command_output(&output)
+    );
+}
+
+fn command_json(output: Output) -> Value {
+    assert_success_like(&output);
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!(
+            "command stdout should be valid JSON: {error}\n{}",
+            command_output(&output)
+        )
+    })
+}
+
+fn assert_success_like(output: &Output) {
+    assert!(
+        output.status.success(),
+        "command should succeed\n{}",
+        command_output(output)
+    );
+}
+
+fn command_output(output: &Output) -> String {
+    format!(
+        "status: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<u8> {
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "cli-lifecycle",
+            "name": "{script_name}",
+            "created_with": "BaudBound CLI Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0"
+        }}"#
+    );
+    let program = format!(
+        r#"{{
+            "entry": {{
+                "trigger": {{
+                    "id": "n-manual",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {{}},
+                    "runtime_outputs": []
+                }},
+                "triggers": [
+                    {{
+                        "id": "n-manual",
+                        "action_type": "trigger.manual",
+                        "type": "manual",
+                        "config": {{}},
+                        "runtime_outputs": []
+                    }},
+                    {{
+                        "id": "n-webhook",
+                        "action_type": "trigger.webhook",
+                        "type": "webhook",
+                        "config": {{"method": "POST", "hookName": "{hook_name}"}},
+                        "runtime_outputs": []
+                    }}
+                ],
+                "program": {{
+                    "type": "block",
+                    "steps": [
+                        {{
+                            "id": "n-log",
+                            "action_type": "action.log",
+                            "type": "action",
+                            "action": "log",
+                            "config": {{"level": "info", "message": "cli lifecycle {marker}"}},
+                            "runtime_outputs": []
+                        }}
+                    ],
+                    "edges": [
+                        {{
+                            "source": "n-manual",
+                            "source_handle": "out",
+                            "target": "n-log",
+                            "target_handle": "input"
+                        }}
+                    ]
+                }}
+            }}
+        }}"#
+    );
+
+    for (path, content) in [
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program.as_str()),
+        (
+            "permissions.json",
+            r#"{"declared_permissions": ["log", "webhook_public_bind"], "risk_level": "high"}"#,
+        ),
+        (
+            "capabilities.json",
+            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+        ),
+    ] {
+        writer
+            .start_file(path, options)
+            .expect("test zip file should start");
+        writer
+            .write_all(content.as_bytes())
+            .expect("test zip content should write");
+    }
+
+    writer
+        .finish()
+        .expect("test zip should finish")
+        .into_inner()
+}
+
+fn create_schedule_package() -> Vec<u8> {
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+    for (path, content) in [
+        (
+            "manifest.json",
+            r#"{
+                "format_version": 1,
+                "script_language_version": 1,
+                "id": "scheduled-log",
+                "name": "Scheduled Log",
+                "created_with": "BaudBound CLI Test",
+                "created_at": "2026-01-01T00:00:00.000Z",
+                "minimum_runner_version": "0.1.0"
+            }"#,
+        ),
+        (
+            "program.json",
+            r#"{
+                "entry": {
+                    "trigger": {
+                        "id": "n-schedule",
+                        "action_type": "trigger.schedule",
+                        "type": "schedule",
+                        "config": {"every": 30, "unit": "seconds"},
+                        "runtime_outputs": []
+                    },
+                    "triggers": [
+                        {
+                            "id": "n-schedule",
+                            "action_type": "trigger.schedule",
+                            "type": "schedule",
+                            "config": {"every": 30, "unit": "seconds"},
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "program": {
+                        "type": "block",
+                        "steps": [
+                            {
+                                "id": "n-log",
+                                "action_type": "action.log",
+                                "type": "action",
+                                "action": "log",
+                                "config": {
+                                    "level": "info",
+                                    "message": "schedule fired every {{n-schedule.schedule.every}} {{n-schedule.schedule.unit}}"
+                                },
+                                "runtime_outputs": []
+                            }
+                        ],
+                        "edges": [
+                            {
+                                "source": "n-schedule",
+                                "source_handle": "out",
+                                "target": "n-log",
+                                "target_handle": "input"
+                            }
+                        ]
+                    }
+                }
+            }"#,
+        ),
+        (
+            "permissions.json",
+            r#"{"declared_permissions": ["log"], "risk_level": "low"}"#,
+        ),
+        (
+            "capabilities.json",
+            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+        ),
+    ] {
+        writer
+            .start_file(path, options)
+            .expect("test zip file should start");
+        writer
+            .write_all(content.as_bytes())
+            .expect("test zip content should write");
+    }
+
+    writer
+        .finish()
+        .expect("test zip should finish")
+        .into_inner()
+}

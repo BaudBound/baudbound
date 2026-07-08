@@ -9,11 +9,14 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+baudbound-actions = { path = "../baudbound-actions" }
 baudbound-runtime = { path = "../baudbound-runtime" }
 notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
+sysinfo.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tungstenite.workspace = true
 urlencoding.workspace = true

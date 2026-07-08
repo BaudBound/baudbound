@@ -7,6 +7,7 @@ import {
 	getNodePorts,
 	getRunnerActionType,
 	getRunnerTriggerType,
+	getTargetRuntimeCompatibilityErrors,
 	validateNodeConfig,
 } from "@/data/nodes/registry";
 import { targetRuntimes } from "@/data/project/runtimes";
@@ -328,6 +329,13 @@ export function validateCapabilitiesContract(capabilitiesValue: unknown, program
 		!targetRuntimes.includes(capabilities.target_runtime as TargetRuntime)
 	) {
 		errors.push("capabilities.json target_runtime must be a supported target runtime.");
+	} else {
+		errors.push(
+			...getTargetRuntimeCompatibilityErrors(
+				getProgramCompatibilityNodes(programValue),
+				capabilities.target_runtime as TargetRuntime,
+			).map((error) => `capabilities.json target_runtime ${error}`),
+		);
 	}
 
 	return errors;
@@ -504,6 +512,30 @@ export function recalculateProgramDeclarations(programValue: unknown) {
 			"low",
 		),
 	};
+}
+
+function getProgramCompatibilityNodes(programValue: unknown) {
+	const program = asRecord(programValue);
+	const entry = asRecord(program?.entry);
+	const block = asRecord(entry?.program);
+	const triggers = Array.isArray(entry?.triggers) ? entry.triggers : [];
+	const steps = Array.isArray(block?.steps) ? block.steps : [];
+
+	return [...triggers, ...steps].flatMap((node) => {
+		const record = asRecord(node);
+		const actionType = typeof record?.action_type === "string" ? (record.action_type as ActionType) : undefined;
+		if (!record || !actionType || !getNodeDefinition(actionType)) {
+			return [];
+		}
+
+		return [
+			{
+				actionType,
+				config: isJsonObject(record.config) ? record.config : undefined,
+				id: typeof record.id === "string" && record.id.trim() ? record.id : actionType,
+			},
+		];
+	});
 }
 
 function validateProgramNode(value: unknown, label: "step" | "trigger") {

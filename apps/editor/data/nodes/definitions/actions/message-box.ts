@@ -2,7 +2,10 @@ import { MessageSquareWarning } from "lucide-react";
 import type { SimulationSideEffect } from "@/utils/simulation-types";
 import { defineNode } from "../../node-definition";
 import { messageBoxButtonOptions, messageBoxTypeOptions } from "../options";
-import { requiredConfig } from "../validators";
+import { configString, requiredConfig } from "../validators";
+
+const supportedMessageBoxButtons = new Set(messageBoxButtonOptions.map((option) => option.value));
+const supportedMessageBoxTypes = new Set(messageBoxTypeOptions.map((option) => option.value));
 
 export const messageBoxNode = defineNode({
 	actionType: "action.message_box",
@@ -36,6 +39,12 @@ export const messageBoxNode = defineNode({
 		[
 			requiredConfig(config, "title", "message box title"),
 			requiredConfig(config, "message", "message box message"),
+			supportedMessageBoxTypes.has(configString(config, "type") || "info")
+				? ""
+				: "message box type must use a supported native dialog level.",
+			supportedMessageBoxButtons.has(configString(config, "buttons") || "ok")
+				? ""
+				: "message box buttons must use a supported native button set.",
 		].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: {} }),
@@ -66,15 +75,13 @@ function getMessageBoxButtons(value: string) {
 			return ["yes", "no"];
 		case "yes_no_cancel":
 			return ["yes", "no", "cancel"];
-		case "retry_cancel":
-			return ["retry", "cancel"];
 		default:
 			return ["ok"];
 	}
 }
 
 function normalizeMessageBoxVariant(value: string): Extract<SimulationSideEffect, { type: "message_box" }>["variant"] {
-	if (value === "warning" || value === "error" || value === "question") {
+	if (value === "warning" || value === "error") {
 		return value;
 	}
 

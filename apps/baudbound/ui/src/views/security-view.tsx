@@ -1,0 +1,162 @@
+import { ShieldCheck, ShieldAlert } from "lucide-react";
+
+import { EmptyState } from "@/components/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ApprovalStatus, DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+
+export function SecurityView({ dashboard }: { dashboard: DashboardPayload }) {
+  const scripts = dashboard.runner.scripts;
+  const attention = scripts.filter(scriptNeedsAttention);
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        <SecurityMetric label="Installed" value={scripts.length} />
+        <SecurityMetric label="Needs attention" tone="medium" value={attention.length} />
+        <SecurityMetric
+          label="Approved"
+          tone="good"
+          value={scripts.filter((script) => script.approval_status === "Current").length}
+        />
+        <SecurityMetric
+          label="High risk"
+          tone="destructive"
+          value={scripts.filter((script) => script.installed.risk_level === "high").length}
+        />
+      </div>
+
+      {scripts.length === 0 ? (
+        <EmptyState>No scripts are installed.</EmptyState>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Script security review</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 max-[900px]:p-3">
+            <table className="responsive-table w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
+                  <th className="px-3 py-2">Script</th>
+                  <th className="px-3 py-2">Approval</th>
+                  <th className="px-3 py-2">Risk</th>
+                  <th className="px-3 py-2">Permissions</th>
+                  <th className="px-3 py-2">Package</th>
+                  <th className="px-3 py-2">Issues</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scripts.map((script) => (
+                  <tr className="border-b border-border last:border-b-0" key={script.installed.id}>
+                    <td className="px-3 py-3" data-label="Script">
+                      <div className="font-medium">{script.installed.name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {script.installed.id}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3" data-label="Approval">
+                      <Badge variant={approvalVariant(script.approval_status)}>
+                        {approvalLabel(script.approval_status)}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3" data-label="Risk">
+                      <Badge variant={riskVariant(script.installed.risk_level)}>
+                        {script.installed.risk_level}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3" data-label="Permissions">
+                      {script.declared_permissions.length > 0 ? (
+                        <div className="flex max-w-[320px] flex-wrap gap-1">
+                          {script.declared_permissions.map((permission) => (
+                            <Badge key={permission} variant="muted">
+                              {permission}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">None declared</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3" data-label="Package">
+                      <div>{script.installed.package_file_name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {script.installed.package_hash.slice(0, 16)}...
+                      </div>
+                    </td>
+                    <td className="max-w-[360px] px-3 py-3" data-label="Issues">
+                      {securityIssue(script) ? (
+                        <div className="flex gap-2 text-baud-amber">
+                          <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                          <span>{securityIssue(script)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 text-baud-green">
+                          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+                          <span>No active security issues.</span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function SecurityMetric({
+  label,
+  tone = "muted",
+  value,
+}: {
+  label: string;
+  tone?: "destructive" | "good" | "medium" | "muted";
+  value: number;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm text-muted-foreground">{label}</div>
+          <div className="mt-1 text-2xl font-semibold">{value}</div>
+        </div>
+        <Badge variant={tone}>{label}</Badge>
+      </CardContent>
+    </Card>
+  );
+}
+
+function scriptNeedsAttention(script: ScriptStatus) {
+  return script.approval_status !== "Current" || Boolean(script.package_error);
+}
+
+function securityIssue(script: ScriptStatus) {
+  if (script.package_error) return script.package_error;
+  if (script.approval_status !== "Current") {
+    return `Approval is ${approvalLabel(script.approval_status).toLowerCase()}.`;
+  }
+  return null;
+}
+
+function approvalLabel(status: ApprovalStatus) {
+  if (typeof status === "string") return status;
+  if ("Error" in status) return "Error";
+  if ("StalePackageHash" in status) return "Stale package";
+  return "Unknown";
+}
+
+function approvalVariant(status: ApprovalStatus) {
+  if (status === "Current") return "good";
+  if (status === "Missing") return "medium";
+  return "destructive";
+}
+
+function riskVariant(risk: string) {
+  if (risk === "high") return "destructive";
+  if (risk === "medium") return "medium";
+  if (risk === "low") return "good";
+  return "muted";
+}

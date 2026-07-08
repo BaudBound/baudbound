@@ -14,6 +14,7 @@ import type {
 	RuntimeDataOutput,
 	ScriptNodeData,
 	SimulationTraceEntry,
+	TargetRuntime,
 } from "@/lib/types";
 import type {
 	NodeExecutionResult,
@@ -120,6 +121,7 @@ export type NodeDefinition = {
 	runnerType?: string;
 	sanitizeConfig?: (config: Record<string, JsonValue>) => Record<string, JsonValue>;
 	simulation?: NodeSimulationDefinition;
+	supportedTargetRuntimes?: TargetRuntime[];
 	validateConfig?: (config: Record<string, JsonValue>) => string[];
 	validateGraph?: (params: { context: NodeGraphValidationContext; node: Node<ScriptNodeData> }) => string[];
 };

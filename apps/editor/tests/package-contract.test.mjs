@@ -273,6 +273,40 @@ test("node definitions include production metadata required by package analysis"
 	}
 });
 
+test("native Windows-only desktop nodes declare target runtime compatibility", () => {
+	const definitionsSource = readDefinitions();
+
+	for (const actionType of ["action.pixel.get", "action.window.active", "action.window.focus"]) {
+		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
+		assert.match(
+			definitionBlock,
+			/supportedTargetRuntimes:\s*\[\s*"Windows Desktop"\s*\]/,
+			`${actionType} must be restricted to Windows Desktop until native backends exist for other desktop targets`,
+		);
+	}
+});
+
+test("target runtime compatibility covers platform-specific node config options", () => {
+	const registrySource = read(join(appRoot, "data", "nodes", "registry.ts"));
+	const verificationSource = read(join(appRoot, "utils", "verification.ts"));
+	const contractSource = read(join(appRoot, "utils", "package-contract.ts"));
+
+	assert.match(registrySource, /targetRuntime === "macOS Desktop"/);
+	assert.match(registrySource, /node\.config\?\.button === "back"/);
+	assert.match(registrySource, /node\.config\?\.button === "forward"/);
+	assert.match(verificationSource, /config: node\.data\.config/);
+	assert.match(contractSource, /config: isJsonObject\(record\.config\)/);
+});
+
+test("message box schemas expose only native dialog options", () => {
+	const messageBoxSchema = JSON.parse(read(join(schemasRoot, "nodes", "action-message-box.schema.json")));
+	const buttons = messageBoxSchema.$defs.config.properties.buttons.enum;
+	const types = messageBoxSchema.$defs.config.properties.type.enum;
+
+	assert.deepEqual([...buttons].sort(), ["ok", "ok_cancel", "yes_no", "yes_no_cancel"].sort());
+	assert.deepEqual([...types].sort(), ["error", "info", "warning"].sort());
+});
+
 test("generated node schemas restrict config keys to editor-owned node config fields", () => {
 	const definitionsSource = readDefinitions();
 	const nodeSchemas = readJsonFiles(join(schemasRoot, "nodes")).map((filePath) => JSON.parse(read(filePath)));
@@ -347,6 +381,8 @@ test("package contract validates graph structure and import rejects malformed ed
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected string/);
 	assert.match(registrySource, /isValidNumberConfigValue/);
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected boolean/);
+	assert.match(contractSource, /getTargetRuntimeCompatibilityErrors/);
+	assert.match(contractSource, /capabilities\.target_runtime/);
 	assert.equal(/return \[\];\s*\n\s*}\);\s*\n}/.test(packageSource), false, "import must not silently drop edges");
 });
 

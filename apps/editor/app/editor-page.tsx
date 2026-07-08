@@ -35,7 +35,6 @@ import {
 	isDevelopmentGraphEnabled,
 } from "@/data/nodes/development-graph";
 import { createNodeFromPaletteItem, getFlatPaletteItems } from "@/data/nodes/registry";
-import { isDesktopTargetRuntime } from "@/data/project/runtimes";
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
 import type {
 	CommentNodeData,
@@ -229,8 +228,6 @@ export function EditorPage() {
 		() => createVariablePanelEntries(projectSettings, scriptNodes, simulationVariables),
 		[projectSettings, scriptNodes, simulationVariables],
 	);
-	const isDesktopTarget = isDesktopTargetRuntime(projectSettings.targetRuntime);
-
 	const normalizedProjectSettings = {
 		...projectSettings,
 		name: projectSettings.name.trim() || "untitled-script",
@@ -1080,7 +1077,7 @@ export function EditorPage() {
 			/>
 
 			<div className="flex min-h-0 flex-1">
-				<BlockLibrary width={sizes.left} isDesktopTarget={isDesktopTarget} onAddBlock={handleAddBlock} />
+				<BlockLibrary width={sizes.left} targetRuntime={projectSettings.targetRuntime} onAddBlock={handleAddBlock} />
 				<ResizeHandle
 					axis="horizontal"
 					label="Resize block library"

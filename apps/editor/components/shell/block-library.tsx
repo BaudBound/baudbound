@@ -3,12 +3,12 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { paletteNodeDragDataType } from "@/data/editor/drag-drop";
-import { desktopOnlyActionTypes, getPaletteGroups } from "@/data/nodes/registry";
-import type { PaletteGroup, PaletteItem } from "@/lib/types";
+import { getPaletteGroups, getTargetRuntimeCompatibilityErrors } from "@/data/nodes/registry";
+import type { PaletteGroup, PaletteItem, TargetRuntime } from "@/lib/types";
 import { RiskBadge } from "./risk-badge";
 
 type BlockLibraryProps = {
-	isDesktopTarget: boolean;
+	targetRuntime: TargetRuntime;
 	width: number;
 	onAddBlock: (item: PaletteItem) => void;
 };
@@ -22,7 +22,7 @@ const defaultExpandedPaletteGroups: Record<string, boolean> = {
 const paletteGroups = getPaletteGroups();
 const defaultExpandedGroups = createDefaultExpandedGroups(paletteGroups);
 
-export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibraryProps) {
+export function BlockLibrary({ targetRuntime, width, onAddBlock }: BlockLibraryProps) {
 	const [query, setQuery] = useState("");
 	const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(defaultExpandedGroups);
 	const compact = width < 190;
@@ -59,7 +59,7 @@ export function BlockLibrary({ isDesktopTarget, width, onAddBlock }: BlockLibrar
 							expandedGroups={expandedGroups}
 							forceExpanded={query.trim().length > 0}
 							group={group}
-							isDesktopTarget={isDesktopTarget}
+							targetRuntime={targetRuntime}
 							onAddBlock={onAddBlock}
 							onToggleGroup={(groupId) =>
 								setExpandedGroups((current) => ({ ...current, [groupId]: !current[groupId] }))
@@ -77,19 +77,19 @@ function PaletteGroupSection({
 	expandedGroups,
 	forceExpanded,
 	group,
-	isDesktopTarget,
 	nested = false,
 	onAddBlock,
 	onToggleGroup,
+	targetRuntime,
 }: {
 	compact: boolean;
 	expandedGroups: Record<string, boolean>;
 	forceExpanded: boolean;
 	group: PaletteGroup;
-	isDesktopTarget: boolean;
 	nested?: boolean;
 	onAddBlock: (item: PaletteItem) => void;
 	onToggleGroup: (groupId: string) => void;
+	targetRuntime: TargetRuntime;
 }) {
 	const Icon = group.icon;
 	const expanded = forceExpanded || (expandedGroups[group.id] ?? false);
@@ -121,19 +121,19 @@ function PaletteGroupSection({
 							expandedGroups={expandedGroups}
 							forceExpanded={forceExpanded}
 							group={child}
-							isDesktopTarget={isDesktopTarget}
 							nested
 							onAddBlock={onAddBlock}
 							onToggleGroup={onToggleGroup}
+							targetRuntime={targetRuntime}
 						/>
 					))}
 					{group.items.map((item) => (
 						<PaletteItemButton
 							key={item.actionType}
 							compact={compact}
-							isDesktopTarget={isDesktopTarget}
 							item={item}
 							onAddBlock={onAddBlock}
+							targetRuntime={targetRuntime}
 						/>
 					))}
 				</div>
@@ -144,17 +144,21 @@ function PaletteGroupSection({
 
 function PaletteItemButton({
 	compact,
-	isDesktopTarget,
 	item,
 	onAddBlock,
+	targetRuntime,
 }: {
 	compact: boolean;
-	isDesktopTarget: boolean;
 	item: PaletteItem;
 	onAddBlock: (item: PaletteItem) => void;
+	targetRuntime: TargetRuntime;
 }) {
 	const Icon = item.icon;
-	const unavailable = desktopOnlyActionTypes.has(item.actionType) && !isDesktopTarget;
+	const compatibilityErrors = getTargetRuntimeCompatibilityErrors(
+		[{ actionType: item.actionType, id: item.label, label: item.label }],
+		targetRuntime,
+	);
+	const unavailable = compatibilityErrors.length > 0;
 
 	return (
 		<Button
@@ -173,7 +177,7 @@ function PaletteItemButton({
 			}}
 			className="group w-full justify-start gap-2 px-2 text-left text-[0.9rem] font-normal"
 			disabled={unavailable}
-			title={unavailable ? "Requires a desktop target runtime" : item.description}
+			title={unavailable ? compatibilityErrors.join(" ") : item.description}
 			variant="ghost"
 		>
 			<Icon size={13} className="text-baud-muted group-hover:text-baud-text" />

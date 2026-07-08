@@ -940,8 +940,6 @@ function getMessageBoxButtons(node: Node<ScriptNodeData>) {
 			return ["yes", "no"];
 		case "yes_no_cancel":
 			return ["yes", "no", "cancel"];
-		case "retry_cancel":
-			return ["retry", "cancel"];
 		default:
 			return ["ok"];
 	}

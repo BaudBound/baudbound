@@ -19,8 +19,10 @@ import type {
 	PaletteGroup,
 	PaletteItem,
 	ScriptNodeData,
+	TargetRuntime,
 	TriggerActionType,
 } from "@/lib/types";
+import { isDesktopTargetRuntime } from "../project/runtimes";
 import { beepNode } from "./definitions/actions/beep";
 import { calculateNode } from "./definitions/actions/calculate";
 import { clipboardNode } from "./definitions/actions/clipboard";
@@ -238,6 +240,13 @@ export const desktopOnlyActionTypes = new Set<ActionType>(
 	nodeDefinitions.filter((definition) => definition.desktopOnly).map((definition) => definition.actionType),
 );
 
+export type TargetRuntimeCompatibilityNode = {
+	actionType: ActionType;
+	config?: Record<string, JsonValue>;
+	id: string;
+	label?: string;
+};
+
 export const fallibleActionTypes = new Set<ActionType>(
 	nodeDefinitions.filter((definition) => definition.fallible).map((definition) => definition.actionType),
 );
@@ -246,12 +255,53 @@ export function getNodeDefinition(actionType: ActionType) {
 	return nodeDefinitionByActionType.get(actionType);
 }
 
+export function getTargetRuntimeCompatibilityErrors(
+	nodes: TargetRuntimeCompatibilityNode[],
+	targetRuntime: TargetRuntime,
+) {
+	return nodes.flatMap((node) => {
+		const definition = getNodeDefinition(node.actionType);
+		if (!definition) {
+			return [];
+		}
+
+		const label = definition.label ?? node.label ?? node.actionType;
+		if (definition.supportedTargetRuntimes && !definition.supportedTargetRuntimes.includes(targetRuntime)) {
+			return [
+				`${node.id} (${label}) requires ${formatTargetRuntimeList(definition.supportedTargetRuntimes)}, but the script targets ${targetRuntime}.`,
+			];
+		}
+
+		if (definition.desktopOnly && !isDesktopTargetRuntime(targetRuntime)) {
+			return [`${node.id} (${label}) requires a desktop target runtime, but the script targets ${targetRuntime}.`];
+		}
+
+		if (
+			node.actionType === "action.mouse" &&
+			targetRuntime === "macOS Desktop" &&
+			(node.config?.button === "back" || node.config?.button === "forward")
+		) {
+			return [
+				`${node.id} (${label}) uses the ${String(node.config.button)} mouse button, which does not have a native macOS backend.`,
+			];
+		}
+
+		return [];
+	});
+}
+
 export function getPaletteGroups(): PaletteGroup[] {
 	return (Object.keys(groupMetadata) as NodeDefinitionGroupId[]).map((groupId) => ({
 		...groupMetadata[groupId],
 		items: groupId === "actions" ? [] : createPaletteItemsForGroup(groupId),
 		children: groupId === "actions" ? createActionPaletteChildren() : undefined,
 	}));
+}
+
+function formatTargetRuntimeList(targetRuntimes: TargetRuntime[]) {
+	return targetRuntimes.length === 1
+		? `${targetRuntimes[0]} target runtime`
+		: `one of these target runtimes: ${targetRuntimes.join(", ")}`;
 }
 
 export function getFlatPaletteItems() {

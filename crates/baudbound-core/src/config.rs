@@ -10,6 +10,10 @@ use thiserror::Error;
 pub const DEFAULT_WEBHOOK_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBHOOK_PORT: u16 = 43891;
 pub const DEFAULT_WEBHOOK_MAX_BODY_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_WEBSOCKET_BIND: &str = "127.0.0.1";
+pub const DEFAULT_WEBSOCKET_PORT: u16 = 43892;
+pub const DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -18,6 +22,7 @@ pub struct RunnerConfig {
     pub serial: SerialSettings,
     pub triggers: TriggerSettings,
     pub webhooks: WebhookSettings,
+    pub websockets: WebSocketSettings,
 }
 
 impl RunnerConfig {
@@ -33,9 +38,39 @@ impl RunnerConfig {
         }
     }
 
+    pub fn load_or_init(path: impl AsRef<Path>) -> Result<Self, RunnerConfigError> {
+        let path = path.as_ref();
+        match fs::read_to_string(path) {
+            Ok(contents) => Self::from_toml(&contents, path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Self::write_template(path)?;
+                Self::from_toml(Self::template_toml(), path)
+            }
+            Err(source) => Err(RunnerConfigError::Read {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
+    }
+
     pub fn from_toml(contents: &str, path: impl AsRef<Path>) -> Result<Self, RunnerConfigError> {
         toml::from_str(contents).map_err(|source| RunnerConfigError::Parse {
             path: path.as_ref().to_path_buf(),
+            source,
+        })
+    }
+
+    pub fn write_template(path: impl AsRef<Path>) -> Result<(), RunnerConfigError> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|source| RunnerConfigError::Write {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        fs::write(path, Self::template_toml()).map_err(|source| RunnerConfigError::Write {
+            path: path.to_path_buf(),
             source,
         })
     }
@@ -48,6 +83,57 @@ impl RunnerConfig {
             .filter(|name| !name.is_empty())
             .unwrap_or("BaudBound Runner")
             .to_owned()
+    }
+
+    #[must_use]
+    pub fn template_toml() -> &'static str {
+        r#"# BaudBound runner configuration.
+# The runner creates this file automatically on first start.
+# Webhooks and WebSockets are disabled by default.
+
+[runner]
+name = "BaudBound Runner"
+trigger_reload_seconds = 2
+# Empty or omitted target_runtimes means this runner supports this operating system's default headless and desktop targets.
+# For headless service deployments, set this explicitly, for example:
+# target_runtimes = ["Generic Headless", "Linux Headless"]
+target_runtimes = []
+
+[triggers]
+schedules_enabled = true
+file_watch_enabled = true
+process_watch_enabled = true
+serial_enabled = true
+startup_enabled = true
+webhooks_enabled = false
+websockets_enabled = false
+
+# Serial Input Trigger nodes reference only a logical deviceId.
+# Define matching runner-side device settings here.
+#
+# [serial.devices.main_controller]
+# port = "COM3"
+# baud_rate = 115200
+# data_bits = 8
+# parity = "none"
+# stop_bits = "1"
+# flow_control = "none"
+# read_mode = "line"
+# auto_reconnect = true
+# validate_usb_identity = false
+# vendor_id = "1A86"
+# product_id = "7523"
+
+[webhooks]
+bind = "127.0.0.1"
+port = 43891
+max_body_bytes = 1048576
+
+[websockets]
+bind = "127.0.0.1"
+port = 43892
+max_message_bytes = 1048576
+"#
     }
 }
 
@@ -91,28 +177,46 @@ impl Default for SerialDeviceSettings {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RunnerSettings {
     pub name: Option<String>,
+    pub target_runtimes: Vec<String>,
+    pub trigger_reload_seconds: u64,
+}
+
+impl Default for RunnerSettings {
+    fn default() -> Self {
+        Self {
+            name: None,
+            target_runtimes: Vec::new(),
+            trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TriggerSettings {
     pub file_watch_enabled: bool,
+    pub process_watch_enabled: bool,
     pub schedules_enabled: bool,
     pub serial_enabled: bool,
+    pub startup_enabled: bool,
     pub webhooks_enabled: bool,
+    pub websockets_enabled: bool,
 }
 
 impl Default for TriggerSettings {
     fn default() -> Self {
         Self {
             file_watch_enabled: true,
+            process_watch_enabled: true,
             schedules_enabled: true,
             serial_enabled: true,
+            startup_enabled: true,
             webhooks_enabled: false,
+            websockets_enabled: false,
         }
     }
 }
@@ -135,6 +239,24 @@ impl Default for WebhookSettings {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct WebSocketSettings {
+    pub bind: String,
+    pub max_message_bytes: usize,
+    pub port: u16,
+}
+
+impl Default for WebSocketSettings {
+    fn default() -> Self {
+        Self {
+            bind: DEFAULT_WEBSOCKET_BIND.to_owned(),
+            max_message_bytes: DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
+            port: DEFAULT_WEBSOCKET_PORT,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RunnerConfigError {
     #[error("failed to read runner config {path}: {source}")]
@@ -147,6 +269,11 @@ pub enum RunnerConfigError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("failed to write runner config {path}: {source}")]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[cfg(test)]
@@ -158,15 +285,42 @@ mod tests {
         let temporary_directory = tempfile::tempdir().expect("temp dir");
         let config_path = temporary_directory.path().join("runner.toml");
 
-        let config = RunnerConfig::load_or_default(config_path).expect("config should load");
+        let config = RunnerConfig::load_or_default(&config_path).expect("config should load");
 
         assert_eq!(config.runner_name(), "BaudBound Runner");
+        assert_eq!(
+            config.runner.trigger_reload_seconds,
+            DEFAULT_TRIGGER_RELOAD_SECONDS
+        );
         assert!(config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
         assert!(config.triggers.serial_enabled);
         assert!(!config.triggers.webhooks_enabled);
         assert_eq!(config.webhooks.bind, DEFAULT_WEBHOOK_BIND);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
+        assert!(
+            !config_path.exists(),
+            "load_or_default should preserve legacy no-write behavior"
+        );
+    }
+
+    #[test]
+    fn missing_config_is_initialized_on_load_or_init() {
+        let temporary_directory = tempfile::tempdir().expect("temp dir");
+        let config_path = temporary_directory
+            .path()
+            .join("nested")
+            .join("runner.toml");
+
+        let config = RunnerConfig::load_or_init(&config_path).expect("config should load");
+
+        assert_eq!(config.runner_name(), "BaudBound Runner");
+        assert!(
+            config_path.exists(),
+            "load_or_init should create a real config file"
+        );
+        let contents = fs::read_to_string(config_path).expect("config should be readable");
+        assert!(contents.contains("[triggers]"));
     }
 
     #[test]
@@ -175,12 +329,17 @@ mod tests {
             r#"
                 [runner]
                 name = "Server Runner"
+                trigger_reload_seconds = 5
+                target_runtimes = ["Generic Headless", "Linux Headless"]
 
                 [triggers]
                 schedules_enabled = false
                 file_watch_enabled = true
+                process_watch_enabled = false
                 serial_enabled = false
+                startup_enabled = true
                 webhooks_enabled = true
+                websockets_enabled = true
 
                 [serial.devices.main_controller]
                 port = "COM3"
@@ -199,19 +358,35 @@ mod tests {
                 bind = "0.0.0.0"
                 port = 9000
                 max_body_bytes = 2048
+
+                [websockets]
+                bind = "127.0.0.1"
+                port = 9001
+                max_message_bytes = 4096
             "#,
             "runner.toml",
         )
         .expect("config should parse");
 
         assert_eq!(config.runner_name(), "Server Runner");
+        assert_eq!(config.runner.trigger_reload_seconds, 5);
+        assert_eq!(
+            config.runner.target_runtimes,
+            ["Generic Headless", "Linux Headless"]
+        );
         assert!(!config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
+        assert!(!config.triggers.process_watch_enabled);
         assert!(!config.triggers.serial_enabled);
+        assert!(config.triggers.startup_enabled);
         assert!(config.triggers.webhooks_enabled);
+        assert!(config.triggers.websockets_enabled);
         assert_eq!(config.webhooks.bind, "0.0.0.0");
         assert_eq!(config.webhooks.port, 9000);
         assert_eq!(config.webhooks.max_body_bytes, 2048);
+        assert_eq!(config.websockets.bind, "127.0.0.1");
+        assert_eq!(config.websockets.port, 9001);
+        assert_eq!(config.websockets.max_message_bytes, 4096);
         let device = config
             .serial
             .devices
@@ -228,5 +403,17 @@ mod tests {
             .expect_err("invalid TOML should fail");
 
         assert!(matches!(error, RunnerConfigError::Parse { .. }));
+    }
+
+    #[test]
+    fn template_toml_parses_as_valid_config() {
+        let config = RunnerConfig::from_toml(RunnerConfig::template_toml(), "template.toml")
+            .expect("template should parse");
+
+        assert_eq!(config.runner_name(), "BaudBound Runner");
+        assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
+        assert_eq!(config.websockets.port, DEFAULT_WEBSOCKET_PORT);
+        assert!(!config.triggers.webhooks_enabled);
+        assert!(!config.triggers.websockets_enabled);
     }
 }

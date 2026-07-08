@@ -7,9 +7,7 @@ import { configString, requiredConfig } from "../validators";
 export const serialInputTriggerNode = defineNode({
 	actionType: "trigger.serial_input",
 	capabilities: ["trigger.serial_input"],
-	configFields: [
-		{ key: "deviceId", label: "Device id", type: "text" },
-	],
+	configFields: [{ key: "deviceId", label: "Device id", type: "text" }],
 	defaultConfig: () => ({
 		deviceId: "serial-device",
 	}),

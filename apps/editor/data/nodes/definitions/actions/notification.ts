@@ -11,6 +11,7 @@ export const notificationNode = defineNode({
 	],
 	defaultConfig: () => ({ title: "BaudBound", message: "Script completed. Status: {{n-mr3zyt6f-12.status_code}}" }),
 	description: "Show a desktop notification.",
+	desktopOnly: true,
 	fallible: true,
 	group: "actions",
 	icon: Bell,

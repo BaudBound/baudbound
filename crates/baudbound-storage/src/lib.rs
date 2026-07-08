@@ -15,6 +15,9 @@ use thiserror::Error;
 const INDEX_FILE_NAME: &str = "index.json";
 const APPROVALS_FILE_NAME: &str = "approvals.json";
 const RUN_HISTORY_FILE_NAME: &str = "runs.jsonl";
+const SERVICE_CONTROL_FILE_NAME: &str = ".service-control.json";
+const SERVICE_STATUS_FILE_NAME: &str = "service-status.json";
+const TRIGGER_RELOAD_SIGNAL_FILE_NAME: &str = ".trigger-reload";
 const SCRIPTS_DIR_NAME: &str = "scripts";
 const STORAGE_FORMAT_VERSION: u32 = 1;
 
@@ -82,6 +85,44 @@ pub struct StoredRunRecord {
     pub variables: BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ServiceControlCommand {
+    Reload,
+    Stop,
+}
+
+impl ServiceControlCommand {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reload => "reload",
+            Self::Stop => "stop",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "reload" => Some(Self::Reload),
+            "stop" => Some(Self::Stop),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ConsumedServiceControl {
+    Command(ServiceControlCommand),
+    Ignored { reason: String },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ServiceControlRequest {
+    command: String,
+    requested_at_unix: u64,
+    requested_by_pid: u32,
+    target_pid: u32,
+}
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("script {0} is already installed")]
@@ -146,6 +187,11 @@ pub trait ScriptStore: Send + Sync {
         &self,
         script_reference: &str,
     ) -> Result<Option<ScriptApproval>, StorageError>;
+    fn set_script_enabled(
+        &self,
+        reference: &str,
+        enabled: bool,
+    ) -> Result<InstalledScript, StorageError>;
     fn find_script(&self, reference: &str) -> Result<InstalledScript, StorageError>;
     fn verify_script_package_hash(&self, reference: &str) -> Result<InstalledScript, StorageError>;
 }
@@ -182,6 +228,18 @@ impl FilesystemScriptStore {
         self.root.join(RUN_HISTORY_FILE_NAME)
     }
 
+    fn service_status_path(&self) -> PathBuf {
+        self.root.join(SERVICE_STATUS_FILE_NAME)
+    }
+
+    fn service_control_path(&self) -> PathBuf {
+        self.root.join(SERVICE_CONTROL_FILE_NAME)
+    }
+
+    fn trigger_reload_signal_path(&self) -> PathBuf {
+        self.root.join(TRIGGER_RELOAD_SIGNAL_FILE_NAME)
+    }
+
     fn scripts_dir(&self) -> PathBuf {
         self.root.join(SCRIPTS_DIR_NAME)
     }
@@ -214,6 +272,164 @@ impl FilesystemScriptStore {
             source,
         })?;
         write_atomic(&index_path, content.as_bytes())
+    }
+
+    pub fn request_trigger_reload(&self) -> Result<(), StorageError> {
+        self.ensure_layout()?;
+        let path = self.trigger_reload_signal_path();
+        write_atomic(&path, current_unix_timestamp().to_string().as_bytes())
+    }
+
+    pub fn consume_trigger_reload_request(&self) -> Result<bool, StorageError> {
+        let path = self.trigger_reload_signal_path();
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(source) => Err(StorageError::Io { path, source }),
+        }
+    }
+
+    pub fn write_service_status(&self, status: &serde_json::Value) -> Result<(), StorageError> {
+        self.ensure_layout()?;
+        let path = self.service_status_path();
+        let content = serde_json::to_vec_pretty(status).map_err(|source| StorageError::Json {
+            path: path.clone(),
+            source,
+        })?;
+        write_atomic(&path, &content)
+    }
+
+    pub fn read_service_status(&self) -> Result<Option<serde_json::Value>, StorageError> {
+        let path = self.service_status_path();
+        match fs::read_to_string(&path) {
+            Ok(content) => serde_json::from_str(&content)
+                .map(Some)
+                .map_err(|source| StorageError::Json { path, source }),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(StorageError::Io { path, source }),
+        }
+    }
+
+    pub fn clear_service_status(&self) -> Result<bool, StorageError> {
+        let path = self.service_status_path();
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(source) => Err(StorageError::Io { path, source }),
+        }
+    }
+
+    pub fn write_service_control_request(
+        &self,
+        request: &serde_json::Value,
+    ) -> Result<(), StorageError> {
+        self.ensure_layout()?;
+        let path = self.service_control_path();
+        let content = serde_json::to_vec_pretty(request).map_err(|source| StorageError::Json {
+            path: path.clone(),
+            source,
+        })?;
+        write_atomic(&path, &content)
+    }
+
+    pub fn request_service_control(
+        &self,
+        command: ServiceControlCommand,
+        requested_by_pid: u32,
+    ) -> Result<(), StorageError> {
+        let request = ServiceControlRequest {
+            command: command.as_str().to_owned(),
+            requested_at_unix: current_unix_timestamp(),
+            requested_by_pid,
+            target_pid: self.running_service_pid()?,
+        };
+        let request = serde_json::to_value(request).map_err(|source| StorageError::Json {
+            path: self.service_control_path(),
+            source,
+        })?;
+        self.write_service_control_request(&request)
+    }
+
+    pub fn running_service_pid(&self) -> Result<u32, StorageError> {
+        let service_status = self.read_service_status()?.ok_or_else(|| {
+            StorageError::Operation("no runner service status has been written yet".to_owned())
+        })?;
+        let state = service_status
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        if state != "running" {
+            return Err(StorageError::Operation(format!(
+                "runner service is not running; latest state is {state:?}"
+            )));
+        }
+        let pid = service_status
+            .get("pid")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                StorageError::Operation("runner service status does not contain a pid".to_owned())
+            })?;
+        u32::try_from(pid)
+            .map_err(|_| StorageError::Operation("runner service pid is out of range".to_owned()))
+    }
+
+    pub fn consume_service_control_request(
+        &self,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        let path = self.service_control_path();
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(StorageError::Io { path, source }),
+        };
+
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(StorageError::Io {
+                    path: path.clone(),
+                    source,
+                });
+            }
+        }
+
+        serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|source| StorageError::Json { path, source })
+    }
+
+    pub fn consume_service_control_request_for_pid(
+        &self,
+        current_pid: u32,
+    ) -> Result<Option<ConsumedServiceControl>, StorageError> {
+        let Some(request) = self.consume_service_control_request()? else {
+            return Ok(None);
+        };
+        let request =
+            serde_json::from_value::<ServiceControlRequest>(request).map_err(|source| {
+                StorageError::Json {
+                    path: self.service_control_path(),
+                    source,
+                }
+            })?;
+
+        if request.target_pid != current_pid {
+            return Ok(Some(ConsumedServiceControl::Ignored {
+                reason: format!(
+                    "request targets pid {}, but this process is {current_pid}",
+                    request.target_pid
+                ),
+            }));
+        }
+
+        let Some(command) = ServiceControlCommand::from_str(&request.command) else {
+            return Ok(Some(ConsumedServiceControl::Ignored {
+                reason: format!("unknown command {:?}", request.command),
+            }));
+        };
+
+        Ok(Some(ConsumedServiceControl::Command(command)))
     }
 
     fn read_approvals(&self) -> Result<ApprovalIndex, StorageError> {
@@ -340,6 +556,7 @@ impl FilesystemScriptStore {
             .scripts
             .insert(installed.id.clone(), installed.clone());
         self.write_index(&index)?;
+        self.request_trigger_reload()?;
 
         if let Some(previous_package_path) = previous_package_path
             && previous_package_path != installed.package_path
@@ -481,6 +698,7 @@ impl ScriptStore for FilesystemScriptStore {
         let installed = self.resolve_reference(&index, reference)?;
         index.scripts.remove(&installed.id);
         self.write_index(&index)?;
+        self.request_trigger_reload()?;
         self.revoke_script_approval_by_id(&installed.id)?;
 
         remove_file_inside_root(&self.scripts_dir(), &installed.package_path)?;
@@ -494,6 +712,22 @@ impl ScriptStore for FilesystemScriptStore {
     ) -> Result<Option<ScriptApproval>, StorageError> {
         let installed = self.find_script(script_reference)?;
         self.revoke_script_approval_by_id(&installed.id)
+    }
+
+    fn set_script_enabled(
+        &self,
+        reference: &str,
+        enabled: bool,
+    ) -> Result<InstalledScript, StorageError> {
+        let mut index = self.read_index()?;
+        let mut installed = self.resolve_reference(&index, reference)?;
+        installed.enabled = enabled;
+        index
+            .scripts
+            .insert(installed.id.clone(), installed.clone());
+        self.write_index(&index)?;
+        self.request_trigger_reload()?;
+        Ok(installed)
     }
 
     fn find_script(&self, reference: &str) -> Result<InstalledScript, StorageError> {
@@ -754,6 +988,239 @@ mod tests {
         assert!(updated.package_path.exists());
         assert!(!store.root().join("scripts").join("script.bbs").exists());
         assert!(store.verify_script_package_hash("script-1").is_ok());
+    }
+
+    #[test]
+    fn toggles_installed_script_enabled_state() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let package_path = temporary_directory.path().join("script.bbs");
+        fs::write(&package_path, b"package bytes").expect("test package should be written");
+
+        let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+        store
+            .import_script(ImportScriptRequest {
+                id: "script-1".to_owned(),
+                name: "Script One".to_owned(),
+                package_source: package_path,
+                package_format_version: 1,
+                script_language_version: 1,
+                target_runtime: "Generic Desktop".to_owned(),
+                asset_count: 0,
+                risk_level: "low".to_owned(),
+            })
+            .expect("script should import");
+
+        let disabled = store
+            .set_script_enabled("Script One", false)
+            .expect("script should disable");
+        assert!(!disabled.enabled);
+        assert!(
+            !store
+                .find_script("script-1")
+                .expect("script should exist")
+                .enabled
+        );
+
+        let enabled = store
+            .set_script_enabled("script-1", true)
+            .expect("script should enable");
+        assert!(enabled.enabled);
+        assert!(
+            store
+                .find_script("Script One")
+                .expect("script should exist")
+                .enabled
+        );
+    }
+
+    #[test]
+    fn installed_script_changes_request_trigger_reload() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let package_path = temporary_directory.path().join("script.bbs");
+        fs::write(&package_path, b"package bytes").expect("test package should be written");
+
+        let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+        assert!(
+            !store
+                .consume_trigger_reload_request()
+                .expect("missing reload signal should be consumed cleanly")
+        );
+
+        store
+            .import_script(ImportScriptRequest {
+                id: "script-1".to_owned(),
+                name: "Script One".to_owned(),
+                package_source: package_path,
+                package_format_version: 1,
+                script_language_version: 1,
+                target_runtime: "Generic Desktop".to_owned(),
+                asset_count: 0,
+                risk_level: "low".to_owned(),
+            })
+            .expect("script should import");
+
+        assert!(
+            store
+                .consume_trigger_reload_request()
+                .expect("import should request reload")
+        );
+        assert!(
+            !store
+                .consume_trigger_reload_request()
+                .expect("reload signal should only be consumed once")
+        );
+
+        store
+            .set_script_enabled("script-1", false)
+            .expect("script should disable");
+        assert!(
+            store
+                .consume_trigger_reload_request()
+                .expect("enable state change should request reload")
+        );
+
+        store
+            .remove_script("script-1")
+            .expect("script should remove");
+        assert!(
+            store
+                .consume_trigger_reload_request()
+                .expect("remove should request reload")
+        );
+    }
+
+    #[test]
+    fn reads_and_writes_service_status() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+
+        assert!(
+            store
+                .read_service_status()
+                .expect("missing service status should read cleanly")
+                .is_none()
+        );
+
+        let status = serde_json::json!({
+            "active_service_count": 1,
+            "last_heartbeat_unix": 123,
+            "pid": 42,
+            "services": [
+                {
+                    "active": true,
+                    "enabled": true,
+                    "name": "schedule",
+                    "registrations": 1,
+                    "target": "internal timer"
+                }
+            ],
+            "state": "running"
+        });
+        store
+            .write_service_status(&status)
+            .expect("service status should write");
+
+        assert_eq!(
+            store
+                .read_service_status()
+                .expect("service status should read"),
+            Some(status)
+        );
+
+        assert!(
+            store
+                .clear_service_status()
+                .expect("service status should clear")
+        );
+        assert!(
+            store
+                .read_service_status()
+                .expect("cleared service status should read cleanly")
+                .is_none()
+        );
+        assert!(
+            !store
+                .clear_service_status()
+                .expect("missing service status should clear cleanly")
+        );
+    }
+
+    #[test]
+    fn service_control_request_is_one_shot() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+
+        assert!(
+            store
+                .consume_service_control_request()
+                .expect("missing service control should read cleanly")
+                .is_none()
+        );
+
+        let request = serde_json::json!({
+            "command": "reload",
+            "requested_at_unix": 123,
+            "target_pid": 42
+        });
+        store
+            .write_service_control_request(&request)
+            .expect("service control should write");
+
+        assert_eq!(
+            store
+                .consume_service_control_request()
+                .expect("service control should read"),
+            Some(request)
+        );
+        assert!(
+            store
+                .consume_service_control_request()
+                .expect("service control should only be consumed once")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn typed_service_control_targets_running_service_pid() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+
+        store
+            .write_service_status(&serde_json::json!({
+                "pid": 1234,
+                "state": "running"
+            }))
+            .expect("service status should write");
+        assert_eq!(
+            store
+                .running_service_pid()
+                .expect("running service pid should parse"),
+            1234
+        );
+
+        store
+            .request_service_control(ServiceControlCommand::Stop, 5678)
+            .expect("service stop should be requested");
+        assert_eq!(
+            store
+                .consume_service_control_request_for_pid(9999)
+                .expect("wrong pid request should be consumed"),
+            Some(ConsumedServiceControl::Ignored {
+                reason: "request targets pid 1234, but this process is 9999".to_owned()
+            })
+        );
+
+        store
+            .request_service_control(ServiceControlCommand::Reload, 5678)
+            .expect("service reload should be requested");
+        assert_eq!(
+            store
+                .consume_service_control_request_for_pid(1234)
+                .expect("targeted request should be consumed"),
+            Some(ConsumedServiceControl::Command(
+                ServiceControlCommand::Reload
+            ))
+        );
     }
 
     #[test]

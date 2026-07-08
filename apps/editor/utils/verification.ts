@@ -1,14 +1,12 @@
 import type { Edge, Node } from "@xyflow/react";
 import { isEditorEdgeStyle } from "@/data/editor/flow-canvas";
 import {
-	desktopOnlyActionTypes,
-	getNodeDefinition,
+	getTargetRuntimeCompatibilityErrors as getRegistryTargetRuntimeCompatibilityErrors,
 	validateNodeConfig,
 	validateNodeGraph,
 } from "@/data/nodes/registry";
 import { isAllowedPackageFile, validateEditorAssets, validatePackageAssetPaths } from "@/data/project/assets";
 import { builtInVariableNames } from "@/data/project/built-in-variables";
-import { isDesktopTargetRuntime } from "@/data/project/runtimes";
 import { createNodeOutputVariables, normalizeVariableReferenceName } from "@/data/project/variables";
 import type { EditorAsset, PermissionSummary, ScriptNodeData, TargetRuntime } from "@/lib/types";
 import { validatePackageJsonContracts } from "./package-contract";
@@ -486,16 +484,15 @@ function getInvalidEdges(nodes: Node<ScriptNodeData>[], edges: Edge[]) {
 }
 
 function getTargetRuntimeCompatibilityErrors(nodes: Node<ScriptNodeData>[], targetRuntime: TargetRuntime) {
-	if (isDesktopTargetRuntime(targetRuntime)) {
-		return [];
-	}
-
-	return nodes
-		.filter((node) => desktopOnlyActionTypes.has(node.data.actionType))
-		.map((node) => {
-			const label = getNodeDefinition(node.data.actionType)?.label ?? node.data.label;
-			return `${node.id} (${label}) requires a desktop target runtime, but the script targets ${targetRuntime}.`;
-		});
+	return getRegistryTargetRuntimeCompatibilityErrors(
+		nodes.map((node) => ({
+			actionType: node.data.actionType,
+			config: node.data.config,
+			id: node.id,
+			label: node.data.label,
+		})),
+		targetRuntime,
+	);
 }
 
 function getInvalidNodeConfigKeys(nodes: Node<ScriptNodeData>[]) {

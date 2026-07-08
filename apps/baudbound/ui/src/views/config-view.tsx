@@ -1,0 +1,700 @@
+import { Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { TomlCodeEditor } from "@/components/toml-code-editor";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import type { DashboardAction } from "@/lib/app-types";
+import {
+  type DashboardPayload,
+  type RunnerConfig,
+  type SerialDeviceSettings,
+  readRunnerConfig,
+  saveRunnerConfig,
+  saveRunnerConfigModel,
+} from "@/lib/runner-api";
+import { cn } from "@/lib/utils";
+
+type ConfigMode = "simple" | "advanced";
+
+const defaultSerialDevice: SerialDeviceSettings = {
+  auto_reconnect: true,
+  baud_rate: 115_200,
+  data_bits: 8,
+  flow_control: "none",
+  parity: "none",
+  port: "",
+  product_id: null,
+  read_mode: "line",
+  stop_bits: "1",
+  validate_usb_identity: false,
+  vendor_id: null,
+};
+
+export function ConfigView({
+  busyActions,
+  dashboard,
+  runAction,
+}: {
+  busyActions: Set<string>;
+  dashboard: DashboardPayload;
+  runAction: DashboardAction;
+}) {
+  const [mode, setMode] = useState<ConfigMode>("simple");
+  const [config, setConfig] = useState<RunnerConfig | null>(null);
+  const [savedConfig, setSavedConfig] = useState<RunnerConfig | null>(null);
+  const [contents, setContents] = useState("");
+  const [savedContents, setSavedContents] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [restartBackground, setRestartBackground] = useState(true);
+  const [newDeviceId, setNewDeviceId] = useState("");
+
+  const isSaving = busyActions.has("config-save");
+  const isBackgroundRunning = dashboard.desktop_background.running;
+  const isDirty =
+    mode === "advanced"
+      ? contents !== savedContents
+      : JSON.stringify(config) !== JSON.stringify(savedConfig);
+
+  const loadConfig = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const payload = await readRunnerConfig();
+      setConfig(payload.config);
+      setSavedConfig(payload.config);
+      setContents(payload.contents);
+      setSavedContents(payload.contents);
+    } catch (error) {
+      setLoadError(String(error));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  async function saveConfig() {
+    if (!config) return;
+    const saved =
+      mode === "advanced"
+        ? await runAction("config-save", () =>
+            saveRunnerConfig(contents, restartBackground),
+          )
+        : await runAction("config-save", () =>
+            saveRunnerConfigModel(config, restartBackground),
+          );
+    if (saved) {
+      await loadConfig();
+    }
+  }
+
+  function addSerialDevice() {
+    if (!config) return;
+    const id = newDeviceId.trim();
+    if (!id || config.serial.devices[id]) return;
+    setConfig({
+      ...config,
+      serial: {
+        devices: {
+          ...config.serial.devices,
+          [id]: defaultSerialDevice,
+        },
+      },
+    });
+    setNewDeviceId("");
+  }
+
+  const lineCount = useMemo(() => contents.split("\n").length, [contents]);
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>Runner configuration</CardTitle>
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {dashboard.config_path}
+            </div>
+          </div>
+          <ModeSwitch mode={mode} onChange={setMode} />
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {loadError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {loadError}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <Switch
+                checked={restartBackground}
+                className="mt-0.5"
+                disabled={!isBackgroundRunning}
+                onCheckedChange={setRestartBackground}
+                size="sm"
+              />
+              <span>
+                Restart desktop background runner after saving
+                {!isBackgroundRunning ? " (available while it is running)" : ""}
+              </span>
+            </label>
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex">
+              <Button disabled={isLoading} onClick={loadConfig} variant="outline">
+                <RefreshCcw className={cn(isLoading && "animate-spin")} />
+                Reload
+              </Button>
+              <Button disabled={!isDirty || isSaving || isLoading || !config} onClick={saveConfig}>
+                <Save />
+                {isSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!config ? (
+        <Card>
+          <CardContent className="text-sm text-muted-foreground">
+            {isLoading ? "Loading configuration..." : "Configuration is unavailable."}
+          </CardContent>
+        </Card>
+      ) : mode === "advanced" ? (
+        <AdvancedConfigEditor
+          contents={contents}
+          disabled={isLoading}
+          lineCount={lineCount}
+          onChange={setContents}
+        />
+      ) : (
+        <SimpleConfigEditor
+          config={config}
+          newDeviceId={newDeviceId}
+          onAddSerialDevice={addSerialDevice}
+          onChange={setConfig}
+          onNewDeviceIdChange={setNewDeviceId}
+        />
+      )}
+    </div>
+  );
+}
+
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: ConfigMode;
+  onChange: (mode: ConfigMode) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 rounded-md border border-border bg-background p-1 text-sm">
+      {(["simple", "advanced"] as const).map((item) => (
+        <button
+          className={cn(
+            "rounded px-3 py-1.5 text-muted-foreground transition-colors",
+            mode === item && "bg-muted text-foreground",
+          )}
+          key={item}
+          onClick={() => onChange(item)}
+          type="button"
+        >
+          {item === "simple" ? "Simple" : "Advanced"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SimpleConfigEditor({
+  config,
+  newDeviceId,
+  onAddSerialDevice,
+  onChange,
+  onNewDeviceIdChange,
+}: {
+  config: RunnerConfig;
+  newDeviceId: string;
+  onAddSerialDevice: () => void;
+  onChange: (config: RunnerConfig) => void;
+  onNewDeviceIdChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Runner</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <TextField
+            label="Runner name"
+            onChange={(name) =>
+              onChange({ ...config, runner: { ...config.runner, name: nullableText(name) } })
+            }
+            value={config.runner.name ?? ""}
+          />
+          <NumberField
+            label="Trigger reload seconds"
+            min={1}
+            onChange={(trigger_reload_seconds) =>
+              onChange({
+                ...config,
+                runner: { ...config.runner, trigger_reload_seconds },
+              })
+            }
+            value={config.runner.trigger_reload_seconds}
+          />
+          <TargetRuntimeField
+            className="md:col-span-2"
+            onChange={(target_runtimes) =>
+              onChange({
+                ...config,
+                runner: { ...config.runner, target_runtimes },
+              })
+            }
+            value={config.runner.target_runtimes}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Trigger listeners</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {triggerFields.map(([key, label]) => (
+            <BooleanField
+              checked={config.triggers[key]}
+              key={key}
+              label={label}
+              onChange={(checked) =>
+                onChange({
+                  ...config,
+                  triggers: { ...config.triggers, [key]: checked },
+                })
+              }
+            />
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Network listeners</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-5 lg:grid-cols-2">
+          <NetworkSection
+            bind={config.webhooks.bind}
+            maxBytes={config.webhooks.max_body_bytes}
+            maxBytesLabel="Max body bytes"
+            onBindChange={(bind) =>
+              onChange({ ...config, webhooks: { ...config.webhooks, bind } })
+            }
+            onMaxBytesChange={(max_body_bytes) =>
+              onChange({
+                ...config,
+                webhooks: { ...config.webhooks, max_body_bytes },
+              })
+            }
+            onPortChange={(port) =>
+              onChange({ ...config, webhooks: { ...config.webhooks, port } })
+            }
+            port={config.webhooks.port}
+            title="Webhooks"
+          />
+          <NetworkSection
+            bind={config.websockets.bind}
+            maxBytes={config.websockets.max_message_bytes}
+            maxBytesLabel="Max message bytes"
+            onBindChange={(bind) =>
+              onChange({ ...config, websockets: { ...config.websockets, bind } })
+            }
+            onMaxBytesChange={(max_message_bytes) =>
+              onChange({
+                ...config,
+                websockets: { ...config.websockets, max_message_bytes },
+              })
+            }
+            onPortChange={(port) =>
+              onChange({ ...config, websockets: { ...config.websockets, port } })
+            }
+            port={config.websockets.port}
+            title="WebSockets"
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>Serial devices</CardTitle>
+          <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto">
+            <Input
+              onChange={(event) => onNewDeviceIdChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") onAddSerialDevice();
+              }}
+              placeholder="device id"
+              value={newDeviceId}
+            />
+            <Button
+              disabled={!newDeviceId.trim() || Boolean(config.serial.devices[newDeviceId.trim()])}
+              onClick={onAddSerialDevice}
+              variant="secondary"
+            >
+              <Plus />
+              Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {Object.entries(config.serial.devices).length === 0 ? (
+            <div className="rounded-md border border-border bg-background px-3 py-3 text-sm text-muted-foreground">
+              No serial devices configured.
+            </div>
+          ) : (
+            Object.entries(config.serial.devices).map(([id, device]) => (
+              <SerialDeviceCard
+                device={device}
+                id={id}
+                key={id}
+                onChange={(nextDevice) =>
+                  onChange({
+                    ...config,
+                    serial: {
+                      devices: { ...config.serial.devices, [id]: nextDevice },
+                    },
+                  })
+                }
+                onRemove={() => {
+                  const { [id]: _removed, ...devices } = config.serial.devices;
+                  onChange({ ...config, serial: { devices } });
+                }}
+              />
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function NetworkSection({
+  bind,
+  maxBytes,
+  maxBytesLabel,
+  onBindChange,
+  onMaxBytesChange,
+  onPortChange,
+  port,
+  title,
+}: {
+  bind: string;
+  maxBytes: number;
+  maxBytesLabel: string;
+  onBindChange: (value: string) => void;
+  onMaxBytesChange: (value: number) => void;
+  onPortChange: (value: number) => void;
+  port: number;
+  title: string;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-background p-3">
+      <div className="text-sm font-medium">{title}</div>
+      <TextField label="Bind address" onChange={onBindChange} value={bind} />
+      <NumberField label="Port" max={65535} min={1} onChange={onPortChange} value={port} />
+      <NumberField
+        label={maxBytesLabel}
+        min={1}
+        onChange={onMaxBytesChange}
+        value={maxBytes}
+      />
+    </div>
+  );
+}
+
+function SerialDeviceCard({
+  device,
+  id,
+  onChange,
+  onRemove,
+}: {
+  device: SerialDeviceSettings;
+  id: string;
+  onChange: (device: SerialDeviceSettings) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="grid gap-4 rounded-md border border-border bg-background p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium">{id}</div>
+          <div className="text-xs text-muted-foreground">Referenced by Serial Input Trigger</div>
+        </div>
+        <Button onClick={onRemove} size="sm" variant="destructive">
+          <Trash2 />
+          Remove
+        </Button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <TextField
+          label="Port"
+          onChange={(port) => onChange({ ...device, port })}
+          value={device.port}
+        />
+        <NumberField
+          label="Baud rate"
+          min={1}
+          onChange={(baud_rate) => onChange({ ...device, baud_rate })}
+          value={device.baud_rate}
+        />
+        <NumberField
+          label="Data bits"
+          max={8}
+          min={5}
+          onChange={(data_bits) => onChange({ ...device, data_bits })}
+          value={device.data_bits}
+        />
+        <SelectField
+          label="Parity"
+          onChange={(parity) => onChange({ ...device, parity })}
+          options={["none", "even", "odd"]}
+          value={device.parity}
+        />
+        <SelectField
+          label="Stop bits"
+          onChange={(stop_bits) => onChange({ ...device, stop_bits })}
+          options={["1", "2"]}
+          value={device.stop_bits}
+        />
+        <SelectField
+          label="Flow control"
+          onChange={(flow_control) => onChange({ ...device, flow_control })}
+          options={["none", "software", "hardware"]}
+          value={device.flow_control}
+        />
+        <SelectField
+          label="Read mode"
+          onChange={(read_mode) => onChange({ ...device, read_mode })}
+          options={["line", "raw"]}
+          value={device.read_mode}
+        />
+        <TextField
+          label="Vendor ID"
+          onChange={(vendor_id) => onChange({ ...device, vendor_id: nullableText(vendor_id) })}
+          value={device.vendor_id ?? ""}
+        />
+        <TextField
+          label="Product ID"
+          onChange={(product_id) =>
+            onChange({ ...device, product_id: nullableText(product_id) })
+          }
+          value={device.product_id ?? ""}
+        />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <BooleanField
+          checked={device.auto_reconnect}
+          label="Auto reconnect"
+          onChange={(auto_reconnect) => onChange({ ...device, auto_reconnect })}
+        />
+        <BooleanField
+          checked={device.validate_usb_identity}
+          label="Validate USB vendor/product IDs"
+          onChange={(validate_usb_identity) =>
+            onChange({ ...device, validate_usb_identity })
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function AdvancedConfigEditor({
+  contents,
+  disabled,
+  lineCount,
+  onChange,
+}: {
+  contents: string;
+  disabled: boolean;
+  lineCount: number;
+  onChange: (contents: string) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Raw TOML</CardTitle>
+        <div className="text-xs text-muted-foreground">{lineCount} lines</div>
+      </CardHeader>
+      <CardContent>
+        <TomlCodeEditor disabled={disabled} onChange={onChange} value={contents} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TextField({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Input onChange={(event) => onChange(event.target.value)} value={value} />
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  max,
+  min = 0,
+  onChange,
+  value,
+}: {
+  label: string;
+  max?: number;
+  min?: number;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Input
+        max={max}
+        min={min}
+        onChange={(event) => onChange(clampNumber(event.target.valueAsNumber, min, max))}
+        type="number"
+        value={Number.isFinite(value) ? value : min}
+      />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: string[];
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Select onValueChange={onChange} value={value}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
+  );
+}
+
+function TargetRuntimeField({
+  className,
+  onChange,
+  value,
+}: {
+  className?: string;
+  onChange: (value: string[]) => void;
+  value: string[];
+}) {
+  return (
+    <label className={cn("grid gap-1.5 text-sm", className)}>
+      <span className="text-xs text-muted-foreground">Supported target runtimes</span>
+      <MultiSelect
+        onChange={onChange}
+        options={targetRuntimeOptions}
+        placeholder="Host defaults when empty"
+        value={value}
+      />
+      <span className="text-xs text-muted-foreground">
+        Leave empty to use this machine&apos;s default headless and desktop runtimes.
+      </span>
+    </label>
+  );
+}
+
+function BooleanField({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm">
+      <span>{label}</span>
+      <Switch
+        checked={checked}
+        onCheckedChange={onChange}
+        size="sm"
+      />
+    </label>
+  );
+}
+
+const triggerFields = [
+  ["schedules_enabled", "Schedules"],
+  ["file_watch_enabled", "File watcher"],
+  ["process_watch_enabled", "Process watcher"],
+  ["serial_enabled", "Serial input"],
+  ["startup_enabled", "Startup"],
+  ["webhooks_enabled", "Webhooks"],
+  ["websockets_enabled", "WebSockets"],
+] as const;
+
+const targetRuntimeOptions = [
+  "Generic Headless",
+  "Windows Headless",
+  "Linux Headless",
+  "macOS Background",
+  "Generic Desktop",
+  "Windows Desktop",
+  "Linux Desktop",
+  "macOS Desktop",
+].map((value) => ({ label: value, value }));
+
+function nullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function clampNumber(value: number, min: number, max?: number) {
+  if (!Number.isFinite(value)) return min;
+  const integer = Math.trunc(value);
+  if (typeof max === "number") return Math.min(Math.max(integer, min), max);
+  return Math.max(integer, min);
+}

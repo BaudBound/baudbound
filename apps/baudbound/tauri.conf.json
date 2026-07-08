@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BaudBound",
+  "version": "0.1.0",
+  "identifier": "app.baudbound.runner",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ui dev",
+    "beforeBuildCommand": "pnpm --dir ui build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "BaudBound",
+        "label": "main",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

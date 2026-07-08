@@ -21,6 +21,7 @@ export const windowFocusNode = defineNode({
 	label: "Window Focus",
 	permission: { name: "window_focus", risk: "high" },
 	risk: "high",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	runnerType: "focus_window",
 	validateConfig: (config) => [requiredConfig(config, "target", "window focus target")].filter(Boolean),
 	simulation: {

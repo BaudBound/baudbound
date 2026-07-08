@@ -53,8 +53,7 @@
 						"ok",
 						"ok_cancel",
 						"yes_no",
-						"yes_no_cancel",
-						"retry_cancel"
+						"yes_no_cancel"
 					]
 				},
 				"customName": {
@@ -71,8 +70,7 @@
 					"enum": [
 						"info",
 						"warning",
-						"error",
-						"question"
+						"error"
 					]
 				}
 			}

@@ -504,6 +504,11 @@ function NodesSection() {
 				<SectionTitle icon={BookOpenText} title="Common Runtime Outputs" />
 				<div className="grid gap-2">
 					<InfoCard>
+						Target runtime compatibility is enforced before export and during import. Get Pixel Color, Get Active
+						Window, and Window Focus currently require Windows Desktop because those runner actions use native Win32
+						desktop APIs.
+					</InfoCard>
+					<InfoCard>
 						HTTP Request exposes status code, status text, headers, body, parsed JSON, and duration. Webhook Trigger
 						exposes request method, path, headers, query, body, JSON, and response state. Webhook Response exposes sent
 						status, status code, content type, headers, body, and trigger id. WebSocket Trigger exposes path, connection

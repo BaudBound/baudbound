@@ -40,6 +40,13 @@ pub struct PackageSummary {
     pub target_runtime: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageAsset {
+    pub bytes: Vec<u8>,
+    pub media_type: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ScriptPackage {
     pub capabilities: Capabilities,
@@ -78,6 +85,14 @@ pub enum PackageLoadError {
     },
     #[error("package validation failed: {0}")]
     Validation(String),
+    #[error("asset {0:?} is not declared in manifest.json")]
+    AssetNotFound(String),
+    #[error("failed to read asset {path}: {source}")]
+    AssetRead {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("failed to read {file_name}: {source}")]
     Read {
         file_name: &'static str,
@@ -89,6 +104,55 @@ pub enum PackageLoadError {
 pub fn load_script_package(path: impl AsRef<Path>) -> Result<ScriptPackage, PackageLoadError> {
     let file = File::open(path).map_err(PackageLoadError::Open)?;
     load_script_package_reader(file)
+}
+
+pub fn read_package_asset(
+    package_path: impl AsRef<Path>,
+    asset_reference: &str,
+) -> Result<PackageAsset, PackageLoadError> {
+    let file = File::open(package_path).map_err(PackageLoadError::Open)?;
+    read_package_asset_reader(file, asset_reference)
+}
+
+pub fn read_package_asset_reader<R: Read + Seek>(
+    reader: R,
+    asset_reference: &str,
+) -> Result<PackageAsset, PackageLoadError> {
+    let mut archive = ZipArchive::new(reader)?;
+    let entries = collect_package_entries(&mut archive)?;
+    validate_package_entries(&entries)?;
+
+    let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
+    validate_manifest_assets(&entries, &manifest)?;
+
+    let reference = asset_reference.trim();
+    let manifest_asset = if reference.starts_with(&format!("{ASSET_PACKAGE_DIR}/")) {
+        validate_asset_package_path(reference)
+            .map_err(|error| PackageLoadError::Validation(error.to_owned()))?;
+        manifest
+            .assets
+            .iter()
+            .find(|asset| asset.path.eq_ignore_ascii_case(reference))
+    } else {
+        manifest.assets.iter().find(|asset| asset.id == reference)
+    }
+    .ok_or_else(|| PackageLoadError::AssetNotFound(reference.to_owned()))?;
+
+    let mut file = archive
+        .by_name(&manifest_asset.path)
+        .map_err(PackageLoadError::Zip)?;
+    let mut bytes = Vec::with_capacity(file.size().try_into().unwrap_or_default());
+    file.read_to_end(&mut bytes)
+        .map_err(|source| PackageLoadError::AssetRead {
+            path: manifest_asset.path.clone(),
+            source,
+        })?;
+
+    Ok(PackageAsset {
+        bytes,
+        media_type: manifest_asset.media_type.clone(),
+        path: manifest_asset.path.clone(),
+    })
 }
 
 pub fn load_script_package_reader<R: Read + Seek>(
@@ -358,6 +422,38 @@ mod tests {
         assert!(error.to_string().contains("asset file is not declared"));
     }
 
+    #[test]
+    fn reads_declared_package_asset_by_path_or_id() {
+        let package_bytes = create_test_package_with_assets(&[(
+            "audio-1",
+            "assets/sounds/beep.wav",
+            "audio/wav",
+            b"RIFFtestWAVE".as_slice(),
+        )]);
+
+        let by_path =
+            read_package_asset_reader(Cursor::new(package_bytes.clone()), "assets/sounds/beep.wav")
+                .expect("declared asset should read by path");
+        let by_id = read_package_asset_reader(Cursor::new(package_bytes), "audio-1")
+            .expect("declared asset should read by id");
+
+        assert_eq!(by_path.path, "assets/sounds/beep.wav");
+        assert_eq!(by_path.media_type, "audio/wav");
+        assert_eq!(by_path.bytes, b"RIFFtestWAVE");
+        assert_eq!(by_id, by_path);
+    }
+
+    #[test]
+    fn rejects_undeclared_package_asset_reference() {
+        let error = read_package_asset_reader(
+            Cursor::new(create_test_package_with_assets(&[])),
+            "assets/missing.wav",
+        )
+        .expect_err("missing asset should fail");
+
+        assert!(matches!(error, PackageLoadError::AssetNotFound(_)));
+    }
+
     fn create_test_package(extra_files: &[(&str, &str)]) -> Vec<u8> {
         let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
@@ -409,6 +505,86 @@ mod tests {
             writer
                 .write_all(content.as_bytes())
                 .expect("test zip content should write");
+        }
+
+        writer
+            .finish()
+            .expect("test zip should finish")
+            .into_inner()
+    }
+
+    fn create_test_package_with_assets(assets: &[(&str, &str, &str, &[u8])]) -> Vec<u8> {
+        let manifest_assets = assets
+            .iter()
+            .map(|(id, path, media_type, bytes)| {
+                format!(
+                    r#"{{
+                        "id": "{id}",
+                        "kind": "audio",
+                        "media_type": "{media_type}",
+                        "name": "{id}",
+                        "path": "{path}",
+                        "size": {}
+                    }}"#,
+                    bytes.len()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+        for (path, content) in [
+            (
+                "manifest.json",
+                format!(
+                    r#"{{
+                        "format_version": 1,
+                        "script_language_version": 1,
+                        "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+                        "name": "hello-log",
+                        "created_with": "BaudBound Test",
+                        "created_at": "2026-01-01T00:00:00.000Z",
+                        "minimum_runner_version": "0.1.0",
+                        "assets": [{manifest_assets}]
+                    }}"#
+                ),
+            ),
+            (
+                "program.json",
+                r#"{
+                    "entry": {
+                        "trigger": {"id": "n-1"},
+                        "triggers": [],
+                        "program": {"type": "block", "steps": [], "edges": []}
+                    }
+                }"#
+                .to_owned(),
+            ),
+            (
+                "permissions.json",
+                r#"{"declared_permissions": [], "risk_level": "low"}"#.to_owned(),
+            ),
+            (
+                "capabilities.json",
+                r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#.to_owned(),
+            ),
+        ] {
+            writer
+                .start_file(path, options)
+                .expect("test zip file should start");
+            writer
+                .write_all(content.as_bytes())
+                .expect("test zip content should write");
+        }
+
+        for (_, path, _, bytes) in assets {
+            writer
+                .start_file(*path, options)
+                .expect("test asset file should start");
+            writer
+                .write_all(bytes)
+                .expect("test asset bytes should write");
         }
 
         writer

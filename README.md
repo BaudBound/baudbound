@@ -138,8 +138,7 @@ The editor validates packages for authoring quality and export safety. The runne
 ```text
 apps/
   editor/           Web editor for building and exporting .bbs packages
-  runner-cli/       Command-line runner app
-  runner-desktop/   Desktop runner shell and future tray app
+  baudbound/        Combined desktop/headless runner app
 crates/
   baudbound-core/       Shared runner orchestration
   baudbound-script/     .bbs package models and package reader
@@ -157,30 +156,33 @@ assets/             Project logos and shared visual assets
 ```bash
 cargo check --workspace
 cargo test --workspace
-cargo run -p baudbound-runner-cli -- validate path/to/script.bbs
-cargo run -p baudbound-runner-cli -- inspect path/to/script.bbs --json
-cargo run -p baudbound-runner-cli -- import path/to/script.bbs
-cargo run -p baudbound-runner-cli -- update path/to/script.bbs
-cargo run -p baudbound-runner-cli -- list
-cargo run -p baudbound-runner-cli -- approval <script-id-or-name>
-cargo run -p baudbound-runner-cli -- approve <script-id-or-name>
-cargo run -p baudbound-runner-cli -- revoke-approval <script-id-or-name>
-cargo run -p baudbound-runner-cli -- triggers
-cargo run -p baudbound-runner-cli -- triggers --script <script-id-or-name>
-cargo run -p baudbound-runner-cli -- dispatch-trigger <script-id-or-name> <trigger-node-id>
-cargo run -p baudbound-runner-cli -- serve
-cargo run -p baudbound-runner-cli -- serve --webhooks
-cargo run -p baudbound-runner-cli -- --config /etc/baudbound/runner.toml serve
-cargo run -p baudbound-runner-cli -- run <script-id-or-name>
-cargo run -p baudbound-runner-cli -- run <script-id-or-name> --trigger <trigger-node-id>
-cargo run -p baudbound-runner-cli -- run <script-id-or-name> --trigger <trigger-node-id> --payload-json '{"body":"ok"}'
-cargo run -p baudbound-runner-cli -- logs --script <script-id-or-name>
-cargo run -p baudbound-runner-cli -- remove <script-id-or-name>
+cargo run -p baudbound -- validate path/to/script.bbs
+cargo run -p baudbound -- inspect path/to/script.bbs --json
+cargo run -p baudbound -- script import path/to/script.bbs
+cargo run -p baudbound -- script update path/to/script.bbs
+cargo run -p baudbound -- script list
+cargo run -p baudbound -- script status
+cargo run -p baudbound -- script enable <script-id-or-name>
+cargo run -p baudbound -- script disable <script-id-or-name>
+cargo run -p baudbound -- script approval <script-id-or-name>
+cargo run -p baudbound -- script approve <script-id-or-name>
+cargo run -p baudbound -- script revoke-approval <script-id-or-name>
+cargo run -p baudbound -- script triggers
+cargo run -p baudbound -- script triggers <script-id-or-name>
+cargo run -p baudbound -- script dispatch-trigger <script-id-or-name> <trigger-node-id>
+cargo run -p baudbound -- serve
+cargo run -p baudbound -- serve --webhooks
+cargo run -p baudbound -- --config /etc/baudbound/runner.toml serve
+cargo run -p baudbound -- script run <script-id-or-name>
+cargo run -p baudbound -- script run <script-id-or-name> --trigger <trigger-node-id>
+cargo run -p baudbound -- script run <script-id-or-name> --trigger <trigger-node-id> --payload-json '{"body":"ok"}'
+cargo run -p baudbound -- script logs --script <script-id-or-name>
+cargo run -p baudbound -- script remove <script-id-or-name>
 ```
 
-The runner crate split is intentional:
+The runner split is intentional:
 
-- app crates own user interface and platform shell concerns
+- `apps/baudbound` owns user interface, CLI, desktop shell, and process/service entrypoints
 - `baudbound-core` coordinates runner behavior
 - `baudbound-script` owns package reading and script contract models
 - `baudbound-storage` owns installed package storage
@@ -195,8 +197,11 @@ name = "Main PC Runner"
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
+process_watch_enabled = true
 serial_enabled = true
+startup_enabled = true
 webhooks_enabled = false
+websockets_enabled = false
 
 [serial.devices.main_controller]
 port = "COM3"
@@ -215,13 +220,18 @@ validate_usb_identity = false
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+
+[websockets]
+bind = "127.0.0.1"
+port = 43892
+max_message_bytes = 1048576
 ```
 
 Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines.
 
-For headless machines, run `baudbound serve` as a service and use the same `BAUDBOUND_HOME` for CLI commands such as `import`, `update`, `approve`, and `logs`. The service periodically reloads trigger registrations, so script imports, updates, removals, enables, and disables are picked up without restarting the process.
+Use `baudbound script status` to check installed package hash health, package loadability, approval freshness, enabled script counts, and trigger counts.
 
-Linux `systemd` templates are available in `deploy/runner/systemd`.
+For headless machines, run `baudbound serve` under your chosen process manager and use the same `BAUDBOUND_HOME` for CLI commands such as `script import`, `script update`, `script enable`, `script disable`, `script approve`, `script status`, and `script logs`. Script imports, updates, removals, enables, and disables write a reload signal into runner storage, so the background runner refreshes listener registrations on its next loop tick. The runner also periodically reloads registrations as a fallback, so manual storage changes are picked up without restarting the process. A running background process writes `service-status.json`; use your process manager's own commands to inspect or control it.
 
 ## Security Model
 

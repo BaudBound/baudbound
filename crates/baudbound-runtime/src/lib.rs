@@ -1,6 +1,6 @@
 //! Runtime primitives for executing BaudBound script graphs.
 
-use std::{collections::BTreeMap, thread, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, thread, time::Duration};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,8 @@ pub struct RunIdentity {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuntimeContext {
     pub identity: RunIdentity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_path: Option<PathBuf>,
     pub trigger_payload: Value,
     pub variables: BTreeMap<String, Value>,
 }
@@ -66,7 +68,7 @@ pub enum RuntimeActionError {
     },
 }
 
-pub trait RuntimeActionHandler {
+pub trait RuntimeActionHandler: Send + Sync {
     fn execute_action(
         &self,
         request: &RuntimeActionRequest,
@@ -203,7 +205,16 @@ pub fn execute_manual_program(program: &Value, script_id: &str) -> Result<RunRep
 pub fn execute_manual_program_with_actions(
     program: &Value,
     script_id: &str,
-    action_handler: &impl RuntimeActionHandler,
+    action_handler: &dyn RuntimeActionHandler,
+) -> Result<RunReport, RuntimeError> {
+    execute_manual_program_with_actions_and_package_path(program, script_id, None, action_handler)
+}
+
+pub fn execute_manual_program_with_actions_and_package_path(
+    program: &Value,
+    script_id: &str,
+    package_path: Option<PathBuf>,
+    action_handler: &dyn RuntimeActionHandler,
 ) -> Result<RunReport, RuntimeError> {
     let graph = RuntimeGraph::from_program_value(program)?;
     let trigger_node_id = graph.manual_trigger()?.id.clone();
@@ -211,6 +222,7 @@ pub fn execute_manual_program_with_actions(
         graph,
         script_id,
         &trigger_node_id,
+        package_path,
         Value::Null,
         action_handler,
     )
@@ -221,13 +233,32 @@ pub fn execute_trigger_program_with_actions(
     script_id: &str,
     trigger_node_id: &str,
     trigger_payload: Value,
-    action_handler: &impl RuntimeActionHandler,
+    action_handler: &dyn RuntimeActionHandler,
+) -> Result<RunReport, RuntimeError> {
+    execute_trigger_program_with_actions_and_package_path(
+        program,
+        script_id,
+        trigger_node_id,
+        None,
+        trigger_payload,
+        action_handler,
+    )
+}
+
+pub fn execute_trigger_program_with_actions_and_package_path(
+    program: &Value,
+    script_id: &str,
+    trigger_node_id: &str,
+    package_path: Option<PathBuf>,
+    trigger_payload: Value,
+    action_handler: &dyn RuntimeActionHandler,
 ) -> Result<RunReport, RuntimeError> {
     let graph = RuntimeGraph::from_program_value(program)?;
     execute_graph_from_trigger(
         graph,
         script_id,
         trigger_node_id,
+        package_path,
         trigger_payload,
         action_handler,
     )
@@ -237,8 +268,9 @@ fn execute_graph_from_trigger(
     graph: RuntimeGraph,
     script_id: &str,
     trigger_node_id: &str,
+    package_path: Option<PathBuf>,
     trigger_payload: Value,
-    action_handler: &impl RuntimeActionHandler,
+    action_handler: &dyn RuntimeActionHandler,
 ) -> Result<RunReport, RuntimeError> {
     let trigger = graph.trigger(trigger_node_id)?;
     let identity = RunIdentity {
@@ -246,7 +278,13 @@ fn execute_graph_from_trigger(
         script_id: script_id.to_owned(),
         trigger_node_id: trigger.id.clone(),
     };
-    let mut executor = RuntimeExecutor::new(graph, identity, trigger_payload, action_handler);
+    let mut executor = RuntimeExecutor::new(
+        graph,
+        identity,
+        package_path,
+        trigger_payload,
+        action_handler,
+    );
     executor.run_from_trigger()
 }
 
@@ -373,6 +411,7 @@ impl<'a> RuntimeExecutor<'a> {
     fn new(
         graph: RuntimeGraph,
         identity: RunIdentity,
+        package_path: Option<PathBuf>,
         trigger_payload: Value,
         action_handler: &'a dyn RuntimeActionHandler,
     ) -> Self {
@@ -380,6 +419,7 @@ impl<'a> RuntimeExecutor<'a> {
             graph,
             context: RuntimeContext {
                 identity,
+                package_path,
                 trigger_payload,
                 variables: BTreeMap::new(),
             },
@@ -2386,6 +2426,71 @@ mod tests {
                 .logs
                 .iter()
                 .any(|log| log.message == "external=hello")
+        );
+    }
+
+    #[test]
+    fn passes_package_path_to_action_handler() {
+        #[derive(Debug)]
+        struct PackagePathActionHandler;
+
+        impl RuntimeActionHandler for PackagePathActionHandler {
+            fn execute_action(
+                &self,
+                _request: &RuntimeActionRequest,
+                context: &RuntimeContext,
+            ) -> Result<RuntimeActionResult, RuntimeActionError> {
+                Ok(RuntimeActionResult {
+                    output_data: Map::from_iter([(
+                        "package_path".to_owned(),
+                        Value::String(
+                            context
+                                .package_path
+                                .as_ref()
+                                .expect("package path should be available")
+                                .display()
+                                .to_string(),
+                        ),
+                    )]),
+                })
+            }
+        }
+
+        let package_path = PathBuf::from("installed-script.bbs");
+        let report = execute_manual_program_with_actions_and_package_path(
+            &json!({
+                "entry": {
+                    "trigger": manual_trigger(),
+                    "triggers": [],
+                    "program": {
+                        "steps": [
+                            {
+                                "id": "n-action",
+                                "action_type": "action.sound.play",
+                                "type": "action",
+                                "action": "play_sound",
+                                "config": {
+                                    "source": "asset",
+                                    "assetPath": "assets/sounds/beep.wav"
+                                },
+                                "runtime_outputs": []
+                            }
+                        ],
+                        "edges": [
+                            edge("n-trigger", "out", "n-action")
+                        ]
+                    }
+                }
+            }),
+            "script-1",
+            Some(package_path.clone()),
+            &PackagePathActionHandler,
+        )
+        .expect("action should receive package path");
+
+        assert_eq!(
+            report.variables.get("n-action.package_path"),
+            Some(&Value::String(package_path.display().to_string()))
         );
     }
 

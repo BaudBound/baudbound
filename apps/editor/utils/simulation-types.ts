@@ -50,7 +50,7 @@ export type SimulationSideEffect = {
 			message: string;
 			title: string;
 			type: "message_box";
-			variant: "error" | "info" | "question" | "warning";
+			variant: "error" | "info" | "warning";
 	  }
 	| {
 			durationMs: number;
