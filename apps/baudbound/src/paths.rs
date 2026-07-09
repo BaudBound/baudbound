@@ -34,16 +34,7 @@ fn platform_data_dir() -> PathBuf {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home)
-                .join("Library")
-                .join("Application Support");
-        }
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(windows))]
     {
         if let Some(path) = std::env::var_os("XDG_DATA_HOME") {
             return PathBuf::from(path);

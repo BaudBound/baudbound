@@ -271,7 +271,7 @@ function getSimulationOperatingSystem() {
 	}
 
 	if (normalizedPlatform.includes("mac")) {
-		return "macos";
+		return "unsupported";
 	}
 
 	if (normalizedPlatform.includes("linux")) {

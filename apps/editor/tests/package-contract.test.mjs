@@ -303,17 +303,22 @@ test("editor and runner target runtime compatibility policies stay aligned", () 
 	}
 });
 
-test("target runtime compatibility covers platform-specific node config options", () => {
-	const mouseClickSource = read(join(appRoot, "data", "nodes", "definitions", "actions", "mouse-click.ts"));
-	const verificationSource = read(join(appRoot, "utils", "verification.ts"));
-	const contractSource = read(join(appRoot, "utils", "package-contract.ts"));
+test("removed Apple target runtimes are not exposed or accepted", () => {
+	const targetRuntimeSource = read(join(appRoot, "data", "project", "runtimes.ts"));
+	const typeSource = read(join(appRoot, "lib", "types.ts"));
+	const capabilitiesSchema = JSON.parse(read(join(schemasRoot, "capabilities.schema.json")));
+	const runnerPolicySource = read(join(repoRoot, "crates", "baudbound-core", "src", "compatibility.rs"));
+	const removedTargetPrefix = ["mac", "OS"].join("");
 
-	assert.match(mouseClickSource, /validateTargetRuntime:/);
-	assert.match(mouseClickSource, /targetRuntime !== "macOS Desktop"/);
-	assert.match(mouseClickSource, /button === "back"/);
-	assert.match(mouseClickSource, /button === "forward"/);
-	assert.match(verificationSource, /config: node\.data\.config/);
-	assert.match(contractSource, /config: isJsonObject\(record\.config\)/);
+	assert.ok(!targetRuntimeSource.includes(removedTargetPrefix));
+	assert.ok(!typeSource.includes(removedTargetPrefix));
+	assert.ok(!runnerPolicySource.includes(removedTargetPrefix));
+	assert.ok(
+		!capabilitiesSchema.properties.target_runtime.enum.some((targetRuntime) =>
+			targetRuntime.includes(removedTargetPrefix),
+		),
+		"capabilities schema must not expose removed Apple runtimes",
+	);
 });
 
 test("message box schemas expose only native dialog options", () => {

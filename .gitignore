@@ -25,7 +25,8 @@ yarn-debug.log*
 Thumbs.db
 .idea/
 .vscode/
-/plan
+/plan/*
+!/plan/runner_production_readiness_plan.md
 /examples
 
 # BaudBound local runtime data

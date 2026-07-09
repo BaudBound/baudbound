@@ -63,11 +63,9 @@ export type TargetRuntime =
 	| "Generic Headless"
 	| "Linux Headless"
 	| "Windows Headless"
-	| "macOS Headless"
 	| "Generic Desktop"
 	| "Windows Desktop"
-	| "Linux Desktop"
-	| "macOS Desktop";
+	| "Linux Desktop";
 
 export type ProjectSettings = {
 	name: string;

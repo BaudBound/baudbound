@@ -724,11 +724,9 @@ const targetRuntimeOptions = [
   "Generic Headless",
   "Windows Headless",
   "Linux Headless",
-  "macOS Headless",
   "Generic Desktop",
   "Windows Desktop",
   "Linux Desktop",
-  "macOS Desktop",
 ].map((value) => ({ label: value, value }));
 
 function nullableText(value: string) {

@@ -97,7 +97,7 @@ pub(super) fn normalize_mouse_button(
     }
 }
 
-#[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
+#[cfg(any(windows, unix))]
 fn native_extended_mouse_button(
     request: &RuntimeActionRequest,
     value: &str,
@@ -118,7 +118,7 @@ fn native_extended_mouse_button(
     }
 }
 
-#[cfg(not(any(target_os = "windows", all(unix, not(target_os = "macos")))))]
+#[cfg(not(any(windows, unix)))]
 fn native_extended_mouse_button(
     request: &RuntimeActionRequest,
     value: &str,

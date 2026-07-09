@@ -1419,16 +1419,15 @@ mod tests {
     }
 
     #[test]
-    fn import_rejects_platform_specific_unsupported_action_config() {
+    fn import_rejects_removed_target_runtime() {
         let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-        let package_path = temporary_directory.path().join("macos-mouse-back.bbs");
+        let package_path = temporary_directory.path().join("unsupported-target.bbs");
         fs::write(
             &package_path,
-            create_target_runtime_test_package_with_action_config(
-                "macos-mouse-back",
-                "macOS Desktop",
-                "action.mouse",
-                r#"{"button":"back","clickType":"single"}"#,
+            create_target_runtime_test_package(
+                "unsupported-target",
+                &format!("{} Desktop", ["mac", "OS"].join("")),
+                "action.text.format",
             ),
         )
         .expect("test package should be written");
@@ -1436,12 +1435,10 @@ mod tests {
         let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
         let error = RunnerCore::default()
             .import_package(&store, &package_path)
-            .expect_err("unsupported platform-specific mouse config should not import");
+            .expect_err("removed target runtime should not import");
 
         assert!(
-            error
-                .to_string()
-                .contains("does not have a native macOS backend"),
+            error.to_string().contains("unsupported target runtime"),
             "{error}"
         );
     }

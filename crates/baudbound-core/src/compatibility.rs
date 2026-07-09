@@ -9,18 +9,16 @@ pub enum TargetRuntime {
     GenericHeadless,
     LinuxHeadless,
     WindowsHeadless,
-    MacOsHeadless,
     GenericDesktop,
     WindowsDesktop,
     LinuxDesktop,
-    MacOsDesktop,
 }
 
 impl TargetRuntime {
     pub fn is_desktop(self) -> bool {
         matches!(
             self,
-            Self::GenericDesktop | Self::WindowsDesktop | Self::LinuxDesktop | Self::MacOsDesktop
+            Self::GenericDesktop | Self::WindowsDesktop | Self::LinuxDesktop
         )
     }
 }
@@ -31,11 +29,9 @@ impl fmt::Display for TargetRuntime {
             Self::GenericHeadless => "Generic Headless",
             Self::LinuxHeadless => "Linux Headless",
             Self::WindowsHeadless => "Windows Headless",
-            Self::MacOsHeadless => "macOS Headless",
             Self::GenericDesktop => "Generic Desktop",
             Self::WindowsDesktop => "Windows Desktop",
             Self::LinuxDesktop => "Linux Desktop",
-            Self::MacOsDesktop => "macOS Desktop",
         })
     }
 }
@@ -115,10 +111,6 @@ fn node_compatibility_error(
     node: ProgramNode<'_>,
     target_runtime: TargetRuntime,
 ) -> Option<String> {
-    if let Some(error) = platform_config_compatibility_error(node, target_runtime) {
-        return Some(error);
-    }
-
     let support = action_support(node.action_type)?;
     if support.supports(target_runtime) {
         return None;
@@ -134,31 +126,6 @@ fn node_compatibility_error(
             node.id, node.action_type, target_runtime
         ),
     })
-}
-
-fn platform_config_compatibility_error(
-    node: ProgramNode<'_>,
-    target_runtime: TargetRuntime,
-) -> Option<String> {
-    if node.action_type != "action.mouse" || target_runtime != TargetRuntime::MacOsDesktop {
-        return None;
-    }
-
-    let button = node
-        .config
-        .and_then(|config| config.get("button"))
-        .and_then(Value::as_str)?
-        .trim()
-        .to_ascii_lowercase();
-
-    if button == "back" || button == "forward" {
-        return Some(format!(
-            "{} ({}) uses the {button} mouse button, which does not have a native macOS backend",
-            node.id, node.action_type
-        ));
-    }
-
-    None
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -210,7 +177,6 @@ pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
 #[derive(Debug, Clone, Copy)]
 struct ProgramNode<'a> {
     action_type: &'a str,
-    config: Option<&'a Value>,
     id: &'a str,
 }
 
@@ -260,11 +226,7 @@ fn push_program_node<'a>(
         .unwrap_or(action_type);
 
     if seen_ids.insert(id) {
-        nodes.push(ProgramNode {
-            action_type,
-            config: record.get("config"),
-            id,
-        });
+        nodes.push(ProgramNode { action_type, id });
     }
 }
 
@@ -296,17 +258,7 @@ fn default_host_target_runtimes() -> Vec<TargetRuntime> {
         ]
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            TargetRuntime::GenericHeadless,
-            TargetRuntime::MacOsHeadless,
-            TargetRuntime::GenericDesktop,
-            TargetRuntime::MacOsDesktop,
-        ]
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(unix)]
     {
         vec![
             TargetRuntime::GenericHeadless,
@@ -316,7 +268,7 @@ fn default_host_target_runtimes() -> Vec<TargetRuntime> {
         ]
     }
 
-    #[cfg(not(any(windows, target_os = "macos", unix)))]
+    #[cfg(not(any(windows, unix)))]
     {
         vec![TargetRuntime::GenericHeadless]
     }
@@ -335,11 +287,9 @@ fn parse_target_runtime(value: &str) -> Result<TargetRuntime, CompatibilityError
         "Generic Headless" => Ok(TargetRuntime::GenericHeadless),
         "Linux Headless" => Ok(TargetRuntime::LinuxHeadless),
         "Windows Headless" => Ok(TargetRuntime::WindowsHeadless),
-        "macOS Headless" => Ok(TargetRuntime::MacOsHeadless),
         "Generic Desktop" => Ok(TargetRuntime::GenericDesktop),
         "Windows Desktop" => Ok(TargetRuntime::WindowsDesktop),
         "Linux Desktop" => Ok(TargetRuntime::LinuxDesktop),
-        "macOS Desktop" => Ok(TargetRuntime::MacOsDesktop),
         other => Err(CompatibilityError::UnknownTargetRuntime(other.to_owned())),
     }
 }
@@ -389,25 +339,6 @@ mod tests {
 
         validate_package_target_runtime(&package)
             .expect("Windows Desktop should support native Win32 window actions");
-    }
-
-    #[test]
-    fn rejects_macos_mouse_buttons_without_native_backend() {
-        let mut package = package_with_target_and_step("macOS Desktop", "action.mouse");
-        package.program["entry"]["program"]["steps"][0]["config"] = json!({
-            "button": "back",
-            "clickType": "single"
-        });
-
-        let error =
-            validate_package_target_runtime(&package).expect_err("macOS should reject back button");
-
-        assert!(
-            error
-                .to_string()
-                .contains("does not have a native macOS backend"),
-            "{error}"
-        );
     }
 
     #[test]
