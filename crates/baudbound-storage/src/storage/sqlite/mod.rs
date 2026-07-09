@@ -7,8 +7,8 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
-    ApproveScriptRequest, ImportScriptRequest, InstalledScript, ScriptApproval, ScriptStore,
-    StorageError, StoredRunRecord,
+    ApproveScriptRequest, FilesystemScriptStore, ImportScriptRequest, InstalledScript,
+    ScriptApproval, ScriptStore, StorageError, StoredRunRecord,
     storage::filesystem::{
         copy_file, create_dir_all, current_unix_timestamp, package_file_name_from_path,
         remove_file_inside_root, sha256_file, validate_package_file_name, validate_script_id,
@@ -205,6 +205,50 @@ impl SqliteRunnerStore {
                 source,
             })?;
         Ok(exists)
+    }
+
+    pub fn migrate_from_filesystem(
+        &self,
+        source: &FilesystemScriptStore,
+    ) -> Result<(), StorageError> {
+        let scripts = source.list_scripts()?;
+        let run_records = source.list_run_records(None, None)?;
+        let service_status = source.read_service_status()?;
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+
+        for script in &scripts {
+            source.verify_script_package_hash(&script.id)?;
+            insert_installed_script(&transaction, &self.path, script)?;
+
+            if let Some(approval) = source.find_script_approval(&script.id)? {
+                insert_approval(&transaction, &self.path, &approval)?;
+            }
+        }
+
+        for record in &run_records {
+            upsert_run_record(&transaction, &self.path, record)?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        drop(connection);
+
+        if let Some(status) = service_status {
+            self.write_service_status(&status)?;
+        }
+
+        Ok(())
     }
 
     fn connection(&self) -> Result<MutexGuard<'_, Connection>, StorageError> {
@@ -680,4 +724,155 @@ impl ScriptStore for SqliteRunnerStore {
         }
         Ok(installed)
     }
+}
+
+fn insert_installed_script(
+    connection: &Connection,
+    database_path: &Path,
+    script: &InstalledScript,
+) -> Result<(), StorageError> {
+    connection
+        .execute(
+            r#"
+            INSERT INTO scripts (
+                id,
+                enabled,
+                name,
+                package_hash,
+                package_file_name,
+                package_path,
+                imported_at_unix,
+                package_format_version,
+                script_language_version,
+                target_runtime,
+                asset_count,
+                risk_level
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            ON CONFLICT(id) DO UPDATE SET
+                enabled = excluded.enabled,
+                name = excluded.name,
+                package_hash = excluded.package_hash,
+                package_file_name = excluded.package_file_name,
+                package_path = excluded.package_path,
+                imported_at_unix = excluded.imported_at_unix,
+                package_format_version = excluded.package_format_version,
+                script_language_version = excluded.script_language_version,
+                target_runtime = excluded.target_runtime,
+                asset_count = excluded.asset_count,
+                risk_level = excluded.risk_level
+            "#,
+            params![
+                script.id,
+                bool_to_sqlite(script.enabled),
+                script.name,
+                script.package_hash,
+                script.package_file_name,
+                script.package_path.to_string_lossy(),
+                u64_to_sqlite(script.imported_at_unix)?,
+                u32_to_sqlite(script.package_format_version),
+                u32_to_sqlite(script.script_language_version),
+                script.target_runtime,
+                usize_to_sqlite(script.asset_count)?,
+                script.risk_level,
+            ],
+        )
+        .map_err(|source| StorageError::Sqlite {
+            path: database_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
+}
+
+fn insert_approval(
+    connection: &Connection,
+    database_path: &Path,
+    approval: &ScriptApproval,
+) -> Result<(), StorageError> {
+    let permissions_json =
+        serde_json::to_string(&approval.approved_permissions).map_err(|source| {
+            StorageError::Json {
+                path: database_path.to_path_buf(),
+                source,
+            }
+        })?;
+    connection
+        .execute(
+            r#"
+            INSERT INTO approvals (
+                script_id,
+                package_hash,
+                approved_permissions_json,
+                approved_at_unix
+            )
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(script_id) DO UPDATE SET
+                package_hash = excluded.package_hash,
+                approved_permissions_json = excluded.approved_permissions_json,
+                approved_at_unix = excluded.approved_at_unix
+            "#,
+            params![
+                approval.script_id,
+                approval.package_hash,
+                permissions_json,
+                u64_to_sqlite(approval.approved_at_unix)?,
+            ],
+        )
+        .map_err(|source| StorageError::Sqlite {
+            path: database_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
+}
+
+fn upsert_run_record(
+    connection: &Connection,
+    database_path: &Path,
+    record: &StoredRunRecord,
+) -> Result<(), StorageError> {
+    let logs_json = serde_json::to_string(&record.logs).map_err(|source| StorageError::Json {
+        path: database_path.to_path_buf(),
+        source,
+    })?;
+    let variables_json =
+        serde_json::to_string(&record.variables).map_err(|source| StorageError::Json {
+            path: database_path.to_path_buf(),
+            source,
+        })?;
+    connection
+        .execute(
+            r#"
+            INSERT INTO run_records (
+                run_id,
+                script_id,
+                status,
+                trigger_node_id,
+                completed_at_unix,
+                logs_json,
+                variables_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(run_id) DO UPDATE SET
+                script_id = excluded.script_id,
+                status = excluded.status,
+                trigger_node_id = excluded.trigger_node_id,
+                completed_at_unix = excluded.completed_at_unix,
+                logs_json = excluded.logs_json,
+                variables_json = excluded.variables_json
+            "#,
+            params![
+                record.run_id,
+                record.script_id,
+                record.status,
+                record.trigger_node_id,
+                u64_to_sqlite(record.completed_at_unix)?,
+                logs_json,
+                variables_json,
+            ],
+        )
+        .map_err(|source| StorageError::Sqlite {
+            path: database_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
 }

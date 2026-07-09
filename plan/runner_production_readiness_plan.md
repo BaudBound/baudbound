@@ -647,9 +647,35 @@ Still remaining:
 Validation:
 
 - Ran `cargo test -p baudbound-storage --locked`.
+- Ran `cargo test --workspace --locked`.
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 - Ran `cargo clippy -p baudbound-storage --all-targets --locked -- -D warnings`.
 - Ran `cargo test --workspace --locked`.
 - Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+
+### 2026-07-09 Filesystem-to-SQLite Migration Path
+
+Completed:
+
+- Added a non-destructive pre-release migration path from the current filesystem store into `SqliteRunnerStore`.
+- Migrated installed script metadata into SQLite.
+- Migrated approvals into SQLite.
+- Migrated run history into SQLite with idempotent run-record upserts.
+- Migrated the latest service status snapshot into SQLite.
+- Verified package hashes before migration so tampered installed packages block migration instead of becoming trusted database rows.
+- Kept `.bbs` packages in their existing controlled package-file location and stored package metadata/path references in SQLite.
+- Added migration idempotence coverage so re-running the migration does not duplicate run records.
+- Added tampered-package migration rejection coverage.
+
+Still remaining:
+
+- Wire the application startup path to use the SQLite store as the active durable store.
+- Decide whether pre-release JSON files should be deleted, archived, or left untouched after first successful migration.
+- Replace JSON service-control files with IPC.
+
+Validation:
+
+- Ran `cargo test -p baudbound-storage --locked`.
 
 ## Tracking Notes
 

@@ -418,6 +418,119 @@ fn sqlite_runner_store_supports_script_lifecycle() {
 }
 
 #[test]
+fn sqlite_runner_store_migrates_filesystem_store() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("script.bbs");
+    fs::write(&package_path, b"package bytes").expect("test package should be written");
+
+    let filesystem_store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let imported = filesystem_store
+        .import_script(ImportScriptRequest {
+            id: "script-1".to_owned(),
+            name: "Script One".to_owned(),
+            package_source: package_path,
+            package_format_version: 1,
+            script_language_version: 1,
+            target_runtime: "Generic Desktop".to_owned(),
+            asset_count: 2,
+            risk_level: "high".to_owned(),
+        })
+        .expect("script should import");
+    filesystem_store
+        .approve_script(ApproveScriptRequest {
+            approved_permissions: vec!["file_write_limited".to_owned()],
+            package_hash: imported.package_hash,
+            script_id: imported.id,
+        })
+        .expect("script should approve");
+    filesystem_store
+        .append_run_record(test_run_record("run-1", "script-1", 123))
+        .expect("run record should append");
+    filesystem_store
+        .write_service_status(&serde_json::json!({
+            "pid": 1234,
+            "state": "running"
+        }))
+        .expect("service status should write");
+
+    let sqlite_store =
+        SqliteRunnerStore::open(temporary_directory.path().join("store").join("runner.db"))
+            .expect("SQLite store should open");
+    sqlite_store
+        .migrate_from_filesystem(&filesystem_store)
+        .expect("filesystem store should migrate");
+    sqlite_store
+        .migrate_from_filesystem(&filesystem_store)
+        .expect("filesystem migration should be idempotent");
+
+    let migrated = sqlite_store
+        .find_script("Script One")
+        .expect("migrated script should resolve");
+    assert_eq!(migrated.id, "script-1");
+    assert_eq!(migrated.asset_count, 2);
+    assert!(sqlite_store.verify_script_package_hash("script-1").is_ok());
+    assert_eq!(
+        sqlite_store
+            .find_script_approval("script-1")
+            .expect("approval lookup should succeed")
+            .expect("approval should exist")
+            .approved_permissions,
+        ["file_write_limited"]
+    );
+    assert_eq!(
+        sqlite_store
+            .list_run_records(None, None)
+            .expect("run records should list")
+            .len(),
+        1
+    );
+    assert_eq!(
+        sqlite_store
+            .read_service_status()
+            .expect("service status should read")
+            .expect("service status should exist")["state"],
+        "running"
+    );
+}
+
+#[test]
+fn sqlite_runner_store_rejects_migration_when_package_hash_is_tampered() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("script.bbs");
+    fs::write(&package_path, b"package bytes").expect("test package should be written");
+
+    let filesystem_store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let imported = filesystem_store
+        .import_script(ImportScriptRequest {
+            id: "script-1".to_owned(),
+            name: "Script One".to_owned(),
+            package_source: package_path,
+            package_format_version: 1,
+            script_language_version: 1,
+            target_runtime: "Generic Desktop".to_owned(),
+            asset_count: 0,
+            risk_level: "low".to_owned(),
+        })
+        .expect("script should import");
+    fs::write(&imported.package_path, b"tampered bytes").expect("package should be tampered");
+
+    let sqlite_store =
+        SqliteRunnerStore::open(temporary_directory.path().join("store").join("runner.db"))
+            .expect("SQLite store should open");
+
+    assert!(matches!(
+        sqlite_store.migrate_from_filesystem(&filesystem_store),
+        Err(StorageError::HashMismatch { .. })
+    ));
+    assert!(
+        sqlite_store
+            .list_scripts()
+            .expect("SQLite scripts should list")
+            .is_empty()
+    );
+}
+
+#[test]
 fn service_control_request_is_one_shot() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
