@@ -2,7 +2,9 @@ use std::{
     fs,
     io::{Cursor, Write},
     path::Path,
-    process::{Command, Output},
+    process::{Child, Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use serde_json::Value;
@@ -369,6 +371,68 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
 }
 
 #[test]
+fn cli_serve_reloads_triggers_after_import_and_stops_from_control_file() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
+    let webhook_port = available_tcp_port();
+    fs::write(
+        &package_path,
+        create_test_package("CLI Lifecycle", "reload-hook", "reload"),
+    )
+    .expect("test package should be written");
+
+    let serve = spawn_baudbound(
+        &runner_home,
+        [
+            "serve",
+            "--webhooks",
+            "--webhook-port",
+            &webhook_port.to_string(),
+            "--reload-interval-seconds",
+            "1",
+        ],
+    );
+
+    let initial_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running"
+    });
+    assert_eq!(initial_status["active_service_count"], 0);
+    assert_eq!(initial_status["idle"], true);
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+
+    let reloaded_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running" && status["active_service_count"] == 1
+    });
+    let webhook = service_row(&reloaded_status, "webhook");
+    assert_eq!(webhook["active"], true);
+    assert_eq!(webhook["registrations"], 1);
+    assert_eq!(webhook["target"], format!("127.0.0.1:{webhook_port}"));
+
+    write_service_control_request(
+        &runner_home,
+        reloaded_status["pid"]
+            .as_u64()
+            .expect("service pid should be present") as u32,
+        "stop",
+    );
+    assert_child_exits_successfully(serve, Duration::from_secs(8));
+
+    let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {
+        status["state"] == "stopped"
+    });
+    assert_eq!(stopped_status["state"], "stopped");
+}
+
+#[test]
 fn cli_status_reports_tampered_installed_package() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
@@ -410,6 +474,85 @@ fn run_baudbound<const N: usize>(runner_home: &Path, args: [&str; N]) -> Output 
         .env_remove("BAUDBOUND_CONFIG")
         .output()
         .expect("baudbound command should run")
+}
+
+fn spawn_baudbound<const N: usize>(runner_home: &Path, args: [&str; N]) -> Child {
+    Command::new(env!("CARGO_BIN_EXE_baudbound"))
+        .args(args)
+        .env("BAUDBOUND_HOME", runner_home)
+        .env_remove("BAUDBOUND_CONFIG")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("baudbound command should spawn")
+}
+
+fn available_tcp_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("test should bind an ephemeral local port")
+        .local_addr()
+        .expect("test listener should have a local address")
+        .port()
+}
+
+fn wait_for_service_status(
+    runner_home: &Path,
+    timeout: Duration,
+    predicate: impl Fn(&Value) -> bool,
+) -> Value {
+    let deadline = Instant::now() + timeout;
+    let status_path = runner_home.join("service-status.json");
+    loop {
+        if let Ok(content) = fs::read_to_string(&status_path) {
+            let status = serde_json::from_str::<Value>(&content)
+                .expect("service status should contain valid JSON");
+            if predicate(&status) {
+                return status;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for service status at {}",
+            status_path.display()
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn write_service_control_request(runner_home: &Path, target_pid: u32, command: &str) {
+    fs::write(
+        runner_home.join(".service-control.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "command": command,
+            "requested_at_unix": 123,
+            "requested_by_pid": std::process::id(),
+            "target_pid": target_pid
+        }))
+        .expect("service control request should serialize"),
+    )
+    .expect("service control request should be written");
+}
+
+fn assert_child_exits_successfully(mut child: Child, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait().expect("child status should be readable") {
+            Some(status) => {
+                assert!(status.success(), "serve child should exit successfully");
+                return;
+            }
+            None if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            None => {
+                child.kill().expect("hung child should be killed");
+                let output = child.wait_with_output().expect("child output should read");
+                panic!(
+                    "serve child did not exit before timeout\n{}",
+                    command_output(&output)
+                );
+            }
+        }
+    }
 }
 
 fn service_row<'a>(document: &'a Value, name: &str) -> &'a Value {

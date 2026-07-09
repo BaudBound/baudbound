@@ -1,0 +1,663 @@
+use std::{
+    collections::BTreeMap,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use super::*;
+use crate::services::{
+    file_watch::{FileWatchSpec, file_watch_event},
+    hotkey::HotkeySpec,
+    process_started::ProcessStartedSpec,
+    serial_input::{
+        SerialInputSpec, SerialReadMode, send_serial_event, set_serial_reader_status,
+        sorted_serial_reader_statuses, usb_port_matches_identity,
+    },
+    websocket::{WebSocketHandshake, WebSocketRoute, websocket_payload},
+};
+use serde_json::json;
+use serialport::SerialPortType;
+use tungstenite::Message;
+
+#[test]
+fn creates_due_schedule_events_and_advances_next_due() {
+    let start = Instant::now();
+    let registration = TriggerRegistration {
+        action_type: "trigger.schedule".to_owned(),
+        config: json!({"every": "2", "unit": "seconds"}),
+        node_id: "n-schedule".to_owned(),
+        runner_type: "schedule".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    };
+    let mut service =
+        ScheduleService::from_registrations([registration], start).expect("schedule should parse");
+
+    assert!(service.due_events(start, UNIX_EPOCH).is_empty());
+
+    let events = service.due_events(start + Duration::from_secs(2), UNIX_EPOCH);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].script_id, "script-1");
+    assert_eq!(events[0].node_id, "n-schedule");
+    assert_eq!(events[0].payload["interval_seconds"], 2);
+    assert_eq!(events[0].payload["schedule"]["unit"], "seconds");
+    assert_eq!(
+        service.time_until_next_due(start + Duration::from_secs(2)),
+        Some(Duration::from_secs(2))
+    );
+}
+
+#[test]
+fn rejects_invalid_schedule_interval() {
+    let registration = TriggerRegistration {
+        action_type: "trigger.schedule".to_owned(),
+        config: json!({"every": "0", "unit": "minutes"}),
+        node_id: "n-schedule".to_owned(),
+        runner_type: "schedule".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    };
+
+    let error = ScheduleService::from_registrations([registration], Instant::now())
+        .expect_err("zero interval should fail");
+
+    assert!(error.to_string().contains("positive every"));
+}
+
+#[test]
+fn ignores_non_schedule_registrations() {
+    let registration = TriggerRegistration {
+        action_type: "trigger.manual".to_owned(),
+        config: json!({}),
+        node_id: "n-manual".to_owned(),
+        runner_type: "manual".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    };
+
+    let service = ScheduleService::from_registrations([registration], Instant::now())
+        .expect("manual trigger should be ignored");
+
+    assert!(service.is_empty());
+}
+
+#[test]
+fn parses_hotkey_registration_and_builds_payload() {
+    let service = HotkeyService::from_registrations([hotkey_registration(json!({
+        "key": "Control + Option + b"
+    }))])
+    .expect("hotkey should parse");
+
+    assert_eq!(service.len(), 1);
+    assert_eq!(service.registered_hotkeys(), ["Ctrl+Alt+B"]);
+
+    let events = service
+        .events_for_key("Ctrl+Alt+B", UNIX_EPOCH + Duration::from_secs(7))
+        .expect("hotkey event should build");
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].script_id, "script-1");
+    assert_eq!(events[0].node_id, "n-hotkey");
+    assert_eq!(events[0].payload["key"], "Ctrl+Alt+B");
+    assert_eq!(events[0].payload["timestamp"], "7000");
+}
+
+#[test]
+fn hotkey_service_supports_multiple_scripts_on_same_combo() {
+    let mut first = hotkey_registration(json!({"key": "Ctrl+Alt+B"}));
+    first.script_id = "script-1".to_owned();
+    first.node_id = "n-hotkey-1".to_owned();
+    let mut second = hotkey_registration(json!({"key": "control-option-b"}));
+    second.script_id = "script-2".to_owned();
+    second.node_id = "n-hotkey-2".to_owned();
+
+    let service = HotkeyService::from_registrations([first, second]).expect("hotkeys should parse");
+    let events = service
+        .events_for_key("Ctrl+Alt+B", UNIX_EPOCH)
+        .expect("hotkey events should build");
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].script_id, "script-1");
+    assert_eq!(events[1].script_id, "script-2");
+}
+
+#[test]
+fn reports_trigger_service_diagnostics() {
+    let schedule = ScheduleService::from_registrations(
+        [TriggerRegistration {
+            action_type: "trigger.schedule".to_owned(),
+            config: json!({"every": "2", "unit": "seconds"}),
+            node_id: "n-schedule".to_owned(),
+            runner_type: "schedule".to_owned(),
+            script_id: "script-1".to_owned(),
+            script_name: "Script One".to_owned(),
+        }],
+        Instant::now(),
+    )
+    .expect("schedule should parse");
+    let hotkeys = HotkeyService::from_registrations([
+        hotkey_registration(json!({"key": "Ctrl+Alt+B"})),
+        hotkey_registration(json!({"key": "Ctrl+Alt+C"})),
+    ])
+    .expect("hotkeys should parse");
+
+    let schedule_diagnostics = schedule.diagnostics();
+    let hotkey_diagnostics = hotkeys.diagnostics();
+
+    assert!(schedule_diagnostics.running);
+    assert_eq!(schedule_diagnostics.state, "active");
+    assert!(schedule_diagnostics.summary.contains("1 schedule"));
+    assert!(hotkey_diagnostics.running);
+    assert_eq!(hotkey_diagnostics.state, "active");
+    assert!(hotkey_diagnostics.summary.contains("2 hotkey binding(s)"));
+}
+
+#[test]
+fn hotkey_service_ignores_unmatched_keys() {
+    let service = HotkeyService::from_registrations([hotkey_registration(json!({
+        "key": "Ctrl+Alt+B"
+    }))])
+    .expect("hotkey should parse");
+
+    assert!(
+        service
+            .events_for_key("Ctrl+Alt+C", UNIX_EPOCH)
+            .expect("unmatched key should be accepted")
+            .is_empty()
+    );
+}
+
+#[test]
+fn rejects_hotkey_without_primary_key() {
+    let registration = hotkey_registration(json!({"key": "Ctrl+Alt"}));
+
+    let error = HotkeySpec::from_registration(&registration).expect_err("missing key should fail");
+
+    assert!(error.to_string().contains("primary key"));
+}
+
+#[test]
+fn rejects_hotkey_runtime_templates() {
+    let registration = hotkey_registration(json!({"key": "{{dynamic_key}}"}));
+
+    let error = HotkeySpec::from_registration(&registration).expect_err("template key should fail");
+
+    assert!(error.to_string().contains("runtime variable templates"));
+}
+
+#[test]
+fn validates_file_watch_path_without_runtime_templates() {
+    let registration = file_watch_registration(json!({"path": "{{dynamic_path}}"}));
+
+    let error = FileWatchSpec::from_registration(&registration)
+        .expect_err("runtime templates should be rejected");
+
+    assert!(error.to_string().contains("runtime variable templates"));
+}
+
+#[test]
+fn builds_file_watch_trigger_event_payload() {
+    let registration = file_watch_registration(json!({"path": "C:/tmp/input.txt"}));
+    let event = file_watch_event(
+        &registration,
+        Path::new("C:/tmp/input.txt"),
+        Path::new("C:/tmp/input.txt"),
+        "modified",
+    );
+
+    assert_eq!(event.script_id, "script-1");
+    assert_eq!(event.node_id, "n-file");
+    assert_eq!(event.payload["event"], "modified");
+    assert_eq!(event.payload["path"], "C:/tmp/input.txt");
+    assert_eq!(event.payload["watched_path"], "C:/tmp/input.txt");
+}
+
+#[test]
+fn creates_startup_events_once_and_drains_them() {
+    let registration = startup_registration();
+    let startup_time = UNIX_EPOCH + Duration::from_secs(42);
+    let mut service = StartupService::from_registrations([registration], startup_time)
+        .expect("startup trigger should parse");
+
+    assert_eq!(service.len(), 1);
+
+    let events = service.drain_events();
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].script_id, "script-1");
+    assert_eq!(events[0].node_id, "n-startup");
+    assert_eq!(events[0].payload["reason"], "runner_startup");
+    assert_eq!(events[0].payload["timestamp"], "42000");
+    assert!(service.is_empty());
+}
+
+#[test]
+fn parses_process_started_registration() {
+    let registration = process_started_registration(json!({
+        "matchMode": "process_name",
+        "target": "app.exe"
+    }));
+
+    let spec = ProcessStartedSpec::from_registration(registration)
+        .expect("process started trigger should parse");
+
+    assert_eq!(spec.match_mode, "process_name");
+    assert_eq!(spec.target, "app.exe");
+}
+
+#[test]
+fn rejects_desktop_only_process_started_window_matching() {
+    let registration = process_started_registration(json!({
+        "matchMode": "window_title",
+        "target": "BaudBound"
+    }));
+
+    let error = ProcessStartedSpec::from_registration(registration)
+        .expect_err("window matching should require desktop runner");
+
+    assert!(error.to_string().contains("desktop runner"));
+}
+
+#[test]
+fn parses_websocket_trigger_route() {
+    let registration = websocket_registration(json!({
+        "path": "/events/messages"
+    }));
+
+    let route =
+        WebSocketRoute::from_registration(registration).expect("websocket route should parse");
+
+    assert_eq!(route.path, "/events/messages");
+    assert_eq!(route.registration.node_id, "n-websocket");
+}
+
+#[test]
+fn builds_websocket_trigger_payload() {
+    let route = WebSocketRoute::from_registration(websocket_registration(json!({
+        "path": "/events/messages"
+    })))
+    .expect("websocket route should parse");
+    let handshake = WebSocketHandshake {
+        headers: BTreeMap::from([("sec-websocket-protocol".to_owned(), "json".to_owned())]),
+        path: "/events/messages".to_owned(),
+        query: BTreeMap::from([("token".to_owned(), "abc".to_owned())]),
+    };
+
+    let payload = websocket_payload(
+        &route,
+        &handshake,
+        "conn-1",
+        "127.0.0.1:50000",
+        Message::Text(r#"{"event":"ok"}"#.to_owned().into()),
+        1024,
+    )
+    .expect("websocket payload should build");
+
+    assert_eq!(payload["connection_id"], "conn-1");
+    assert_eq!(payload["path"], "/events/messages");
+    assert_eq!(payload["query"]["token"], "abc");
+    assert_eq!(payload["headers"]["sec-websocket-protocol"], "json");
+    assert_eq!(payload["message"], r#"{"event":"ok"}"#);
+    assert_eq!(payload["json"]["event"], "ok");
+    assert_eq!(payload["remote_address"], "127.0.0.1:50000");
+}
+
+#[test]
+fn parses_serial_input_trigger_config() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "main-device"
+    }));
+    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
+
+    let spec = SerialInputSpec::from_registration(&registration, &devices)
+        .expect("serial config should parse");
+
+    assert_eq!(spec.device_id, "main-device");
+    assert_eq!(spec.port, "COM3");
+    assert_eq!(spec.baud_rate, 115_200);
+    assert_eq!(spec.read_mode, SerialReadMode::Line);
+    assert!(spec.auto_reconnect);
+    assert!(spec.validate_usb_identity);
+    assert_eq!(spec.vendor_id, Some(0x1A86));
+    assert_eq!(spec.product_id, Some(0x7523));
+}
+
+#[test]
+fn rejects_serial_input_when_runner_device_is_missing() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "missing-device"
+    }));
+    let devices = BTreeMap::new();
+
+    let error = SerialInputSpec::from_registration(&registration, &devices)
+        .expect_err("missing runner serial device should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("[serial.devices.missing-device]")
+    );
+}
+
+#[test]
+fn builds_serial_input_trigger_event_payload() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "main-device"
+    }));
+    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
+    let spec = SerialInputSpec::from_registration(&registration, &devices)
+        .expect("serial config should parse");
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    send_serial_event(&registration, &spec, &sender, b"hello", None);
+
+    let event = receiver.recv().expect("serial event should be sent");
+    assert_eq!(event.script_id, "script-1");
+    assert_eq!(event.node_id, "n-serial");
+    assert_eq!(event.payload["device_id"], "main-device");
+    assert_eq!(event.payload["data"], "hello");
+    assert_eq!(event.payload["bytes"], 5);
+    assert!(event.payload["timestamp"].as_str().is_some());
+}
+
+#[test]
+fn tracks_serial_reader_status() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "main-device"
+    }));
+    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
+    let spec = SerialInputSpec::from_registration(&registration, &devices)
+        .expect("serial config should parse");
+    let statuses = Arc::new(Mutex::new(BTreeMap::new()));
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    set_serial_reader_status(
+        &statuses,
+        &registration,
+        &spec,
+        "connecting",
+        Some("open failed".to_owned()),
+        false,
+    );
+    send_serial_event(&registration, &spec, &sender, b"hello", Some(&statuses));
+
+    let _ = receiver.recv().expect("serial event should be sent");
+    let readers = sorted_serial_reader_statuses(&statuses);
+    assert_eq!(readers.len(), 1);
+    assert_eq!(readers[0].device_id, "main-device");
+    assert_eq!(readers[0].state, "reading");
+    assert_eq!(readers[0].last_error.as_deref(), Some("open failed"));
+    assert!(readers[0].last_error_unix.is_some());
+    assert!(readers[0].last_event_unix.is_some());
+}
+
+#[test]
+fn matches_serial_usb_identity_with_optional_stronger_fields() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "main-device"
+    }));
+    let devices = BTreeMap::from([(
+        "main-device".to_owned(),
+        SerialDeviceConfig {
+            auto_rebind_port: true,
+            serial_number: Some("ABC123".to_owned()),
+            manufacturer: Some("Acme".to_owned()),
+            product: Some("Controller".to_owned()),
+            ..serial_device_config()
+        },
+    )]);
+    let spec = SerialInputSpec::from_registration(&registration, &devices)
+        .expect("serial config should parse");
+    let matching_port = serial_port_info(
+        "COM7",
+        0x1A86,
+        0x7523,
+        Some("ABC123"),
+        Some("Acme"),
+        Some("Controller"),
+    );
+    let wrong_serial = serial_port_info(
+        "COM8",
+        0x1A86,
+        0x7523,
+        Some("XYZ789"),
+        Some("Acme"),
+        Some("Controller"),
+    );
+
+    assert!(usb_port_matches_identity(&matching_port, &spec));
+    assert!(!usb_port_matches_identity(&wrong_serial, &spec));
+}
+
+fn serial_port_info(
+    port_name: &str,
+    vid: u16,
+    pid: u16,
+    serial_number: Option<&str>,
+    manufacturer: Option<&str>,
+    product: Option<&str>,
+) -> serialport::SerialPortInfo {
+    serialport::SerialPortInfo {
+        port_name: port_name.to_owned(),
+        port_type: SerialPortType::UsbPort(serialport::UsbPortInfo {
+            vid,
+            pid,
+            serial_number: serial_number.map(ToOwned::to_owned),
+            manufacturer: manufacturer.map(ToOwned::to_owned),
+            product: product.map(ToOwned::to_owned),
+        }),
+    }
+}
+
+#[test]
+fn matches_webhook_request_and_builds_payload() {
+    let service = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "deploy",
+        "waitForResponse": false
+    }))])
+    .expect("webhook should register");
+    let dispatch = service
+        .dispatch_for_request(&WebhookRequest {
+            body: r#"{"status":"ok"}"#.to_owned(),
+            headers: BTreeMap::from([("content-type".to_owned(), "application/json".to_owned())]),
+            method: "post".to_owned(),
+            path_and_query: "/events/deploy?source=test".to_owned(),
+        })
+        .expect("request should match webhook");
+
+    assert_eq!(dispatch.event.script_id, "script-1");
+    assert_eq!(dispatch.event.node_id, "n-webhook");
+    assert_eq!(dispatch.event.payload["method"], "POST");
+    assert_eq!(dispatch.event.payload["path"], "/events/deploy");
+    assert_eq!(dispatch.event.payload["query"]["source"], "test");
+    assert_eq!(dispatch.event.payload["json"]["status"], "ok");
+    assert_eq!(dispatch.fallback_response.status_code, 200);
+}
+
+#[test]
+fn extracts_waiting_webhook_response_from_run_report() {
+    let service = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "deploy",
+        "waitForResponse": true,
+        "timeoutResponseStatus": "202",
+        "timeoutResponseBody": "fallback"
+    }))])
+    .expect("webhook should register");
+    let dispatch = service
+        .dispatch_for_request(&WebhookRequest {
+            body: String::new(),
+            headers: BTreeMap::new(),
+            method: "POST".to_owned(),
+            path_and_query: "/events/deploy".to_owned(),
+        })
+        .expect("request should match webhook");
+    let report = RunReport {
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "n-webhook".to_owned(),
+        },
+        logs: Vec::new(),
+        variables: BTreeMap::from([
+            ("n-response.sent".to_owned(), Value::Bool(true)),
+            (
+                "n-response.status_code".to_owned(),
+                Value::Number(serde_json::Number::from(201)),
+            ),
+            (
+                "n-response.content_type".to_owned(),
+                Value::String("application/json".to_owned()),
+            ),
+            (
+                "n-response.body".to_owned(),
+                Value::String(r#"{"ok":true}"#.to_owned()),
+            ),
+            (
+                "n-response.trigger_id".to_owned(),
+                Value::String("n-webhook".to_owned()),
+            ),
+        ]),
+    };
+
+    let response = service.response_for_report(&dispatch, &report);
+
+    assert_eq!(response.status_code, 201);
+    assert_eq!(response.content_type, "application/json");
+    assert_eq!(response.body, r#"{"ok":true}"#);
+}
+
+#[test]
+fn waiting_webhook_uses_fallback_when_no_response_node_sent() {
+    let service = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "deploy",
+        "waitForResponse": true,
+        "timeoutResponseStatus": "202",
+        "timeoutResponseBody": "fallback"
+    }))])
+    .expect("webhook should register");
+    let dispatch = service
+        .dispatch_for_request(&WebhookRequest {
+            body: String::new(),
+            headers: BTreeMap::new(),
+            method: "POST".to_owned(),
+            path_and_query: "/events/deploy".to_owned(),
+        })
+        .expect("request should match webhook");
+    let report = RunReport {
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "n-webhook".to_owned(),
+        },
+        logs: Vec::new(),
+        variables: BTreeMap::new(),
+    };
+
+    let response = service.response_for_report(&dispatch, &report);
+
+    assert_eq!(response.status_code, 202);
+    assert_eq!(response.body, "fallback");
+}
+
+fn webhook_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.webhook".to_owned(),
+        config,
+        node_id: "n-webhook".to_owned(),
+        runner_type: "webhook".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn websocket_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.websocket".to_owned(),
+        config,
+        node_id: "n-websocket".to_owned(),
+        runner_type: "websocket".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn startup_registration() -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.startup".to_owned(),
+        config: json!({}),
+        node_id: "n-startup".to_owned(),
+        runner_type: "startup".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn process_started_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.process_started".to_owned(),
+        config,
+        node_id: "n-process-started".to_owned(),
+        runner_type: "process_started".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn hotkey_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.hotkey".to_owned(),
+        config,
+        node_id: "n-hotkey".to_owned(),
+        runner_type: "hotkey".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn serial_device_config() -> SerialDeviceConfig {
+    SerialDeviceConfig {
+        auto_reconnect: true,
+        auto_rebind_port: false,
+        baud_rate: 115_200,
+        data_bits: 8,
+        device_id: "main-device".to_owned(),
+        flow_control: "none".to_owned(),
+        manufacturer: None,
+        parity: "none".to_owned(),
+        port: "COM3".to_owned(),
+        product_id: Some("7523".to_owned()),
+        product: None,
+        read_mode: "line".to_owned(),
+        serial_number: None,
+        stop_bits: "1".to_owned(),
+        validate_usb_identity: true,
+        vendor_id: Some("0x1A86".to_owned()),
+    }
+}
+
+fn file_watch_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.file_watch".to_owned(),
+        config,
+        node_id: "n-file".to_owned(),
+        runner_type: "file_watch".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}
+
+fn serial_input_registration(config: Value) -> TriggerRegistration {
+    TriggerRegistration {
+        action_type: "trigger.serial_input".to_owned(),
+        config,
+        node_id: "n-serial".to_owned(),
+        runner_type: "serial_input".to_owned(),
+        script_id: "script-1".to_owned(),
+        script_name: "Script One".to_owned(),
+    }
+}

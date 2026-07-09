@@ -197,6 +197,56 @@ test("runner types used by node definitions are declared by the program schema",
 	}
 });
 
+test("editor node action types are covered by runner support owners", () => {
+	const definitionsSource = readDefinitions();
+	const actionCrateSource = read(join(repoRoot, "crates", "baudbound-actions", "src", "lib.rs"));
+	const coreSource = read(join(repoRoot, "crates", "baudbound-core", "src", "lib.rs"));
+	const runtimeSource = read(join(repoRoot, "crates", "baudbound-runtime", "src", "lib.rs"));
+	const triggerSource = read(join(repoRoot, "crates", "baudbound-triggers", "src", "lib.rs"));
+	const editorActionTypes = extractDefinitionActionTypes(definitionsSource);
+	const editorExecutableActionTypes = editorActionTypes
+		.filter((actionType) => actionType.startsWith("action.") || actionType === "runtime.set_variable")
+		.sort();
+	const editorControlActionTypes = editorActionTypes.filter((actionType) => actionType.startsWith("control.")).sort();
+	const editorTriggerActionTypes = editorActionTypes.filter((actionType) => actionType.startsWith("trigger.")).sort();
+	const runnerExecutableActionTypes = uniqueSorted([
+		...extractRustConstStringArray(actionCrateSource, "SUPPORTED_ACTION_TYPES"),
+		...extractRustConstStringArray(coreSource, "SUPPORTED_CORE_ACTION_TYPES"),
+		...extractRustConstStringArray(runtimeSource, "SUPPORTED_INTERNAL_ACTION_TYPES"),
+	]);
+	const runnerControlActionTypes = uniqueSorted(
+		extractRustConstStringArray(runtimeSource, "SUPPORTED_CONTROL_ACTION_TYPES"),
+	);
+	const runnerTriggerActionTypes = uniqueSorted([
+		...extractRustConstStringArray(coreSource, "SUPPORTED_CORE_TRIGGER_ACTION_TYPES"),
+		...extractRustConstStringArray(triggerSource, "SUPPORTED_SERVICE_TRIGGER_ACTION_TYPES"),
+	]);
+	const desktopAdapterActionTypes = extractRustConstStringArray(actionCrateSource, "DESKTOP_ADAPTER_ACTION_TYPES");
+
+	assert.deepEqual(
+		editorExecutableActionTypes,
+		runnerExecutableActionTypes,
+		"every editor executable action must have exactly one runner support owner",
+	);
+	assert.deepEqual(
+		editorControlActionTypes,
+		runnerControlActionTypes,
+		"every editor control action must be explicitly supported by baudbound-runtime",
+	);
+	assert.deepEqual(
+		editorTriggerActionTypes,
+		runnerTriggerActionTypes,
+		"every editor trigger action must be explicitly supported by core or trigger services",
+	);
+
+	for (const actionType of desktopAdapterActionTypes) {
+		assert.ok(
+			runnerExecutableActionTypes.includes(actionType),
+			`${actionType} desktop adapter support must also be declared as an executable action`,
+		);
+	}
+});
+
 test("old capability and permission strings are not used by node definitions", () => {
 	const definitionsSource = readDefinitions();
 	const staleStrings = [
@@ -688,6 +738,10 @@ function extractDesktopOnlyActionTypes(definitionsSource) {
 
 function extractDefinitionActionTypes(definitionsSource) {
 	return [...definitionsSource.matchAll(/actionType:\s*"([^"]+)"/g)].map((match) => match[1]);
+}
+
+function uniqueSorted(values) {
+	return [...new Set(values)].sort();
 }
 
 function escapeRegExp(value) {
