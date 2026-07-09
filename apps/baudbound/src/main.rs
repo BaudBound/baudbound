@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore};
 use baudbound_storage::FilesystemScriptStore;
-use baudbound_triggers::WebSocketConnectionRegistry;
+use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use clap::Parser;
 use desktop_actions::SystemDesktopActionAdapter;
 
@@ -113,7 +113,10 @@ fn dispatch_command(
                 once,
                 run_schedules_immediately,
                 Arc::clone(websocket_registry),
-            );
+            )
+            .with_serial_port_rebind_sink(Arc::new(service::RunnerConfigSerialPortRebindSink::new(
+                config_path.to_path_buf(),
+            )) as Arc<dyn SerialPortRebindSink>);
             if dry_run {
                 service::print_serve_preflight(core, store, &options, json)
             } else if json {

@@ -213,8 +213,12 @@ flow_control = "none"
 read_mode = "line"
 auto_reconnect = true
 validate_usb_identity = false
+auto_rebind_port = false
 # vendor_id = "1A86"
 # product_id = "7523"
+# serial_number = ""
+# manufacturer = ""
+# product = ""
 
 [webhooks]
 bind = "127.0.0.1"
@@ -227,7 +231,7 @@ port = 43892
 max_message_bytes = 1048576
 ```
 
-Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines.
+Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines. If `auto_rebind_port = true`, the runner can recover when the OS moves a USB serial device to another COM/tty port. That mode requires `validate_usb_identity = true`, `vendor_id`, and `product_id`; add `serial_number`, `manufacturer`, or `product` when multiple identical devices may be connected so the runner refuses ambiguous matches instead of guessing.
 
 Use `baudbound script status` to check installed package hash health, package loadability, approval freshness, enabled script counts, and trigger counts.
 

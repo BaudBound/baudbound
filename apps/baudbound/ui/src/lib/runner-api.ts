@@ -1,11 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type PackageHashStatus =
+  | { state: "valid" }
+  | { actual: string; expected: string; state: "mismatch" }
+  | { message?: string; state: "error" }
   | "Valid"
   | { Mismatch: { actual: string; expected: string } }
   | { Error: string };
 
 export type ApprovalStatus =
+  | { state: "current" }
+  | { state: "missing" }
+  | { state: "package_unavailable" }
+  | { state: "permission_mismatch" }
+  | { state: "unknown" }
+  | { message?: string; state: "error" }
+  | {
+      approved_package_hash: string;
+      installed_package_hash: string;
+      state: "stale_package_hash";
+    }
   | "Current"
   | "Missing"
   | "PackageUnavailable"
@@ -72,22 +86,52 @@ export type DesktopBackgroundRunnerState = {
 
 export type SerialDeviceStatus = {
   auto_reconnect: boolean;
+  auto_rebind_port: boolean;
   baud_rate: number;
   data_bits: number;
   device_id: string;
   flow_control: string;
+  manufacturer: string | null;
   parity: string;
   port: string;
   product_id: string | null;
+  product: string | null;
   read_mode: string;
+  serial_number: string | null;
   stop_bits: string;
   validate_usb_identity: boolean;
+  vendor_id: string | null;
+};
+
+export type SerialReaderStatus = {
+  auto_reconnect: boolean;
+  auto_rebind_port: boolean;
+  device_id: string;
+  last_error: string | null;
+  last_error_unix: number | null;
+  last_event_unix: number | null;
+  node_id: string;
+  port: string;
+  script_id: string;
+  state: string;
+};
+
+export type SerialPortScanResult = {
+  manufacturer: string | null;
+  port: string;
+  port_type: string;
+  product: string | null;
+  product_id: string | null;
+  serial_number: string | null;
   vendor_id: string | null;
 };
 
 export type ServiceStatusService = {
   active: boolean;
   diagnostics?: TriggerServiceDiagnostics;
+  details?: {
+    readers?: SerialReaderStatus[];
+  };
   enabled: boolean;
   name: string;
   registrations: number;
@@ -221,13 +265,17 @@ export type SerialSettings = {
 
 export type SerialDeviceSettings = {
   auto_reconnect: boolean;
+  auto_rebind_port: boolean;
   baud_rate: number;
   data_bits: number;
   flow_control: string;
+  manufacturer: string | null;
   parity: string;
   port: string;
   product_id: string | null;
+  product: string | null;
   read_mode: string;
+  serial_number: string | null;
   stop_bits: string;
   validate_usb_identity: boolean;
   vendor_id: string | null;
@@ -265,6 +313,18 @@ export function saveRunnerConfig(contents: string, restartBackground: boolean) {
 
 export function saveRunnerConfigModel(config: RunnerConfig, restartBackground: boolean) {
   return invoke<ActionPayload>("save_runner_config_model", { config, restartBackground });
+}
+
+export function scanSerialPorts() {
+  return invoke<SerialPortScanResult[]>("scan_serial_ports").catch((error) => {
+    const message = String(error);
+    if (message.includes("Command scan_serial_ports not found")) {
+      throw new Error(
+        "Serial scanning requires the latest desktop backend. Close BaudBound and start the desktop app again so the new Rust command is available.",
+      );
+    }
+    throw error;
+  });
 }
 
 export function selectPackageFile() {

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import type { DashboardAction } from "@/lib/app-types";
 import { approveScript, type ScriptStatus } from "@/lib/runner-api";
-import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
+import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
 
 export function ScriptApprovalDialog({
   busy,
@@ -62,7 +62,7 @@ export function ScriptApprovalDialog({
               <Badge variant={hashLabel === "valid" ? "good" : "destructive"}>
                 hash {hashLabel}
               </Badge>
-              <Badge variant={approvalLabel(script.approval_status) === "current" ? "good" : "medium"}>
+              <Badge variant={isApprovalCurrent(script.approval_status) ? "good" : "medium"}>
                 approval {approvalLabel(script.approval_status)}
               </Badge>
               <Badge variant="muted">{script.installed.target_runtime}</Badge>

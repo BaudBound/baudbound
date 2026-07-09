@@ -96,8 +96,12 @@ flow_control = "none"
 read_mode = "line"
 auto_reconnect = true
 validate_usb_identity = false
+auto_rebind_port = false
 # vendor_id = "1A86"
 # product_id = "7523"
+# serial_number = ""
+# manufacturer = ""
+# product = ""
 
 [webhooks]
 bind = "127.0.0.1"
@@ -112,7 +116,7 @@ max_message_bytes = 1048576
 
 Missing config files are initialized from the built-in template. Webhook hosting remains disabled unless `webhooks_enabled = true` is set or `serve --webhooks` is passed. `runner.trigger_reload_seconds` controls how often `serve` checks installed scripts for import/update/remove/enable/disable changes; it defaults to 2 seconds and can be overridden with `serve --reload-interval-seconds`.
 The runner rejects packages whose `capabilities.json` target runtime is not in `runner.target_runtimes`. When `target_runtimes` is empty, the runner uses this operating system's default headless and desktop targets. For unattended headless deployments, set it explicitly, for example `["Generic Headless", "Linux Headless"]`, so desktop packages cannot be imported or started by mistake.
-Serial Input Trigger nodes only store the logical `deviceId`. The runner resolves that id through `[serial.devices.<deviceId>]`, so the same package can map to different local COM/tty ports on different machines.
+Serial Input Trigger nodes only store the logical `deviceId`. The runner resolves that id through `[serial.devices.<deviceId>]`, so the same package can map to different local COM/tty ports on different machines. If `auto_rebind_port = true`, the runner can recover when the OS moves a USB serial device to a different COM/tty port. That mode requires `validate_usb_identity = true`, `vendor_id`, and `product_id`; add `serial_number`, `manufacturer`, or `product` when multiple identical devices may be connected so the runner does not have to guess.
 
 The `doctor` command reports native desktop backend support for the current machine and lists the node action types covered by each backend. Desktop actions are intentionally native-only: if a platform has no native backend for a node or a specific node option, the package is rejected during editor verification and runner import instead of falling back to shell-script hacks. Current Windows-only desktop nodes are Get Pixel Color, Get Active Window, and Window Focus. macOS also rejects the Mouse Click `back` and `forward` buttons until a native backend exists for those buttons.
 

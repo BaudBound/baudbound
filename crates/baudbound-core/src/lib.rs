@@ -37,6 +37,7 @@ use compatibility::{
 
 pub use baudbound_runtime::RunReport;
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
+pub use compatibility::{DESKTOP_ONLY_ACTIONS, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
     DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_WEBHOOK_BIND, DEFAULT_WEBHOOK_MAX_BODY_BYTES,
     DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND, DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
@@ -378,7 +379,9 @@ impl RunnerCore {
             Err(StorageError::HashMismatch {
                 expected, actual, ..
             }) => PackageHashStatus::Mismatch { expected, actual },
-            Err(error) => PackageHashStatus::Error(error.to_string()),
+            Err(error) => PackageHashStatus::Error {
+                message: error.to_string(),
+            },
         };
         let package_hash_valid = matches!(package_hash_status, PackageHashStatus::Valid);
 
@@ -423,7 +426,9 @@ impl RunnerCore {
                 approval_status_from_package(&script, package.as_ref(), package_loaded, &approval)
             }
             Ok(None) => ApprovalStatus::Missing,
-            Err(error) => ApprovalStatus::Error(error.to_string()),
+            Err(error) => ApprovalStatus::Error {
+                message: error.to_string(),
+            },
         };
 
         ScriptStatus {
@@ -571,7 +576,7 @@ impl ScriptStatus {
             || !matches!(self.package_hash_status, PackageHashStatus::Valid)
             || matches!(
                 self.approval_status,
-                ApprovalStatus::Error(_)
+                ApprovalStatus::Error { .. }
                     | ApprovalStatus::PackageUnavailable
                     | ApprovalStatus::PermissionMismatch
                     | ApprovalStatus::StalePackageHash { .. }
@@ -582,7 +587,7 @@ impl ScriptStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PackageHashStatus {
-    Error(String),
+    Error { message: String },
     Mismatch { actual: String, expected: String },
     Valid,
 }
@@ -591,7 +596,9 @@ pub enum PackageHashStatus {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ApprovalStatus {
     Current,
-    Error(String),
+    Error {
+        message: String,
+    },
     Missing,
     PackageUnavailable,
     PermissionMismatch,
@@ -691,14 +698,18 @@ fn action_serial_devices_from_config(config: &RunnerConfig) -> Vec<ActionSerialD
         .into_iter()
         .map(|device| ActionSerialDeviceConfig {
             auto_reconnect: device.auto_reconnect,
+            auto_rebind_port: device.auto_rebind_port,
             baud_rate: device.baud_rate,
             data_bits: device.data_bits,
             device_id: device.device_id,
             flow_control: device.flow_control,
+            manufacturer: device.manufacturer,
             parity: device.parity,
             port: device.port,
             product_id: device.product_id,
+            product: device.product,
             read_mode: device.read_mode,
+            serial_number: device.serial_number,
             stop_bits: device.stop_bits,
             validate_usb_identity: device.validate_usb_identity,
             vendor_id: device.vendor_id,
@@ -721,14 +732,18 @@ pub fn serial_device_configs_from_settings(
 
             Some(SerialDeviceConfig {
                 auto_reconnect: settings.auto_reconnect,
+                auto_rebind_port: settings.auto_rebind_port,
                 baud_rate: settings.baud_rate,
                 data_bits: settings.data_bits,
                 device_id: device_id.to_owned(),
                 flow_control: settings.flow_control.clone(),
+                manufacturer: settings.manufacturer.clone(),
                 parity: settings.parity.clone(),
                 port: port.to_owned(),
                 product_id: settings.product_id.clone(),
+                product: settings.product.clone(),
                 read_mode: settings.read_mode.clone(),
+                serial_number: settings.serial_number.clone(),
                 stop_bits: settings.stop_bits.clone(),
                 validate_usb_identity: settings.validate_usb_identity,
                 vendor_id: settings.vendor_id.clone(),
@@ -740,14 +755,18 @@ pub fn serial_device_configs_from_settings(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerialDeviceConfig {
     pub auto_reconnect: bool,
+    pub auto_rebind_port: bool,
     pub baud_rate: u32,
     pub data_bits: u8,
     pub device_id: String,
     pub flow_control: String,
+    pub manufacturer: Option<String>,
     pub parity: String,
     pub port: String,
     pub product_id: Option<String>,
+    pub product: Option<String>,
     pub read_mode: String,
+    pub serial_number: Option<String>,
     pub stop_bits: String,
     pub validate_usb_identity: bool,
     pub vendor_id: Option<String>,

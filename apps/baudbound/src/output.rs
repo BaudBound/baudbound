@@ -249,11 +249,11 @@ pub fn print_runner_status(status: &RunnerStatus, storage_root: &Path) {
         if let PackageHashStatus::Mismatch { expected, actual } = &script.package_hash_status {
             println!("  hash: expected {expected}, got {actual}");
         }
-        if let PackageHashStatus::Error(error) = &script.package_hash_status {
+        if let PackageHashStatus::Error { message: error } = &script.package_hash_status {
             println!("  hash: {error}");
         }
         match &script.approval_status {
-            ApprovalStatus::Error(error) => println!("  approval: {error}"),
+            ApprovalStatus::Error { message: error } => println!("  approval: {error}"),
             ApprovalStatus::StalePackageHash {
                 approved_package_hash,
                 installed_package_hash,
@@ -269,14 +269,14 @@ fn package_hash_status_label(status: &PackageHashStatus) -> &'static str {
     match status {
         PackageHashStatus::Valid => "valid",
         PackageHashStatus::Mismatch { .. } => "mismatch",
-        PackageHashStatus::Error(_) => "error",
+        PackageHashStatus::Error { .. } => "error",
     }
 }
 
 fn approval_status_label(status: &ApprovalStatus) -> &'static str {
     match status {
         ApprovalStatus::Current => "current",
-        ApprovalStatus::Error(_) => "error",
+        ApprovalStatus::Error { .. } => "error",
         ApprovalStatus::Missing => "missing",
         ApprovalStatus::PackageUnavailable => "package unavailable",
         ApprovalStatus::PermissionMismatch => "permission changed",

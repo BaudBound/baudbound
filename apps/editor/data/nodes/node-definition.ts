@@ -121,9 +121,10 @@ export type NodeDefinition = {
 	runnerType?: string;
 	sanitizeConfig?: (config: Record<string, JsonValue>) => Record<string, JsonValue>;
 	simulation?: NodeSimulationDefinition;
-	supportedTargetRuntimes?: TargetRuntime[];
+	supportedTargetRuntimes?: readonly TargetRuntime[];
 	validateConfig?: (config: Record<string, JsonValue>) => string[];
 	validateGraph?: (params: { context: NodeGraphValidationContext; node: Node<ScriptNodeData> }) => string[];
+	validateTargetRuntime?: (params: { config: Record<string, JsonValue>; targetRuntime: TargetRuntime }) => string[];
 };
 
 export const defaultInputPort: NodePort = { id: "input", label: "input" };

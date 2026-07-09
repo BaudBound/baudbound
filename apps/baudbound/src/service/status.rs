@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use baudbound_storage::FilesystemScriptStore;
 use baudbound_triggers::TriggerServiceDiagnostics;
+use serde_json::Value;
 
 use super::{activity::ServiceActivity, options::ServeOptions, triggers::TriggerServices};
 use crate::paths::current_unix_timestamp;
@@ -32,6 +33,7 @@ pub(super) fn write_serve_status(
                 serde_json::json!({
                     "active": row.active,
                     "diagnostics": row.diagnostics,
+                    "details": row.details,
                     "enabled": row.enabled,
                     "name": row.name,
                     "registrations": row.registrations,
@@ -59,6 +61,7 @@ fn serve_status_services(
             services.startup.len(),
             "runner startup".to_owned(),
             services.startup.diagnostics(),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "schedule",
@@ -66,6 +69,7 @@ fn serve_status_services(
             services.schedules.len(),
             "internal timer".to_owned(),
             services.schedules.diagnostics(),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "file_watch",
@@ -73,6 +77,7 @@ fn serve_status_services(
             services.file_watch_service.len(),
             "filesystem watcher".to_owned(),
             services.file_watch_service.diagnostics(),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "process_started",
@@ -80,6 +85,7 @@ fn serve_status_services(
             services.process_started_service.len(),
             "process poller".to_owned(),
             services.process_started_service.diagnostics(),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "serial_input",
@@ -87,6 +93,9 @@ fn serve_status_services(
             services.serial_input_service.len(),
             format!("{} configured device(s)", options.serial_devices.len()),
             services.serial_input_service.diagnostics(),
+            serde_json::json!({
+                "readers": services.serial_input_service.reader_statuses(),
+            }),
         ),
         serve_status_service(
             "hotkey_stdin",
@@ -94,6 +103,7 @@ fn serve_status_services(
             services.hotkey_service.len(),
             "stdin hotkey events".to_owned(),
             services.hotkey_service.diagnostics(),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "webhook",
@@ -108,6 +118,7 @@ fn serve_status_services(
                 .as_ref()
                 .map(|host| host.service.diagnostics())
                 .unwrap_or_else(|| inactive_diagnostics("webhook route")),
+            serde_json::json!({}),
         ),
         serve_status_service(
             "websocket",
@@ -115,6 +126,7 @@ fn serve_status_services(
             services.websocket_service.len(),
             format!("{}:{}", options.websocket_bind, options.websocket_port),
             services.websocket_service.diagnostics(),
+            serde_json::json!({}),
         ),
     ]
 }
@@ -125,10 +137,12 @@ fn serve_status_service(
     registrations: usize,
     target: String,
     diagnostics: TriggerServiceDiagnostics,
+    details: Value,
 ) -> ServeStatusServiceRow {
     ServeStatusServiceRow {
         active: enabled && registrations > 0,
         diagnostics,
+        details,
         enabled,
         name,
         registrations,
@@ -139,6 +153,7 @@ fn serve_status_service(
 struct ServeStatusServiceRow {
     active: bool,
     diagnostics: TriggerServiceDiagnostics,
+    details: Value,
     enabled: bool,
     name: &'static str,
     registrations: usize,

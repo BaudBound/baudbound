@@ -26,6 +26,16 @@ export const mouseClickNode = defineNode({
 		[requiredConfig(config, "button", "mouse button"), requiredConfig(config, "clickType", "mouse click type")].filter(
 			Boolean,
 		),
+	validateTargetRuntime: ({ config, targetRuntime }) => {
+		if (targetRuntime !== "macOS Desktop") {
+			return [];
+		}
+
+		const button = typeof config.button === "string" ? config.button.trim().toLowerCase() : "";
+		return button === "back" || button === "forward"
+			? [`uses the ${button} mouse button, which does not have a native macOS backend.`]
+			: [];
+	},
 	simulation: {
 		describe: ({ api, node }) => [
 			{

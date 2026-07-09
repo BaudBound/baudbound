@@ -413,11 +413,13 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "serialport",
  "tauri",
  "tauri-build",
  "tempfile",
  "tiny_http",
  "toml 0.9.12+spec-1.1.0",
+ "toml_edit 0.25.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "windows-sys 0.61.2",
@@ -5349,6 +5351,7 @@ dependencies = [
  "indexmap 2.14.0",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.3",
 ]
 

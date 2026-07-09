@@ -8,9 +8,10 @@ use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
 use baudbound_storage::{FilesystemScriptStore, ScriptStore, StoredRunRecord};
-use baudbound_triggers::WebSocketConnectionRegistry;
+use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
 use serde_json::Value;
+use serialport::SerialPortType;
 use tauri::{Manager, State};
 
 use crate::commands::{
@@ -32,8 +33,11 @@ pub fn run_desktop_ui(
     runner_config: RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
 ) -> Result<()> {
-    let background_options =
-        desktop_background_options(&runner_config, Arc::clone(&websocket_registry));
+    let background_options = desktop_background_options(
+        &runner_config,
+        Arc::clone(&websocket_registry),
+        config_path.clone(),
+    );
     let background_runner = DesktopRunnerSupervisor::default();
     tauri::Builder::default()
         .manage(DesktopUiState {
@@ -66,6 +70,7 @@ pub fn run_desktop_ui(
             run_script,
             save_runner_config,
             save_runner_config_model,
+            scan_serial_ports,
             select_package_file,
             set_script_enabled,
             start_background_runner,
@@ -98,6 +103,18 @@ fn select_package_file() -> Option<String> {
         .add_filter("BaudBound package", &["bbs"])
         .pick_file()
         .map(|path| path.display().to_string())
+}
+
+#[tauri::command]
+fn scan_serial_ports() -> Result<Vec<SerialPortScanPayload>, String> {
+    serialport::available_ports()
+        .map_err(|source| format!("failed to scan serial ports: {source}"))
+        .map(|ports| {
+            ports
+                .into_iter()
+                .map(serial_port_scan_payload)
+                .collect::<Vec<_>>()
+        })
 }
 
 #[tauri::command]
@@ -271,6 +288,7 @@ pub(super) fn run_locked_message(
 }
 
 fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
+    sync_runtime_config_from_disk(state)?;
     let runner = current_core(state)?.status(&state.store)?;
     let recent_runs = state.store.list_run_records(None, Some(50))?;
     let desktop_background = state.background_runner.snapshot()?;
@@ -307,16 +325,31 @@ struct DashboardPayload {
 #[derive(Serialize)]
 struct SerialDevicePayload {
     auto_reconnect: bool,
+    auto_rebind_port: bool,
     baud_rate: u32,
     data_bits: u8,
     device_id: String,
     flow_control: String,
+    manufacturer: Option<String>,
     parity: String,
     port: String,
     product_id: Option<String>,
+    product: Option<String>,
     read_mode: String,
+    serial_number: Option<String>,
     stop_bits: String,
     validate_usb_identity: bool,
+    vendor_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SerialPortScanPayload {
+    manufacturer: Option<String>,
+    port: String,
+    port_type: String,
+    product: Option<String>,
+    product_id: Option<String>,
+    serial_number: Option<String>,
     vendor_id: Option<String>,
 }
 
@@ -423,8 +456,11 @@ impl From<RunnerConfig> for SerializableRunnerConfig {
 
 fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -> Result<()> {
     let next_core = build_runner_core(&runner_config, Arc::clone(&state.websocket_registry));
-    let next_background_options =
-        desktop_background_options(&runner_config, Arc::clone(&state.websocket_registry));
+    let next_background_options = desktop_background_options(
+        &runner_config,
+        Arc::clone(&state.websocket_registry),
+        state.config_path.clone(),
+    );
 
     *state
         .runner_config
@@ -440,6 +476,12 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
         .map_err(|_| anyhow!("desktop background options lock is poisoned"))? =
         next_background_options;
     Ok(())
+}
+
+fn sync_runtime_config_from_disk(state: &DesktopUiState) -> Result<()> {
+    let contents = fs::read_to_string(&state.config_path)?;
+    let runner_config = RunnerConfig::from_toml(&contents, &state.config_path)?;
+    replace_runtime_config(state, runner_config)
 }
 
 fn current_runner_config(state: &DesktopUiState) -> Result<RunnerConfig> {
@@ -462,17 +504,62 @@ fn serial_device_payloads(config: &RunnerConfig) -> Vec<SerialDevicePayload> {
 fn serial_device_payload(device_id: &str, settings: &SerialDeviceSettings) -> SerialDevicePayload {
     SerialDevicePayload {
         auto_reconnect: settings.auto_reconnect,
+        auto_rebind_port: settings.auto_rebind_port,
         baud_rate: settings.baud_rate,
         data_bits: settings.data_bits,
         device_id: device_id.to_owned(),
         flow_control: settings.flow_control.clone(),
+        manufacturer: settings.manufacturer.clone(),
         parity: settings.parity.clone(),
         port: settings.port.clone(),
         product_id: settings.product_id.clone(),
+        product: settings.product.clone(),
         read_mode: settings.read_mode.clone(),
+        serial_number: settings.serial_number.clone(),
         stop_bits: settings.stop_bits.clone(),
         validate_usb_identity: settings.validate_usb_identity,
         vendor_id: settings.vendor_id.clone(),
+    }
+}
+
+fn serial_port_scan_payload(port: serialport::SerialPortInfo) -> SerialPortScanPayload {
+    match port.port_type {
+        SerialPortType::UsbPort(info) => SerialPortScanPayload {
+            manufacturer: info.manufacturer,
+            port: port.port_name,
+            port_type: "usb".to_owned(),
+            product: info.product,
+            product_id: Some(format!("{:04X}", info.pid)),
+            serial_number: info.serial_number,
+            vendor_id: Some(format!("{:04X}", info.vid)),
+        },
+        SerialPortType::BluetoothPort => SerialPortScanPayload {
+            manufacturer: None,
+            port: port.port_name,
+            port_type: "bluetooth".to_owned(),
+            product: None,
+            product_id: None,
+            serial_number: None,
+            vendor_id: None,
+        },
+        SerialPortType::PciPort => SerialPortScanPayload {
+            manufacturer: None,
+            port: port.port_name,
+            port_type: "pci".to_owned(),
+            product: None,
+            product_id: None,
+            serial_number: None,
+            vendor_id: None,
+        },
+        SerialPortType::Unknown => SerialPortScanPayload {
+            manufacturer: None,
+            port: port.port_name,
+            port_type: "unknown".to_owned(),
+            product: None,
+            product_id: None,
+            serial_number: None,
+            vendor_id: None,
+        },
     }
 }
 
@@ -485,6 +572,7 @@ fn current_core(state: &DesktopUiState) -> Result<RunnerCore> {
 }
 
 fn current_runtime(state: &DesktopUiState) -> Result<(RunnerCore, ServeOptions)> {
+    sync_runtime_config_from_disk(state)?;
     let core = current_core(state)?;
     let options = state
         .background_options
@@ -509,6 +597,7 @@ fn build_runner_core(
 fn desktop_background_options(
     runner_config: &RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
+    config_path: PathBuf,
 ) -> ServeOptions {
     ServeOptions::from_config(
         runner_config,
@@ -528,4 +617,7 @@ fn desktop_background_options(
         false,
         websocket_registry,
     )
+    .with_serial_port_rebind_sink(Arc::new(
+        crate::service::RunnerConfigSerialPortRebindSink::new(config_path),
+    ) as Arc<dyn SerialPortRebindSink>)
 }

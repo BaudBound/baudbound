@@ -3,7 +3,8 @@ import { ShieldCheck, ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ApprovalStatus, DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import { approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
 
 export function SecurityView({ dashboard }: { dashboard: DashboardPayload }) {
   const scripts = dashboard.runner.scripts;
@@ -17,7 +18,7 @@ export function SecurityView({ dashboard }: { dashboard: DashboardPayload }) {
         <SecurityMetric
           label="Approved"
           tone="good"
-          value={scripts.filter((script) => script.approval_status === "Current").length}
+          value={scripts.filter((script) => isApprovalCurrent(script.approval_status)).length}
         />
         <SecurityMetric
           label="High risk"
@@ -130,28 +131,15 @@ function SecurityMetric({
 }
 
 function scriptNeedsAttention(script: ScriptStatus) {
-  return script.approval_status !== "Current" || Boolean(script.package_error);
+  return !isApprovalCurrent(script.approval_status) || Boolean(script.package_error);
 }
 
 function securityIssue(script: ScriptStatus) {
   if (script.package_error) return script.package_error;
-  if (script.approval_status !== "Current") {
+  if (!isApprovalCurrent(script.approval_status)) {
     return `Approval is ${approvalLabel(script.approval_status).toLowerCase()}.`;
   }
   return null;
-}
-
-function approvalLabel(status: ApprovalStatus) {
-  if (typeof status === "string") return status;
-  if ("Error" in status) return "Error";
-  if ("StalePackageHash" in status) return "Stale package";
-  return "Unknown";
-}
-
-function approvalVariant(status: ApprovalStatus) {
-  if (status === "Current") return "good";
-  if (status === "Missing") return "medium";
-  return "destructive";
 }
 
 function riskVariant(risk: string) {

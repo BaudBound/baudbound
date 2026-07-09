@@ -169,8 +169,8 @@ export function App() {
   const subtitle = useMemo(() => pageSubtitle(activeTab, dashboard), [activeTab, dashboard]);
 
   return (
-    <div className="grid h-screen grid-cols-[244px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-r border-border bg-[#0a0f1a] p-3 max-lg:min-w-0 max-lg:border-b max-lg:border-r-0">
+    <div className="grid h-screen min-h-screen grid-cols-[244px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(0,1fr)]">
+      <aside className="flex h-screen min-h-screen flex-col border-r border-border bg-[#0a0f1a] p-3 max-lg:h-auto max-lg:min-h-0 max-lg:min-w-0 max-lg:border-b max-lg:border-r-0">
         <div className="mb-5 flex shrink-0 items-center gap-2.5 max-lg:mb-3">
           <img alt="" className="size-9 rounded-md" draggable={false} src="/logo-notext.svg" />
           <div className="min-w-0">
@@ -276,7 +276,11 @@ export function App() {
               runAction={runAction}
             />
           ) : activeTab === "devices" ? (
-            <DevicesView dashboard={dashboard} />
+            <DevicesView
+              busyActions={busyActions}
+              dashboard={dashboard}
+              runAction={runAction}
+            />
           ) : activeTab === "runs" ? (
             <RunsView dashboard={dashboard} />
           ) : activeTab === "logs" ? (

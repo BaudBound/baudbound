@@ -266,27 +266,25 @@ export function getTargetRuntimeCompatibilityErrors(
 		}
 
 		const label = definition.label ?? node.label ?? node.actionType;
+		const errors: string[] = [];
+
 		if (definition.supportedTargetRuntimes && !definition.supportedTargetRuntimes.includes(targetRuntime)) {
-			return [
+			errors.push(
 				`${node.id} (${label}) requires ${formatTargetRuntimeList(definition.supportedTargetRuntimes)}, but the script targets ${targetRuntime}.`,
-			];
+			);
 		}
 
 		if (definition.desktopOnly && !isDesktopTargetRuntime(targetRuntime)) {
-			return [`${node.id} (${label}) requires a desktop target runtime, but the script targets ${targetRuntime}.`];
+			errors.push(`${node.id} (${label}) requires a desktop target runtime, but the script targets ${targetRuntime}.`);
 		}
 
-		if (
-			node.actionType === "action.mouse" &&
-			targetRuntime === "macOS Desktop" &&
-			(node.config?.button === "back" || node.config?.button === "forward")
-		) {
-			return [
-				`${node.id} (${label}) uses the ${String(node.config.button)} mouse button, which does not have a native macOS backend.`,
-			];
-		}
+		errors.push(
+			...(definition
+				.validateTargetRuntime?.({ config: node.config ?? {}, targetRuntime })
+				.map((error) => `${node.id} (${label}) ${error}`) ?? []),
+		);
 
-		return [];
+		return errors;
 	});
 }
 
@@ -298,7 +296,7 @@ export function getPaletteGroups(): PaletteGroup[] {
 	}));
 }
 
-function formatTargetRuntimeList(targetRuntimes: TargetRuntime[]) {
+function formatTargetRuntimeList(targetRuntimes: readonly TargetRuntime[]) {
 	return targetRuntimes.length === 1
 		? `${targetRuntimes[0]} target runtime`
 		: `one of these target runtimes: ${targetRuntimes.join(", ")}`;

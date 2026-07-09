@@ -455,14 +455,18 @@ fn desktop_only_action(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerialDeviceConfig {
     pub auto_reconnect: bool,
+    pub auto_rebind_port: bool,
     pub baud_rate: u32,
     pub data_bits: u8,
     pub device_id: String,
     pub flow_control: String,
+    pub manufacturer: Option<String>,
     pub parity: String,
     pub port: String,
     pub product_id: Option<String>,
+    pub product: Option<String>,
     pub read_mode: String,
+    pub serial_number: Option<String>,
     pub stop_bits: String,
     pub validate_usb_identity: bool,
     pub vendor_id: Option<String>,
@@ -474,9 +478,12 @@ struct SerialDeviceSpec {
     data_bits: DataBits,
     device_id: String,
     flow_control: FlowControl,
+    manufacturer: Option<String>,
     parity: Parity,
     port: String,
     product_id: Option<u16>,
+    product: Option<String>,
+    serial_number: Option<String>,
     stop_bits: StopBits,
     validate_usb_identity: bool,
     vendor_id: Option<u16>,
@@ -495,9 +502,12 @@ impl SerialDeviceSpec {
             data_bits: parse_data_bits(&config.data_bits.to_string()),
             device_id,
             flow_control: parse_flow_control(&config.flow_control),
+            manufacturer: normalized_optional_string(config.manufacturer),
             parity: parse_parity(&config.parity),
             port,
             product_id: config.product_id.and_then(|value| parse_usb_hex_id(&value)),
+            product: normalized_optional_string(config.product),
+            serial_number: normalized_optional_string(config.serial_number),
             stop_bits: parse_stop_bits(&config.stop_bits),
             validate_usb_identity: config.validate_usb_identity,
             vendor_id: config.vendor_id.and_then(|value| parse_usb_hex_id(&value)),
@@ -545,6 +555,16 @@ fn validate_usb_identity(
         );
     };
 
+    validate_usb_port_identity(request, device, &info)?;
+
+    Ok(())
+}
+
+fn validate_usb_port_identity(
+    request: &RuntimeActionRequest,
+    device: &SerialDeviceSpec,
+    info: &serialport::UsbPortInfo,
+) -> Result<(), RuntimeActionError> {
     if let Some(vendor_id) = device.vendor_id
         && info.vid != vendor_id
     {
@@ -567,8 +587,54 @@ fn validate_usb_identity(
             ),
         );
     }
-
+    if let Some(serial_number) = &device.serial_number
+        && optional_string_mismatch(info.serial_number.as_deref(), serial_number)
+    {
+        return failed(
+            request,
+            format!(
+                "serial port {} serial number mismatch: expected {serial_number}",
+                device.port
+            ),
+        );
+    }
+    if let Some(manufacturer) = &device.manufacturer
+        && optional_string_mismatch(info.manufacturer.as_deref(), manufacturer)
+    {
+        return failed(
+            request,
+            format!(
+                "serial port {} manufacturer mismatch: expected {manufacturer}",
+                device.port
+            ),
+        );
+    }
+    if let Some(product) = &device.product
+        && optional_string_mismatch(info.product.as_deref(), product)
+    {
+        return failed(
+            request,
+            format!(
+                "serial port {} product mismatch: expected {product}",
+                device.port
+            ),
+        );
+    }
     Ok(())
+}
+
+fn optional_string_mismatch(actual: Option<&str>, expected: &str) -> bool {
+    actual
+        .map(str::trim)
+        .is_none_or(|actual| !actual.eq_ignore_ascii_case(expected.trim()))
+}
+
+fn normalized_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn read_file_action(
@@ -2080,14 +2146,18 @@ mod tests {
     fn serial_device_config() -> SerialDeviceConfig {
         SerialDeviceConfig {
             auto_reconnect: true,
+            auto_rebind_port: false,
             baud_rate: 115_200,
             data_bits: 8,
             device_id: "main-device".to_owned(),
             flow_control: "none".to_owned(),
+            manufacturer: None,
             parity: "none".to_owned(),
             port: "COM3".to_owned(),
             product_id: None,
+            product: None,
             read_mode: "line".to_owned(),
+            serial_number: None,
             stop_bits: "1".to_owned(),
             validate_usb_identity: false,
             vendor_id: None,

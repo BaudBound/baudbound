@@ -1,9 +1,15 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use baudbound_core::{RunnerConfig, serial_device_configs_from_settings};
 use baudbound_triggers::{
-    SerialDeviceConfig as TriggerSerialDeviceConfig, WebSocketConnectionRegistry,
+    SerialDeviceConfig as TriggerSerialDeviceConfig, SerialPortRebindSink,
+    WebSocketConnectionRegistry,
 };
+use toml_edit::{DocumentMut, value};
 
 #[derive(Clone)]
 pub struct ServeOptions {
@@ -19,6 +25,7 @@ pub struct ServeOptions {
     pub(crate) schedules_enabled: bool,
     pub(crate) serial_enabled: bool,
     pub(crate) serial_devices: Vec<TriggerSerialDeviceConfig>,
+    pub(crate) serial_port_rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     pub(crate) startup_enabled: bool,
     pub webhook_bind: String,
     pub webhook_port: u16,
@@ -81,19 +88,24 @@ impl ServeOptions {
                 .into_iter()
                 .map(|device| TriggerSerialDeviceConfig {
                     auto_reconnect: device.auto_reconnect,
+                    auto_rebind_port: device.auto_rebind_port,
                     baud_rate: device.baud_rate,
                     data_bits: device.data_bits,
                     device_id: device.device_id,
                     flow_control: device.flow_control,
+                    manufacturer: device.manufacturer,
                     parity: device.parity,
                     port: device.port,
                     product_id: device.product_id,
+                    product: device.product,
                     read_mode: device.read_mode,
+                    serial_number: device.serial_number,
                     stop_bits: device.stop_bits,
                     validate_usb_identity: device.validate_usb_identity,
                     vendor_id: device.vendor_id,
                 })
                 .collect(),
+            serial_port_rebind_sink: None,
             startup_enabled: config.triggers.startup_enabled,
             webhook_bind: overrides
                 .webhook_bind
@@ -107,5 +119,66 @@ impl ServeOptions {
             websocket_registry,
             websockets_enabled: config.triggers.websockets_enabled || overrides.websockets,
         }
+    }
+
+    #[must_use]
+    pub fn with_serial_port_rebind_sink(mut self, sink: Arc<dyn SerialPortRebindSink>) -> Self {
+        self.serial_port_rebind_sink = Some(sink);
+        self
+    }
+}
+
+pub struct RunnerConfigSerialPortRebindSink {
+    config_path: PathBuf,
+    lock: Mutex<()>,
+}
+
+impl RunnerConfigSerialPortRebindSink {
+    #[must_use]
+    pub fn new(config_path: PathBuf) -> Self {
+        Self {
+            config_path,
+            lock: Mutex::new(()),
+        }
+    }
+}
+
+impl SerialPortRebindSink for RunnerConfigSerialPortRebindSink {
+    fn update_serial_device_port(&self, device_id: &str, port: &str) -> Result<(), String> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| "serial port rebind config lock is poisoned".to_owned())?;
+        let contents = std::fs::read_to_string(&self.config_path).map_err(|source| {
+            format!(
+                "failed to read runner config {}: {source}",
+                self.config_path.display()
+            )
+        })?;
+        let config = RunnerConfig::from_toml(&contents, &self.config_path)
+            .map_err(|source| source.to_string())?;
+        let device =
+            config.serial.devices.get(device_id).ok_or_else(|| {
+                format!("runner config has no serial device entry for {device_id:?}")
+            })?;
+        if device.port == port {
+            return Ok(());
+        }
+        let mut document = contents.parse::<DocumentMut>().map_err(|source| {
+            format!(
+                "failed to parse runner config {} for serial port rebind: {source}",
+                self.config_path.display()
+            )
+        })?;
+        document["serial"]["devices"][device_id]["port"] = value(port);
+        let next_contents = document.to_string();
+        RunnerConfig::from_toml(&next_contents, &self.config_path)
+            .map_err(|source| source.to_string())?;
+        std::fs::write(&self.config_path, next_contents).map_err(|source| {
+            format!(
+                "failed to write runner config {}: {source}",
+                self.config_path.display()
+            )
+        })
     }
 }

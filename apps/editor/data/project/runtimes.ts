@@ -4,7 +4,7 @@ export const targetRuntimes: TargetRuntime[] = [
 	"Generic Headless",
 	"Linux Headless",
 	"Windows Headless",
-	"macOS Background",
+	"macOS Headless",
 	"Generic Desktop",
 	"Windows Desktop",
 	"Linux Desktop",

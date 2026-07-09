@@ -3,7 +3,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ScriptStatus, type StoredRunRecord } from "@/lib/runner-api";
-import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
+import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
 
 export function ScriptDetailPanel({
   recentRuns,
@@ -46,7 +46,7 @@ export function ScriptDetailPanel({
               <Badge variant={script.package_error ? "destructive" : "good"}>
                 hash {packageHashLabel(script.package_hash_status)}
               </Badge>
-              <Badge variant={approvalLabel(script.approval_status) === "current" ? "good" : "medium"}>
+              <Badge variant={isApprovalCurrent(script.approval_status) ? "good" : "medium"}>
                 approval {approvalLabel(script.approval_status)}
               </Badge>
               <Badge variant={script.installed.enabled ? "good" : "muted"}>

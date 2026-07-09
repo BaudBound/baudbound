@@ -1,6 +1,7 @@
 use std::env;
 
 use anyhow::Result;
+use baudbound_core::WINDOWS_DESKTOP_ONLY_ACTIONS;
 use serde::Serialize;
 use serde_json::json;
 
@@ -112,11 +113,7 @@ pub fn desktop_doctor_checks() -> Vec<DoctorCheck> {
         DoctorCheck::new(
             cfg!(windows),
             "Screen pixel and window APIs",
-            &[
-                "action.pixel.get",
-                "action.window.active",
-                "action.window.focus",
-            ],
+            WINDOWS_DESKTOP_ONLY_ACTIONS,
             if cfg!(windows) {
                 "Get Pixel Color, Get Active Window, and Window Focus use native Win32 APIs."
             } else {

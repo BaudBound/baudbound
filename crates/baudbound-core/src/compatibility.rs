@@ -9,7 +9,7 @@ pub enum TargetRuntime {
     GenericHeadless,
     LinuxHeadless,
     WindowsHeadless,
-    MacOsBackground,
+    MacOsHeadless,
     GenericDesktop,
     WindowsDesktop,
     LinuxDesktop,
@@ -31,7 +31,7 @@ impl fmt::Display for TargetRuntime {
             Self::GenericHeadless => "Generic Headless",
             Self::LinuxHeadless => "Linux Headless",
             Self::WindowsHeadless => "Windows Headless",
-            Self::MacOsBackground => "macOS Background",
+            Self::MacOsHeadless => "macOS Headless",
             Self::GenericDesktop => "Generic Desktop",
             Self::WindowsDesktop => "Windows Desktop",
             Self::LinuxDesktop => "Linux Desktop",
@@ -177,23 +177,35 @@ impl ActionSupport {
 }
 
 fn action_support(action_type: &str) -> Option<ActionSupport> {
-    match action_type {
-        "action.pixel.get" | "action.window.active" | "action.window.focus" => {
-            Some(ActionSupport::WindowsDesktop)
-        }
-        "action.application.open"
-        | "action.clipboard"
-        | "action.keyboard"
-        | "action.keyboard.type_text"
-        | "action.message_box"
-        | "action.mouse"
-        | "action.mouse.move"
-        | "action.notification"
-        | "action.sound.play"
-        | "trigger.hotkey" => Some(ActionSupport::Desktop),
-        _ => None,
+    if WINDOWS_DESKTOP_ONLY_ACTIONS.contains(&action_type) {
+        return Some(ActionSupport::WindowsDesktop);
     }
+
+    if DESKTOP_ONLY_ACTIONS.contains(&action_type) {
+        return Some(ActionSupport::Desktop);
+    }
+
+    None
 }
+
+pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
+    "action.pixel.get",
+    "action.window.active",
+    "action.window.focus",
+];
+
+pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
+    "action.application.open",
+    "action.clipboard",
+    "action.keyboard",
+    "action.keyboard.type_text",
+    "action.message_box",
+    "action.mouse",
+    "action.mouse.move",
+    "action.notification",
+    "action.sound.play",
+    "trigger.hotkey",
+];
 
 #[derive(Debug, Clone, Copy)]
 struct ProgramNode<'a> {
@@ -288,7 +300,7 @@ fn default_host_target_runtimes() -> Vec<TargetRuntime> {
     {
         vec![
             TargetRuntime::GenericHeadless,
-            TargetRuntime::MacOsBackground,
+            TargetRuntime::MacOsHeadless,
             TargetRuntime::GenericDesktop,
             TargetRuntime::MacOsDesktop,
         ]
@@ -323,7 +335,7 @@ fn parse_target_runtime(value: &str) -> Result<TargetRuntime, CompatibilityError
         "Generic Headless" => Ok(TargetRuntime::GenericHeadless),
         "Linux Headless" => Ok(TargetRuntime::LinuxHeadless),
         "Windows Headless" => Ok(TargetRuntime::WindowsHeadless),
-        "macOS Background" => Ok(TargetRuntime::MacOsBackground),
+        "macOS Headless" => Ok(TargetRuntime::MacOsHeadless),
         "Generic Desktop" => Ok(TargetRuntime::GenericDesktop),
         "Windows Desktop" => Ok(TargetRuntime::WindowsDesktop),
         "Linux Desktop" => Ok(TargetRuntime::LinuxDesktop),

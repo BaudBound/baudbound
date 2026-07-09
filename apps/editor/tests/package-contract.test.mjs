@@ -286,14 +286,32 @@ test("native Windows-only desktop nodes declare target runtime compatibility", (
 	}
 });
 
+test("editor and runner target runtime compatibility policies stay aligned", () => {
+	const runnerPolicySource = read(join(repoRoot, "crates", "baudbound-core", "src", "compatibility.rs"));
+	const definitionsSource = readDefinitions();
+	const editorWindowsOnly = extractWindowsDesktopOnlyActionTypes(definitionsSource).sort();
+	const editorDesktopOnly = extractDesktopOnlyActionTypes(definitionsSource).sort();
+	const runnerWindowsOnly = extractRustConstStringArray(runnerPolicySource, "WINDOWS_DESKTOP_ONLY_ACTIONS").sort();
+	const runnerDesktopOnly = extractRustConstStringArray(runnerPolicySource, "DESKTOP_ONLY_ACTIONS").sort();
+
+	assert.deepEqual(editorWindowsOnly, runnerWindowsOnly, "Windows-only target runtime policies must match");
+	assert.deepEqual(editorDesktopOnly, runnerDesktopOnly, "desktop-only target runtime policies must match");
+
+	for (const actionType of [...editorWindowsOnly, ...editorDesktopOnly]) {
+		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
+		assert.match(definitionBlock, /desktopOnly:\s*true/, `${actionType} must be marked desktopOnly in the editor`);
+	}
+});
+
 test("target runtime compatibility covers platform-specific node config options", () => {
-	const registrySource = read(join(appRoot, "data", "nodes", "registry.ts"));
+	const mouseClickSource = read(join(appRoot, "data", "nodes", "definitions", "actions", "mouse-click.ts"));
 	const verificationSource = read(join(appRoot, "utils", "verification.ts"));
 	const contractSource = read(join(appRoot, "utils", "package-contract.ts"));
 
-	assert.match(registrySource, /targetRuntime === "macOS Desktop"/);
-	assert.match(registrySource, /node\.config\?\.button === "back"/);
-	assert.match(registrySource, /node\.config\?\.button === "forward"/);
+	assert.match(mouseClickSource, /validateTargetRuntime:/);
+	assert.match(mouseClickSource, /targetRuntime !== "macOS Desktop"/);
+	assert.match(mouseClickSource, /button === "back"/);
+	assert.match(mouseClickSource, /button === "forward"/);
 	assert.match(verificationSource, /config: node\.data\.config/);
 	assert.match(contractSource, /config: isJsonObject\(record\.config\)/);
 });
@@ -619,6 +637,12 @@ function extractConstStringArray(source, constName) {
 	return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
 }
 
+function extractRustConstStringArray(source, constName) {
+	const match = source.match(new RegExp(`(?:pub\\s+)?const ${constName}: &\\[&str\\] = &\\[([\\s\\S]*?)\\];`));
+	assert.ok(match, `${constName} must be declared as a Rust string array`);
+	return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+}
+
 function extractDefinitionCapabilities(definitionsSource, sharedSource) {
 	const sharedCapabilities = new Map(
 		[...sharedSource.matchAll(/export const (\w+) = \[([^\]]*)\]/g)].map((match) => [
@@ -639,6 +663,26 @@ function extractDefinitionCapabilities(definitionsSource, sharedSource) {
 	}
 
 	return capabilities;
+}
+
+function extractWindowsDesktopOnlyActionTypes(definitionsSource) {
+	return extractDefinitionActionTypes(definitionsSource).filter((actionType) =>
+		/supportedTargetRuntimes:\s*\[\s*"Windows Desktop"\s*\]/.test(getDefinitionBlock(definitionsSource, actionType)),
+	);
+}
+
+function extractDesktopOnlyActionTypes(definitionsSource) {
+	return extractDefinitionActionTypes(definitionsSource).filter((actionType) => {
+		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
+		return (
+			/desktopOnly:\s*true/.test(definitionBlock) &&
+			!/supportedTargetRuntimes:\s*\[\s*"Windows Desktop"\s*\]/.test(definitionBlock)
+		);
+	});
+}
+
+function extractDefinitionActionTypes(definitionsSource) {
+	return [...definitionsSource.matchAll(/actionType:\s*"([^"]+)"/g)].map((match) => match[1]);
 }
 
 function escapeRegExp(value) {

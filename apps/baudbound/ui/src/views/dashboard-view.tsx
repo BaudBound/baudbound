@@ -7,11 +7,12 @@ import { SummaryCard } from "@/components/summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload } from "@/lib/runner-api";
+import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
 
 export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
   const latestRuns = dashboard.recent_runs.slice(0, 5);
   const scriptsNeedingReview = dashboard.runner.scripts.filter(
-    (script) => script.approval_status !== "Current" || script.package_error,
+    (script) => !isApprovalCurrent(script.approval_status) || script.package_error,
   );
 
   return (
@@ -159,13 +160,6 @@ function OverviewTile({
       <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{detail}</div>
     </div>
   );
-}
-
-function approvalLabel(status: DashboardPayload["runner"]["scripts"][number]["approval_status"]) {
-  if (typeof status === "string") return status;
-  if ("StalePackageHash" in status) return "Stale package";
-  if ("Error" in status) return "Error";
-  return "Unknown";
 }
 
 function scriptName(dashboard: DashboardPayload, scriptId: string) {

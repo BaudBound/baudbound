@@ -29,13 +29,17 @@ type ConfigMode = "simple" | "advanced";
 
 const defaultSerialDevice: SerialDeviceSettings = {
   auto_reconnect: true,
+  auto_rebind_port: false,
   baud_rate: 115_200,
   data_bits: 8,
   flow_control: "none",
+  manufacturer: null,
   parity: "none",
   port: "",
   product_id: null,
+  product: null,
   read_mode: "line",
+  serial_number: null,
   stop_bits: "1",
   validate_usb_identity: false,
   vendor_id: null,
@@ -503,8 +507,27 @@ function SerialDeviceCard({
           }
           value={device.product_id ?? ""}
         />
+        <TextField
+          label="Serial number"
+          onChange={(serial_number) =>
+            onChange({ ...device, serial_number: nullableText(serial_number) })
+          }
+          value={device.serial_number ?? ""}
+        />
+        <TextField
+          label="Manufacturer"
+          onChange={(manufacturer) =>
+            onChange({ ...device, manufacturer: nullableText(manufacturer) })
+          }
+          value={device.manufacturer ?? ""}
+        />
+        <TextField
+          label="Product"
+          onChange={(product) => onChange({ ...device, product: nullableText(product) })}
+          value={device.product ?? ""}
+        />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <BooleanField
           checked={device.auto_reconnect}
           label="Auto reconnect"
@@ -514,10 +537,31 @@ function SerialDeviceCard({
           checked={device.validate_usb_identity}
           label="Validate USB vendor/product IDs"
           onChange={(validate_usb_identity) =>
-            onChange({ ...device, validate_usb_identity })
+            onChange({
+              ...device,
+              auto_rebind_port: validate_usb_identity ? device.auto_rebind_port : false,
+              validate_usb_identity,
+            })
+          }
+        />
+        <BooleanField
+          checked={device.auto_rebind_port}
+          label="Auto rebind changed port"
+          onChange={(auto_rebind_port) =>
+            onChange({
+              ...device,
+              auto_rebind_port,
+              validate_usb_identity: auto_rebind_port ? true : device.validate_usb_identity,
+            })
           }
         />
       </div>
+      {device.auto_rebind_port ? (
+        <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-3 py-2 text-xs text-baud-amber">
+          Auto rebind requires Vendor ID and Product ID. Add Serial number when multiple identical
+          devices may be connected.
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -680,7 +724,7 @@ const targetRuntimeOptions = [
   "Generic Headless",
   "Windows Headless",
   "Linux Headless",
-  "macOS Background",
+  "macOS Headless",
   "Generic Desktop",
   "Windows Desktop",
   "Linux Desktop",

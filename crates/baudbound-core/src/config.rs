@@ -54,10 +54,52 @@ impl RunnerConfig {
     }
 
     pub fn from_toml(contents: &str, path: impl AsRef<Path>) -> Result<Self, RunnerConfigError> {
-        toml::from_str(contents).map_err(|source| RunnerConfigError::Parse {
-            path: path.as_ref().to_path_buf(),
+        let path = path.as_ref();
+        let config: Self = toml::from_str(contents).map_err(|source| RunnerConfigError::Parse {
+            path: path.to_path_buf(),
             source,
+        })?;
+        config.validate(path)?;
+        Ok(config)
+    }
+
+    pub fn to_pretty_toml(&self) -> Result<String, RunnerConfigError> {
+        toml::to_string_pretty(self).map_err(|source| RunnerConfigError::Serialize {
+            message: source.to_string(),
         })
+    }
+
+    fn validate(&self, path: &Path) -> Result<(), RunnerConfigError> {
+        for (device_id, device) in &self.serial.devices {
+            if !device.auto_rebind_port {
+                continue;
+            }
+            if !device.validate_usb_identity {
+                return Err(RunnerConfigError::Validate {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "serial device {device_id:?} enables auto_rebind_port but validate_usb_identity is false"
+                    ),
+                });
+            }
+            if blank_optional(&device.vendor_id) {
+                return Err(RunnerConfigError::Validate {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "serial device {device_id:?} enables auto_rebind_port but vendor_id is not set"
+                    ),
+                });
+            }
+            if blank_optional(&device.product_id) {
+                return Err(RunnerConfigError::Validate {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "serial device {device_id:?} enables auto_rebind_port but product_id is not set"
+                    ),
+                });
+            }
+        }
+        Ok(())
     }
 
     pub fn write_template(path: impl AsRef<Path>) -> Result<(), RunnerConfigError> {
@@ -121,8 +163,12 @@ websockets_enabled = false
 # read_mode = "line"
 # auto_reconnect = true
 # validate_usb_identity = false
+# auto_rebind_port = false
 # vendor_id = "1A86"
 # product_id = "7523"
+# serial_number = ""
+# manufacturer = ""
+# product = ""
 
 [webhooks]
 bind = "127.0.0.1"
@@ -147,13 +193,17 @@ pub struct SerialSettings {
 #[serde(default)]
 pub struct SerialDeviceSettings {
     pub auto_reconnect: bool,
+    pub auto_rebind_port: bool,
     pub baud_rate: u32,
     pub data_bits: u8,
     pub flow_control: String,
+    pub manufacturer: Option<String>,
     pub parity: String,
     pub port: String,
     pub product_id: Option<String>,
+    pub product: Option<String>,
     pub read_mode: String,
+    pub serial_number: Option<String>,
     pub stop_bits: String,
     pub validate_usb_identity: bool,
     pub vendor_id: Option<String>,
@@ -163,13 +213,17 @@ impl Default for SerialDeviceSettings {
     fn default() -> Self {
         Self {
             auto_reconnect: true,
+            auto_rebind_port: false,
             baud_rate: 115_200,
             data_bits: 8,
             flow_control: "none".to_owned(),
+            manufacturer: None,
             parity: "none".to_owned(),
             port: String::new(),
             product_id: None,
+            product: None,
             read_mode: "line".to_owned(),
+            serial_number: None,
             stop_bits: "1".to_owned(),
             validate_usb_identity: false,
             vendor_id: None,
@@ -269,11 +323,23 @@ pub enum RunnerConfigError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("failed to serialize runner config: {message}")]
+    Serialize { message: String },
+    #[error("invalid runner config {path}: {message}")]
+    Validate { path: PathBuf, message: String },
     #[error("failed to write runner config {path}: {source}")]
     Write {
         path: PathBuf,
         source: std::io::Error,
     },
+}
+
+fn blank_optional(value: &Option<String>) -> bool {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
 }
 
 #[cfg(test)]
@@ -350,9 +416,11 @@ mod tests {
                 flow_control = "none"
                 read_mode = "line"
                 auto_reconnect = true
+                auto_rebind_port = true
                 validate_usb_identity = true
                 vendor_id = "1A86"
                 product_id = "7523"
+                serial_number = "ABC123"
 
                 [webhooks]
                 bind = "0.0.0.0"
@@ -394,7 +462,44 @@ mod tests {
             .expect("serial device should parse");
         assert_eq!(device.port, "COM3");
         assert_eq!(device.baud_rate, 115_200);
+        assert!(device.auto_rebind_port);
         assert_eq!(device.vendor_id.as_deref(), Some("1A86"));
+        assert_eq!(device.serial_number.as_deref(), Some("ABC123"));
+    }
+
+    #[test]
+    fn rejects_auto_rebind_without_usb_identity() {
+        let error = RunnerConfig::from_toml(
+            r#"
+                [serial.devices.main_controller]
+                port = "COM3"
+                auto_rebind_port = true
+                validate_usb_identity = false
+                vendor_id = "1A86"
+                product_id = "7523"
+            "#,
+            "runner.toml",
+        )
+        .expect_err("auto rebind without USB identity should fail");
+
+        assert!(matches!(error, RunnerConfigError::Validate { .. }));
+    }
+
+    #[test]
+    fn rejects_auto_rebind_without_vendor_or_product_id() {
+        let error = RunnerConfig::from_toml(
+            r#"
+                [serial.devices.main_controller]
+                port = "COM3"
+                auto_rebind_port = true
+                validate_usb_identity = true
+                vendor_id = "1A86"
+            "#,
+            "runner.toml",
+        )
+        .expect_err("auto rebind without product id should fail");
+
+        assert!(matches!(error, RunnerConfigError::Validate { .. }));
     }
 
     #[test]

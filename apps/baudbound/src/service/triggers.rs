@@ -138,6 +138,7 @@ fn build_trigger_services(
             registrations.clone(),
             options.serial_devices.clone(),
             trigger_sender.clone(),
+            options.serial_port_rebind_sink.clone(),
         )
         .context("failed to register serial input triggers")?
     } else {

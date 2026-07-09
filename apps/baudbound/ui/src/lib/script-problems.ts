@@ -1,5 +1,5 @@
 import type { ApprovalStatus, PackageHashStatus, ScriptStatus } from "@/lib/runner-api";
-import { approvalLabel, packageHashLabel } from "@/lib/status-format";
+import { approvalLabel, isApprovalCurrent, isPackageHashValid, packageHashLabel } from "@/lib/status-format";
 
 export type ScriptProblemSeverity = "error" | "warning";
 
@@ -50,7 +50,7 @@ export function scriptProblems(script: ScriptStatus): ScriptProblem[] {
 }
 
 export function hasApprovalProblem(status: ApprovalStatus) {
-  return approvalLabel(status) !== "current";
+  return !isApprovalCurrent(status);
 }
 
 export function hasBlockingProblem(script: ScriptStatus) {
@@ -59,7 +59,16 @@ export function hasBlockingProblem(script: ScriptStatus) {
 
 function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
   const label = packageHashLabel(status);
-  if (label === "valid") return null;
+  if (isPackageHashValid(status)) return null;
+
+  if (typeof status === "object" && "state" in status && status.state === "mismatch") {
+    return {
+      detail: `Expected ${status.expected}, but the installed package currently hashes to ${status.actual}.`,
+      id: "hash-mismatch",
+      severity: "error",
+      title: "Package hash mismatch",
+    };
+  }
 
   if (typeof status === "object" && "Mismatch" in status) {
     return {
@@ -67,6 +76,15 @@ function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
       id: "hash-mismatch",
       severity: "error",
       title: "Package hash mismatch",
+    };
+  }
+
+  if (typeof status === "object" && "state" in status && status.state === "error") {
+    return {
+      detail: status.message ?? "Package hash check failed.",
+      id: "hash-error",
+      severity: "error",
+      title: "Package hash check failed",
     };
   }
 
@@ -90,12 +108,30 @@ function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
 function approvalStatusProblem(status: ApprovalStatus): ScriptProblem | null {
   if (!hasApprovalProblem(status)) return null;
 
+  if (typeof status === "object" && "state" in status && status.state === "stale_package_hash") {
+    return {
+      detail: `Approved hash ${status.approved_package_hash}, installed hash ${status.installed_package_hash}. Review and approve again if this update is expected.`,
+      id: "approval-stale-hash",
+      severity: "error",
+      title: "Approval is stale",
+    };
+  }
+
   if (typeof status === "object" && "StalePackageHash" in status) {
     return {
       detail: `Approved hash ${status.StalePackageHash.approved_package_hash}, installed hash ${status.StalePackageHash.installed_package_hash}. Review and approve again if this update is expected.`,
       id: "approval-stale-hash",
       severity: "error",
       title: "Approval is stale",
+    };
+  }
+
+  if (typeof status === "object" && "state" in status && status.state === "error") {
+    return {
+      detail: status.message ?? "Approval check failed.",
+      id: "approval-error",
+      severity: "error",
+      title: "Approval check failed",
     };
   }
 
