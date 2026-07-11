@@ -31,6 +31,7 @@ impl ProcessSource {
         self.system
             .processes()
             .values()
+            .filter(|process| process.thread_kind().is_none())
             .map(ProcessSnapshot::from_process)
             .map(|snapshot| (snapshot.identity, snapshot))
             .collect()
