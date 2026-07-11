@@ -9,13 +9,13 @@ tags: [runner, installation]
 
 BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is distributed as an installer. Linux is distributed as an AppImage built on Ubuntu 22.04.
 
-Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the newest non-draft release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
+Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
 ## Platform installation {.tabset}
 
 ### Windows
 
-1. Download the `.exe` setup file from the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
+1. Download the `.exe` setup file from the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
 2. Open the downloaded file and complete the installer.
 3. Start **BaudBound** from the Start menu.
 4. Confirm that the Dashboard opens without an error banner.
@@ -28,7 +28,7 @@ The installer provides the desktop application. It does not guarantee that `baud
 
 An AppImage is a portable executable. The steps below keep it in your home directory and create a `baudbound` command for your user account. They do not install a system package and do not require `sudo`.
 
-1. Download the `.AppImage` from the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
+1. Download the `.AppImage` from the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
 2. Open a terminal in the directory containing the download. Most browsers save it in `~/Downloads`.
 3. Confirm that only the new release matches the filename pattern:
 
@@ -111,9 +111,14 @@ On Linux, automatic updates require the real AppImage to remain writable by the 
 
 Use these steps only when the update dialog cannot complete the update.
 
-1. Open **Service** and stop the desktop background runner.
-2. Open the tray menu and choose **Quit**. Closing only the window is not enough because BaudBound normally remains in the tray.
-3. Open a terminal and confirm that no BaudBound process remains:
+1. Stop BaudBound according to how it is currently running:
+
+- **Desktop application:** Open **Service** and stop the desktop background runner. Then open the tray menu and choose **Quit**. Closing only the window is not enough because BaudBound normally remains in the tray.
+- **One-time CLI command:** Wait for the command to finish before updating.
+- **`baudbound serve` in a terminal:** Press `Ctrl+C` in that terminal and wait for the process to exit.
+- **Service-manager installation:** Do not use this desktop/CLI fallback. Follow [Updating the headless runner](../self-hosting/linux-background-service.md#updating-the-headless-runner) so systemd, OpenRC, or runit is stopped and restarted correctly.
+
+2. Open a terminal and confirm that no BaudBound process remains:
 
 ```text
 pgrep -af 'BaudBound|baudbound'
@@ -121,38 +126,55 @@ pgrep -af 'BaudBound|baudbound'
 
 No output means BaudBound has stopped. If a process is listed, return to the application or service manager and stop it normally before continuing.
 
-4. Download the new AppImage using either method below.
+3. Put the new AppImage at `~/Downloads/BaudBound.AppImage` using one of these download options.
 
-#### Download method {.tabset}
+**Option A: Web browser**
 
-##### Web browser
+Open the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, move it to `~/Downloads` if necessary, and rename the downloaded file to `BaudBound.AppImage`.
 
-Open the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, move it to `~/Downloads` if necessary, and rename the downloaded file to `BaudBound.AppImage`.
+**Option B: Terminal with curl**
 
-##### Terminal with curl
-
-Open the newest non-draft [BaudBound GitHub release](https://github.com/NATroutter/BaudBound/releases) in a browser and copy the link address of its `.AppImage` asset. Replace `APPIMAGE_DOWNLOAD_URL` in this command with that complete copied URL:
+This option requires `curl` and `jq`. Confirm that both commands are installed:
 
 ```text
-curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "APPIMAGE_DOWNLOAD_URL"
+command -v curl
+command -v jq
 ```
 
-`curl` prints an error and leaves the current installation unchanged when the download fails.
+Both commands must print a path. If either prints nothing, install that command with the distribution's package manager or use the web browser option.
 
-5. Confirm that the downloaded file exists:
+Fetch the AppImage URL from GitHub's latest published release and store it in `APPIMAGE_DOWNLOAD_URL`:
+
+```text
+APPIMAGE_DOWNLOAD_URL="$(curl --fail --silent --show-error "https://api.github.com/repos/NATroutter/BaudBound/releases/latest" | jq -er '.assets | map(select(.name | endswith(".AppImage"))) | if length == 1 then .[0].browser_download_url else error("expected exactly one AppImage asset") end')"
+printf '%s\n' "$APPIMAGE_DOWNLOAD_URL"
+```
+
+The printed URL must begin with `https://github.com/NATroutter/BaudBound/releases/download/` and end with `.AppImage`. Download that asset:
+
+```text
+mkdir -p "$HOME/Downloads"
+curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "$APPIMAGE_DOWNLOAD_URL"
+```
+
+If the API is unavailable, rate-limited, or does not contain exactly one AppImage, the URL command fails instead of choosing an arbitrary asset. Use the web browser option in that case. A failed download leaves the current installation unchanged.
+
+After completing either option, continue with step 4. Both options produce the same `~/Downloads/BaudBound.AppImage` file used by the remaining update steps.
+
+4. Confirm that the downloaded file exists:
 
 ```text
 ls -lh "$HOME/Downloads/BaudBound.AppImage"
 ```
 
-6. Copy it over the currently installed AppImage and restore executable permissions:
+5. Copy it over the currently installed AppImage and restore executable permissions:
 
 ```text
 cp "$HOME/Downloads/BaudBound.AppImage" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 ```
 
-7. Verify the installed version, then launch BaudBound:
+6. Verify the installed version, then launch BaudBound:
 
 ```text
 baudbound --version

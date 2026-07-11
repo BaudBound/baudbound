@@ -364,22 +364,40 @@ Run only one of the three commands above.
 
 2. Confirm that the matching service status reports stopped, down, or inactive before replacing the executable.
 
-3. Download the new AppImage using either method below.
+3. Put the new AppImage at `~/Downloads/BaudBound.AppImage` for the administrator account using one of these download options.
 
-### Download method {.tabset}
+**Option A: Web browser**
 
-#### Web browser
+Open the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, transfer it to the server if the browser is on another machine, and save it as `~/Downloads/BaudBound.AppImage` for the administrator account running these commands.
 
-Open the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, transfer it to the server if the browser is on another machine, and save it as `~/Downloads/BaudBound.AppImage` for the administrator account running these commands.
+**Option B: Terminal with curl**
 
-#### Terminal with curl
+This option requires `curl` and `jq`. Confirm that both commands are installed:
 
-Open the newest non-draft [BaudBound GitHub release](https://github.com/NATroutter/BaudBound/releases) and copy the link address of its `.AppImage` asset. Replace `APPIMAGE_DOWNLOAD_URL` with that complete copied URL:
+```text
+command -v curl
+command -v jq
+```
+
+Both commands must print a path. If either prints nothing, install that command with the distribution's package manager or use the web browser option.
+
+Fetch the AppImage URL from GitHub's latest published release and store it in `APPIMAGE_DOWNLOAD_URL`:
+
+```text
+APPIMAGE_DOWNLOAD_URL="$(curl --fail --silent --show-error "https://api.github.com/repos/NATroutter/BaudBound/releases/latest" | jq -er '.assets | map(select(.name | endswith(".AppImage"))) | if length == 1 then .[0].browser_download_url else error("expected exactly one AppImage asset") end')"
+printf '%s\n' "$APPIMAGE_DOWNLOAD_URL"
+```
+
+The printed URL must begin with `https://github.com/NATroutter/BaudBound/releases/download/` and end with `.AppImage`. Download that asset:
 
 ```text
 mkdir -p "$HOME/Downloads"
-curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "APPIMAGE_DOWNLOAD_URL"
+curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "$APPIMAGE_DOWNLOAD_URL"
 ```
+
+If the API is unavailable, rate-limited, or does not contain exactly one AppImage, the URL command fails instead of choosing an arbitrary asset. Use the web browser option in that case.
+
+After completing either option, continue with step 4. Both options produce the same `~/Downloads/BaudBound.AppImage` file used by the remaining update steps.
 
 4. Confirm that the downloaded file exists:
 

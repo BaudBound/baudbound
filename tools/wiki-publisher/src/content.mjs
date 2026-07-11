@@ -4,13 +4,14 @@ import path from "node:path";
 import fg from "fast-glob";
 import matter from "gray-matter";
 import { remark } from "remark";
+import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { visit } from "unist-util-visit";
 
 import { DEFAULT_LOCALE, MANAGED_TAGS, sourcePathToWikiPath } from "./constants.mjs";
 
-const markdownProcessor = remark().use(remarkParse).use(remarkStringify, {
+const markdownProcessor = remark().use(remarkParse).use(remarkGfm).use(remarkStringify, {
   bullet: "-",
   fences: true,
   listItemIndent: "one",

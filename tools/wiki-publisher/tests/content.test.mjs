@@ -47,6 +47,21 @@ test("preserves Wiki.js tabset attributes", async (context) => {
   assert.match(home.content, /^### Linux$/m);
 });
 
+test("preserves GitHub-style task list markers", async (context) => {
+  const root = await fixtureRoot(context);
+  await writePage(
+    root,
+    "home.md",
+    pageSource("Checklist", "Release checklist", "- [ ] Pending item\n- [x] Complete item"),
+  );
+
+  const [home] = await loadWikiPages(root);
+
+  assert.match(home.content, /^- \[ \] Pending item$/m);
+  assert.match(home.content, /^- \[x\] Complete item$/m);
+  assert.doesNotMatch(home.content, /\\\[ \]/);
+});
+
 test("rejects missing links and missing local images with source locations", async (context) => {
   const root = await fixtureRoot(context);
   await writePage(
