@@ -29,6 +29,7 @@
 
     { "id": "section-deployment", "kind": "header", "label": "Deployment" },
     { "id": "deployment", "kind": "link", "label": "Deployment Guide", "icon": "mdi-cloud-upload", "path": "deployment" },
+    { "id": "deployment-linux-service", "kind": "link", "label": "Linux Background Service", "icon": "mdi-linux", "path": "deployment/linux-background-service" },
 
     { "id": "section-developers", "kind": "header", "label": "Developers" },
     { "id": "developers", "kind": "link", "label": "Developer Overview", "icon": "mdi-code-braces", "path": "developers" },
