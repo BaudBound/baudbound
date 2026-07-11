@@ -218,7 +218,7 @@ $ciRun = gh run list `
   --json databaseId `
   --jq '.[0].databaseId'
 
-gh run watch $ciRun --compact --exit-status
+gh run watch $ciRun --exit-status
 ```
 
 ### 6. Create and push the release tag
@@ -248,7 +248,7 @@ $releaseRun = gh run list `
   --json databaseId `
   --jq '.[0].databaseId'
 
-gh run watch $releaseRun --compact --exit-status
+gh run watch $releaseRun --exit-status
 ```
 
 If it fails, inspect only the failed logs:
@@ -261,7 +261,7 @@ For a transient runner or network failure, rerun failed jobs without changing th
 
 ```powershell
 gh run rerun $releaseRun --failed
-gh run watch $releaseRun --compact --exit-status
+gh run watch $releaseRun --exit-status
 ```
 
 Do not rerun a deterministic compilation, test, version, or signing failure without fixing its cause.

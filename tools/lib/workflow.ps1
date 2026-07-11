@@ -48,6 +48,6 @@ function Watch-ReleaseWorkflow {
     }
     Write-Step "Watching the Runner Release workflow"
     $run = Get-WorkflowRun -Workflow $script:ReleaseWorkflow -Commit $commit
-    Invoke-External "gh" @("run", "watch", [string]$run.databaseId, "--compact", "--exit-status")
+    Invoke-External "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
     Write-Host "`nRelease workflow passed. Inspect the draft before publishing." -ForegroundColor Green
 }
