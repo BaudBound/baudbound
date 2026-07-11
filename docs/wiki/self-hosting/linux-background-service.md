@@ -14,31 +14,86 @@ All variants below use:
 - runner home: `/var/lib/baudbound`
 - optional secret environment: `/etc/baudbound/runner.env`
 
-Change the executable path when using a locally built `baudbound` binary. Test the executable on the host before enabling a service:
+An AppImage is a portable executable rather than a traditional installed package. These instructions copy the downloaded release to a stable path so service definitions do not change with every version.
+{.is-info}
+
+Download the current x86-64 AppImage from the project's GitHub release before continuing. Keep only the release you intend to install in the current directory when using the wildcard commands below.
+
+## Distribution preparation {.tabset}
+
+### Debian and Ubuntu
+
+Update package metadata and install the FUSE 2 runtime required by the AppImage. Ubuntu 24.04 and newer use the renamed `libfuse2t64` package:
 
 ```text
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage --version
+sudo apt update
+if apt-cache show libfuse2t64 >/dev/null 2>&1; then
+    sudo apt install -y libfuse2t64
+else
+    sudo apt install -y libfuse2
+fi
 ```
 
-## Prepare the account and files
+Create the service identity:
 
 ```text
 sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell /usr/sbin/nologin baudbound
+sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
+```
+
+### Fedora
+
+Install Fedora's FUSE 2 compatibility libraries:
+
+```text
+sudo dnf install -y fuse-libs
+```
+
+Create the service identity:
+
+```text
+sudo groupadd --system baudbound
+sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
+```
+
+### Arch Linux
+
+Perform a full system upgrade and install FUSE 2. Arch does not support partial upgrades:
+
+```text
+sudo pacman -Syu --needed fuse2
+```
+
+Create the service identity:
+
+```text
+sudo groupadd --system baudbound
+sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
+```
+
+## Install and initialize BaudBound
+
+The package names above follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) and Fedora's current [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/).
+
+Create the application, configuration, and state directories, then install the downloaded AppImage:
+
+```text
 sudo install -d -m 0755 /opt/baudbound /etc/baudbound
 sudo install -d -o baudbound -g baudbound -m 0750 /var/lib/baudbound
 sudo install -m 0755 BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage
 sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage config init
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage --version
 ```
 
-On Alpine, replace the `groupadd` and `useradd` commands with its native account tools:
+The downloaded filename can differ between releases. The destination remains `/opt/baudbound/BaudBound.AppImage`; replace it atomically with the newer AppImage during a manual update.
+
+On Alpine, install FUSE and use its native account tools before running the shared installation commands:
 
 ```text
+sudo apk add fuse
 sudo addgroup -S baudbound
 sudo adduser -S -D -H -h /var/lib/baudbound -s /sbin/nologin -G baudbound baudbound
 ```
-
-The downloaded AppImage filename can differ between releases. Substitute its actual filename in the `install` command, while keeping the stable destination path used by the service definitions below.
 
 Edit `/var/lib/baudbound/config.toml`, then keep it writable by `baudbound` when automatic serial-port rebinding is enabled. Add the account to the distribution's serial-device group, commonly `dialout` or `uucp`, when scripts use serial ports.
 
@@ -57,7 +112,12 @@ sudoedit /etc/baudbound/runner.env
 
 Omit the file when no installed script uses secrets. CLI commands that access secret values must receive the same key through the host's secret-management process.
 
-## systemd
+Do not run the desktop-owned background runner and an operating-system service against the same `BAUDBOUND_HOME`. Two service owners can deliver triggers twice and conflict over listener ports.
+{.is-warning}
+
+## Service manager {.tabset}
+
+### systemd
 
 Create `/etc/systemd/system/baudbound.service`:
 
@@ -96,7 +156,7 @@ After changing the unit, run `daemon-reload` and restart it. Installed-script li
 
 The unit fields and restart behavior are defined by the official [systemd service documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
 
-## OpenRC
+### OpenRC
 
 Create `/etc/init.d/baudbound`:
 
@@ -135,7 +195,7 @@ sudo rc-service baudbound status
 
 OpenRC service scripts live in `/etc/init.d`; Alpine documents service control through `rc-service` and boot enablement through `rc-update` in its [OpenRC guide](https://wiki.alpinelinux.org/wiki/OpenRC).
 
-## runit
+### runit
 
 Create `/etc/sv/baudbound/run`:
 

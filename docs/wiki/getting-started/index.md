@@ -49,7 +49,7 @@ Keep listener-based triggers active:
 baudbound serve
 ```
 
-Continue with [Script Management](../runner/quick-start.md) and the [Background Service](../runner/background-service.md).
+Continue with [Script Management](../runner/script-management.md) and [Service and Triggers](../runner/service-triggers.md).
 
 ## Key terms
 

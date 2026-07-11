@@ -60,7 +60,7 @@ export async function loadWikiNavigation(sourcePath, pages) {
       throw new Error(`${location}.path duplicates managed page ${source.locale}:${item.path}`);
     }
     linkedPages.add(pageKey);
-    return apiItem(item, source.locale);
+    return apiItem(item);
   });
 
   const missingPages = pages
@@ -86,7 +86,7 @@ export async function reconcileNavigation({
   return { changed, mode: local.mode };
 }
 
-function apiItem(item, locale) {
+function apiItem(item) {
   const isLink = item.kind === "link";
   const isHome = isLink && item.path === "home";
   return {
@@ -94,7 +94,7 @@ function apiItem(item, locale) {
     id: item.id,
     kind: item.kind,
     label: item.label ?? null,
-    target: isLink && !isHome ? `/${locale}/${item.path}` : "",
+    target: isLink && !isHome ? `/${item.path}` : "",
     targetType: isLink ? (isHome ? "home" : "page") : null,
     visibilityGroups: [],
     visibilityMode: "all",

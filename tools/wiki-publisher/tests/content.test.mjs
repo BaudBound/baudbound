@@ -28,6 +28,25 @@ test("loads metadata and rewrites repository links to Wiki.js paths", async (con
   assert.deepEqual(home.tags, ["baudbound-docs", "managed-by-git"]);
 });
 
+test("preserves Wiki.js tabset attributes", async (context) => {
+  const root = await fixtureRoot(context);
+  await writePage(
+    root,
+    "home.md",
+    pageSource(
+      "BaudBound",
+      "Home page",
+      "## Platforms {.tabset}\n\n### Windows\n\nWindows content.\n\n### Linux\n\nLinux content.",
+    ),
+  );
+
+  const [home] = await loadWikiPages(root);
+
+  assert.match(home.content, /^## Platforms \{\.tabset\}$/m);
+  assert.match(home.content, /^### Windows$/m);
+  assert.match(home.content, /^### Linux$/m);
+});
+
 test("rejects missing links and local images with source locations", async (context) => {
   const root = await fixtureRoot(context);
   await writePage(

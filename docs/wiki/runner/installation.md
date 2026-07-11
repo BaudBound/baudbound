@@ -9,11 +9,13 @@ tags: [runner, installation]
 
 BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is distributed as an installer. Linux is distributed as an AppImage built on Ubuntu 22.04.
 
-## Windows
+## Platform installation {.tabset}
+
+### Windows
 
 Download and run the signed NSIS installer from the project's GitHub release. WebView2 is required and is normally present on supported Windows systems.
 
-## Linux
+### Linux
 
 Download the `.AppImage`, make it executable, and launch it:
 
@@ -23,6 +25,9 @@ chmod +x BaudBound_*.AppImage
 ```
 
 BaudBound does not currently publish `.deb` or `.rpm` packages. AppImage compatibility still depends on the host kernel, architecture, graphics session, and required system integration; test it on the intended distribution before deployment.
+
+AppImages are portable executables and are not installed through the system package database. For a persistent headless installation with distro-specific prerequisites, follow [Linux Background Service](../self-hosting/linux-background-service.md).
+{.is-info}
 
 ## First launch
 
@@ -40,4 +45,4 @@ Desktop builds check for a signed update at startup. When a newer version is ava
 
 Headless operators and Linux users whose installation cannot be replaced automatically should download the new artifact from the project's GitHub releases. Never bypass signature verification.
 
-Continue with [Script Management](quick-start.md).
+Continue with [Script Management](script-management.md).

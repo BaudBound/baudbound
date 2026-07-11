@@ -21,7 +21,7 @@ test("loads a complete static navigation tree and maps page targets", async () =
   assert.equal(navigation.tree[0].items[1].targetType, "home");
   assert.equal(navigation.tree[0].items[1].target, "");
   assert.equal(navigation.tree[0].items[2].targetType, "page");
-  assert.equal(navigation.tree[0].items[2].target, "/en/guide");
+  assert.equal(navigation.tree[0].items[2].target, "/guide");
 });
 
 test("rejects duplicate ids, missing pages, and incomplete page coverage", async () => {

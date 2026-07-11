@@ -13,7 +13,7 @@ The desktop app can own a background runner process for the current user session
 
 ## Headless operation
 
-Run `baudbound serve` under the process supervisor used by the system. BaudBound does not install or manage systemd units. The [Linux Background Service](../deployment/linux-background-service.md) guide provides complete systemd, OpenRC, and runit configurations with a dedicated account, persistent `BAUDBOUND_HOME`, secret-key environment, restart policy, and service logs.
+Run `baudbound serve` under the process supervisor used by the system. BaudBound does not install or manage systemd units. The [Linux Background Service](../self-hosting/linux-background-service.md) guide provides complete systemd, OpenRC, and runit configurations with a dedicated account, persistent `BAUDBOUND_HOME`, secret-key environment, restart policy, and service logs.
 
 Use graceful termination so the runner can stop listeners and finish durable state updates. Importing, updating, enabling, or disabling scripts from another CLI process does not require a manual restart: the service detects durable state changes at the configured reload interval. A trigger reload can also be requested from the UI.
 

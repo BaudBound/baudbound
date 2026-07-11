@@ -1,9 +1,9 @@
 ---
-title: Deployment
+title: Self-Hosting
 description: Self-host the BaudBound editor and schema service.
-tags: [deployment, operations]
+tags: [self-hosting, operations]
 ---
-# Deployment
+# Self-Hosting
 
 ## Self-host the editor
 
