@@ -95,19 +95,41 @@ baudbound config path
 
 ## Updates
 
-Desktop builds check for a signed update at startup. When a newer version is available, the update dialog shows its release information and download progress. After verification, choose Restart to install and launch it.
+### Automatic update
+
+This is the recommended update method for desktop users. No terminal commands are required.
+
+1. Start BaudBound normally.
+2. When an update is available, review the version and release notes in the update dialog.
+3. Choose **Download update** and wait for the progress bar to finish.
+4. Choose **Restart and install**.
+5. After BaudBound opens again, confirm the new version in the application.
 
 On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root` or point the desktop `baudbound` link at the root-owned headless service copy under `/opt`.
 
-For a manual Linux update, exit BaudBound completely and open a terminal in the directory containing the new AppImage. Copy it to a temporary destination, make it executable, and then replace the stable file:
+### Manual Linux fallback
+
+Use these steps only when the update dialog cannot complete the update.
+
+1. Exit BaudBound completely, including its tray process.
+2. Download the new AppImage from the GitHub release.
+3. Open a terminal in the download directory and confirm that only the intended release matches `BaudBound_*.AppImage`.
+4. Copy the download to a temporary file named `BaudBound.AppImage.replacement` and make it executable:
 
 ```text
-cp BaudBound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage.new"
-chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage.new"
-mv "$HOME/.local/opt/baudbound/BaudBound.AppImage.new" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+cp BaudBound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement"
+chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement"
+```
+
+The temporary file protects the working application if copying fails. It is not another installation.
+
+5. If both commands succeed, replace the old AppImage and verify the installed version:
+
+```text
+mv "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 baudbound --version
 ```
 
-The `baudbound` symlink does not change. Headless operators should replace `/opt/baudbound/BaudBound.AppImage` using the procedure in [Linux Background Service](../self-hosting/linux-background-service.md). Never bypass signature verification.
+The `baudbound` symlink does not change. If copying or permission changes fail, do not run `mv`; the previous application remains intact. Headless operators should use the separate update procedure in [Linux Background Service](../self-hosting/linux-background-service.md). Never bypass signature verification.
 
 Continue with [Script Management](script-management.md).

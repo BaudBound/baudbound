@@ -178,18 +178,6 @@ The final command must print the expected BaudBound version. Stop here and corre
 
 The downloaded filename can differ between releases. The destination always remains `/opt/baudbound/BaudBound.AppImage`.
 
-For a manual update, stop BaudBound using the selected service manager. From the directory containing the new AppImage, copy it to a temporary path, set its ownership and permissions, and move it over the old executable:
-
-```text
-sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage.new
-sudo chown root:root /opt/baudbound/BaudBound.AppImage.new
-sudo chmod 0755 /opt/baudbound/BaudBound.AppImage.new
-sudo mv /opt/baudbound/BaudBound.AppImage.new /opt/baudbound/BaudBound.AppImage
-baudbound --version
-```
-
-Restart the service and confirm its status after the version command prints the expected release.
-
 Edit the generated configuration:
 
 ```text
@@ -347,3 +335,72 @@ sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound
 Replace `/path/to/automation.bbs` and `SCRIPT` with real values. The service notices imported and enabled scripts at the configured reload interval.
 
 Use graceful stop and restart commands from the selected service manager. The runner handles `baudbound serve` as a foreground process and reloads durable script lifecycle changes automatically. Restart the service after editing `config.toml` so listener settings are reconstructed from the new configuration.
+
+## Updating the headless runner
+
+The desktop update dialog is not used for a root-owned headless installation. Update it manually:
+
+1. Download the new AppImage from the GitHub release.
+2. Stop BaudBound with the command for the active service manager:
+
+**systemd**
+
+```text
+sudo systemctl stop baudbound.service
+```
+
+**OpenRC**
+
+```text
+sudo rc-service baudbound stop
+```
+
+**runit**
+
+```text
+sudo sv down baudbound
+```
+
+Run only one of the three commands above.
+
+3. Open a terminal in the download directory. Copy the new release to a temporary file named `BaudBound.AppImage.replacement`, then set its owner and permissions:
+
+```text
+sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage.replacement
+sudo chown root:root /opt/baudbound/BaudBound.AppImage.replacement
+sudo chmod 0755 /opt/baudbound/BaudBound.AppImage.replacement
+```
+
+The existing runner has not changed yet. If one of these commands fails, correct the error before continuing.
+
+4. Replace the old executable and verify the new version:
+
+```text
+sudo mv /opt/baudbound/BaudBound.AppImage.replacement /opt/baudbound/BaudBound.AppImage
+baudbound --version
+```
+
+5. Start BaudBound using the active service manager:
+
+**systemd**
+
+```text
+sudo systemctl start baudbound.service
+sudo systemctl status baudbound.service
+```
+
+**OpenRC**
+
+```text
+sudo rc-service baudbound start
+sudo rc-service baudbound status
+```
+
+**runit**
+
+```text
+sudo sv up baudbound
+sudo sv status baudbound
+```
+
+Run only the matching pair. The final status must report that BaudBound is running before leaving the update unattended.
