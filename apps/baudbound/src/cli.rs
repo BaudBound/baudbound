@@ -321,10 +321,9 @@ fn desktop_session_available() -> bool {
 mod tests {
     use clap::Parser;
 
-    use super::{
-        Cli, Command, SecretCommand, default_command, default_command_for_session,
-        parse_positive_usize,
-    };
+    #[cfg(windows)]
+    use super::default_command;
+    use super::{Cli, Command, SecretCommand, default_command_for_session, parse_positive_usize};
 
     #[test]
     fn positive_size_parser_rejects_zero_and_invalid_values() {

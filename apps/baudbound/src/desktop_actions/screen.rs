@@ -1,5 +1,8 @@
 use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
-use serde_json::{Map, Number, Value};
+use serde_json::{Map, Value};
+
+#[cfg(any(windows, test))]
+use serde_json::Number;
 
 #[cfg(not(windows))]
 use super::config::failed_error;
@@ -90,6 +93,7 @@ pub(super) fn native_window_focus(
     unsupported_native(request, "window focus")
 }
 
+#[cfg(any(windows, test))]
 pub(in crate::desktop_actions) fn pixel_color_map(
     x: u32,
     y: u32,
