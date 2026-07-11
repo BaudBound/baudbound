@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_core::RunnerCore;
+use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 
 use super::{
@@ -26,6 +27,7 @@ use super::{
     shutdown::install_shutdown_handler,
     summary::print_service_summary,
     triggers::{load_trigger_services, reload_trigger_services_if_changed},
+    webhooks::WebhookHost,
 };
 
 pub fn serve_triggers(
@@ -72,12 +74,14 @@ pub fn serve_triggers_with_control(
         spawn_hotkey_stdin_reader(hotkey_sender);
     }
     let service_control = ServiceControlServer::bind()?;
-    let mut trigger_executor = TriggerExecutor::new(core, store, "listener")
+    let cancellation = RuntimeCancellationToken::new();
+    let mut trigger_executor = TriggerExecutor::new(core, store, "listener", cancellation.clone())
         .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;
     let mut status = ServeStatusTracker::start(service_control.descriptor().clone());
-    let mut services = load_trigger_services(core, store, &options, &trigger_sender)?;
+    let mut services =
+        load_trigger_services(core, store, &options, &trigger_sender, &cancellation)?;
     let mut dispatched_any_event =
-        dispatch_startup_events(core, store, &mut services.startup, &mut status);
+        dispatch_startup_events(&mut services.startup, &mut trigger_executor, &mut status);
     status.write_running(store, &options, &services)?;
 
     if services.is_idle() {
@@ -107,6 +111,7 @@ pub fn serve_triggers_with_control(
     let mut next_reload_check = Instant::now() + options.reload_check_interval;
     loop {
         if control.shutdown_requested.load(Ordering::SeqCst) {
+            cancellation.cancel();
             println!(
                 "{}. Stopping trigger listener services.",
                 control.stop_label
@@ -119,6 +124,7 @@ pub fn serve_triggers_with_control(
             .poll_command()
             .context("runner control IPC failed")?;
         if matches!(service_control_command, Some(ServiceControlCommand::Stop)) {
+            cancellation.cancel();
             println!("Service stop requested. Stopping trigger listener services.");
             status.write_stopped(store, &options, &services)?;
             return Ok(());
@@ -136,6 +142,7 @@ pub fn serve_triggers_with_control(
                 &options,
                 &trigger_sender,
                 services,
+                &cancellation,
             )?;
             if did_reload {
                 if control_reload_requested {
@@ -164,20 +171,27 @@ pub fn serve_triggers_with_control(
         if let Some(host) = services.webhook_host.as_mut() {
             dispatched_any_event |= host.poll(&mut status);
         }
-        dispatched_any_event |= record_trigger_completions(&trigger_executor, &mut status);
+        dispatched_any_event |= record_trigger_completions(&mut trigger_executor, &mut status);
 
         dispatched_any_event |=
-            dispatch_due_schedules(core, store, &mut services.schedules, &mut status);
+            dispatch_due_schedules(&mut services.schedules, &mut trigger_executor, &mut status);
         dispatched_any_event |= dispatch_hotkey_stdin_events(
-            core,
-            store,
             &services.hotkey_service,
             &hotkey_receiver,
+            &mut trigger_executor,
             &mut status,
         );
         queue_trigger_events(&trigger_receiver, &mut trigger_executor, &mut status);
 
-        if options.once && dispatched_any_event {
+        let webhook_execution_pending = services
+            .webhook_host
+            .as_ref()
+            .is_some_and(WebhookHost::has_pending_execution);
+        if options.once
+            && dispatched_any_event
+            && !trigger_executor.has_pending()
+            && !webhook_execution_pending
+        {
             status.write_stopped(store, &options, &services)?;
             return Ok(());
         }

@@ -596,98 +596,6 @@ test("loop control bodies do not require return edges", () => {
 	assert.match(helpSource, /body branch should end naturally/);
 });
 
-test("example package fixtures contain required package files", () => {
-	const examplesRoot = join(repoRoot, "examples");
-	const requiredFiles = [
-		"manifest.json",
-		"program.json",
-		"permissions.json",
-		"capabilities.json",
-		"editor.json",
-		"README.md",
-	];
-	const exampleDirectories = readdirSync(examplesRoot, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory())
-		.map((entry) => join(examplesRoot, entry.name));
-
-	assert.ok(exampleDirectories.length > 0, "examples directory should contain package fixtures");
-	for (const directory of exampleDirectories) {
-		const files = new Set(readdirSync(directory));
-		for (const requiredFile of requiredFiles) {
-			assert.ok(files.has(requiredFile), `${directory} is missing ${requiredFile}`);
-		}
-		for (const file of [...files].filter((entry) => entry.endsWith(".json"))) {
-			assert.doesNotThrow(() => JSON.parse(read(join(directory, file))), `${directory}/${file}`);
-		}
-	}
-});
-
-test("example package fixtures validate against public JSON schemas", () => {
-	const ajv = createSchemaValidator();
-	const schemaByPackageFile = new Map([
-		["manifest.json", "https://schemas.baudbound.app/manifest.schema.json"],
-		["program.json", "https://schemas.baudbound.app/program.schema.json"],
-		["permissions.json", "https://schemas.baudbound.app/permissions.schema.json"],
-		["capabilities.json", "https://schemas.baudbound.app/capabilities.schema.json"],
-		["editor.json", "https://schemas.baudbound.app/editor.schema.json"],
-	]);
-	const examplesRoot = join(repoRoot, "examples");
-
-	for (const entry of readdirSync(examplesRoot, { withFileTypes: true })) {
-		if (!entry.isDirectory()) {
-			continue;
-		}
-
-		const directory = join(examplesRoot, entry.name);
-		for (const [fileName, schemaId] of schemaByPackageFile) {
-			const validate = ajv.getSchema(schemaId);
-			assert.ok(validate, `${schemaId} must be registered`);
-
-			const valid = validate(JSON.parse(read(join(directory, fileName))));
-			assert.equal(valid, true, `${entry.name}/${fileName} failed ${schemaId}: ${ajv.errorsText(validate.errors)}`);
-		}
-	}
-});
-
-test("example package declarations match their program action types", () => {
-	const examplesRoot = join(repoRoot, "examples");
-	const permissionByActionType = new Map([
-		["action.log", "log"],
-		["action.http", "http_request"],
-	]);
-	const capabilityByActionType = new Map([
-		["trigger.manual", "trigger.manual"],
-		["trigger.schedule", "trigger.schedule"],
-		["action.log", "action.log"],
-		["action.http", "action.http"],
-	]);
-
-	for (const entry of readdirSync(examplesRoot, { withFileTypes: true })) {
-		if (!entry.isDirectory()) {
-			continue;
-		}
-
-		const directory = join(examplesRoot, entry.name);
-		const program = JSON.parse(read(join(directory, "program.json")));
-		const permissions = JSON.parse(read(join(directory, "permissions.json")));
-		const capabilities = JSON.parse(read(join(directory, "capabilities.json")));
-		const actionTypes = getProgramActionTypes(program);
-		const expectedPermissions = [
-			...new Set(actionTypes.map((type) => permissionByActionType.get(type)).filter(Boolean)),
-		].sort();
-		const expectedCapabilities = [
-			...new Set(actionTypes.map((type) => capabilityByActionType.get(type)).filter(Boolean)),
-		].sort();
-
-		assert.deepEqual([...permissions.declared_permissions].sort(), expectedPermissions, `${entry.name} permissions`);
-		assert.deepEqual(
-			[...capabilities.required_capabilities].sort(),
-			expectedCapabilities,
-			`${entry.name} capabilities`,
-		);
-	}
-});
-
 function createSchemaValidator() {
 	const ajv = new Ajv2020({ allErrors: true, strict: false });
 	addFormats(ajv);
@@ -725,13 +633,6 @@ function readJsonFiles(directory) {
 
 		return entry.name.endsWith(".json") ? [path] : [];
 	});
-}
-
-function getProgramActionTypes(program) {
-	const entry = program.entry ?? {};
-	const triggers = Array.isArray(entry.triggers) ? entry.triggers : [];
-	const steps = Array.isArray(entry.program?.steps) ? entry.program.steps : [];
-	return [...triggers, ...steps].map((node) => node.action_type).filter(Boolean);
 }
 
 function getDefinitionBlock(source, actionType) {

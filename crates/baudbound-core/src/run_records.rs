@@ -38,9 +38,39 @@ pub(crate) fn append_failed_run_record(
     ))
 }
 
+pub(crate) fn append_cancelled_run_record(
+    store: &impl ScriptStore,
+    package: &ScriptPackage,
+    selected_trigger_node_id: Option<&str>,
+) -> Result<(), StorageError> {
+    store.append_run_record(terminal_run_record(
+        package,
+        selected_trigger_node_id,
+        "cancelled",
+        "warning",
+        "Runtime execution was cancelled.".to_owned(),
+    ))
+}
+
 pub(crate) fn failed_run_record(
     package: &ScriptPackage,
     selected_trigger_node_id: Option<&str>,
+    message: String,
+) -> StoredRunRecord {
+    terminal_run_record(
+        package,
+        selected_trigger_node_id,
+        "failed",
+        "error",
+        message,
+    )
+}
+
+fn terminal_run_record(
+    package: &ScriptPackage,
+    selected_trigger_node_id: Option<&str>,
+    status: &str,
+    level: &str,
     message: String,
 ) -> StoredRunRecord {
     let trigger_node_id = selected_trigger_node_id
@@ -50,13 +80,13 @@ pub(crate) fn failed_run_record(
     StoredRunRecord {
         completed_at_unix: current_unix_timestamp(),
         logs: vec![RunLogEntry {
-            level: "error".to_owned(),
+            level: level.to_owned(),
             message,
             node_id: None,
         }],
         run_id: create_run_id(&package.manifest.id, &trigger_node_id),
         script_id: package.manifest.id.clone(),
-        status: "failed".to_owned(),
+        status: status.to_owned(),
         trigger_node_id,
         variables: Default::default(),
     }

@@ -35,6 +35,8 @@ serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
 tauri = { version = "2.11.5", features = ["image-ico", "tray-icon"] }
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
 tempfile.workspace = true
 tiny_http.workspace = true
 toml.workspace = true
@@ -55,4 +57,4 @@ tempfile.workspace = true
 zip.workspace = true
 
 [build-dependencies]
-tauri-build = "2.6.3"
+tauri-build = { version = "2.6.3", features = [] }

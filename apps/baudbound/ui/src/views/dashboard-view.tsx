@@ -7,6 +7,7 @@ import { SummaryCard } from "@/components/summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload } from "@/lib/runner-api";
+import { runStatusVariant } from "@/lib/run-inspection";
 import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
 
 export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
@@ -126,7 +127,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
                       {run.run_id}
                     </div>
                   </div>
-                  <Badge variant={run.status === "completed" ? "good" : "destructive"}>
+                  <Badge variant={runStatusVariant(run.status)}>
                     {run.status}
                   </Badge>
                 </div>

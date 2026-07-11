@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "tests/calculation_matrix.rs"]
 mod calculation_matrix;
+#[path = "tests/cancellation.rs"]
+mod cancellation;
 #[path = "tests/control_flow_matrix.rs"]
 mod control_flow_matrix;
 #[path = "tests/state.rs"]

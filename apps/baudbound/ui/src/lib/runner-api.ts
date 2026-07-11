@@ -3,10 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type PackageHashStatus =
   | { state: "valid" }
   | { actual: string; expected: string; state: "mismatch" }
-  | { message?: string; state: "error" }
-  | "Valid"
-  | { Mismatch: { actual: string; expected: string } }
-  | { Error: string };
+  | { message?: string; state: "error" };
 
 export type ApprovalStatus =
   | { state: "current" }
@@ -19,18 +16,6 @@ export type ApprovalStatus =
       approved_package_hash: string;
       installed_package_hash: string;
       state: "stale_package_hash";
-    }
-  | "Current"
-  | "Missing"
-  | "PackageUnavailable"
-  | "PermissionMismatch"
-  | "Unknown"
-  | { Error: string }
-  | {
-      StalePackageHash: {
-        approved_package_hash: string;
-        installed_package_hash: string;
-      };
     };
 
 export type InstalledScript = {
@@ -213,7 +198,7 @@ export type StoredRunRecord = {
   logs: RunLogEntry[];
   run_id: string;
   script_id: string;
-  status: string;
+  status: "cancelled" | "completed" | "failed";
   trigger_node_id: string;
   variables: Record<string, unknown>;
 };
@@ -346,6 +331,10 @@ export function approveScript(reference: string) {
   return invoke<ActionPayload>("approve_script", { reference });
 }
 
+export function revokeScriptApproval(reference: string) {
+  return invoke<ActionPayload>("revoke_script_approval", { reference });
+}
+
 export function importScriptPackage(packagePath: string) {
   return invoke<ActionPayload>("import_script_package", { packagePath });
 }
@@ -368,6 +357,10 @@ export function reloadBackgroundRunner() {
 
 export function stopBackgroundRunner() {
   return invoke<ActionPayload>("stop_background_runner");
+}
+
+export function prepareForUpdate() {
+  return invoke<ActionPayload>("prepare_for_update");
 }
 
 export function removeScript(reference: string) {

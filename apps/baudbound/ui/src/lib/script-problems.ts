@@ -1,5 +1,11 @@
 import type { ApprovalStatus, PackageHashStatus, ScriptStatus } from "@/lib/runner-api";
-import { approvalLabel, isApprovalCurrent, isPackageHashValid, packageHashLabel } from "@/lib/status-format";
+import {
+  approvalLabel,
+  approvalState,
+  isApprovalCurrent,
+  isPackageHashValid,
+  packageHashLabel,
+} from "@/lib/status-format";
 
 export type ScriptProblemSeverity = "error" | "warning";
 
@@ -61,7 +67,7 @@ function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
   const label = packageHashLabel(status);
   if (isPackageHashValid(status)) return null;
 
-  if (typeof status === "object" && "state" in status && status.state === "mismatch") {
+  if (status.state === "mismatch") {
     return {
       detail: `Expected ${status.expected}, but the installed package currently hashes to ${status.actual}.`,
       id: "hash-mismatch",
@@ -70,27 +76,9 @@ function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
     };
   }
 
-  if (typeof status === "object" && "Mismatch" in status) {
-    return {
-      detail: `Expected ${status.Mismatch.expected}, but the installed package currently hashes to ${status.Mismatch.actual}.`,
-      id: "hash-mismatch",
-      severity: "error",
-      title: "Package hash mismatch",
-    };
-  }
-
-  if (typeof status === "object" && "state" in status && status.state === "error") {
+  if (status.state === "error") {
     return {
       detail: status.message ?? "Package hash check failed.",
-      id: "hash-error",
-      severity: "error",
-      title: "Package hash check failed",
-    };
-  }
-
-  if (typeof status === "object" && "Error" in status) {
-    return {
-      detail: status.Error,
       id: "hash-error",
       severity: "error",
       title: "Package hash check failed",
@@ -108,7 +96,7 @@ function packageHashProblem(status: PackageHashStatus): ScriptProblem | null {
 function approvalStatusProblem(status: ApprovalStatus): ScriptProblem | null {
   if (!hasApprovalProblem(status)) return null;
 
-  if (typeof status === "object" && "state" in status && status.state === "stale_package_hash") {
+  if (status.state === "stale_package_hash") {
     return {
       detail: `Approved hash ${status.approved_package_hash}, installed hash ${status.installed_package_hash}. Review and approve again if this update is expected.`,
       id: "approval-stale-hash",
@@ -117,16 +105,7 @@ function approvalStatusProblem(status: ApprovalStatus): ScriptProblem | null {
     };
   }
 
-  if (typeof status === "object" && "StalePackageHash" in status) {
-    return {
-      detail: `Approved hash ${status.StalePackageHash.approved_package_hash}, installed hash ${status.StalePackageHash.installed_package_hash}. Review and approve again if this update is expected.`,
-      id: "approval-stale-hash",
-      severity: "error",
-      title: "Approval is stale",
-    };
-  }
-
-  if (typeof status === "object" && "state" in status && status.state === "error") {
+  if (status.state === "error") {
     return {
       detail: status.message ?? "Approval check failed.",
       id: "approval-error",
@@ -135,27 +114,18 @@ function approvalStatusProblem(status: ApprovalStatus): ScriptProblem | null {
     };
   }
 
-  if (typeof status === "object" && "Error" in status) {
-    return {
-      detail: status.Error,
-      id: "approval-error",
-      severity: "error",
-      title: "Approval check failed",
-    };
-  }
-
-  const label = approvalLabel(status);
-  const detailByLabel: Record<string, string> = {
+  const state = approvalState(status);
+  const detailByState: Record<string, string> = {
     missing: "This script has not been approved on this runner.",
-    "packageunavailable": "The installed package is unavailable, so approval cannot be validated.",
-    "permissionmismatch": "The package permissions changed after approval. Review and approve again if expected.",
+    package_unavailable: "The installed package is unavailable, so approval cannot be validated.",
+    permission_mismatch: "The package permissions changed after approval. Review and approve again if expected.",
     unknown: "Approval status is unknown. Review the package before running it.",
   };
 
   return {
-    detail: detailByLabel[label] ?? `Approval status is ${label}.`,
-    id: `approval-${label}`,
-    severity: label === "unknown" ? "warning" : "error",
+    detail: detailByState[state] ?? `Approval status is ${approvalLabel(status)}.`,
+    id: `approval-${state}`,
+    severity: state === "unknown" ? "warning" : "error",
     title: "Approval required",
   };
 }

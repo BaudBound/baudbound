@@ -1,4 +1,5 @@
 mod calculation;
+mod cancellation;
 mod conditions;
 mod config;
 mod control;
@@ -8,6 +9,7 @@ mod templates;
 mod variables;
 
 pub(crate) use calculation::evaluate_calculation_expression;
+pub use cancellation::RuntimeCancellationToken;
 pub(crate) use conditions::{compare_condition_values, values_equal_for_condition};
 pub(crate) use config::{config_string, required_config_string};
 pub(crate) use control::{RuntimeConditionRow, RuntimeFrame, RuntimeSwitchCaseRow};

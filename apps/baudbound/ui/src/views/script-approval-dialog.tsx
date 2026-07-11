@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, ShieldOff } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,27 +11,45 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { DashboardAction } from "@/lib/app-types";
-import { approveScript, type ScriptStatus } from "@/lib/runner-api";
-import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
+import { approvalReviewState } from "@/lib/approval-review";
+import {
+  approveScript,
+  revokeScriptApproval,
+  type ScriptStatus,
+} from "@/lib/runner-api";
+import {
+  approvalLabel,
+  approvalVariant,
+  packageHashLabel,
+  riskVariant,
+} from "@/lib/status-format";
 
 export function ScriptApprovalDialog({
-  busy,
+  approveBusy,
   onOpenChange,
   open,
   runAction,
   script,
+  revokeBusy,
 }: {
-  busy: boolean;
+  approveBusy: boolean;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   runAction: DashboardAction;
   script: ScriptStatus;
+  revokeBusy: boolean;
 }) {
   const reference = script.installed.id;
   const actionId = `approve:${reference}`;
+  const revokeActionId = `revoke-approval:${reference}`;
   const hashLabel = packageHashLabel(script.package_hash_status);
-  const packageIsApprovable = !script.package_error && hashLabel === "valid";
-  const approveBlockedReason = approvalBlockReason(script, hashLabel);
+  const {
+    approvalIsCurrent,
+    approvalIsStored,
+    approveBlockedReason,
+    packageIsApprovable,
+  } = approvalReviewState(script);
+  const busy = approveBusy || revokeBusy;
 
   async function approve() {
     if (!packageIsApprovable) return;
@@ -39,11 +57,16 @@ export function ScriptApprovalDialog({
     if (approved) onOpenChange(false);
   }
 
+  async function revoke() {
+    const revoked = await runAction(revokeActionId, () => revokeScriptApproval(reference));
+    if (revoked) onOpenChange(false);
+  }
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="w-[min(calc(100vw-2rem),620px)]">
         <DialogHeader>
-          <DialogTitle>Approve script?</DialogTitle>
+          <DialogTitle>Review script approval</DialogTitle>
           <DialogDescription>
             Approval allows this installed package hash and declared permission set to run on this runner.
           </DialogDescription>
@@ -62,7 +85,7 @@ export function ScriptApprovalDialog({
               <Badge variant={hashLabel === "valid" ? "good" : "destructive"}>
                 hash {hashLabel}
               </Badge>
-              <Badge variant={isApprovalCurrent(script.approval_status) ? "good" : "medium"}>
+              <Badge variant={approvalVariant(script.approval_status)}>
                 approval {approvalLabel(script.approval_status)}
               </Badge>
               <Badge variant="muted">{script.installed.target_runtime}</Badge>
@@ -100,24 +123,22 @@ export function ScriptApprovalDialog({
 
         <DialogFooter>
           <Button disabled={busy} onClick={() => onOpenChange(false)} variant="outline">
-            Cancel
+            Close
           </Button>
-          <Button disabled={busy || !packageIsApprovable} onClick={approve}>
-            <ShieldCheck />
-            {busy ? "Approving..." : "Approve"}
-          </Button>
+          {approvalIsStored ? (
+            <Button disabled={busy} onClick={revoke} variant="destructive">
+              <ShieldOff />
+              {revokeBusy ? "Revoking..." : "Revoke approval"}
+            </Button>
+          ) : null}
+          {!approvalIsCurrent ? (
+            <Button disabled={busy || !packageIsApprovable} onClick={approve}>
+              <ShieldCheck />
+              {approveBusy ? "Approving..." : "Approve package"}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
-}
-
-function approvalBlockReason(script: ScriptStatus, hashLabel: string) {
-  if (script.package_error) {
-    return "This package cannot be approved because the runner cannot load the installed package. Update or remove the script first.";
-  }
-  if (hashLabel !== "valid") {
-    return "This package cannot be approved while its stored package hash is invalid. Update the installed package before approving it.";
-  }
-  return null;
 }

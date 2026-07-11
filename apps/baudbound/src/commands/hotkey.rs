@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use baudbound_core::{RunReport, RunnerCore};
+use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::HotkeyService;
 
@@ -120,6 +121,24 @@ pub fn dispatch_hotkey_key(
     key: &str,
     timestamp: SystemTime,
 ) -> Result<Vec<RunReport>> {
+    dispatch_hotkey_key_with_cancellation(
+        core,
+        store,
+        service,
+        key,
+        timestamp,
+        &RuntimeCancellationToken::new(),
+    )
+}
+
+pub fn dispatch_hotkey_key_with_cancellation(
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
+    service: &HotkeyService,
+    key: &str,
+    timestamp: SystemTime,
+    cancellation: &RuntimeCancellationToken,
+) -> Result<Vec<RunReport>> {
     let events = service
         .events_for_key(key, timestamp)
         .with_context(|| format!("failed to build hotkey event for {key:?}"))?;
@@ -128,9 +147,10 @@ pub fn dispatch_hotkey_key(
         .map(|event| {
             let script_id = event.script_id.clone();
             let node_id = event.node_id.clone();
-            core.dispatch_trigger_event(store, event).with_context(|| {
-                format!("failed to dispatch hotkey trigger {node_id} for {script_id}")
-            })
+            core.dispatch_trigger_event_with_cancellation(store, event, cancellation.clone())
+                .with_context(|| {
+                    format!("failed to dispatch hotkey trigger {node_id} for {script_id}")
+                })
         })
         .collect::<Result<Vec<_>>>()
 }

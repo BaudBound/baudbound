@@ -7,6 +7,7 @@ use std::{
 };
 
 use baudbound_core::{RunReport, RunnerCore, TriggerEvent};
+use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 
 const MAX_WORKERS: usize = 16;
@@ -19,13 +20,16 @@ pub(super) type TriggerRunner =
 pub(super) struct TriggerExecutor {
     completion_receiver: Receiver<TriggerCompletion>,
     next_job_id: u64,
+    pending_jobs: usize,
     sender: Option<SyncSender<TriggerJob>>,
+    cancellation: RuntimeCancellationToken,
 }
 
 pub(super) struct TriggerCompletion {
     pub(super) event: TriggerEvent,
     pub(super) job_id: u64,
     pub(super) result: Result<RunReport, String>,
+    pub(super) source: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +41,7 @@ pub(super) enum TriggerSubmitError {
 struct TriggerJob {
     event: TriggerEvent,
     job_id: u64,
+    source: &'static str,
 }
 
 impl TriggerExecutor {
@@ -44,25 +49,32 @@ impl TriggerExecutor {
         core: &RunnerCore,
         store: &SqliteRunnerStore,
         worker_label: &str,
+        cancellation: RuntimeCancellationToken,
     ) -> Result<Self, String> {
         let core = core.clone();
         let store = store.clone();
+        let run_cancellation = cancellation.clone();
         let runner = Arc::new(move |event: TriggerEvent| {
-            core.dispatch_trigger_event(&store, event)
+            core.dispatch_trigger_event_with_cancellation(&store, event, run_cancellation.clone())
                 .map_err(|error| error.to_string())
         });
         let worker_count = thread::available_parallelism()
             .map_or(MIN_WORKERS, usize::from)
             .clamp(MIN_WORKERS, MAX_WORKERS);
-        Self::with_runner(
+        Self::with_runner_and_cancellation(
             worker_count,
             worker_count.saturating_mul(QUEUE_CAPACITY_PER_WORKER),
             worker_label,
             runner,
+            cancellation,
         )
     }
 
-    pub(super) fn submit(&mut self, event: TriggerEvent) -> Result<u64, TriggerSubmitError> {
+    pub(super) fn submit_from(
+        &mut self,
+        event: TriggerEvent,
+        source: &'static str,
+    ) -> Result<u64, TriggerSubmitError> {
         let job_id = self.next_job_id;
         self.next_job_id = self
             .next_job_id
@@ -71,22 +83,52 @@ impl TriggerExecutor {
         let Some(sender) = &self.sender else {
             return Err(TriggerSubmitError::Stopped);
         };
-        match sender.try_send(TriggerJob { event, job_id }) {
-            Ok(()) => Ok(job_id),
+        match sender.try_send(TriggerJob {
+            event,
+            job_id,
+            source,
+        }) {
+            Ok(()) => {
+                self.pending_jobs = self.pending_jobs.saturating_add(1);
+                Ok(job_id)
+            }
             Err(TrySendError::Full(_)) => Err(TriggerSubmitError::Full),
             Err(TrySendError::Disconnected(_)) => Err(TriggerSubmitError::Stopped),
         }
     }
 
-    pub(super) fn try_completion(&self) -> Option<TriggerCompletion> {
-        self.completion_receiver.try_recv().ok()
+    pub(super) fn try_completion(&mut self) -> Option<TriggerCompletion> {
+        let completion = self.completion_receiver.try_recv().ok()?;
+        self.pending_jobs = self.pending_jobs.saturating_sub(1);
+        Some(completion)
     }
 
+    pub(super) fn has_pending(&self) -> bool {
+        self.pending_jobs > 0
+    }
+
+    #[cfg(test)]
     pub(super) fn with_runner(
         worker_count: usize,
         queue_capacity: usize,
         worker_label: &str,
         runner: Arc<TriggerRunner>,
+    ) -> Result<Self, String> {
+        Self::with_runner_and_cancellation(
+            worker_count,
+            queue_capacity,
+            worker_label,
+            runner,
+            RuntimeCancellationToken::new(),
+        )
+    }
+
+    fn with_runner_and_cancellation(
+        worker_count: usize,
+        queue_capacity: usize,
+        worker_label: &str,
+        runner: Arc<TriggerRunner>,
+        cancellation: RuntimeCancellationToken,
     ) -> Result<Self, String> {
         let (sender, receiver) = sync_channel::<TriggerJob>(queue_capacity.max(1));
         let receiver = Arc::new(Mutex::new(receiver));
@@ -109,13 +151,16 @@ impl TriggerExecutor {
         Ok(Self {
             completion_receiver,
             next_job_id: 1,
+            pending_jobs: 0,
             sender: Some(sender),
+            cancellation,
         })
     }
 }
 
 impl Drop for TriggerExecutor {
     fn drop(&mut self) {
+        self.cancellation.cancel();
         self.sender.take();
     }
 }
@@ -142,6 +187,7 @@ fn worker_loop(
                 event,
                 job_id: job.job_id,
                 result,
+                source: job.source,
             })
             .is_err()
         {

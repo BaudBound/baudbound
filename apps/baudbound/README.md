@@ -8,6 +8,8 @@ Command name:
 baudbound
 ```
 
+Launching `baudbound` without a subcommand opens the desktop UI when a graphical Windows or Linux session is available. On a headless Linux session it prints runner status instead, so the same executable remains usable in service environments. Explicit subcommands always keep their CLI behavior.
+
 Current implemented commands:
 
 ```bash
@@ -137,6 +139,8 @@ The `script run` command starts from the script manual trigger by default. Use `
 Current execution supports trigger-selected graph execution, control flow, variable operations, delay, calculate, file read/write/copy/move/delete, process execution, shell commands, and text transform.
 
 The `ui` command opens the Tauri desktop shell. The desktop screen shows runner health, installed scripts, script package details, declared permissions, encrypted secret configuration, trigger registrations, recent run history, service heartbeat data, trigger reload requests, service reload/stop requests, package import/update, script removal, script approval, enable/disable, and manual script runs. It uses the same runner core and storage paths as the CLI, so actions taken in the UI are immediately visible to `script status`, `script logs`, and the long-lived `serve` process.
+
+Production desktop builds check the latest GitHub Release on startup. When a newer signed version exists, the app shows its release notes and lets the user download, verify, install, and restart into the update. Update failures do not stop the current runner version. Windows releases use an NSIS installer and Linux desktop releases use AppImage; see [the release process](../../docs/runner-release.md) for artifact and signing details.
 
 The desktop UI frontend lives in `apps/baudbound/ui` and uses Vite, TypeScript, React, Tailwind, and shadcn-style local components:
 

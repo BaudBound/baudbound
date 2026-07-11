@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { DashboardPayload, StoredRunRecord } from "@/lib/runner-api";
-import { runSummary } from "@/lib/run-inspection";
+import { runStatusVariant, runSummary } from "@/lib/run-inspection";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 
 const allFilterValue = "__all__";
@@ -69,10 +69,11 @@ export function RunsView({ dashboard }: { dashboard: DashboardPayload }) {
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <RunSummaryTile label="Total" value={dashboard.recent_runs.length} />
         <RunSummaryTile label="Completed" tone="good" value={summary.completed} />
         <RunSummaryTile label="Failed" tone="destructive" value={summary.failed} />
+        <RunSummaryTile label="Cancelled" tone="medium" value={summary.cancelled} />
         <RunSummaryTile label="With errors" tone="medium" value={summary.withErrors} />
       </div>
       <Card>
@@ -300,10 +301,6 @@ function RunRow({
       </td>
     </tr>
   );
-}
-
-function runStatusVariant(status: string) {
-  return status === "completed" ? "good" : "destructive";
 }
 
 function runMatchesSearch(run: StoredRunRecord, scriptName: string, searchTerm: string) {

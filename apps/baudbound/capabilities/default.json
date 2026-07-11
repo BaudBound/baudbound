@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for the BaudBound desktop UI.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "process:allow-restart", "updater:default"]
 }

@@ -16,6 +16,12 @@ export function isApprovalCurrent(status: ApprovalStatus) {
   return approvalState(status) === "current";
 }
 
+export function hasStoredApproval(status: ApprovalStatus) {
+  return ["current", "package_unavailable", "permission_mismatch", "stale_package_hash"].includes(
+    approvalState(status),
+  );
+}
+
 export function approvalVariant(status: ApprovalStatus) {
   if (isApprovalCurrent(status)) return "good";
   if (approvalState(status) === "missing") return "medium";
@@ -23,19 +29,11 @@ export function approvalVariant(status: ApprovalStatus) {
 }
 
 export function packageHashState(status: PackageHashStatus) {
-  if (typeof status === "string") return status.toLowerCase();
-  if ("state" in status) return status.state;
-  if ("Mismatch" in status) return "mismatch";
-  if ("Error" in status) return "error";
-  return "unknown";
+  return status.state;
 }
 
 export function approvalState(status: ApprovalStatus) {
-  if (typeof status === "string") return legacyApprovalState(status);
-  if ("state" in status) return status.state;
-  if ("StalePackageHash" in status) return "stale_package_hash";
-  if ("Error" in status) return "error";
-  return "unknown";
+  return status.state;
 }
 
 function packageHashLabelByState(state: string) {
@@ -59,13 +57,6 @@ function approvalLabelByState(state: string) {
     unknown: "Unknown",
   };
   return labels[state] ?? titleCase(state.replaceAll("_", " "));
-}
-
-function legacyApprovalState(value: string) {
-  const normalized = value.toLowerCase();
-  if (normalized === "packageunavailable") return "package_unavailable";
-  if (normalized === "permissionmismatch") return "permission_mismatch";
-  return normalized;
 }
 
 function titleCase(value: string) {

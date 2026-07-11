@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_core::{RunnerCore, TriggerRegistration};
+use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{WebhookDispatch, WebhookResponse, WebhookService};
 use tiny_http::{Request, Server};
@@ -35,6 +36,10 @@ struct PendingWebhookResponse {
 }
 
 impl WebhookHost {
+    pub(super) fn has_pending_execution(&self) -> bool {
+        self.executor.has_pending()
+    }
+
     pub(super) fn accept_request(&mut self, mut request: Request, max_body_bytes: usize) {
         let webhook_request = match request_from_http(&mut request, max_body_bytes) {
             Ok(request) => request,
@@ -53,7 +58,7 @@ impl WebhookHost {
             "Queueing webhook trigger {} for script {}",
             dispatch.event.node_id, dispatch.event.script_id
         );
-        let job_id = match self.executor.submit(dispatch.event.clone()) {
+        let job_id = match self.executor.submit_from(dispatch.event.clone(), "webhook") {
             Ok(job_id) => job_id,
             Err(TriggerSubmitError::Full) => {
                 respond_safely(request, overloaded_response());
@@ -154,6 +159,7 @@ pub(super) fn build_webhook_host(
     registrations: Vec<TriggerRegistration>,
     options: &ServeOptions,
     previous_webhook_host: Option<WebhookHost>,
+    cancellation: &RuntimeCancellationToken,
 ) -> Result<Option<WebhookHost>> {
     if !options.webhooks_enabled {
         return Ok(None);
@@ -181,7 +187,7 @@ pub(super) fn build_webhook_host(
         address
     );
     Ok(Some(WebhookHost {
-        executor: TriggerExecutor::new(core, store, "webhook")
+        executor: TriggerExecutor::new(core, store, "webhook", cancellation.clone())
             .map_err(|error| anyhow!("failed to start webhook executor: {error}"))?,
         pending: BTreeMap::new(),
         server,

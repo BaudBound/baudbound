@@ -2,8 +2,12 @@
 
 mod runtime;
 
-use std::{collections::BTreeMap, path::PathBuf, thread};
+use std::{collections::BTreeMap, path::PathBuf};
 
+pub use runtime::{
+    RuntimeCancellationToken, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
+    VersionedRuntimeVariable,
+};
 use runtime::{
     RuntimeConditionRow, RuntimeFrame, RuntimeGraph, RuntimeSwitchCaseRow, coerce_variable_value,
     compare_condition_values, config_string, duration_from_amount, empty_value_for_type,
@@ -11,9 +15,6 @@ use runtime::{
     refresh_derived_variable_metadata, render_template, required_config_string, resolve_config_map,
     resolve_template_value, set_object_field, validate_variable_name, value_kind, value_to_string,
     values_equal_for_condition,
-};
-pub use runtime::{
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -119,6 +120,7 @@ impl RuntimeActionHandler for UnsupportedActionHandler {
 pub struct RuntimeExecutionResources<'a> {
     package_path: Option<PathBuf>,
     action_handler: &'a dyn RuntimeActionHandler,
+    cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
     secrets: &'a [RuntimeSecretDeclaration],
 }
@@ -129,6 +131,7 @@ impl<'a> RuntimeExecutionResources<'a> {
         Self {
             package_path: None,
             action_handler,
+            cancellation: RuntimeCancellationToken::new(),
             state_store: None,
             secrets: &[],
         }
@@ -137,6 +140,12 @@ impl<'a> RuntimeExecutionResources<'a> {
     #[must_use]
     pub fn with_package_path(mut self, package_path: PathBuf) -> Self {
         self.package_path = Some(package_path);
+        self
+    }
+
+    #[must_use]
+    pub fn with_cancellation(mut self, cancellation: RuntimeCancellationToken) -> Self {
+        self.cancellation = cancellation;
         self
     }
 
@@ -296,17 +305,10 @@ fn execute_graph_from_trigger(
         script_id: script_id.to_owned(),
         trigger_node_id: trigger.id.clone(),
     };
-    let mut executor = RuntimeExecutor::new(
-        graph,
-        identity,
-        resources.package_path,
-        trigger_payload,
-        resources.action_handler,
-        resources.state_store,
-        resources.secrets,
-    )?;
+    let mut executor = RuntimeExecutor::new(graph, identity, trigger_payload, resources)?;
     match executor.run_from_trigger() {
         Ok(report) => Ok(executor.redact_report(report)),
+        Err(RuntimeError::Cancelled) => Err(RuntimeError::Cancelled),
         Err(error) if executor.has_secrets() => Err(RuntimeError::Redacted(
             executor.redact_text(&error.to_string()),
         )),
@@ -319,6 +321,7 @@ struct RuntimeExecutor<'a> {
     context: RuntimeContext,
     logs: Vec<RuntimeLogEntry>,
     action_handler: &'a dyn RuntimeActionHandler,
+    cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
     secret_names: Vec<String>,
     secret_values: Vec<Value>,
@@ -334,30 +337,34 @@ impl<'a> RuntimeExecutor<'a> {
     fn new(
         graph: RuntimeGraph,
         identity: RunIdentity,
-        package_path: Option<PathBuf>,
         trigger_payload: Value,
-        action_handler: &'a dyn RuntimeActionHandler,
-        state_store: Option<&'a dyn RuntimeStateStore>,
-        secrets: &[RuntimeSecretDeclaration],
+        resources: RuntimeExecutionResources<'a>,
     ) -> Result<Self, RuntimeError> {
-        let initial_state = load_initial_state(&graph, &identity.script_id, state_store, secrets)?;
+        let initial_state = load_initial_state(
+            &graph,
+            &identity.script_id,
+            resources.state_store,
+            resources.secrets,
+        )?;
         Ok(Self {
             graph,
             context: RuntimeContext {
                 identity,
-                package_path,
+                package_path: resources.package_path,
                 trigger_payload,
                 variables: initial_state.variables,
             },
             logs: Vec::new(),
-            action_handler,
-            state_store,
+            action_handler: resources.action_handler,
+            cancellation: resources.cancellation,
+            state_store: resources.state_store,
             secret_names: initial_state.secret_names,
             secret_values: initial_state.secret_values,
         })
     }
 
     fn run_from_trigger(&mut self) -> Result<RunReport, RuntimeError> {
+        self.ensure_not_cancelled()?;
         let trigger_node_id = self.context.identity.trigger_node_id.clone();
         self.push_runtime_log(
             "info",
@@ -373,6 +380,7 @@ impl<'a> RuntimeExecutor<'a> {
         }];
 
         while let Some(frame) = frames.pop() {
+            self.ensure_not_cancelled()?;
             self.process_frame(frame, &mut frames)?;
         }
 
@@ -758,6 +766,7 @@ impl<'a> RuntimeExecutor<'a> {
         })?;
 
         for _ in 0..MAX_COMPARE_AND_SET_ATTEMPTS {
+            self.ensure_not_cancelled()?;
             let stored = store
                 .load_variable(scope, &self.context.identity.script_id, name)
                 .map_err(RuntimeError::State)?;
@@ -867,6 +876,7 @@ impl<'a> RuntimeExecutor<'a> {
     }
 
     fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        self.ensure_not_cancelled()?;
         let request = RuntimeActionRequest {
             action: node.action.clone(),
             action_type: node.action_type.clone(),
@@ -881,6 +891,7 @@ impl<'a> RuntimeExecutor<'a> {
                 node_id: node.id.clone(),
                 message: source.to_string(),
             })?;
+        self.ensure_not_cancelled()?;
 
         for (key, value) in result.output_data {
             self.set_variable(format!("{}.{}", node.id, key), value);
@@ -905,13 +916,23 @@ impl<'a> RuntimeExecutor<'a> {
             format!("Delay started for {} ms.", duration.as_millis()),
             Some(node.id.clone()),
         );
-        thread::sleep(duration);
+        if self.cancellation.wait_for(duration) {
+            return Err(RuntimeError::Cancelled);
+        }
         self.push_runtime_log(
             "info",
             format!("Delay completed after {} ms.", duration.as_millis()),
             Some(node.id.clone()),
         );
         Ok(())
+    }
+
+    fn ensure_not_cancelled(&self) -> Result<(), RuntimeError> {
+        if self.cancellation.is_cancelled() {
+            Err(RuntimeError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
 
     fn execute_calculate(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {

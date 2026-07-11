@@ -2,6 +2,7 @@ import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { StoredRunRecord } from "@/lib/runner-api";
+import { runStatusVariant } from "@/lib/run-inspection";
 import { countLogsByLevel } from "@/lib/run-inspection";
 import { RunLogPanel } from "@/views/run-log-panel";
 import { RunVariablePanel } from "@/views/run-variable-panel";
@@ -37,7 +38,7 @@ export function RunDetailPanel({
           <section>
             <h3 className="mb-2 text-sm font-medium">Result</h3>
             <div className="flex flex-wrap gap-2">
-              <Badge variant={run.status === "completed" ? "good" : "destructive"}>
+              <Badge variant={runStatusVariant(run.status)}>
                 {run.status}
               </Badge>
               <Badge variant="muted">{run.logs.length} log entries</Badge>

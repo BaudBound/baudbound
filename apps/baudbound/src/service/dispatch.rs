@@ -3,51 +3,47 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-use baudbound_core::{RunnerCore, TriggerEvent};
-use baudbound_storage::SqliteRunnerStore;
+use baudbound_core::TriggerEvent;
 use baudbound_triggers::{HotkeyService, ScheduleService, StartupService};
 
 use super::{
     executor::{TriggerExecutor, TriggerSubmitError},
     heartbeat::ServeStatusTracker,
 };
-use crate::{commands::hotkey::dispatch_hotkey_key, output::print_run_report};
+use crate::output::print_run_report;
 
 pub(super) fn dispatch_hotkey_stdin_events(
-    core: &RunnerCore,
-    store: &SqliteRunnerStore,
     service: &HotkeyService,
     receiver: &Receiver<String>,
+    executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
 ) -> bool {
     let mut dispatched_any_event = false;
     while let Ok(key) = receiver.try_recv() {
-        match dispatch_hotkey_key(core, store, service, &key, SystemTime::now()) {
-            Ok(reports) if reports.is_empty() => {
+        match service.events_for_key(&key, SystemTime::now()) {
+            Ok(events) if events.is_empty() => {
                 println!("No enabled hotkey triggers matched {key:?}.");
             }
-            Ok(reports) => {
+            Ok(events) => {
                 dispatched_any_event = true;
                 println!(
                     "Dispatched {} hotkey trigger{} for {key:?}.",
-                    reports.len(),
-                    if reports.len() == 1 { "" } else { "s" }
+                    events.len(),
+                    if events.len() == 1 { "" } else { "s" }
                 );
-                for report in reports {
-                    status.record_report("hotkey", &report);
-                    print_run_report(report);
+                for event in events {
+                    queue_trigger_event_from(executor, event, status, "hotkey");
                 }
             }
-            Err(error) => eprintln!("Hotkey dispatch failed for {key:?}: {error}"),
+            Err(error) => eprintln!("Hotkey event creation failed for {key:?}: {error}"),
         }
     }
     dispatched_any_event
 }
 
 pub(super) fn dispatch_startup_events(
-    core: &RunnerCore,
-    store: &SqliteRunnerStore,
     startup: &mut StartupService,
+    executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
 ) -> bool {
     let mut dispatched_any_event = false;
@@ -57,24 +53,14 @@ pub(super) fn dispatch_startup_events(
             "Dispatching startup trigger {} for script {}",
             event.node_id, event.script_id
         );
-        match core.dispatch_trigger_event(store, event.clone()) {
-            Ok(report) => {
-                status.record_report("startup", &report);
-                print_run_report(report);
-            }
-            Err(error) => {
-                status.record_event_failure("startup", &event, error.to_string());
-                eprintln!("Startup dispatch failed: {error}");
-            }
-        }
+        queue_trigger_event_from(executor, event, status, "startup");
     }
     dispatched_any_event
 }
 
 pub(super) fn dispatch_due_schedules(
-    core: &RunnerCore,
-    store: &SqliteRunnerStore,
     schedules: &mut ScheduleService,
+    executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
 ) -> bool {
     let mut dispatched_any_event = false;
@@ -85,16 +71,7 @@ pub(super) fn dispatch_due_schedules(
             "Dispatching schedule trigger {} for script {}",
             event.node_id, event.script_id
         );
-        match core.dispatch_trigger_event(store, event.clone()) {
-            Ok(report) => {
-                status.record_report("schedule", &report);
-                print_run_report(report);
-            }
-            Err(error) => {
-                status.record_event_failure("schedule", &event, error.to_string());
-                eprintln!("Schedule dispatch failed: {error}");
-            }
-        }
+        queue_trigger_event_from(executor, event, status, "schedule");
     }
     dispatched_any_event
 }
@@ -115,11 +92,20 @@ pub(super) fn queue_trigger_event(
     event: TriggerEvent,
     status: &mut ServeStatusTracker,
 ) {
+    queue_trigger_event_from(executor, event, status, "listener");
+}
+
+fn queue_trigger_event_from(
+    executor: &mut TriggerExecutor,
+    event: TriggerEvent,
+    status: &mut ServeStatusTracker,
+    source: &'static str,
+) {
     println!(
         "Queueing trigger {} for script {}",
         event.node_id, event.script_id
     );
-    match executor.submit(event.clone()) {
+    match executor.submit_from(event.clone(), source) {
         Ok(_) => {}
         Err(TriggerSubmitError::Full) => {
             let error = "trigger execution queue is at capacity";
@@ -135,7 +121,7 @@ pub(super) fn queue_trigger_event(
 }
 
 pub(super) fn record_trigger_completions(
-    executor: &TriggerExecutor,
+    executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
 ) -> bool {
     let mut completed_any = false;
@@ -143,11 +129,11 @@ pub(super) fn record_trigger_completions(
         completed_any = true;
         match completion.result {
             Ok(report) => {
-                status.record_report("listener", &report);
+                status.record_report(completion.source, &report);
                 print_run_report(report);
             }
             Err(error) => {
-                status.record_event_failure("listener", &completion.event, error.clone());
+                status.record_event_failure(completion.source, &completion.event, error.clone());
                 eprintln!("Trigger dispatch failed: {error}");
             }
         }

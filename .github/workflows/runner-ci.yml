@@ -148,5 +148,8 @@ jobs:
       - name: Typecheck desktop UI
         run: pnpm --dir apps/baudbound/ui typecheck
 
+      - name: Test desktop UI contracts
+        run: pnpm --dir apps/baudbound/ui test
+
       - name: Build desktop UI
         run: pnpm --dir apps/baudbound/ui build

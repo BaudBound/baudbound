@@ -40,6 +40,8 @@ pub fn run_desktop_ui(
     );
     let background_runner = DesktopRunnerSupervisor::default();
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             background_runner: background_runner.clone(),
@@ -63,7 +65,9 @@ pub fn run_desktop_ui(
             approve_script,
             dashboard_state,
             import_script_package,
+            prepare_for_update,
             remove_script,
+            revoke_script_approval,
             reload_background_runner,
             request_trigger_reload,
             read_runner_config,
@@ -131,6 +135,21 @@ fn approve_script(
 }
 
 #[tauri::command]
+fn revoke_script_approval(
+    reference: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        let revoked = current_core(&state)?.revoke_approval(&state.store, &reference)?;
+        Ok(if revoked.is_some() {
+            format!("Revoked approval for {reference}.")
+        } else {
+            format!("No approval was stored for {reference}.")
+        })
+    })
+}
+
+#[tauri::command]
 fn import_script_package(
     package_path: String,
     state: State<'_, DesktopUiState>,
@@ -181,6 +200,21 @@ fn reload_background_runner(state: State<'_, DesktopUiState>) -> Result<ActionPa
 #[tauri::command]
 fn stop_background_runner(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
     run_locked_action(&state, || stop_background_runner_message(&state))
+}
+
+#[tauri::command]
+fn prepare_for_update(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        let message = state
+            .background_runner
+            .stop_and_wait(std::time::Duration::from_secs(5))?;
+        if state.background_runner.snapshot()?.running {
+            return Err(anyhow!(
+                "desktop background runner did not stop before the update deadline"
+            ));
+        }
+        Ok(message)
+    })
 }
 
 #[tauri::command]

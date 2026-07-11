@@ -16,8 +16,9 @@ use std::{path::Path, sync::Arc};
 
 use baudbound_actions::{HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
-    RuntimeActionHandler, RuntimeExecutionResources, RuntimeSecretDeclaration,
-    execute_manual_program_with_state, execute_trigger_program_with_state,
+    RuntimeActionHandler, RuntimeCancellationToken, RuntimeExecutionResources,
+    RuntimeSecretDeclaration, execute_manual_program_with_state,
+    execute_trigger_program_with_state,
 };
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
 use baudbound_security::{RunnerPolicy, SecurityValidationError};
@@ -31,7 +32,9 @@ use compatibility::{
     validate_package_for_runner,
 };
 use package::{import_request_from_package, validate_package_security};
-use run_records::{append_failed_run_record, stored_run_record_from_report};
+use run_records::{
+    append_cancelled_run_record, append_failed_run_record, stored_run_record_from_report,
+};
 use version::{VersionCompatibilityError, validate_minimum_runner_version};
 
 pub use baudbound_runtime::RunReport;
@@ -254,11 +257,21 @@ impl RunnerCore {
         store: &impl ScriptStore,
         event: TriggerEvent,
     ) -> Result<RunReport, CoreError> {
-        self.run_installed_with_trigger(
+        self.dispatch_trigger_event_with_cancellation(store, event, RuntimeCancellationToken::new())
+    }
+
+    pub fn dispatch_trigger_event_with_cancellation(
+        &self,
+        store: &impl ScriptStore,
+        event: TriggerEvent,
+        cancellation: RuntimeCancellationToken,
+    ) -> Result<RunReport, CoreError> {
+        self.run_installed_with_trigger_and_cancellation(
             store,
             &event.script_id,
             Some(&event.node_id),
             event.payload,
+            cancellation,
         )
     }
 
@@ -331,12 +344,30 @@ impl RunnerCore {
         trigger_node_id: Option<&str>,
         trigger_payload: serde_json::Value,
     ) -> Result<RunReport, CoreError> {
+        self.run_installed_with_trigger_and_cancellation(
+            store,
+            reference,
+            trigger_node_id,
+            trigger_payload,
+            RuntimeCancellationToken::new(),
+        )
+    }
+
+    pub fn run_installed_with_trigger_and_cancellation(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        trigger_node_id: Option<&str>,
+        trigger_payload: serde_json::Value,
+        cancellation: RuntimeCancellationToken,
+    ) -> Result<RunReport, CoreError> {
         self.run_installed_with_trigger_in_stack(
             store,
             reference,
             trigger_node_id,
             trigger_payload,
             Vec::new(),
+            cancellation,
         )
     }
 
@@ -347,6 +378,7 @@ impl RunnerCore {
         trigger_node_id: Option<&str>,
         trigger_payload: serde_json::Value,
         mut call_stack: Vec<String>,
+        cancellation: RuntimeCancellationToken,
     ) -> Result<RunReport, CoreError> {
         let installed = store.verify_script_package_hash(reference)?;
         if call_stack
@@ -381,8 +413,13 @@ impl RunnerCore {
                 headless_action_handler = self.headless_action_handler();
                 &headless_action_handler
             };
-        let core_action_handler =
-            CoreRuntimeActionHandler::new(call_stack, self, action_handler, store);
+        let core_action_handler = CoreRuntimeActionHandler::new(
+            call_stack,
+            self,
+            action_handler,
+            store,
+            cancellation.clone(),
+        );
         let runtime_state_store = CoreRuntimeStateStore::new(store);
         let secret_declarations = package
             .manifest
@@ -398,6 +435,7 @@ impl RunnerCore {
         let runtime_resources = || {
             RuntimeExecutionResources::new(&core_action_handler)
                 .with_package_path(installed.package_path.clone())
+                .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
         };
         let report = match trigger_node_id {
@@ -415,9 +453,13 @@ impl RunnerCore {
             ),
         }
         .map_err(|source| {
-            let message = source.to_string();
-            if let Err(error) = append_failed_run_record(store, &package, trigger_node_id, message)
+            let persistence_result = if matches!(source, baudbound_runtime::RuntimeError::Cancelled)
             {
+                append_cancelled_run_record(store, &package, trigger_node_id)
+            } else {
+                append_failed_run_record(store, &package, trigger_node_id, source.to_string())
+            };
+            if let Err(error) = persistence_result {
                 tracing::warn!("failed to persist failed run record: {error}");
             }
             CoreError::Runtime(source)

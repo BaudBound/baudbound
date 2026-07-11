@@ -70,6 +70,7 @@ export function ScriptsView({
                       <ScriptRow
                         busyActions={busyActions}
                         expanded={expanded}
+                        onReviewApproval={setApprovalScriptId}
                         onToggleDetails={toggleScriptDetails}
                         runAction={runAction}
                         script={script}
@@ -94,13 +95,14 @@ export function ScriptsView({
       )}
       {approvalScript ? (
         <ScriptApprovalDialog
-          busy={busyActions.has(`approve:${approvalScript.installed.id}`)}
+          approveBusy={busyActions.has(`approve:${approvalScript.installed.id}`)}
           onOpenChange={(open) => {
             if (!open) setApprovalScriptId(null);
           }}
           open={approvalScriptId !== null}
           runAction={runAction}
           script={approvalScript}
+          revokeBusy={busyActions.has(`revoke-approval:${approvalScript.installed.id}`)}
         />
       ) : null}
     </div>

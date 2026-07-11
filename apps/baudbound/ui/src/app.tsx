@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/empty-state";
+import { AppUpdateDialog } from "@/components/app-update-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -100,6 +101,10 @@ export function App() {
       toast.error(notice.message);
     }
   }, []);
+  const reportUpdateError = useCallback(
+    (message: string) => pushNotice({ kind: "error", message }),
+    [pushNotice],
+  );
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (refreshInFlight.current) return;
@@ -304,6 +309,7 @@ export function App() {
           )}
         </section>
       </main>
+      <AppUpdateDialog onError={reportUpdateError} />
       <Toaster closeButton position="top-center" richColors />
     </div>
   );

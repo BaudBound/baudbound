@@ -2,6 +2,8 @@ use std::{
     fs,
     io::{Cursor, Write},
     sync::Mutex,
+    thread,
+    time::Duration,
 };
 
 use baudbound_runtime::{
@@ -104,6 +106,48 @@ fn creates_failed_run_record_with_package_identity() {
     assert_eq!(record.status, "failed");
     assert!(record.run_id.starts_with("script-1:n-trigger:"));
     assert_eq!(record.logs[0].message, "permission denied");
+}
+
+#[test]
+fn cancelled_execution_is_persisted_as_cancelled() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("cancellable.bbs");
+    fs::write(&package_path, create_cancellable_test_package())
+        .expect("cancellable package should be written");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("cancellable package should import");
+
+    let cancellation = RuntimeCancellationToken::new();
+    let thread_cancellation = cancellation.clone();
+    let cancel_thread = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(25));
+        thread_cancellation.cancel();
+    });
+    let error = core
+        .run_installed_with_trigger_and_cancellation(
+            &store,
+            "cancellable",
+            None,
+            Value::Null,
+            cancellation,
+        )
+        .expect_err("cancelled package should stop");
+    cancel_thread
+        .join()
+        .expect("cancellation thread should join");
+
+    assert!(matches!(
+        error,
+        CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
+    ));
+    let records = store
+        .list_run_records(Some("cancellable"), None)
+        .expect("cancelled run history should load");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].status, "cancelled");
+    assert_eq!(records[0].logs[0].level, "warning");
 }
 
 #[test]
@@ -715,6 +759,23 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].approval_status,
         ApprovalStatus::Current
     ));
+
+    let revoked = core
+        .revoke_approval(&store, "network-trigger")
+        .expect("approval should revoke")
+        .expect("stored approval should be returned");
+    assert_eq!(revoked.script_id, "network-trigger");
+    let status = core
+        .status(&store)
+        .expect("status should build after revoke");
+    assert!(matches!(
+        status.scripts[0].approval_status,
+        ApprovalStatus::Missing
+    ));
+    let blocked = core
+        .run_installed(&store, "network-trigger")
+        .expect_err("revoked high-risk script should be blocked");
+    assert!(matches!(blocked, CoreError::Security(_)));
 }
 
 #[test]
@@ -893,6 +954,58 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
 
 fn create_action_handler_test_package() -> Vec<u8> {
     create_action_handler_test_package_with_capabilities(None)
+}
+
+fn create_cancellable_test_package() -> Vec<u8> {
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [{
+                    "id": "n-delay",
+                    "action_type": "action.delay",
+                    "type": "delay",
+                    "config": {"amount": 30, "unit": "seconds"},
+                    "runtime_outputs": []
+                }],
+                "edges": [{
+                    "source": "n-manual",
+                    "source_handle": "out",
+                    "target": "n-delay",
+                    "target_handle": "input"
+                }]
+            }
+        }
+    }"#;
+    let capabilities = capabilities_json(program, "Generic Desktop");
+    create_test_package([
+        (
+            "manifest.json",
+            r#"{
+                "format_version": 1,
+                "script_language_version": 1,
+                "id": "cancellable",
+                "name": "cancellable",
+                "created_with": "BaudBound Test",
+                "created_at": "2026-01-01T00:00:00.000Z",
+                "minimum_runner_version": "0.1.0"
+            }"#,
+        ),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions": ["delay"], "risk_level": "low"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
 }
 
 fn create_action_handler_test_package_with_capabilities(

@@ -38,15 +38,21 @@ export function filterLogs(
 }
 
 export function runHasErrors(run: StoredRunRecord) {
-  return run.status !== "completed" || run.logs.some((log) => log.level === "error");
+  return run.status === "failed" || run.logs.some((log) => log.level === "error");
 }
 
 export function runSummary(runs: StoredRunRecord[]) {
   return {
     completed: runs.filter((run) => run.status === "completed").length,
-    failed: runs.filter((run) => run.status !== "completed").length,
+    failed: runs.filter((run) => run.status === "failed").length,
+    cancelled: runs.filter((run) => run.status === "cancelled").length,
     withErrors: runs.filter(runHasErrors).length,
   };
+}
+
+export function runStatusVariant(status: StoredRunRecord["status"]) {
+  if (status === "completed") return "good" as const;
+  return status === "cancelled" ? ("medium" as const) : ("destructive" as const);
 }
 
 export function variableRows(variables: Record<string, unknown>): VariableRow[] {

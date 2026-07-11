@@ -1,0 +1,107 @@
+name: Wiki Documentation
+
+on:
+  pull_request:
+    paths:
+      - "docs/wiki/**"
+      - "tools/wiki-publisher/**"
+      - ".github/workflows/wiki-publish.yml"
+  push:
+    branches:
+      - v2
+      - master
+    paths:
+      - "docs/wiki/**"
+      - "tools/wiki-publisher/**"
+      - ".github/workflows/wiki-publish.yml"
+  workflow_dispatch:
+    inputs:
+      adopt_existing_pages:
+        description: Adopt unmanaged Wiki.js pages whose locale and path match repository pages
+        required: true
+        type: boolean
+        default: false
+      allow_mass_delete:
+        description: Allow deletion beyond the normal managed-page safety limit
+        required: true
+        type: boolean
+        default: false
+      dry_run:
+        description: Calculate and print changes without modifying Wiki.js
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: baudbound-wiki-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: tools/wiki-publisher/pnpm-lock.yaml
+
+      - name: Install publisher dependencies
+        run: pnpm --dir tools/wiki-publisher install --frozen-lockfile
+
+      - name: Test publisher safety contracts
+        run: pnpm --dir tools/wiki-publisher test
+
+      - name: Validate public documentation
+        run: pnpm --dir tools/wiki-publisher validate
+
+  publish:
+    name: Publish to Wiki.js
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && vars.WIKI_PUBLISH_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    environment: wiki-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: tools/wiki-publisher/pnpm-lock.yaml
+
+      - name: Install publisher dependencies
+        run: pnpm --dir tools/wiki-publisher install --frozen-lockfile
+
+      - name: Reconcile Wiki.js pages
+        env:
+          WIKI_ALLOW_ADOPT: ${{ inputs.adopt_existing_pages || 'false' }}
+          WIKI_ALLOW_MASS_DELETE: ${{ inputs.allow_mass_delete || 'false' }}
+          WIKI_API_TOKEN: ${{ secrets.WIKI_API_TOKEN }}
+          WIKI_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          WIKI_URL: ${{ secrets.WIKI_URL }}
+        run: pnpm --dir tools/wiki-publisher publish

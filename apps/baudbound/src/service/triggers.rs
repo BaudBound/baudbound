@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, TriggerEvent, TriggerRegistration};
+use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{
     FileWatchService, HotkeyService, ProcessStartedService, ScheduleService, SerialInputService,
@@ -102,6 +103,7 @@ pub(super) fn load_trigger_services(
     store: &SqliteRunnerStore,
     options: &ServeOptions,
     trigger_sender: &SyncSender<TriggerEvent>,
+    cancellation: &RuntimeCancellationToken,
 ) -> Result<TriggerServices> {
     let registration_set = TriggerRegistrationSet::load(core, store, "load")?;
 
@@ -111,6 +113,7 @@ pub(super) fn load_trigger_services(
         registration_set,
         options,
         trigger_sender,
+        cancellation,
         ReusableTriggerServices::empty(),
     )
 }
@@ -121,6 +124,7 @@ pub(super) fn reload_trigger_services_if_changed(
     options: &ServeOptions,
     trigger_sender: &SyncSender<TriggerEvent>,
     mut current: TriggerServices,
+    cancellation: &RuntimeCancellationToken,
 ) -> Result<(TriggerServices, bool)> {
     let registration_set = TriggerRegistrationSet::load(core, store, "reload")?;
 
@@ -139,6 +143,7 @@ pub(super) fn reload_trigger_services_if_changed(
         registration_set,
         options,
         trigger_sender,
+        cancellation,
         reusable,
     )?;
     services.startup.drain_events();
@@ -151,6 +156,7 @@ fn build_trigger_services(
     registration_set: TriggerRegistrationSet,
     options: &ServeOptions,
     trigger_sender: &SyncSender<TriggerEvent>,
+    cancellation: &RuntimeCancellationToken,
     reusable: ReusableTriggerServices,
 ) -> Result<TriggerServices> {
     let ReusableTriggerServices {
@@ -229,8 +235,14 @@ fn build_trigger_services(
         drop(previous_websocket_service);
         WebSocketService::empty(Arc::clone(&options.websocket_registry))
     };
-    let webhook_host =
-        build_webhook_host(core, store, registrations, options, previous_webhook_host)?;
+    let webhook_host = build_webhook_host(
+        core,
+        store,
+        registrations,
+        options,
+        previous_webhook_host,
+        cancellation,
+    )?;
 
     Ok(TriggerServices {
         file_watch_service,

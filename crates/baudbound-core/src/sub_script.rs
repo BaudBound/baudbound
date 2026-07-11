@@ -1,5 +1,6 @@
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest, RuntimeActionResult,
+    RuntimeCancellationToken,
 };
 use baudbound_storage::ScriptStore;
 use serde_json::Value;
@@ -11,6 +12,7 @@ pub(crate) struct CoreRuntimeActionHandler<'a, S: ScriptStore> {
     core: &'a RunnerCore,
     delegate: &'a dyn RuntimeActionHandler,
     store: &'a S,
+    cancellation: RuntimeCancellationToken,
 }
 
 impl<'a, S: ScriptStore> CoreRuntimeActionHandler<'a, S> {
@@ -19,12 +21,14 @@ impl<'a, S: ScriptStore> CoreRuntimeActionHandler<'a, S> {
         core: &'a RunnerCore,
         delegate: &'a dyn RuntimeActionHandler,
         store: &'a S,
+        cancellation: RuntimeCancellationToken,
     ) -> Self {
         Self {
             call_stack,
             core,
             delegate,
             store,
+            cancellation,
         }
     }
 }
@@ -57,6 +61,7 @@ impl<S: ScriptStore> CoreRuntimeActionHandler<'_, S> {
                 None,
                 serde_json::Value::Null,
                 self.call_stack.clone(),
+                self.cancellation.clone(),
             )
             .map_err(|source| RuntimeActionError::Failed {
                 action_type: request.action_type.clone(),

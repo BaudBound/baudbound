@@ -1,11 +1,17 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "BaudBound",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "identifier": "app.baudbound.runner",
   "build": {
-    "beforeDevCommand": "pnpm --dir ui dev",
-    "beforeBuildCommand": "pnpm --dir ui build",
+    "beforeDevCommand": {
+      "cwd": "ui",
+      "script": "pnpm dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "ui",
+      "script": "pnpm build"
+    },
     "devUrl": "http://localhost:1420",
     "frontendDist": "ui/dist"
   },
@@ -26,7 +32,21 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all"
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4NTkwMEY0NTI4QTI4RkQKUldUOUtJcFM5QUJaU0RNVVh0b1Mva3Z1NG5QUFFhN0w1Y0lkNEk5Rjl5QzRETmFEWU8rMmx0U3kK"
+    }
   }
 }

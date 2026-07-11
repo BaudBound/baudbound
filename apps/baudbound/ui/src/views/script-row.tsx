@@ -14,25 +14,26 @@ import {
 } from "@/lib/runner-api";
 import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
 import { cn } from "@/lib/utils";
-import { ScriptApprovalDialog } from "@/views/script-approval-dialog";
 
 export function ScriptRow({
   busyActions,
   expanded,
   onToggleDetails,
+  onReviewApproval,
   runAction,
   script,
 }: {
   busyActions: Set<string>;
   expanded: boolean;
   onToggleDetails: (scriptId: string) => void;
+  onReviewApproval: (scriptId: string) => void;
   runAction: DashboardAction;
   script: ScriptStatus;
 }) {
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
-  const [approvalOpen, setApprovalOpen] = useState(false);
   const reference = script.installed.id;
   const approveAction = `approve:${reference}`;
+  const revokeApprovalAction = `revoke-approval:${reference}`;
   const removeAction = `remove:${reference}`;
   const runScriptAction = `run:${reference}`;
   const toggleAction = `toggle:${reference}`;
@@ -101,12 +102,12 @@ export function ScriptRow({
             <Play />
           </Button>
           <Button
-            aria-label={`Approve ${script.installed.name}`}
+            aria-label={`Review approval for ${script.installed.name}`}
             className="size-8 p-0"
-            disabled={busyActions.has(approveAction)}
-            onClick={() => setApprovalOpen(true)}
+            disabled={busyActions.has(approveAction) || busyActions.has(revokeApprovalAction)}
+            onClick={() => onReviewApproval(reference)}
             size="sm"
-            title="Approve"
+            title="Review approval"
             variant="outline"
           >
             <ShieldCheck />
@@ -145,13 +146,6 @@ export function ScriptRow({
             onOpenChange={setConfirmRemoveOpen}
             open={confirmRemoveOpen}
             title="Remove script?"
-          />
-          <ScriptApprovalDialog
-            busy={busyActions.has(approveAction)}
-            onOpenChange={setApprovalOpen}
-            open={approvalOpen}
-            runAction={runAction}
-            script={script}
           />
         </div>
       </td>

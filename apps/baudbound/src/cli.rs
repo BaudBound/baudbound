@@ -21,7 +21,7 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    /// Show runner status. This is also used when no command is provided.
+    /// Show runner status.
     Status {
         /// Print machine-readable JSON.
         #[arg(long)]
@@ -288,11 +288,43 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
     Ok(parsed)
 }
 
+pub fn default_command() -> Command {
+    default_command_for_session(desktop_session_available())
+}
+
+fn default_command_for_session(has_desktop_session: bool) -> Command {
+    if has_desktop_session {
+        Command::Ui
+    } else {
+        Command::Status { json: false }
+    }
+}
+
+fn desktop_session_available() -> bool {
+    #[cfg(windows)]
+    {
+        true
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some()
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, Command, SecretCommand, parse_positive_usize};
+    use super::{
+        Cli, Command, SecretCommand, default_command, default_command_for_session,
+        parse_positive_usize,
+    };
 
     #[test]
     fn positive_size_parser_rejects_zero_and_invalid_values() {
@@ -311,5 +343,20 @@ mod tests {
                 command: SecretCommand::List { script, json: true }
             }) if script == "script-1"
         ));
+    }
+
+    #[test]
+    fn default_command_matches_session_type() {
+        assert!(matches!(default_command_for_session(true), Command::Ui));
+        assert!(matches!(
+            default_command_for_session(false),
+            Command::Status { json: false }
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn defaults_to_desktop_ui_on_windows() {
+        assert!(matches!(default_command(), Command::Ui));
     }
 }

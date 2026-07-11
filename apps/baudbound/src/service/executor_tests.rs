@@ -34,14 +34,14 @@ fn executes_trigger_jobs_concurrently() {
         .expect("test trigger executor should start");
 
     executor
-        .submit(event("one"))
+        .submit_from(event("one"), "test")
         .expect("first job should queue");
     executor
-        .submit(event("two"))
+        .submit_from(event("two"), "test")
         .expect("second job should queue");
     barrier.wait();
 
-    let completions = wait_for_completions(&executor, 2);
+    let completions = wait_for_completions(&mut executor, 2);
     assert_eq!(completions.len(), 2);
     assert_eq!(peak.load(Ordering::SeqCst), 2);
 }
@@ -64,16 +64,16 @@ fn rejects_work_when_the_bounded_queue_is_full() {
         .expect("test trigger executor should start");
 
     executor
-        .submit(event("running"))
+        .submit_from(event("running"), "test")
         .expect("running job should queue");
     started_receiver
         .recv_timeout(Duration::from_secs(1))
         .expect("worker should start first job");
     executor
-        .submit(event("queued"))
+        .submit_from(event("queued"), "test")
         .expect("second job should fill queue");
     assert_eq!(
-        executor.submit(event("rejected")),
+        executor.submit_from(event("rejected"), "test"),
         Err(TriggerSubmitError::Full)
     );
 
@@ -82,7 +82,7 @@ fn rejects_work_when_the_bounded_queue_is_full() {
         .recv_timeout(Duration::from_secs(1))
         .expect("worker should start queued job");
     release.wait();
-    assert_eq!(wait_for_completions(&executor, 2).len(), 2);
+    assert_eq!(wait_for_completions(&mut executor, 2).len(), 2);
 }
 
 #[test]
@@ -91,16 +91,31 @@ fn preserves_dispatch_failures_in_completions() {
         Arc::new(|_event: TriggerEvent| Err("dispatch denied".to_owned())) as Arc<TriggerRunner>;
     let mut executor = TriggerExecutor::with_runner(1, 1, "test", runner)
         .expect("test trigger executor should start");
-    executor.submit(event("failed")).expect("job should queue");
+    executor
+        .submit_from(event("failed"), "test")
+        .expect("job should queue");
 
-    let completion = wait_for_completions(&executor, 1)
+    let completion = wait_for_completions(&mut executor, 1)
         .pop()
         .expect("completion should exist");
     assert_eq!(completion.result.unwrap_err(), "dispatch denied");
     assert_eq!(completion.event.node_id, "failed");
 }
 
-fn wait_for_completions(executor: &TriggerExecutor, count: usize) -> Vec<TriggerCompletion> {
+#[test]
+fn dropping_executor_cancels_its_shared_runtime_token() {
+    let cancellation = baudbound_runtime::RuntimeCancellationToken::new();
+    let runner = Arc::new(|event: TriggerEvent| Ok(report_for_event(&event))) as Arc<TriggerRunner>;
+    let executor =
+        TriggerExecutor::with_runner_and_cancellation(1, 1, "test", runner, cancellation.clone())
+            .expect("test trigger executor should start");
+
+    drop(executor);
+
+    assert!(cancellation.is_cancelled());
+}
+
+fn wait_for_completions(executor: &mut TriggerExecutor, count: usize) -> Vec<TriggerCompletion> {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut completions = Vec::new();
     while completions.len() < count && Instant::now() < deadline {

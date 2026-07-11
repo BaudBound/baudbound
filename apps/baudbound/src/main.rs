@@ -25,7 +25,7 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let command = cli.command.unwrap_or(Command::Status { json: false });
+    let command = cli.command.unwrap_or_else(cli::default_command);
     let runner_home = paths::default_runner_home();
     let config_path = cli
         .config

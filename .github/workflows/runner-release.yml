@@ -1,0 +1,161 @@
+name: Runner Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: runner-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  quality:
+    name: Release quality gate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            libudev-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: clippy,rustfmt
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            apps/baudbound/ui/pnpm-lock.yaml
+            apps/editor/pnpm-lock.yaml
+
+      - name: Install desktop UI dependencies
+        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+
+      - name: Install editor dependencies
+        run: pnpm --dir apps/editor install --frozen-lockfile
+
+      - name: Verify release version
+        run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --workspace --locked
+
+      - name: Verify editor schemas
+        run: pnpm --dir apps/editor schemas:check
+
+      - name: Run editor contract tests
+        run: pnpm --dir apps/editor test
+
+      - name: Test desktop UI contracts
+        run: pnpm --dir apps/baudbound/ui test
+
+      - name: Build desktop UI
+        run: pnpm --dir apps/baudbound/ui build
+
+  package:
+    name: Package ${{ matrix.label }}
+    needs: quality
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows NSIS
+            os: windows-latest
+            bundles: nsis
+          - label: Linux AppImage
+            os: ubuntu-22.04
+            bundles: appimage
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            libudev-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
+
+      - name: Install desktop UI dependencies
+        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+
+      - name: Verify release version
+        run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
+
+      - name: Build and upload signed desktop package
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/baudbound
+          args: --bundles ${{ matrix.bundles }}
+          tagName: ${{ github.ref_name }}
+          releaseName: BaudBound ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true

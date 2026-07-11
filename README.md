@@ -49,6 +49,16 @@ The editor is the most complete part of V2. The Rust runner workspace now has sh
 
 Do not treat exported editor packages as inherently trusted. The runner must enforce the schema, permissions, capabilities, filesystem safety, and platform rules.
 
+## Development Helper
+
+The PowerShell development helper provides an interactive menu for launching the desktop app, desktop UI, editor, runner service, checks, tests, schema generation, and builds:
+
+```powershell
+./tools/development.ps1
+```
+
+Use the Up and Down arrow keys to select a task. Individual tasks can also be invoked directly, for example `./tools/development.ps1 -Action Desktop` or `./tools/development.ps1 -Action Checks`.
+
 ## BaudBound Editor
 
 The editor is a Next.js application in `apps/editor`.
@@ -116,6 +126,12 @@ docker compose -f apps/editor/compose.yaml up -d
 ```
 
 The GitHub Actions workflow in `.github/workflows/editor-docker.yml` builds the editor container and publishes it to GitHub Container Registry for non-PR builds.
+
+## Documentation
+
+Public documentation is maintained as Markdown under `docs/wiki` and published to Wiki.js through `.github/workflows/wiki-publish.yml`. Pull requests validate metadata and internal links. Approved changes on the production branch are reconciled through the Wiki.js GraphQL API, so documentation does not need to be copied to the server manually.
+
+The publisher, safety tests, page ownership rules, and initial deployment instructions live in `tools/wiki-publisher`. Internal release documents such as `docs/runner-release.md` are intentionally outside the public wiki source tree.
 
 ## Script Packages
 
