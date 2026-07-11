@@ -6,14 +6,17 @@ use super::{
 };
 
 pub(super) struct ProcessTracker {
-    known_processes: BTreeSet<ProcessIdentity>,
+    known_processes: BTreeMap<u32, u64>,
     pending_windows: BTreeSet<(RegistrationId, ProcessIdentity)>,
 }
 
 impl ProcessTracker {
     pub(super) fn new(initial_processes: impl IntoIterator<Item = ProcessIdentity>) -> Self {
         Self {
-            known_processes: initial_processes.into_iter().collect(),
+            known_processes: initial_processes
+                .into_iter()
+                .map(|process| (process.process_id, process.start_time))
+                .collect(),
             pending_windows: BTreeSet::new(),
         }
     }
@@ -23,14 +26,34 @@ impl ProcessTracker {
         current_processes: impl IntoIterator<Item = ProcessIdentity>,
         specs: &BTreeMap<RegistrationId, ProcessStartedSpec>,
     ) -> Vec<ProcessIdentity> {
-        let current = current_processes.into_iter().collect::<BTreeSet<_>>();
+        let current = current_processes
+            .into_iter()
+            .map(|process| (process.process_id, process))
+            .collect::<BTreeMap<_, _>>();
         let new_processes = current
-            .difference(&self.known_processes)
+            .values()
+            .filter(|process| {
+                self.known_processes
+                    .get(&process.process_id)
+                    .is_none_or(|known_start| {
+                        !start_times_equivalent(*known_start, process.start_time)
+                    })
+            })
             .copied()
             .collect::<Vec<_>>();
 
-        self.pending_windows
-            .retain(|(_, process)| current.contains(process));
+        self.pending_windows = self
+            .pending_windows
+            .iter()
+            .filter_map(|(registration_id, pending)| {
+                current
+                    .get(&pending.process_id)
+                    .filter(|current| {
+                        start_times_equivalent(pending.start_time, current.start_time)
+                    })
+                    .map(|current| (registration_id.clone(), *current))
+            })
+            .collect();
         for process in &new_processes {
             for spec in specs
                 .values()
@@ -39,7 +62,10 @@ impl ProcessTracker {
                 self.pending_windows.insert((spec.id.clone(), *process));
             }
         }
-        self.known_processes = current;
+        self.known_processes = current
+            .into_iter()
+            .map(|(process_id, process)| (process_id, process.start_time))
+            .collect();
         new_processes
     }
 
@@ -67,4 +93,8 @@ impl ProcessTracker {
         self.pending_windows
             .remove(&(registration_id.clone(), process));
     }
+}
+
+fn start_times_equivalent(left: u64, right: u64) -> bool {
+    left == right || left == 0 || right == 0
 }

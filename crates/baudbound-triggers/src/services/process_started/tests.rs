@@ -45,6 +45,18 @@ fn detects_each_process_identity_once_and_handles_pid_reuse() {
 }
 
 #[test]
+fn process_identity_stabilization_does_not_emit_a_duplicate_start() {
+    let specs = collect_specs([registration("n-process", "process_name", "worker")])
+        .expect("spec should parse");
+    let mut engine = ProcessStartedEngine::new(specs, &BTreeMap::new());
+    let initial = snapshots([snapshot(20, 0, "worker", "worker")]);
+    let stabilized = snapshots([snapshot(20, 200, "worker", "worker")]);
+
+    assert_eq!(poll(&mut engine, &initial).len(), 1);
+    assert!(poll(&mut engine, &stabilized).is_empty());
+}
+
+#[test]
 fn process_name_matching_uses_executable_name_when_system_name_is_truncated() {
     let executable_name = "baudbound-process-helper";
     let specs = collect_specs([registration("n-process", "process_name", executable_name)])
