@@ -1,31 +1,38 @@
 ---
-title: Installing the Runner
+title: Runner Installation
 description: Install BaudBound on supported Windows and Linux systems.
-tags:
-  - installation
-  - runner
+tags: [runner, installation]
 ---
-# Installing the Runner
+# Runner Installation
 
-BaudBound 2.0 supports Windows and Linux. Download release artifacts from the [BaudBound GitHub releases](https://github.com/NATroutter/BaudBound/releases).
+## Supported systems
+
+BaudBound supports 64-bit Windows and major Linux desktop or server distributions. Desktop builds require the platform webview and graphical dependencies used by Tauri. Linux releases are distributed in formats suitable for Debian-family, Fedora-family, and portable AppImage use; Arch users can use the AppImage or package from source.
 
 ## Windows
 
-Download and run the NSIS setup executable. The installer creates normal application shortcuts and an uninstall entry. Early releases may display a Windows unsigned-publisher warning; Tauri updater packages are still cryptographically signed and verified independently.
+Download the signed Windows installer from the project's GitHub release. The installer places the application and `baudbound` command in a managed installation location, registers uninstall metadata, and provides the files required by the updater. WebView2 is required and is normally present on supported Windows systems.
 
-## Linux desktop
+## Linux
 
-Download the AppImage, make it executable, and launch it:
+Choose the release artifact appropriate for the machine:
 
-```bash
-chmod +x BaudBound_2.0.0_amd64.AppImage
-./BaudBound_2.0.0_amd64.AppImage
-```
+- `.deb` for Debian and Ubuntu families.
+- `.rpm` for Fedora, RHEL, and compatible families.
+- `.AppImage` for a portable distribution-independent desktop launch.
 
-The AppImage is the primary cross-distribution desktop artifact for Debian, Fedora, Arch, and related distributions.
+Install native packages with the distribution package manager so dependencies and uninstall behavior remain managed. Make an AppImage executable before launching it.
 
 ## First launch
 
-The runner creates its configuration automatically on first use. Desktop mode stores its encryption key in the operating-system credential vault. Headless secret configuration requires an explicit `BAUDBOUND_SECRET_KEY` environment variable.
+The runner creates its default configuration automatically. No initialization command is required. Launching the desktop app opens the Dashboard; the CLI can verify installation with:
 
-Continue with the [runner quick start](quick-start.md).
+```text
+baudbound --version
+baudbound doctor
+baudbound config path
+```
+
+The first release supports Windows and Linux only. macOS packages and runtime targets are not produced.
+
+Continue with the [quick start](quick-start.md) and [updates](updates.md).

@@ -48,6 +48,31 @@ const DELETE_PAGE = `
   }
 `;
 
+const READ_NAVIGATION = `
+  query WikiNavigation {
+    navigation {
+      config { mode }
+      tree {
+        locale
+        items { id kind label icon targetType target visibilityMode visibilityGroups }
+      }
+    }
+  }
+`;
+
+const UPDATE_NAVIGATION = `
+  mutation UpdateNavigation($mode: NavigationMode!, $tree: [NavigationTreeInput]!) {
+    navigation {
+      updateTree(tree: $tree) {
+        responseResult { succeeded errorCode slug message }
+      }
+      updateConfig(mode: $mode) {
+        responseResult { succeeded errorCode slug message }
+      }
+    }
+  }
+`;
+
 export class WikiJsClient {
   constructor({ baseUrl, token, fetchImpl = fetch }) {
     const url = new URL(baseUrl);
@@ -89,6 +114,17 @@ export class WikiJsClient {
   async deletePage(page) {
     const data = await this.request(DELETE_PAGE, { id: page.id });
     assertMutation(data.pages.delete.responseResult, `delete ${page.path}`);
+  }
+
+  async readNavigation() {
+    const data = await this.request(READ_NAVIGATION, {});
+    return { mode: data.navigation.config.mode, tree: data.navigation.tree };
+  }
+
+  async updateNavigation(navigation) {
+    const data = await this.request(UPDATE_NAVIGATION, navigation);
+    assertMutation(data.navigation.updateTree.responseResult, "update navigation tree");
+    assertMutation(data.navigation.updateConfig.responseResult, "update navigation mode");
   }
 
   async request(query, variables) {

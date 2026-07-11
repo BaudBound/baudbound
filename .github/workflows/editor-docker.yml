@@ -7,7 +7,6 @@ on:
       - ".github/workflows/editor-docker.yml"
   push:
     branches:
-      - v2
       - master
     tags:
       - "editor-v*"

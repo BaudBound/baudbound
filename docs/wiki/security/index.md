@@ -1,21 +1,16 @@
 ---
 title: Security Model
-description: Package integrity, permissions, approvals, and secret handling in BaudBound.
-tags:
-  - security
+description: BaudBound package integrity, capabilities, approvals, secrets, policy, and native execution boundaries.
+tags: [security]
 ---
 # Security Model
 
-BaudBound treats editor packages as untrusted input. The runner independently validates package structure, hashes, permissions, capabilities, target compatibility, and minimum runner versions before execution.
+BaudBound treats imported automation as untrusted executable intent. The runner validates package structure and hashes, recalculates permissions and capabilities from the graph, enforces target-runtime compatibility, applies runner policy, and requires approval for the exact installed revision.
 
-## Package approvals
+The editor's declarations are review material, not an authority the runner blindly trusts. Unknown action types, undeclared executable behavior, mismatched capability files, duplicate declarations, unsupported targets, and falsified risk are rejected.
 
-Approvals are bound to the exact installed package hash and declared permissions. If a package changes, the previous approval no longer applies. Medium, high, and dangerous operations remain visible during review.
+Native operations are implemented through Rust libraries and platform APIs. BaudBound does not emulate unsupported native actions by constructing PowerShell, shell, or desktop-tool scripts. The Shell node is an explicit high-risk automation feature and is governed as such; it is not an implementation shortcut for other nodes.
 
-## Secrets
+Secrets are supplied by the runner operator, encrypted at rest, redacted from logs, and never included in exported packages. Network listeners default to loopback and remain subject to host firewall and proxy policy.
 
-Packages declare secret names and types but never contain secret values. Values are configured on the runner, encrypted before durable storage, and exposed to scripts as read-only inputs. Stored values are not returned to the desktop React interface and are redacted from persisted reports.
-
-## Updates
-
-Desktop updates are downloaded through Tauri's updater and must match the public signing key embedded in the installed application. An unsigned or mismatched update is rejected before installation.
+Read [Capabilities and approvals](permissions-capabilities.md), [Package integrity](package-integrity.md), and [Secrets](../runner/secrets.md).

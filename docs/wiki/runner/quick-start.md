@@ -1,30 +1,45 @@
 ---
 title: Runner Quick Start
-description: Import, approve, and execute a BaudBound package.
-tags:
-  - getting-started
-  - runner
+description: Import, inspect, approve, run, and monitor a BaudBound package.
+tags: [runner, getting-started]
 ---
 # Runner Quick Start
 
-## Desktop application
+## Import a package
 
-1. Open BaudBound and select **Scripts**.
-2. Import the `.bbs` package exported by the editor.
-3. Review its target runtime, package hash, risk level, permissions, and capabilities.
-4. Approve the current package when the requested access is acceptable.
-5. Run the script or start the desktop background runner for listener-based triggers.
+Use the Scripts tab in the desktop UI, or run:
 
-Approval is tied to the exact package hash. Updating a package invalidates its previous approval and requires another review.
-
-## Command line
-
-```bash
-baudbound script import ./automation.bbs
-baudbound script inspect automation
-baudbound script approve automation
-baudbound script run automation
-baudbound script logs --script automation
+```text
+baudbound script import C:\Downloads\my-automation.bbs
+baudbound script list
 ```
 
-Use `baudbound serve` for long-running schedules, file watchers, serial input, webhooks, WebSockets, and process-start listeners in a headless environment. Your process manager is responsible for starting and supervising that command.
+The runner validates the archive, manifest, program schema, node configurations, integrity hashes, minimum runner version, and target runtime before installation.
+
+## Review and approve
+
+```text
+baudbound script inspect my-automation
+baudbound script approval my-automation
+baudbound script approve my-automation
+```
+
+The approval view shows whether the installed revision is approved and whether the capability decision still matches its content. Read [Scripts and approvals](scripts-approvals.md) before approving untrusted packages.
+
+## Run manually
+
+```text
+baudbound script run my-automation
+baudbound script logs my-automation
+```
+
+Manual execution selects an applicable manual trigger. Trigger dispatch and run output are recorded in durable storage.
+
+## Enable background triggers
+
+```text
+baudbound script enable my-automation
+baudbound serve
+```
+
+The service loads enabled, valid, approved scripts. Listener families must also be enabled in `config.toml`. Use `baudbound status`, the desktop Service tab, and the Logs or Runs tabs to monitor execution.

@@ -74,7 +74,7 @@ The normal assisted release flow is:
 & $releaseTool -Action Publish -Version $version -ConfirmPublish
 ```
 
-`Tag` refuses to proceed unless the worktree is clean, the current branch is `v2`, all versions agree, the tag is new, and Runner CI passed for the exact commit. `Publish` downloads and structurally validates the draft again, requires `-ConfirmPublish`, and still prompts before making the release public. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
+`Tag` refuses to proceed unless the worktree is clean, the current branch is `master`, all versions agree, the tag is new, and Runner CI passed for the exact commit. `Publish` downloads and structurally validates the draft again, requires `-ConfirmPublish`, and still prompts before making the release public. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
 
 The remaining sections describe every operation in detail and provide the manual commands for recovery or auditing.
 
@@ -83,8 +83,8 @@ The remaining sections describe every operation in detail and provide the manual
 Start from a clean checkout of the release branch:
 
 ```powershell
-git switch v2
-git pull --ff-only origin v2
+git switch master
+git pull --ff-only origin master
 
 if (git status --porcelain) {
     throw "The worktree is not clean. Commit or remove unrelated changes before releasing."
@@ -198,7 +198,7 @@ Commit and push the version update:
 ```powershell
 git add Cargo.toml Cargo.lock apps/baudbound/tauri.conf.json apps/baudbound/ui/package.json
 git commit -m "release: prepare BaudBound $tag"
-git push origin v2
+git push origin master
 ```
 
 Wait for the normal `Runner CI` workflow to pass before creating the tag. With GitHub CLI installed:

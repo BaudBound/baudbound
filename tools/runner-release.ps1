@@ -24,7 +24,7 @@ param(
     [string]$Version,
 
     [ValidateNotNullOrEmpty()]
-    [string]$ReleaseBranch = "v2",
+    [string]$ReleaseBranch = "master",
 
     [string]$DownloadDirectory,
     [switch]$ConfirmTag,

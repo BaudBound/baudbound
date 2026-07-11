@@ -12,7 +12,6 @@ on:
       - ".github/workflows/runner-ci.yml"
   push:
     branches:
-      - v2
       - master
     paths:
       - "Cargo.toml"

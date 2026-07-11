@@ -4,6 +4,7 @@ import {
 	BookOpenText,
 	Calculator,
 	Database,
+	ExternalLink,
 	FlaskConical,
 	Keyboard,
 	LifeBuoy,
@@ -272,7 +273,7 @@ export function HelpModal({ onClose, open }: HelpModalProps) {
 					</DialogHeader>
 
 					<div className="grid min-h-0 overflow-hidden grid-cols-1 md:grid-cols-[240px_1fr]">
-						<nav className="border-b border-baud-border bg-baud-bg/45 p-3 md:overflow-y-auto md:border-r md:border-b-0">
+						<nav className="flex min-h-0 flex-col border-b border-baud-border bg-baud-bg/45 p-3 md:overflow-y-auto md:border-r md:border-b-0">
 							<div className="mb-2 px-2 text-xs font-bold tracking-[0.18em] text-baud-muted uppercase">Docs</div>
 							<div className="flex gap-2 overflow-x-auto md:flex-col md:overflow-visible">
 								{helpSections.map((section) => (
@@ -285,6 +286,16 @@ export function HelpModal({ onClose, open }: HelpModalProps) {
 									/>
 								))}
 							</div>
+							<a
+								href="https://wiki.baudbound.app/"
+								target="_blank"
+								rel="noreferrer"
+								className="mt-3 flex h-10 shrink-0 items-center gap-2 rounded-md border border-baud-border px-3 text-sm font-semibold text-baud-muted transition-colors hover:bg-baud-elevated hover:text-baud-text md:mt-auto"
+							>
+								<BookOpenText size={15} />
+								<span>Full documentation</span>
+								<ExternalLink size={13} className="ml-auto" />
+							</a>
 						</nav>
 
 						<div className="min-h-0 overflow-y-scroll px-6 py-5 [scrollbar-gutter:stable]">

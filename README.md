@@ -1,271 +1,76 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="BaudBound" width="320"/>
-  <br/><br/>
-
+  <img src="assets/logo.svg" alt="BaudBound" width="320" />
+  <br /><br />
   <p><strong>Local-first visual automation scripting.</strong></p>
-  <p>Build scripts in the web editor, export portable <code>.bbs</code> packages, and run them locally with the BaudBound runner.</p>
+  <p>Build workflows in the web editor, export portable <code>.bbs</code> packages, and execute them with the native runner.</p>
 
   ![Editor](https://img.shields.io/badge/Editor-Next.js-111827?style=for-the-badge&logo=nextdotjs&logoColor=white)
   ![Runner](https://img.shields.io/badge/Runner-Rust-b7410e?style=for-the-badge&logo=rust&logoColor=white)
-  ![Package](https://img.shields.io/badge/Package-.bbs-e62d3e?style=for-the-badge)
   ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey?style=for-the-badge)
   ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 </div>
 
----
+## Overview
 
-## What Is BaudBound?
-
-BaudBound is a visual scripting automation platform for building local automation scripts without turning the browser into a trusted runtime.
-
-The project is split into two parts:
-
-- **BaudBound Editor**: a hosted or self-hosted web app for visually creating, validating, simulating, and exporting `.bbs` script packages.
-- **BaudBound Runner**: a local runtime that imports `.bbs` packages, validates them again, asks for required permissions, and executes scripts on the user's machine.
-
-The core rule is simple:
+BaudBound separates visual authoring from trusted native execution:
 
 ```text
-Editor builds scripts.
-Runner owns trusted execution.
+Editor builds and simulates scripts.
+Runner validates, approves, and executes them.
 ```
 
-## V2 Direction
+The [public editor](https://editor.baudbound.app/) is a browser-based Next.js application. The unified `baudbound` Rust application provides a Tauri desktop UI, CLI, background trigger service, package security, durable SQLite state, and native Windows and Linux execution.
 
-This repository is the V2 architecture. It replaces the older V1 serial-event Java application with a package-based editor and runner model.
+Complete user, operator, deployment, and contributor documentation lives at [wiki.baudbound.app](https://wiki.baudbound.app/). Repository Markdown under `docs/wiki` is its source of truth.
 
-V1 focused on mapping serial input directly to actions. V2 keeps serial automation as one use case, but expands BaudBound into a general visual automation system with:
+## Repository
 
-- node-based script graphs
-- reusable `.bbs` package format
-- local-first runner execution
-- explicit permissions, capabilities, and risk analysis
-- browser-only simulation for previewing graph flow
-- asset packaging for script resources such as audio files
+```text
+apps/
+  editor/                 Visual workflow editor
+  baudbound/              Unified runner CLI and Tauri desktop app
+crates/
+  baudbound-actions/      Shared and native action implementations
+  baudbound-core/         Runner orchestration
+  baudbound-runtime/      Graph execution and runtime data
+  baudbound-script/       Package and language contracts
+  baudbound-security/     Capabilities, risk, approvals, and policy
+  baudbound-storage/      SQLite durable state
+  baudbound-triggers/     Background trigger services
+schemas/                  JSON Schema package contracts
+deploy/                   Container and service templates
+docs/wiki/                Canonical public documentation
+tools/                    Development, release, and wiki tooling
+```
 
-## Current Status
+## Development
 
-The editor is the most complete part of V2. The Rust runner workspace now has shared crates, CLI and desktop app entry points, strict `.bbs` package loading, filesystem-backed import/update storage, approval-bound package hashes, persisted run logs, manual and selected-trigger execution, runtime variables, control flow, calculations, file/process/network actions, and headless action dispatch.
+Requirements include Rust 1.95 or newer, Node.js 24, pnpm, and the platform dependencies required by Tauri 2.
 
-Do not treat exported editor packages as inherently trusted. The runner must enforce the schema, permissions, capabilities, filesystem safety, and platform rules.
-
-## Development Helper
-
-The PowerShell development helper provides an interactive menu for launching the desktop app, desktop UI, editor, runner service, checks, tests, schema generation, and builds:
+Use the interactive development helper:
 
 ```powershell
 ./tools/development.ps1
 ```
 
-Use the Up and Down arrow keys to select a task. Individual tasks can also be invoked directly, for example `./tools/development.ps1 -Action Desktop` or `./tools/development.ps1 -Action Checks`.
-
-## BaudBound Editor
-
-The editor is a Next.js application in `apps/editor`.
-
-Public hosted editor:
+Common verification commands:
 
 ```text
-https://editor.baudbound.app/
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+pnpm --dir apps/editor verify:release
+pnpm --dir apps/baudbound/ui build
+pnpm --dir tools/wiki-publisher test
+pnpm --dir tools/wiki-publisher validate
 ```
 
-It currently supports:
+Read the [developer documentation](https://wiki.baudbound.app/developers) before changing package contracts, node compatibility, native actions, security behavior, or release infrastructure.
 
-- React Flow based visual node editor
-- editor-only canvas comments for documenting graph intent
-- project settings and manifest metadata
-- `.bbs` import and export
-- package assets managed fully client-side
-- package verification before export
-- browser-only simulator with runtime variables
-- node runtime output references using `{{node-id.field}}`
-- built-in read-only variables such as manifest and system values
-- Docker image and Compose deployment
-- browser E2E and package contract tests
+## Documentation Policy
 
-### Run Locally
+Detailed documentation belongs in `docs/wiki`. The only standalone Markdown outside that tree is this repository entry point and `docs/runner-release.md`, which is an internal release runbook. The publisher reconciles page content and the static navigation declared in `docs/wiki/navigation.json`.
 
-```bash
-cd apps/editor
-pnpm install
-pnpm dev
-```
+## License
 
-The editor is browser-local and does not require a backend service.
-
-### Verify The Editor
-
-```bash
-cd apps/editor
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm e2e
-```
-
-For the full release gate:
-
-```bash
-pnpm verify:release
-```
-
-### Docker
-
-Build and run the editor image:
-
-```bash
-docker build -f apps/editor/Dockerfile apps/editor -t baudbound-editor
-docker run --rm -p 3000:3000 -e NEXT_PUBLIC_EDITOR_URL=http://localhost:3000 baudbound-editor
-```
-
-Or use the Compose template:
-
-```bash
-docker compose -f apps/editor/compose.yaml up -d
-```
-
-The GitHub Actions workflow in `.github/workflows/editor-docker.yml` builds the editor container and publishes it to GitHub Container Registry for non-PR builds.
-
-## Documentation
-
-Public documentation is maintained as Markdown under `docs/wiki` and published to Wiki.js through `.github/workflows/wiki-publish.yml`. Pull requests validate metadata and internal links. Approved changes on the production branch are reconciled through the Wiki.js GraphQL API, so documentation does not need to be copied to the server manually.
-
-The publisher, safety tests, page ownership rules, and initial deployment instructions live in `tools/wiki-publisher`. Internal release documents such as `docs/runner-release.md` are intentionally outside the public wiki source tree.
-
-## Script Packages
-
-`.bbs` means **BaudBound Script**.
-
-A `.bbs` package is a zip-based script package that contains the script manifest, graph program, permissions, capabilities, editor metadata, and optional assets.
-
-The schemas live in `schemas/`:
-
-- `manifest.schema.json`
-- `program.schema.json`
-- `permissions.schema.json`
-- `capabilities.schema.json`
-- `editor.schema.json`
-
-The editor validates packages for authoring quality and export safety. The runner must validate packages again before import and execution.
-
-## Repository Layout
-
-```text
-apps/
-  editor/           Web editor for building and exporting .bbs packages
-  baudbound/        Combined desktop/headless runner app
-crates/
-  baudbound-core/       Shared runner orchestration
-  baudbound-script/     .bbs package models and package reader
-  baudbound-runtime/    Runtime context and execution primitives
-  baudbound-security/   Permission, capability, and risk policy
-  baudbound-actions/    Action adapter traits
-  baudbound-triggers/   Trigger adapter traits
-  baudbound-storage/    Storage abstractions
-schemas/            JSON schemas for package contracts
-assets/             Project logos and shared visual assets
-```
-
-### Runner Workspace
-
-```bash
-cargo check --workspace
-cargo test --workspace
-cargo run -p baudbound -- validate path/to/script.bbs
-cargo run -p baudbound -- inspect path/to/script.bbs --json
-cargo run -p baudbound -- script import path/to/script.bbs
-cargo run -p baudbound -- script update path/to/script.bbs
-cargo run -p baudbound -- script list
-cargo run -p baudbound -- script status
-cargo run -p baudbound -- script enable <script-id-or-name>
-cargo run -p baudbound -- script disable <script-id-or-name>
-cargo run -p baudbound -- script approval <script-id-or-name>
-cargo run -p baudbound -- script approve <script-id-or-name>
-cargo run -p baudbound -- script revoke-approval <script-id-or-name>
-cargo run -p baudbound -- script triggers
-cargo run -p baudbound -- script triggers <script-id-or-name>
-cargo run -p baudbound -- script dispatch-trigger <script-id-or-name> <trigger-node-id>
-cargo run -p baudbound -- serve
-cargo run -p baudbound -- serve --webhooks
-cargo run -p baudbound -- --config /etc/baudbound/runner.toml serve
-cargo run -p baudbound -- script run <script-id-or-name>
-cargo run -p baudbound -- script run <script-id-or-name> --trigger <trigger-node-id>
-cargo run -p baudbound -- script run <script-id-or-name> --trigger <trigger-node-id> --payload-json '{"body":"ok"}'
-cargo run -p baudbound -- script logs --script <script-id-or-name>
-cargo run -p baudbound -- script remove <script-id-or-name>
-```
-
-The runner split is intentional:
-
-- `apps/baudbound` owns user interface, CLI, desktop shell, and process/service entrypoints
-- `baudbound-core` coordinates runner behavior
-- `baudbound-script` owns package reading and script contract models
-- `baudbound-storage` owns installed package storage
-- action, trigger, storage, runtime, and security crates keep implementation families isolated
-
-Runner storage defaults to the platform data directory and can be overridden with `BAUDBOUND_HOME`. Runner daemon configuration defaults to `<BAUDBOUND_HOME>/config.toml`, can be overridden with `BAUDBOUND_CONFIG` or `--config`, and currently supports trigger service toggles plus webhook bind settings:
-
-```toml
-[runner]
-name = "Main PC Runner"
-
-[triggers]
-schedules_enabled = true
-file_watch_enabled = true
-process_watch_enabled = true
-serial_enabled = true
-startup_enabled = true
-webhooks_enabled = false
-websockets_enabled = false
-
-[serial.devices.main_controller]
-port = "COM3"
-baud_rate = 115200
-data_bits = 8
-parity = "none"
-stop_bits = "1"
-flow_control = "none"
-read_mode = "line"
-auto_reconnect = true
-validate_usb_identity = false
-auto_rebind_port = false
-# vendor_id = "1A86"
-# product_id = "7523"
-# serial_number = ""
-# manufacturer = ""
-# product = ""
-
-[webhooks]
-bind = "127.0.0.1"
-port = 43891
-max_body_bytes = 1048576
-
-[websockets]
-bind = "127.0.0.1"
-port = 43892
-max_message_bytes = 1048576
-max_connections = 128
-```
-
-Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines. If `auto_rebind_port = true`, the runner can recover when the OS moves a USB serial device to another COM/tty port. That mode requires `validate_usb_identity = true`, `vendor_id`, and `product_id`; add `serial_number`, `manufacturer`, or `product` when multiple identical devices may be connected so the runner refuses ambiguous matches instead of guessing.
-
-Use `baudbound script status` to check installed package hash health, package loadability, approval freshness, enabled script counts, and trigger counts.
-
-For headless machines, run `baudbound serve` under your chosen process manager and use the same `BAUDBOUND_HOME` for CLI commands such as `script import`, `script update`, `script enable`, `script disable`, `script approve`, `script status`, and `script logs`. Script lifecycle changes write a durable reload signal into `runner.sqlite3`, so the background runner refreshes listener registrations on its next loop tick. The runner also periodically compares registrations as a fallback. Runtime status snapshots are stored in SQLite and exposed through `baudbound status`; use your process manager's own commands to inspect or control the process.
-
-## Security Model
-
-BaudBound is designed around explicit trust boundaries:
-
-- The editor may help users build and simulate scripts, but it is not a trusted executor.
-- The runner owns local execution and must reject invalid or unsafe packages.
-- Script assets are packaged locally and should be validated by content, not just extension.
-- Permissions and capabilities are part of the package contract and must be surfaced before execution.
-- User-facing automation should be understandable, auditable, and reversible where possible.
-
----
-
-<div align="center">
-  <img src="assets/logo-notext.svg" alt="BaudBound" width="64"/>
-</div>
+BaudBound is licensed under the MIT License.
