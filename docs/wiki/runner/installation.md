@@ -105,7 +105,7 @@ This is the recommended update method for desktop users. No terminal commands ar
 4. Choose **Restart and install**.
 5. After BaudBound opens again, confirm the new version in the application.
 
-On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root` or point the desktop `baudbound` link at the root-owned headless service copy under `/opt`.
+On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root`. When the AppImage is also running as a headless service, stop that service and follow the [headless update procedure](../self-hosting/linux-background-service.md#updating-the-headless-runner) instead of updating through the desktop dialog.
 
 ### Manual Linux fallback
 

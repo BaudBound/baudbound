@@ -17,7 +17,7 @@ One runner home defines one logical BaudBound installation. Back up the complete
 | Linux with `XDG_DATA_HOME` | `$XDG_DATA_HOME/BaudBound/runner` |
 | Other supported Linux setup | `$HOME/.local/share/BaudBound/runner` |
 
-The desktop **Doctor** view and CLI status output show resolved paths. A service account has a different home from an interactive user unless both are deliberately configured with the same `BAUDBOUND_HOME`.
+The desktop **Doctor** view and CLI status output show resolved paths. The recommended Linux background service runs under the same user account and therefore uses the same runner home as that user's CLI.
 
 Never run two services against the same runner home. Although SQLite coordinates database writes, duplicated listeners can compete for ports, serial devices, files, and trigger events.
 
@@ -115,7 +115,7 @@ Stop the runner, free space on the volume containing the runner home, and confir
 
 ### Permission denied
 
-Confirm that the configured service account owns or can read and write the complete runner home. On Linux, inspect every parent directory as well as the files. Avoid making the directory world-writable.
+Confirm that the account running BaudBound owns or can read and write the complete runner home. On Linux, inspect every parent directory as well as the files. Avoid making the directory world-writable.
 
 ### Database cannot open or reports corruption
 

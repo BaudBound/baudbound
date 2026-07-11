@@ -40,7 +40,7 @@ Print a complete current template:
 baudbound config print
 ```
 
-Edit the path from `config path` using the service account's administrative workflow. Restart the service after changes. `config init` exists for explicit provisioning, but normal startup already initializes a missing file.
+Edit the path from `config path` under the account that runs BaudBound. Restart the background service after changes. `config init` exists for explicit provisioning, but normal startup already initializes a missing file.
 
 ## Runner settings
 
@@ -147,7 +147,7 @@ Inspect the actual device:
 ls -l /dev/ttyUSB0
 ```
 
-Add the service account only to the group shown by the target system's policy, then restart its login/service session. Do not make serial devices world-writable.
+Add the account running BaudBound only to the group shown by the target system's policy, then restart its login or service session. Do not make serial devices world-writable.
 
 ## Complete examples {.tabset}
 

@@ -40,7 +40,7 @@ Use uppercase placeholders consistently:
 | `TRIGGER` | Trigger node ID | `n-mr3zyt6f-1` |
 | `SECRET_NAME` | Declared secret name | `api_token` |
 | `DEVICE_ID` | Logical serial device ID | `workbench-scale` |
-| `PATH` | Context-specific filesystem path | `/opt/baudbound/BaudBound.AppImage` |
+| `PATH` | Context-specific filesystem path | `~/.local/opt/baudbound/BaudBound.AppImage` |
 
 State that the placeholder must be replaced before showing a command. Do not wrap a placeholder in angle brackets because shells can interpret `<` and `>` as redirection.
 

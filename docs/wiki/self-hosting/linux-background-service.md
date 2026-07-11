@@ -5,17 +5,35 @@ tags: [self-hosting, runner, service, linux]
 ---
 # Linux Background Service
 
-Run `baudbound serve` under the service manager provided by the distribution. The installation preparation below covers Debian, Ubuntu, Fedora, Arch, Gentoo, and glibc-based Void Linux. Service definitions are provided for systemd, OpenRC, and runit.
+This guide runs `baudbound serve` in the background under your normal Linux user account. The service and your terminal commands therefore use the same configuration, installed scripts, approvals, variables, and run history. You do not need a separate BaudBound account or a second runner home.
 
-Use this guide only when BaudBound must continue listening for triggers after you sign out. For ordinary desktop use, start the desktop-owned background runner from the application's **Service** view instead.
+Use this setup on a headless machine or whenever triggers must remain active after you close the terminal. For ordinary desktop use, start the background runner from BaudBound's **Service** view instead.
+
+Never run BaudBound as `root`. Scripts receive the permissions of the account running the service, so use a normal account with access only to the files and devices its automations require.
+{.is-warning}
 
 ## Before you begin
 
-You need a 64-bit Linux machine, administrator access through `sudo`, and a downloaded BaudBound AppImage. First launch the AppImage manually and confirm that it runs on the machine. Do not create a service for an AppImage that already fails when started directly.
+Complete [Installation and Updates](../runner/installation.md) for the Linux user that will own the service. These commands must succeed without `sudo`:
 
-Choose only the service-manager tab used by the machine:
+```text
+command -v baudbound
+baudbound --version
+baudbound doctor
+baudbound config path
+```
 
-Run each check until one prints a path:
+`command -v baudbound` should normally print a path ending in `.local/bin/baudbound`. Keep the configuration path printed by `baudbound config path`; the service must use that same runner home.
+
+Print the runner home itself and keep the result for the service-manager instructions:
+
+```text
+dirname "$(baudbound config path)"
+```
+
+The usual result is `~/.local/share/BaudBound/runner`. A system with a customized `XDG_DATA_HOME` can print a different path; always use the path from this command.
+
+Identify the service manager installed by the distribution. Run each check until one prints a path:
 
 ```text
 command -v systemctl
@@ -23,84 +41,52 @@ command -v rc-service
 command -v sv
 ```
 
-Use the matching service-manager tab:
-
-| Command that printed a path | Use |
+| Command that printed a path | Service manager |
 | --- | --- |
 | `command -v systemctl` | systemd |
 | `command -v rc-service` | OpenRC |
 | `command -v sv` | runit |
 
-Debian, Ubuntu, Fedora, and Arch normally use systemd. If none of these checks succeeds, consult the operating-system documentation before continuing rather than installing another service manager only for BaudBound.
+Debian, Ubuntu, Fedora, and Arch normally use systemd. Gentoo commonly uses OpenRC, while Void Linux uses runit. If none of the checks succeeds, consult the distribution documentation instead of installing another service manager only for BaudBound.
 
-All variants below use:
-
-- executable: `/opt/baudbound/BaudBound.AppImage`
-- service account: `baudbound`
-- runner home: `/var/lib/baudbound`
-- optional secret environment: `/etc/baudbound/runner.env`
-
-An AppImage is a portable executable rather than a traditional installed package. These instructions copy the downloaded release to a stable path so service definitions do not change with every version.
-{.is-info}
-
-Download the current x86-64 AppImage from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open a terminal in the download directory and verify that exactly one matching file is present:
-
-```text
-cd ~/Downloads
-ls -1 BaudBound_*.AppImage
-```
-
-If more than one filename is printed, move old releases elsewhere or replace the wildcard in later commands with the exact new filename.
-
-Each distribution tab installs FUSE 2 and creates the same `baudbound` service account. If the group or user already exists, inspect the existing account instead of recreating it. It must use the `baudbound` group and `/var/lib/baudbound` home used by this guide.
+Do not start the desktop-owned background runner and an operating-system service for the same user at the same time. They would load the same scripts and can deliver triggers twice or compete for listener ports.
+{.is-warning}
 
 ## Distribution preparation {.tabset}
 
+Choose the tab for the installed distribution. These packages are needed only when the AppImage reports a FUSE error. If `baudbound --version` already works, continue to [Prepare the runner](#prepare-the-runner).
+
 ### Debian and Ubuntu
 
-Update the package metadata, then check which FUSE 2 runtime the configured repositories provide:
+Update package metadata, then check which FUSE 2 runtime is available:
 
 ```text
 sudo apt update
 apt-cache policy libfuse2t64 libfuse2
 ```
 
-Compare the `Candidate` lines in the output. Install the package that has an available version rather than `(none)`.
+Compare the `Candidate` lines. Install the package that shows a version instead of `(none)`.
 
-Ubuntu 24.04 and newer normally provide `libfuse2t64`:
+Ubuntu 24.04 and newer normally use:
 
 ```text
 sudo apt install -y libfuse2t64
 ```
 
-Debian and older Ubuntu releases normally provide `libfuse2`:
+Debian and older Ubuntu releases normally use:
 
 ```text
 sudo apt install -y libfuse2
 ```
 
-Install only the package available for the current distribution. If both candidates are `(none)`, verify that the standard distribution repositories are enabled before continuing.
-
-Create the service identity:
-
-```text
-sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
-```
+Install only one of these packages. If neither has a candidate, confirm that the standard distribution repositories are enabled.
 
 ### Fedora
 
-Install Fedora's FUSE 2 compatibility libraries:
+Install Fedora's FUSE 2 compatibility library:
 
 ```text
 sudo dnf install -y fuse-libs
-```
-
-Create the service identity:
-
-```text
-sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
 ```
 
 ### Arch Linux
@@ -111,108 +97,91 @@ Perform a full system upgrade and install FUSE 2. Arch does not support partial 
 sudo pacman -Syu --needed fuse2
 ```
 
-Create the service identity:
-
-```text
-sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
-```
-
 ### Gentoo
 
-Install the FUSE 2 slot required by AppImage, then create the service identity:
+Install the FUSE 2 slot:
 
 ```text
 sudo emerge --ask sys-fs/fuse:0
-sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
 ```
-
-Choose this tab only for a Gentoo installation using OpenRC. Confirm the AppImage runs manually before creating the OpenRC service.
 
 ### Void Linux
 
-These instructions require the glibc edition of 64-bit Void Linux. The published AppImage is not supported on Void's musl edition.
-
-Install FUSE 2 and create the service identity:
+These instructions support the 64-bit glibc edition of Void Linux. The published AppImage is not supported on Void's musl edition.
 
 ```text
 sudo xbps-install -S fuse
-sudo groupadd --system baudbound
-sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
 ```
 
-Confirm the AppImage runs manually before creating the runit service.
+The package names follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html), Fedora's [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/), Gentoo's [`sys-fs/fuse` package](https://packages.gentoo.org/packages/sys-fs/fuse), and Void's official [`fuse` package template](https://github.com/void-linux/void-packages/blob/master/srcpkgs/fuse/template).
 
-## Install and initialize BaudBound
+## Prepare the runner
 
-The package names above follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html), Fedora's current [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/), Gentoo's [`sys-fs/fuse` package](https://packages.gentoo.org/packages/sys-fs/fuse), and Void's official [`fuse` package template](https://github.com/void-linux/void-packages/blob/master/srcpkgs/fuse/template).
-
-Create the application, configuration, and state directories:
+BaudBound creates its configuration automatically. Inspect the path and current configuration:
 
 ```text
-sudo mkdir -p /opt/baudbound
-sudo mkdir -p /etc/baudbound
-sudo mkdir -p /var/lib/baudbound
-sudo chown baudbound:baudbound /var/lib/baudbound
-sudo chmod 0750 /var/lib/baudbound
+baudbound config path
+baudbound config print
 ```
 
-Copy the downloaded AppImage to its stable service path, set its ownership and permissions, and create a system-wide `baudbound` command:
+Edit the `config.toml` path printed by the first command. Review enabled trigger families, listener ports, target runtimes, and serial devices before starting an unattended service.
+
+Import and approve scripts with the normal CLI. For example:
 
 ```text
-sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage
-sudo chown root:root /opt/baudbound/BaudBound.AppImage
-sudo chmod 0755 /opt/baudbound/BaudBound.AppImage
-sudo ln -sfn /opt/baudbound/BaudBound.AppImage /usr/local/bin/baudbound
+baudbound script import "$HOME/Downloads/automation.bbs"
+baudbound script list
+baudbound script inspect SCRIPT
+baudbound script approve SCRIPT
+baudbound script enable SCRIPT
 ```
 
-Initialize the runner home as the service account and verify the version:
+Replace `SCRIPT` with the script name or ID shown by `script list`. The same commands continue to work after the background service is enabled.
+
+### Optional secret key
+
+Skip this section when no installed script uses runner secrets.
+
+Generate the encryption key:
 
 ```text
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage config init
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage --version
+baudbound secret generate-key
 ```
 
-The final command must print the expected BaudBound version. Stop here and correct the file path, permissions, architecture, or missing libraries if it does not.
-
-The downloaded filename can differ between releases. The destination always remains `/opt/baudbound/BaudBound.AppImage`.
-
-Edit the generated configuration:
+Create a private environment file and open it in your preferred editor:
 
 ```text
-sudoedit /var/lib/baudbound/config.toml
+mkdir -p "$HOME/.config/baudbound"
+touch "$HOME/.config/baudbound/runner.env"
+chmod 0600 "$HOME/.config/baudbound/runner.env"
 ```
 
-The default listener addresses use loopback and are not reachable from other machines. Review trigger families, ports, and target runtimes before starting the service. Keep this file writable by `baudbound` when automatic serial-port rebinding is enabled. Add the account to the distribution's serial-device group, commonly `dialout` or `uucp`, only when scripts use serial ports.
+Paste the complete `BAUDBOUND_SECRET_KEY=...` assignment printed by `secret generate-key` into `~/.config/baudbound/runner.env`. The service definitions below load this file when it exists.
 
-For headless secrets, generate a key:
+Commands that read or change encrypted secrets must receive the same key. Load it into the current terminal before running those commands:
 
 ```text
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage secret generate-key
+set -a
+. "$HOME/.config/baudbound/runner.env"
+set +a
+baudbound secret list SCRIPT
 ```
 
-Create the environment file with restricted permissions, then use `sudoedit` to paste the printed assignment into it:
+The key is required to decrypt the stored values. Back it up in a password manager or another protected secret store; losing it makes existing encrypted values unrecoverable.
 
-```text
-sudo touch /etc/baudbound/runner.env
-sudo chown root:root /etc/baudbound/runner.env
-sudo chmod 0600 /etc/baudbound/runner.env
-sudoedit /etc/baudbound/runner.env
-```
+## Configure the service {.tabset}
 
-The generate command prints an assignment beginning with `BAUDBOUND_SECRET_KEY=`. Paste that entire assignment into `runner.env`, save it, and close the editor. Omit the file when no installed script uses secrets. CLI commands that access secret values must receive the same key through the host's secret-management process.
-
-Do not run the desktop-owned background runner and an operating-system service against the same `BAUDBOUND_HOME`. Two service owners can deliver triggers twice and conflict over listener ports.
-{.is-warning}
-
-## Service manager {.tabset}
-
-Complete exactly one tab. Do not install or enable multiple BaudBound service definitions for the same runner home.
+Complete exactly one tab. Do not enable more than one BaudBound service for the same user.
 
 ### systemd
 
-Create `/etc/systemd/system/baudbound.service`:
+systemd supports services owned and managed by an ordinary user. Create the user-unit directory:
+
+```text
+mkdir -p "$HOME/.config/systemd/user"
+```
+
+Create `~/.config/systemd/user/baudbound.service` with this content:
 
 ```ini
 [Unit]
@@ -222,47 +191,64 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=baudbound
-Group=baudbound
-WorkingDirectory=/var/lib/baudbound
-Environment=BAUDBOUND_HOME=/var/lib/baudbound
-EnvironmentFile=-/etc/baudbound/runner.env
-ExecStart=/opt/baudbound/BaudBound.AppImage serve
+WorkingDirectory=%h
+Environment=BAUDBOUND_HOME=%h/.local/share/BaudBound/runner
+EnvironmentFile=-%h/.config/baudbound/runner.env
+ExecStart=%h/.local/opt/baudbound/BaudBound.AppImage serve
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
-Load, enable, and inspect it:
+The `BAUDBOUND_HOME` line above uses BaudBound's standard Linux path. If `dirname "$(baudbound config path)"` printed a different path, replace the value after `BAUDBOUND_HOME=` with that absolute path before continuing.
+
+Load and start it:
 
 ```text
-sudo systemctl daemon-reload
-sudo systemctl enable --now baudbound.service
-sudo systemctl status baudbound.service
-sudo journalctl -u baudbound.service -f
+systemctl --user daemon-reload
+systemctl --user enable --now baudbound.service
+systemctl --user status baudbound.service
 ```
 
-`systemctl status` should report `active (running)`. The `journalctl` command follows live logs; press `Ctrl+C` to stop following logs without stopping BaudBound.
+The status should report `active (running)`. Follow live logs with:
 
-After changing the unit, run `daemon-reload` and restart it. Installed-script lifecycle changes reload automatically; changes to `config.toml` require a service restart.
+```text
+journalctl --user -u baudbound.service -f
+```
 
-The unit fields and restart behavior are defined by the official [systemd service documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
+Press `Ctrl+C` to stop following logs without stopping BaudBound.
+
+A user service normally stops when the user signs out. To keep it running after logout and start it during boot, enable lingering once:
+
+```text
+sudo loginctl enable-linger "$USER"
+```
+
+This command changes login management for only the current account. The service itself still runs without root privileges. The unit behavior is described by the official [systemd user-service documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
 
 ### OpenRC
 
-Create `/etc/init.d/baudbound`:
+OpenRC service definitions are system-wide, but this one runs BaudBound under your normal account. Record your account and group names:
+
+```text
+id -un
+id -gn
+printf '%s\n' "$HOME"
+```
+
+Create `/etc/init.d/baudbound`, replacing every `YOUR_USER`, `YOUR_GROUP`, and `/home/YOUR_USER` value with the output from those commands:
 
 ```sh
 #!/sbin/openrc-run
 
 description="BaudBound automation runner"
-command="/opt/baudbound/BaudBound.AppImage"
+command="/home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage"
 command_args="serve"
-command_user="baudbound:baudbound"
-directory="/var/lib/baudbound"
+command_user="YOUR_USER:YOUR_GROUP"
+directory="/home/YOUR_USER"
 supervisor="supervise-daemon"
 respawn_delay=5
 respawn_max=0
@@ -271,15 +257,17 @@ depend() {
     need net
 }
 
-export BAUDBOUND_HOME="/var/lib/baudbound"
-if [ -r /etc/baudbound/runner.env ]; then
+export BAUDBOUND_HOME="/home/YOUR_USER/.local/share/BaudBound/runner"
+if [ -r /home/YOUR_USER/.config/baudbound/runner.env ]; then
     set -a
-    . /etc/baudbound/runner.env
+    . /home/YOUR_USER/.config/baudbound/runner.env
     set +a
 fi
 ```
 
-Enable it:
+Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home.
+
+Enable and start it:
 
 ```text
 sudo chmod 0755 /etc/init.d/baudbound
@@ -288,25 +276,35 @@ sudo rc-service baudbound start
 sudo rc-service baudbound status
 ```
 
-OpenRC service scripts live in `/etc/init.d`. Gentoo documents OpenRC as its dependency-based service manager in the [Gentoo OpenRC guide](https://wiki.gentoo.org/wiki/OpenRC).
+The status should report that BaudBound is started. Gentoo documents service scripts in its [OpenRC guide](https://wiki.gentoo.org/wiki/OpenRC).
 
 ### runit
 
-Create `/etc/sv/baudbound/run`:
+runit service definitions are system-wide, but this one runs BaudBound under your normal account. Record your account and group names:
+
+```text
+id -un
+id -gn
+printf '%s\n' "$HOME"
+```
+
+Create `/etc/sv/baudbound/run`, replacing every `YOUR_USER`, `YOUR_GROUP`, and `/home/YOUR_USER` value with the output from those commands:
 
 ```sh
 #!/bin/sh
 
-export BAUDBOUND_HOME="/var/lib/baudbound"
-if [ -r /etc/baudbound/runner.env ]; then
+export BAUDBOUND_HOME="/home/YOUR_USER/.local/share/BaudBound/runner"
+if [ -r /home/YOUR_USER/.config/baudbound/runner.env ]; then
     set -a
-    . /etc/baudbound/runner.env
+    . /home/YOUR_USER/.config/baudbound/runner.env
     set +a
 fi
 
-cd /var/lib/baudbound || exit 1
-exec chpst -u baudbound:baudbound /opt/baudbound/BaudBound.AppImage serve
+cd /home/YOUR_USER || exit 1
+exec chpst -u YOUR_USER:YOUR_GROUP /home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage serve
 ```
+
+Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home.
 
 Enable and inspect it on Void Linux:
 
@@ -316,36 +314,39 @@ sudo ln -s /etc/sv/baudbound /var/service/baudbound
 sudo sv status baudbound
 ```
 
-runit expects the `run` script to keep the service in the foreground and restarts it when it exits. Void documents service directories and `/var/service` enablement in its [Services and Daemons guide](https://docs.voidlinux.org/config/services/).
+The status should report `run`. Void documents service directories and `/var/service` enablement in its [Services and Daemons guide](https://docs.voidlinux.org/config/services/).
 
-## Operating the service
+## Day-to-day operation
 
-Import, inspect, approve, and enable packages using the same `BAUDBOUND_HOME` and service account. Do not run the desktop-owned background runner and a system service against the same runner home; that can duplicate trigger delivery and conflict over listener ports.
-
-For example, copy a package to a location readable by the service account, then run lifecycle commands as that account:
+Use normal BaudBound commands from your user account. No account switching, custom home argument, or full executable path is needed:
 
 ```text
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script import /path/to/automation.bbs
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script list
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script inspect SCRIPT
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script approve SCRIPT
-sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script enable SCRIPT
+baudbound script import "$HOME/Downloads/automation.bbs"
+baudbound script list
+baudbound script inspect SCRIPT
+baudbound script approve SCRIPT
+baudbound script enable SCRIPT
 ```
 
-Replace `/path/to/automation.bbs` and `SCRIPT` with real values. The service notices imported and enabled scripts at the configured reload interval.
+The running service detects durable script imports, updates, approvals, and enablement changes automatically. Restart it after changing `config.toml` because listener and trigger services must be reconstructed.
 
-Use graceful stop and restart commands from the selected service manager. The runner handles `baudbound serve` as a foreground process and reloads durable script lifecycle changes automatically. Restart the service after editing `config.toml` so listener settings are reconstructed from the new configuration.
+Use only the commands for the configured service manager:
+
+| Task | systemd | OpenRC | runit |
+| --- | --- | --- | --- |
+| Status | `systemctl --user status baudbound` | `sudo rc-service baudbound status` | `sudo sv status baudbound` |
+| Restart | `systemctl --user restart baudbound` | `sudo rc-service baudbound restart` | `sudo sv restart baudbound` |
+| Stop | `systemctl --user stop baudbound` | `sudo rc-service baudbound stop` | `sudo sv down baudbound` |
+| Start | `systemctl --user start baudbound` | `sudo rc-service baudbound start` | `sudo sv up baudbound` |
 
 ## Updating the headless runner
 
-The desktop update dialog is not used for a root-owned headless installation. Update it manually:
-
-1. Stop BaudBound with the command for the active service manager:
+Stop the service before replacing the AppImage. Run only the matching command:
 
 **systemd**
 
 ```text
-sudo systemctl stop baudbound.service
+systemctl --user stop baudbound.service
 ```
 
 **OpenRC**
@@ -360,106 +361,73 @@ sudo rc-service baudbound stop
 sudo sv down baudbound
 ```
 
-Run only one of the three commands above.
+Confirm the service is stopped with the matching status command from the table above.
 
-2. Confirm that the matching service status reports stopped, down, or inactive before replacing the executable.
+Download the new AppImage from the latest published release using either option.
 
-3. Put the new AppImage at `~/Downloads/BaudBound.AppImage` for the administrator account using one of these download options.
+### Option A: Web browser
 
-**Option A: Web browser**
+1. Open the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
+2. Open the latest published release and download its `.AppImage` file.
+3. Move the file to `~/Downloads/BaudBound.AppImage` on the service machine.
 
-Open the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, transfer it to the server if the browser is on another machine, and save it as `~/Downloads/BaudBound.AppImage` for the administrator account running these commands.
+### Option B: Terminal
 
-**Option B: Terminal with curl**
-
-This option requires `curl` and `jq`. Confirm that both commands are installed:
+This option requires `curl` and `jq`. Both checks must print a path:
 
 ```text
 command -v curl
 command -v jq
 ```
 
-Both commands must print a path. If either prints nothing, install that command with the distribution's package manager or use the web browser option.
-
-Fetch the AppImage URL from GitHub's latest published release and store it in `APPIMAGE_DOWNLOAD_URL`:
+Fetch the AppImage URL from GitHub's latest published release:
 
 ```text
 APPIMAGE_DOWNLOAD_URL="$(curl --fail --silent --show-error "https://api.github.com/repos/NATroutter/BaudBound/releases/latest" | jq -er '.assets | map(select(.name | endswith(".AppImage"))) | if length == 1 then .[0].browser_download_url else error("expected exactly one AppImage asset") end')"
 printf '%s\n' "$APPIMAGE_DOWNLOAD_URL"
 ```
 
-The printed URL must begin with `https://github.com/NATroutter/BaudBound/releases/download/` and end with `.AppImage`. Download that asset:
+The printed URL must use the official BaudBound GitHub repository and end in `.AppImage`. Download it:
 
 ```text
 mkdir -p "$HOME/Downloads"
 curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "$APPIMAGE_DOWNLOAD_URL"
 ```
 
-If the API is unavailable, rate-limited, or does not contain exactly one AppImage, the URL command fails instead of choosing an arbitrary asset. Use the web browser option in that case.
+If the command fails, use the web-browser option instead of choosing an arbitrary asset.
 
-After completing either option, continue with step 4. Both options produce the same `~/Downloads/BaudBound.AppImage` file used by the remaining update steps.
-
-4. Confirm that the downloaded file exists:
+After either download method, replace the installed user-owned AppImage:
 
 ```text
 ls -lh "$HOME/Downloads/BaudBound.AppImage"
+cp "$HOME/Downloads/BaudBound.AppImage" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+baudbound --version
 ```
 
-5. Copy it directly over the installed AppImage, then restore the expected owner and permissions:
+The final command must print the intended new version. Start the service with the matching start command from the table and confirm its status before leaving it unattended.
 
-```text
-sudo cp "$HOME/Downloads/BaudBound.AppImage" /opt/baudbound/BaudBound.AppImage
-sudo chown root:root /opt/baudbound/BaudBound.AppImage
-sudo chmod 0755 /opt/baudbound/BaudBound.AppImage
-```
+Manual replacement does not use Tauri's automatic signature verification. Download only from the official GitHub Releases page.
+{.is-warning}
 
-6. Verify the installed version before restarting the service:
+## Remove the background service
 
-```text
-/opt/baudbound/BaudBound.AppImage --version
-```
+Removing the service definition does not remove installed scripts or runner data.
 
-The command must print the intended new version. Correct the download, copy, ownership, or executable permission before continuing if it does not.
-
-7. Start BaudBound using the active service manager:
+Choose only the configured service manager:
 
 **systemd**
 
 ```text
-sudo systemctl start baudbound.service
-sudo systemctl status baudbound.service
+systemctl --user disable --now baudbound.service
+rm "$HOME/.config/systemd/user/baudbound.service"
+systemctl --user daemon-reload
 ```
 
-**OpenRC**
+If lingering was enabled only for BaudBound and no other user service needs it, disable it:
 
 ```text
-sudo rc-service baudbound start
-sudo rc-service baudbound status
-```
-
-**runit**
-
-```text
-sudo sv up baudbound
-sudo sv status baudbound
-```
-
-Run only the matching pair. The final status must report that BaudBound is running before leaving the update unattended.
-
-Manual replacement does not use Tauri's automatic signature-verification flow. Download only from the official GitHub Releases page and never install an AppImage received from an untrusted mirror or message attachment.
-
-## Uninstall or remove the service
-
-Decide first whether to retain `/var/lib/baudbound`. It contains installed packages, approvals, run history, persistent/global variables, encrypted secrets, service state, and configuration. Deleting it is permanent unless you have a tested backup. See [Storage, Backups, and Recovery](../runner/storage-backups.md).
-
-Stop and disable exactly the service manager you configured:
-
-**systemd**
-
-```text
-sudo systemctl disable --now baudbound.service
-sudo rm /etc/systemd/system/baudbound.service
-sudo systemctl daemon-reload
+sudo loginctl disable-linger "$USER"
 ```
 
 **OpenRC**
@@ -478,12 +446,4 @@ sudo rm /var/service/baudbound
 sudo rm -r /etc/sv/baudbound
 ```
 
-Run only the matching block. Remove the executable and system command after the service no longer appears as running:
-
-```text
-sudo rm /usr/local/bin/baudbound
-sudo rm /opt/baudbound/BaudBound.AppImage
-sudo rmdir /opt/baudbound
-```
-
-To retain runner state, leave `/var/lib/baudbound`, `/etc/baudbound/runner.env`, and the `baudbound` account in place. To erase the installation completely, back up anything needed, remove those directories, and then remove the service account with the distribution's native account tool. Account-removal syntax differs by distribution, so follow its documentation rather than copying a command for another system.
+The normal per-user BaudBound installation remains available after removing the service. To remove the application or erase its data, follow [Installation and Updates](../runner/installation.md) and [Storage, Backups, and Recovery](../runner/storage-backups.md). Back up the runner home before deleting it.

@@ -59,7 +59,7 @@ For a first test, use a one-minute schedule and Log action from [Tutorials](../t
 
 ## File Watch
 
-- **Prerequisite:** `file_watch_enabled = true`; static existing regular file or directory accessible to service account.
+- **Prerequisite:** `file_watch_enabled = true`; static existing regular file or directory accessible to the account running BaudBound.
 - **Registration:** native watcher on the file's parent or selected directory; optional recursive mode.
 - **Payload:** changed `path`, original watched path, and normalized event (`created`, `modified`, `deleted`, `renamed`).
 - **Reload:** old watcher shuts down before replacement becomes authoritative.

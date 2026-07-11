@@ -21,7 +21,7 @@ Running `baudbound` without a subcommand opens the desktop UI when a desktop ses
 
 One runner home contains one logical installation's configuration, SQLite state, and installed package copies. The default is under the current user's platform data directory; `BAUDBOUND_HOME` can select a dedicated location.
 
-Desktop and CLI commands use the same state when launched by the same account and environment. A headless service account normally has a different runner home unless explicitly configured.
+Desktop and CLI commands use the same state when launched by the same account and environment. The recommended Linux background-service setup also runs under that account, so normal `baudbound` commands manage the same runner home.
 
 Do not run multiple services against one home. Database coordination does not prevent duplicate listeners from competing for network ports, files, desktop hooks, or serial devices.
 
