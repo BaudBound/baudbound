@@ -23,16 +23,19 @@ Download the current x86-64 AppImage from the project's GitHub release before co
 
 ### Debian and Ubuntu
 
-Update package metadata and install the FUSE 2 runtime required by the AppImage. Ubuntu 24.04 and newer use the renamed `libfuse2t64` package:
+Update the package metadata, then check which FUSE 2 runtime the configured repositories provide:
 
 ```text
 sudo apt update
-if apt-cache show libfuse2t64 >/dev/null 2>&1; then
-    sudo apt install -y libfuse2t64
-else
-    sudo apt install -y libfuse2
-fi
+apt-cache policy libfuse2t64 libfuse2
 ```
+
+Compare the `Candidate` lines in the output. Install the package that has an available version rather than `(none)`:
+
+- Ubuntu 24.04 and newer normally provide `libfuse2t64`: `sudo apt install -y libfuse2t64`
+- Debian and older Ubuntu releases normally provide `libfuse2`: `sudo apt install -y libfuse2`
+
+Install only the package available for the current distribution. If both candidates are `(none)`, verify that the standard distribution repositories are enabled before continuing.
 
 Create the service identity:
 
