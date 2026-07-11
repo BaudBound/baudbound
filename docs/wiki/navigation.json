@@ -10,6 +10,7 @@
 
     { "id": "section-editor", "kind": "header", "label": "Editor" },
     { "id": "editor", "kind": "link", "label": "Visual Editor", "icon": "mdi-pencil", "path": "editor" },
+    { "id": "editor-projects", "kind": "link", "label": "Projects, Assets, and Export", "icon": "mdi-package-up", "path": "editor/projects-assets-export" },
     { "id": "editor-nodes", "kind": "link", "label": "Node Reference", "icon": "mdi-view-list", "path": "editor/node-reference" },
     { "id": "editor-variables", "kind": "link", "label": "Variables and Data", "icon": "mdi-database", "path": "editor/variables" },
     { "id": "editor-simulation", "kind": "link", "label": "Verification and Simulation", "icon": "mdi-play-circle", "path": "editor/simulation" },
@@ -18,16 +19,20 @@
     { "id": "section-runner", "kind": "header", "label": "Runner" },
     { "id": "runner", "kind": "link", "label": "Runner and Desktop App", "icon": "mdi-run-fast", "path": "runner" },
     { "id": "runner-installation", "kind": "link", "label": "Installation and Updates", "icon": "mdi-download", "path": "runner/installation" },
+    { "id": "runner-desktop", "kind": "link", "label": "Desktop App Guide", "icon": "mdi-view-dashboard", "path": "runner/desktop-app" },
     { "id": "runner-scripts", "kind": "link", "label": "Script Management", "icon": "mdi-file-document", "path": "runner/script-management" },
     { "id": "runner-cli", "kind": "link", "label": "CLI Reference", "icon": "mdi-console", "path": "runner/cli-reference" },
     { "id": "runner-config", "kind": "link", "label": "Configuration and Devices", "icon": "mdi-cog", "path": "runner/configuration" },
     { "id": "runner-service", "kind": "link", "label": "Service and Triggers", "icon": "mdi-server", "path": "runner/service-triggers" },
+    { "id": "runner-network", "kind": "link", "label": "Webhooks and Network Access", "icon": "mdi-web", "path": "runner/network-listeners" },
     { "id": "runner-secrets", "kind": "link", "label": "Secrets", "icon": "mdi-key", "path": "runner/secrets" },
     { "id": "runner-storage", "kind": "link", "label": "Runs, Logs, and Troubleshooting", "icon": "mdi-history", "path": "runner/runs-logs-troubleshooting" },
+    { "id": "runner-backups", "kind": "link", "label": "Storage, Backups, and Recovery", "icon": "mdi-database-arrow-up", "path": "runner/storage-backups" },
 
     { "id": "section-package", "kind": "header", "label": "Package and Security" },
     { "id": "package-format", "kind": "link", "label": "BBS Package Format", "icon": "mdi-package-variant", "path": "package-format" },
     { "id": "security", "kind": "link", "label": "Security Model", "icon": "mdi-shield-check", "path": "security" },
+    { "id": "security-approvals", "kind": "link", "label": "Approvals, Capabilities, and Risk", "icon": "mdi-shield-key", "path": "security/approvals-capabilities" },
 
     { "id": "section-deployment", "kind": "header", "label": "Self-Hosting" },
     { "id": "deployment", "kind": "link", "label": "Self-Hosting Guide", "icon": "mdi-server-network", "path": "self-hosting" },
@@ -36,8 +41,10 @@
     { "id": "section-developers", "kind": "header", "label": "Developers" },
     { "id": "developers", "kind": "link", "label": "Developer Overview", "icon": "mdi-code-braces", "path": "developers" },
     { "id": "developers-setup", "kind": "link", "label": "Contributing and Setup", "icon": "mdi-tools", "path": "developers/setup" },
+    { "id": "developers-architecture", "kind": "link", "label": "Repository Architecture", "icon": "mdi-sitemap", "path": "developers/architecture" },
     { "id": "developers-editor", "kind": "link", "label": "Editor and Package Development", "icon": "mdi-pencil", "path": "developers/editor" },
     { "id": "developers-runner", "kind": "link", "label": "Runner Development", "icon": "mdi-cog", "path": "developers/runner" },
+    { "id": "developers-testing", "kind": "link", "label": "Testing and CI", "icon": "mdi-test-tube", "path": "developers/testing-ci" },
     { "id": "developers-wiki", "kind": "link", "label": "Wiki Documentation", "icon": "mdi-book-open", "path": "developers/wiki-documentation" },
     { "id": "developers-releases", "kind": "link", "label": "Release Engineering", "icon": "mdi-tag", "path": "developers/releases" }
   ]

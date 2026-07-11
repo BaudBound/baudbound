@@ -79,7 +79,7 @@ Write internal links to repository Markdown files:
 
 The publisher verifies the target page and rewrites it to the managed Wiki.js path. Root-relative Wiki.js links are also accepted when they point to a managed page, but source-relative Markdown links are easier to review during file moves.
 
-External links must use HTTPS unless a protocol-specific example requires otherwise. Link to primary documentation for platform behavior, formats, and dependencies. Do not use a search-results page as a source.
+External web links must use HTTPS; `mailto:` and `tel:` are accepted only for normal links, not images. Link to primary documentation for platform behavior, formats, and dependencies. Do not use a search-results page as a source.
 
 The publisher currently verifies that external links have valid syntax, but it does not guarantee that every remote server is reachable. Review important external links manually.
 
@@ -133,9 +133,17 @@ Mermaid diagrams may be used only after the production Wiki.js renderer has been
 
 ### Images
 
-Local images are currently rejected by the publisher. Do not add screenshots until the repository asset pipeline can validate, host, and rewrite stable image URLs. Existing documentation must remain understandable without screenshots.
+Store local documentation images only under `docs/wiki/assets/`. Supported formats are PNG, JPEG, and WebP, with a maximum size of 2 MiB per file. SVG is intentionally rejected because active or externally referenced content is harder to audit safely.
 
-When that pipeline exists, use screenshots for spatial orientation rather than as the only record of labels, commands, or settings. Crop sensitive data and include useful alternative text.
+Reference an asset relative to the page:
+
+```markdown
+![Visual editor regions](../assets/editor/workspace.png)
+```
+
+The publisher verifies the path, type, and size, then rewrites it to the repository-controlled HTTPS asset base. `WIKI_ASSET_BASE_URL` may override that base for a reviewed deployment. Missing, oversized, unsupported, insecure, or out-of-directory images fail validation.
+
+Use screenshots for spatial orientation rather than as the only record of labels, commands, or settings. Crop usernames, paths, package IDs, network data, and secrets. Add useful alternative text. The contributor who changes the pictured UI owns updating or removing its screenshot.
 
 ## Static navigation
 
@@ -176,7 +184,9 @@ pnpm --dir tools/wiki-publisher test
 pnpm --dir tools/wiki-publisher validate
 ```
 
-Validation checks metadata, page paths, internal links, image policy, navigation completeness, and publisher contracts. It reports the source file and line for content errors where available.
+Validation checks metadata, page paths, internal links, HTTPS policy, assets, navigation completeness, and publisher contracts. It also compares current source against `docs/wiki/coverage.json`: registered nodes, desktop tab IDs, Clap commands/options, runner config fields, required pages, crates, tools, schemas, and workflows must remain documented. It reports the source file and line for content errors where available.
+
+Do not solve a coverage failure by deleting a source from the manifest. Add or correct the public documentation, or update the baseline only when a reviewed product surface was intentionally removed.
 
 ## Add a page
 

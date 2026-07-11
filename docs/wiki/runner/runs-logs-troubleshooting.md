@@ -1,19 +1,40 @@
 ---
 title: Runs, Logs, and Troubleshooting
-description: Inspect execution history, locate runner data, and diagnose common failures.
-tags: [runner, storage, logs]
+description: Inspect execution history, correlate logs, and diagnose package, approval, trigger, device, network, or update failures.
+tags: [runner, storage, logs, troubleshooting]
 ---
 # Runs, Logs, and Troubleshooting
 
-Runner data is stored beneath `BAUDBOUND_HOME`, or the platform application-data directory when no override is set. Installed packages, approvals, run history, logs, and trigger state are managed by the runner. Configuration remains in `config.toml`.
+Use this page after an import, run, or listener behaves differently from what you expected. Start with the recorded error and move outward through script state, trigger state, configuration, and platform support. Do not edit SQLite or installed package files to make an error disappear.
 
-Each run records script and trigger identity, start and completion time, terminal status, and error summary. Structured log entries include time, level, script, run, node, and message. Variable snapshots support run inspection but exclude secret plaintext.
+## What a run records
 
-Do not edit runner-managed state directly. Use runner commands or the desktop UI. Stop the runner before making a filesystem-level backup of its home directory.
+Every terminal run record contains:
 
-## Troubleshooting
+- a run ID and stable script ID;
+- the trigger node ID;
+- completion timestamp;
+- status: `completed`, `failed`, or `cancelled`;
+- structured log entries with level, message, and optional node ID; and
+- the final non-secret variable snapshot available for inspection.
 
-Use this order instead of changing files or approvals at random:
+`completed` means graph execution reached a normal terminal state. A fallible action can take its failure branch and still produce a completed run when the graph handles that failure. `failed` means execution could not continue. `cancelled` means a stop request interrupted runtime execution.
+
+Secret plaintext is not intended to appear in logs or stored snapshots. If it does, stop using the affected script, preserve a redacted reproduction, rotate the value, and report a security issue.
+
+## Inspect in the desktop app
+
+1. Open **Scripts** and expand the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.
+2. Open **Runs**, select the relevant script, and choose the newest failed or cancelled run.
+3. Copy the run ID, trigger ID, status, and first useful error.
+4. Inspect its node logs and final variables. A node ID connects a runtime failure to the editor graph.
+5. Open **Triggers** when the run never started, **Devices** for serial state, **Service** for listener state, or **Doctor** for machine support.
+
+The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
+
+## Inspect with the CLI
+
+Replace `SCRIPT` with the installed name or ID shown by `baudbound script list`:
 
 ```text
 baudbound doctor
@@ -21,42 +42,88 @@ baudbound status
 baudbound script status
 baudbound script inspect SCRIPT
 baudbound script approval SCRIPT
+baudbound script triggers SCRIPT
 baudbound script logs --script SCRIPT --limit 20
 ```
 
-Replace `SCRIPT` with the installed name or ID shown by `baudbound script list`. `doctor` checks the machine and configuration. `status` checks runner-wide health. `script status` identifies scripts needing attention. The remaining commands inspect one script, its approval, and its recent runs.
+Use `--json` only on commands that document it when collecting structured diagnostics. Human-readable output is intended for people and can change between versions.
 
-In the desktop application, the equivalent information is available in **Doctor**, **Service**, **Scripts**, **Runs**, and **Logs**. Copy the exact error message before changing configuration; it normally names the failing script, node, listener, or policy check.
+## Diagnostic order
+
+| Symptom | First check | Then inspect |
+| --- | --- | --- |
+| Import rejected | `baudbound validate PACKAGE` | Package format, target, version, graph, declarations |
+| Script needs attention | Scripts or `script status` | Hash, approval, secrets, compatibility, enablement |
+| Manual run rejected | `script inspect` | Manual trigger, approval, policy, target, secrets |
+| No automatic event | Triggers and Service | Script enabled, registration, family toggle, OS prerequisite |
+| Run failed at a node | Runs and Logs | Node config, resolved variables, native error, failure branch |
+| Serial disconnected | Devices | Port access, protocol, USB identity, ambiguity |
+| Webhook unavailable | Service listener | Bind, port, route, firewall/proxy, body limit |
+| Update unavailable | Update dialog/error | HTTPS, release metadata, platform artifact, signature, clock |
+
+## Common problems
 
 ### Package hash is not verified
 
-The package was created without valid integrity metadata or changed after export. Open the original project in the current editor and export it again. Do not modify or repack `.bbs` contents.
+The managed `.bbs` bytes no longer match the SHA-256 hash stored at import/update, or installation did not complete normally. Never replace the managed package in the runner home.
 
-Validate the newly exported file before replacing the installed revision:
+Return to the original editor project, export a new package, and validate it:
 
 ```text
-baudbound validate PATH_TO_NEW_PACKAGE
-baudbound script update PATH_TO_NEW_PACKAGE
+baudbound validate PACKAGE
+baudbound script update PACKAGE
 baudbound script inspect SCRIPT
-baudbound script approve SCRIPT
 ```
+
+Review and approve the new revision after the status reports a valid package hash.
 
 ### Script will not run
 
-Run `baudbound script inspect SCRIPT` and read each reported state. Fix validation or target incompatibility in the editor. Approve the current revision only after review. Configure every required secret. For manual execution, the script also needs a manual trigger. Enablement is required for listener-based triggers but not for a direct manual run.
+Read every problem reported by `script inspect`. A run requires a valid installed package, compatible target, current approval, allowed policy, all required secrets, and a usable trigger. A direct manual run also needs a Manual Trigger unless `--trigger TRIGGER` explicitly selects another valid trigger node.
+
+Enablement controls long-lived trigger registration. It is not required for a direct `script run`, but it is required for schedules, listeners, watchers, startup registration, and serial readers.
+
+### Approval became stale
+
+An update changed the package hash. Inspect the new access declarations and graph, then approve the current revision. Do not attempt to copy or edit approval rows. See [Approvals, Capabilities, and Risk](../security/approvals-capabilities.md).
 
 ### Trigger does not fire
 
-Confirm the script is enabled and approved, then open **Triggers** or run `baudbound script triggers SCRIPT`. The expected trigger must appear as registered. Confirm its listener family is enabled in `config.toml` and that exactly one runner service uses this runner home. Then inspect service logs for a port conflict, inaccessible path, unavailable desktop session, or device error.
+Confirm all of these:
 
-### Serial reconnect fails
+1. the script is enabled, valid, compatible, approved, and secret-ready;
+2. its trigger appears in **Triggers** or `script triggers SCRIPT`;
+3. the trigger family is enabled in `config.toml`;
+4. one runner service owns the runner home and listener port;
+5. the watched path, process, serial device, hotkey session, or network route exists; and
+6. service logs do not report registration or dispatch failure.
 
-Check physical connectivity, port access, protocol settings, and identity fields. Identical devices need serial numbers to avoid ambiguous matches. An identity mismatch intentionally prevents connection to the wrong hardware.
+Script lifecycle changes reload automatically at `runner.trigger_reload_seconds`. Configuration changes require a service restart.
+
+### Serial reconnect or rebinding fails
+
+Check physical connectivity, port permissions, baud/data/parity/stop/flow settings, and `read_mode`. With identity validation enabled, a mismatch intentionally prevents the wrong device from opening. Auto rebind refuses zero or multiple matches. Identical devices should have distinct serial numbers in configuration.
+
+On Linux, inspect ownership with `ls -l /dev/ttyUSB0` or the real device path and confirm the runner account belongs to the required group.
 
 ### Webhook or WebSocket is unavailable
 
-Confirm the listener family is enabled and the service owns its configured port. Loopback binds are local only; non-loopback binds may be blocked by the host firewall.
+Confirm the family toggle, bind address, port, route, and size limits. Loopback accepts only local clients. A public bind can still be blocked by the firewall or reverse proxy. A port conflict means another process, including a second BaudBound service, already owns it.
+
+Use [Webhooks, WebSockets, and Network Access](network-listeners.md) for local request tests and exposure guidance.
+
+### File or process action fails
+
+Log the resolved path or executable identifier without logging credentials. Check the runner account's permissions and working environment. Desktop-only actions require an active desktop target/session. Windows-title lookup modes are Windows Desktop-only; use process-name or PID modes where documented on Linux.
 
 ### Update is rejected
 
-Check system time, access to the GitHub release, artifact availability, and signature metadata. Do not bypass signature verification.
+Check system time, HTTPS access to the GitHub release endpoint, availability of the exact Windows or Linux artifact, and updater signature metadata. On Linux, the AppImage must remain writable by its owner. Do not bypass signature verification; use the documented manual fallback from [Installation and Updates](installation.md).
+
+## Collect a useful support report
+
+Include the runner version, operating system, target runtime, command or UI action, script ID/name, run ID, trigger/node ID, and exact redacted error. Include relevant `doctor --json`, `status --json`, or `script inspect --json` output only after removing usernames, private paths, network tokens, serial numbers, and other sensitive values.
+
+Do not attach `.bbs` packages, `runner.db`, `config.toml`, environment files, or secret keys to a public report unless you have inspected and intentionally sanitized them.
+
+For backups and database-level recovery boundaries, continue with [Storage, Backups, and Recovery](storage-backups.md).

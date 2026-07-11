@@ -404,3 +404,43 @@ sudo sv status baudbound
 ```
 
 Run only the matching pair. The final status must report that BaudBound is running before leaving the update unattended.
+
+## Uninstall or remove the service
+
+Decide first whether to retain `/var/lib/baudbound`. It contains installed packages, approvals, run history, persistent/global variables, encrypted secrets, service state, and configuration. Deleting it is permanent unless you have a tested backup. See [Storage, Backups, and Recovery](../runner/storage-backups.md).
+
+Stop and disable exactly the service manager you configured:
+
+**systemd**
+
+```text
+sudo systemctl disable --now baudbound.service
+sudo rm /etc/systemd/system/baudbound.service
+sudo systemctl daemon-reload
+```
+
+**OpenRC**
+
+```text
+sudo rc-service baudbound stop
+sudo rc-update del baudbound default
+sudo rm /etc/init.d/baudbound
+```
+
+**runit**
+
+```text
+sudo sv down baudbound
+sudo rm /var/service/baudbound
+sudo rm -r /etc/sv/baudbound
+```
+
+Run only the matching block. Remove the executable and system command after the service no longer appears as running:
+
+```text
+sudo rm /usr/local/bin/baudbound
+sudo rm /opt/baudbound/BaudBound.AppImage
+sudo rmdir /opt/baudbound
+```
+
+To retain runner state, leave `/var/lib/baudbound`, `/etc/baudbound/runner.env`, and the `baudbound` account in place. To erase the installation completely, back up anything needed, remove those directories, and then remove the service account with the distribution's native account tool. Account-removal syntax differs by distribution, so follow its documentation rather than copying a command for another system.

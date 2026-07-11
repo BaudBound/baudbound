@@ -5,6 +5,8 @@ tags: [runner, cli, reference]
 ---
 # CLI Reference
 
+Install BaudBound first and confirm that the shell can find the executable with `baudbound --version`. [Installation and Updates](installation.md) creates the `baudbound` command for the supported installation paths.
+
 ```text
 baudbound [--config PATH] [COMMAND]
 baudbound --help
@@ -12,6 +14,19 @@ baudbound --version
 ```
 
 `--config` is optional and global, so it can be used with any command. Without a command, BaudBound opens the desktop application when a graphical session is available. In a headless Linux session it prints runner status.
+
+## Placeholders and quoting
+
+Replace `SCRIPT`, `PACKAGE`, `TRIGGER`, `SECRET_NAME`, and `PATH` with real values. Do not type an uppercase placeholder literally.
+
+Quote a path or name containing spaces. PowerShell and POSIX shells both accept ordinary double quotes around simple values:
+
+```text
+baudbound validate "PATH WITH SPACES"
+baudbound script inspect "SCRIPT NAME"
+```
+
+JSON payload quoting differs between shells. Keep test payloads small, do not include secrets, and verify quoting in the actual shell before automating the command.
 
 ## Paths and configuration precedence
 
@@ -173,3 +188,5 @@ Treat generated keys as credentials and do not store them in source control or c
 `--json` is available only on commands that explicitly list it. Human-readable output is not a stable machine interface. JSON commands write their document to standard output; failures write an error and return a non-zero process exit code.
 
 Validation, configuration, storage, policy, approval, secret, and execution failures also return non-zero. Use `baudbound COMMAND --help` to confirm syntax for the installed runner version.
+
+Use [Script Management](script-management.md) for lifecycle procedures, [Background Service and Triggers](service-triggers.md) for `serve`, [Secrets](secrets.md) for key handling, and [Runs, Logs, and Troubleshooting](runs-logs-troubleshooting.md) when syntax is accepted but an operation is rejected.

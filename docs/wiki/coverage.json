@@ -1,0 +1,69 @@
+{
+  "approvedExternalHosts": [
+    "docs.appimage.org",
+    "docs.voidlinux.org",
+    "editor.baudbound.app",
+    "github.com",
+    "packages.fedoraproject.org",
+    "packages.gentoo.org",
+    "raw.githubusercontent.com",
+    "schemas.baudbound.app",
+    "wiki.gentoo.org",
+    "www.freedesktop.org"
+  ],
+  "requiredPages": [
+    "home", "getting-started", "tutorials", "concepts", "editor",
+    "editor/projects-assets-export", "editor/node-reference", "editor/variables",
+    "editor/simulation", "editor/target-runtimes", "runner", "runner/installation",
+    "runner/desktop-app", "runner/script-management", "runner/configuration",
+    "runner/service-triggers", "runner/network-listeners", "runner/secrets",
+    "runner/runs-logs-troubleshooting", "runner/storage-backups", "runner/cli-reference",
+    "security", "security/approvals-capabilities", "package-format", "self-hosting",
+    "self-hosting/linux-background-service", "developers", "developers/setup",
+    "developers/architecture", "developers/editor", "developers/runner",
+    "developers/testing-ci", "developers/releases", "developers/wiki-documentation"
+  ],
+  "requiredPaths": [
+    "apps/editor/package.json", "apps/baudbound/Cargo.toml", "apps/baudbound/ui/package.json",
+    "crates/baudbound-actions/Cargo.toml", "crates/baudbound-core/Cargo.toml",
+    "crates/baudbound-runtime/Cargo.toml", "crates/baudbound-script/Cargo.toml",
+    "crates/baudbound-security/Cargo.toml", "crates/baudbound-storage/Cargo.toml",
+    "crates/baudbound-triggers/Cargo.toml", "schemas/program.schema.json",
+    "tools/development.ps1", "tools/runner-release.ps1", "tools/wiki-publisher/package.json",
+    ".github/workflows/editor-docker.yml", ".github/workflows/runner-ci.yml",
+    ".github/workflows/runner-release.yml", ".github/workflows/schemas-docker.yml",
+    ".github/workflows/wiki-publish.yml"
+  ],
+  "nodes": {
+    "sources": "apps/editor/data/nodes/definitions/**/*.ts",
+    "page": "editor/node-reference",
+    "expectedCount": 47,
+    "sourceFingerprint": "67bb6afb871e9b73a2a03e5e69566b3cc7364f98f04ede4a0be46cd6ae14304e"
+  },
+  "desktop": {
+    "source": "apps/baudbound/ui/src/app.tsx",
+    "page": "runner/desktop-app",
+    "expectedCount": 10
+  },
+  "cli": {
+    "source": "apps/baudbound/src/cli.rs",
+    "page": "runner/cli-reference"
+  },
+  "configuration": {
+    "source": "crates/baudbound-core/src/config.rs",
+    "page": "runner/configuration",
+    "structs": ["RunnerSettings", "TriggerSettings", "SerialDeviceSettings", "WebhookSettings", "WebSocketSettings"],
+    "sections": {
+      "runner": "RunnerSettings",
+      "triggers": "TriggerSettings",
+      "serial.devices.*": "SerialDeviceSettings",
+      "webhooks": "WebhookSettings",
+      "websockets": "WebSocketSettings"
+    }
+  },
+  "security": {
+    "capabilitySource": "crates/baudbound-security/contracts/node-capabilities.json",
+    "permissionSource": "crates/baudbound-security/src/lib.rs",
+    "page": "security/approvals-capabilities"
+  }
+}

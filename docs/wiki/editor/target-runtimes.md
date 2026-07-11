@@ -1,43 +1,121 @@
 ---
-title: Target Runtimes
-description: Choose Windows, Linux, desktop, or headless compatibility for a BaudBound project.
-tags: [editor, compatibility]
+title: Target Runtimes and Platform Support
+description: Choose a Windows or Linux desktop/headless target and understand node compatibility enforcement.
+tags: [editor, runner, compatibility, platforms]
 ---
-# Target Runtimes
+# Target Runtimes and Platform Support
 
-Every project selects the environment it is designed to run in. Both the editor and runner enforce that selection.
+A target runtime states where a package is intended to run. It combines operating-system specificity with whether an interactive desktop session is required. Choose it before building the graph so the editor can hide or reject incompatible nodes.
 
-| Runtime | Intended environment |
-| --- | --- |
-| Generic Headless | Non-interactive Windows or Linux service behavior |
-| Windows Headless | Windows service or terminal without desktop interaction |
-| Linux Headless | Linux daemon or terminal without desktop interaction |
-| Generic Desktop | Cross-platform interactive Windows or Linux desktop |
-| Windows Desktop | Interactive Windows session and Windows-native actions |
-| Linux Desktop | Interactive Linux desktop and supported Linux-native actions |
+## Choose a target
+
+1. Will the runner operate without a signed-in graphical desktop session?
+   - Choose a **Headless** target.
+   - Do not use hotkeys, notifications, dialogs, sound playback, application opening, clipboard, input control, pixel, or window nodes.
+2. Does the workflow require a desktop session?
+   - Choose a **Desktop** target.
+3. Does it depend on Windows-only window or pixel APIs, or window-title process matching?
+   - Choose **Windows Desktop**.
+4. Is it deliberately portable across Windows and Linux within the same session family?
+   - Choose the corresponding **Generic** target.
+5. Does it depend on OS-specific paths, executables, serial names, or behavior even though all nodes are generic?
+   - Prefer the matching Windows or Linux target so operators are not misled.
 
 ## Runtime families {.tabset}
 
 ### Generic
 
-**Generic Headless** is for automation that can run as a non-interactive service on either supported operating system. **Generic Desktop** permits only interactive actions implemented natively on both Windows and Linux.
+| Target | Intended use |
+| --- | --- |
+| **Generic Headless** | Portable service workflow using non-desktop nodes |
+| **Generic Desktop** | Portable interactive workflow using desktop features implemented on both supported systems |
 
-Choose a generic target when the same package must move between platforms without editing. The editor rejects nodes whose native implementation is limited to one operating system.
+Generic means the package contract is not intentionally bound to one operating system. It does not translate paths, executable names, shell syntax, device protocols, or external dependencies.
 
 ### Windows
 
-**Windows Headless** allows Windows-specific non-interactive behavior in a service or terminal. **Windows Desktop** adds actions that require an interactive Windows session.
+| Target | Intended use |
+| --- | --- |
+| **Windows Headless** | Windows service or non-interactive automation without desktop APIs |
+| **Windows Desktop** | Signed-in Windows session and Windows-native desktop behavior |
 
-Active-window lookup, window focus, pixel-color access, and other explicitly Windows-native nodes require Windows Desktop. A headless Windows service cannot safely provide desktop input or window-session behavior.
+Windows Desktop is required for Get Active Window, Window Focus, Get Pixel Color, and process matching by window title.
 
 ### Linux
 
-**Linux Headless** is intended for daemons, terminals, and server automation. **Linux Desktop** adds the cross-platform interactive actions that have native Linux implementations.
+| Target | Intended use |
+| --- | --- |
+| **Linux Headless** | Linux service automation without a graphical session |
+| **Linux Desktop** | Linux graphical session using currently implemented cross-platform desktop adapters |
 
-Linux desktop support depends on an interactive graphical session and the capabilities declared by each node. Nodes marked Windows-only remain unavailable even when the project selects Linux Desktop.
+Linux Desktop does not imply that every X11 or Wayland window-management feature exists. Active-window lookup, focus, pixel reading, and window-title process matching are currently rejected rather than emulated.
 
-## Choosing a target
+## Desktop-only nodes
 
-Desktop targets may use notifications, message boxes, clipboard, keyboard, mouse, and other supported interactive actions. Headless targets reject nodes that require an interactive session. Platform-specific node definitions can narrow support further.
+These nodes require a Desktop target:
 
-Choose the narrowest runtime that matches deployment. A package targeting Windows Desktop must not silently run in a Linux or headless process.
+- Hotkey trigger;
+- Open Application;
+- Clipboard;
+- Keyboard and Type Text;
+- MessageBox and Show Notification;
+- Mouse Click and Move Mouse; and
+- Play Sound.
+
+The editor checks `desktopOnly` from node definitions, and the runner independently applies its corresponding compatibility table.
+
+## Windows Desktop-only behavior
+
+These nodes support only Windows Desktop:
+
+- Get Active Window;
+- Window Focus; and
+- Get Pixel Color.
+
+Process Status, Kill Process, and App / Process Started are otherwise portable, but selecting **Window title** match mode makes that configured node Windows Desktop-only.
+
+## Definition rules
+
+A node definition can constrain support in two ways:
+
+- `desktopOnly: true` allows desktop targets and rejects headless targets;
+- `supportedTargetRuntimes` lists an explicit narrower set.
+
+When `supportedTargetRuntimes` is omitted, the node is available to all targets unless another rule such as `desktopOnly` or configuration-specific validation narrows it. Omission does not promise that arbitrary machine paths or external dependencies are portable.
+
+## Enforcement stages
+
+1. **Palette:** incompatible nodes are not offered for the selected target.
+2. **Editor verification:** existing incompatible nodes produce blocking errors after a target change or package import.
+3. **Package declaration:** export records the selected target with calculated capabilities.
+4. **Runner package validation:** Rust recalculates node and option compatibility.
+5. **Runner host validation:** the package target must be among the current runner's supported targets.
+6. **Native adapter:** a required adapter must still be available in the actual desktop session.
+
+A manually edited package cannot bypass these stages.
+
+## Runner target configuration
+
+By default, a runner supports Generic plus its host operating-system targets for the available headless/desktop environment. `runner.target_runtimes` can restrict that set further for a dedicated installation.
+
+For example, a Linux service can explicitly allow only:
+
+```toml
+[runner]
+target_runtimes = ["Generic Headless", "Linux Headless"]
+```
+
+Configuration cannot grant a target or action that the built runner does not implement.
+
+## Examples
+
+| Workflow | Suitable target |
+| --- | --- |
+| Scheduled HTTP request and log on either OS | Generic Headless |
+| Linux file watcher using `/srv/inbox` | Linux Headless |
+| Windows process automation without desktop input | Windows Headless |
+| Cross-platform notification workflow | Generic Desktop |
+| Focus a Windows application and type text | Windows Desktop |
+| Serial listener with Linux `/dev/ttyUSB0` mapping | Linux Headless or Linux Desktop, depending on other nodes |
+
+For per-node configuration and support, use [Node Reference](node-reference.md).

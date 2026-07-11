@@ -1,48 +1,129 @@
 ---
 title: Visual Editor
-description: Build, document, validate, and export BaudBound automation projects.
-tags: [editor]
+description: Learn the BaudBound editor workspace, canvas interactions, node configuration, comments, and browser persistence.
+tags: [editor, interface, canvas]
 ---
 # Visual Editor
 
-The editor is available at [editor.baudbound.app](https://editor.baudbound.app/). It runs in the browser and keeps the active project locally until you import or export a package.
+The browser editor builds a project as a connected graph. It verifies and simulates that graph, then exports a `.bbs` package for a native runner. The editor does not execute trusted production actions on the runner machine.
 
 ## Workspace
 
-The palette contains trigger, control-flow, and action nodes. Click or drag a palette entry onto the canvas, then drag from an output handle to a compatible input handle. Branching nodes expose named outputs for their possible paths.
+| Region | Purpose |
+| --- | --- |
+| **Top bar** | Assets, Project Settings, Help, target/session badge, verification state, Verify, Import, and Export |
+| **Node library** | Searchable Triggers, Control Flow, and Actions compatible with the selected target |
+| **Canvas** | Executable nodes, comments, connections, selection, pan, zoom, minimap, and edge style |
+| **Inspector** | Properties for the selected node and the Simulation tab |
+| **Output console** | System, simulation, runtime-data, and secret-management information |
+| **Status bar** | Current editor and graph status information |
 
-Selecting a node opens its configuration in the inspector. Node IDs remain stable and identify outputs, validation messages, and run logs. A custom name changes the displayed header without changing the underlying ID.
+![BaudBound editor with the node library on the left, graph canvas and output console in the center, and inspector on the right](../assets/editor/workspace.png)
 
-The Variables tab lists configured values, node outputs, secrets, built-in values, and derived metadata. The Simulation tab verifies and runs selected triggers. The output console reports verification, simulation, and package operations.
+The screenshot shows an empty project before verification. Labels can move as the window narrows, but the node library, canvas, inspector, output console, and status bar keep these responsibilities.
 
-## Selection and editing
+Drag the vertical dividers to resize the node library and inspector. Their widths remain bounded so the canvas stays usable. If node properties are not visible, select an executable node and open **Properties** in the inspector.
 
-Use pointer selection for one node. Hold the platform selection modifier while dragging on empty canvas to select multiple nodes. Copy, paste, duplicate, and delete operate on the current selection and are also available from node context menus.
+## Add and configure nodes
 
-Project settings choose one visual edge style for the graph: straight, step, smooth step, or Bezier. Edge appearance does not change execution.
+Search the node library, then either click a node entry to add it near the current viewport center or drag it to an exact canvas position. Nodes hidden by target compatibility cannot be added until Project Settings selects a supported runtime.
+
+Select a node to edit:
+
+- optional custom display name;
+- definition-specific fields;
+- variable-aware text and number inputs;
+- conditions, switch cases, headers, serial options, or asset choices where relevant;
+- runtime output data and reference examples; and
+- risk and node identity.
+
+Node IDs are stable within the project and appear in output references, edges, logs, and package data. Use the inspector copy button rather than retyping an ID.
+
+## Connect the graph
+
+Drag from an output handle to a compatible input handle. The edge follows the project-wide style selected in the canvas toolbar.
+
+Ordinary nodes use an `out` execution output. Fallible actions expose **success** and **failed** outputs; the failed branch provides structured `error` data. Control nodes expose named branches such as **true**, **false**, **loop**, **done**, switch cases, or a default route.
+
+Triggers have no execution input because they begin runs. A workflow can contain multiple trigger types, but only one Manual trigger is allowed.
+
+Loop body edges leave the **loop** output and completion continues from **done**. Do not connect the body back to the loop node; the runtime owns repetition.
+
+Select an edge to highlight it. Right-click and choose **Disconnect**, or use the normal delete interaction, to remove it. Invalid endpoints or handle names fail verification.
+
+## Select and move
+
+Click a node or edge to select it. Drag a node by its body or designated header. Drag empty canvas space to pan.
+
+Hold `Ctrl` while dragging on empty canvas to create a selection rectangle. Selection includes executable nodes and comments that intersect the rectangle. Selected executable nodes remain above overlapping comments.
+
+Use the React Flow controls to zoom in, zoom out, and fit the graph. The minimap shows the graph's position when the canvas extends beyond the viewport.
+
+## Copy, paste, duplicate, and delete
+
+Right-click an executable node or comment for **Copy**, **Duplicate**, and **Delete**. Right-click empty canvas for **Paste** after copying.
+
+Keyboard copy and paste use `Ctrl+C` and `Ctrl+V`. Paste places the copied node near the viewport center. Text inputs, textareas, code editors, content-editable elements, and active browser text selection keep their normal clipboard behavior.
+
+Deleting an executable node also removes connected edges. Deleting a comment does not affect executable flow.
+
+The current editor does not provide project-wide undo and redo history. Verify destructive edits before continuing and export important revisions regularly.
+
+## Context menus and key capture
+
+Canvas context menus apply to the object under the pointer. `Escape` closes an open canvas menu.
+
+Hotkey and Keyboard node fields use a key-capture control. Focus that control before pressing the intended combination. Ordinary editor shortcuts are suppressed while an editable field has focus, preventing a captured `Ctrl+C` from copying a node.
 
 ## Comments
 
-Comment nodes document the graph without being executed. They support the same selection, movement, copy, paste, duplication, and deletion controls as executable nodes. Edit their text, color, size, and font size, and drag them from the top bar.
+Add a comment from the canvas comment control. Comments are normal selectable React Flow nodes but are excluded from the executable program.
 
-## Project settings
+- Drag from the entire upper comment section.
+- Edit text directly in the body; the cursor remains where you place it.
+- Resize from the lower-right handle. Minimum size prevents controls from overlapping.
+- Choose amber, blue, green, rose, or violet from the header swatches.
+- Use **A-**, **A+**, or type a font size from `12` through `72`.
+- Press Enter or leave the size field to apply it; Escape restores the current size.
+- Copy, paste, duplicate, select, and delete comments like executable nodes.
 
-Set the project name, author, description, website or repository when applicable, minimum runner version, and [target runtime](target-runtimes.md). Use a stable project identity so runner updates can match new exports to the installed script.
+When a comment overlaps an executable node, the executable node is rendered above it so controls and connections remain accessible.
 
-## Graph rules
+## Edge style
 
-Triggers start execution and do not accept incoming execution edges. Other executable nodes must be reachable from a trigger. Connect the required named outputs from branching and loop nodes. Loop bodies do not need an explicit edge back to the loop node.
+The canvas edge selector applies one style to all graph edges. Available styles map to React Flow's straight, step, smooth-step, and default Bezier rendering. The selected style is editor metadata saved in `editor.json`; it does not change execution order.
 
-Verification rejects malformed branches, invalid configuration, unresolved variables, incompatible targets, and invalid package metadata.
+## Project, assets, and packages
 
-## Packages and assets
+Use **Project Settings** for identity, target, description, author, version requirements, URLs, and tags. Use **Assets** for package-owned files. Use **Import** to load a verified `.bbs` package and **Export** to review and download a new revision.
 
-The editor imports and exports `.bbs` packages. Before export, resolve verification errors and review requested capabilities.
+Read [Projects, Assets, and Export](projects-assets-export.md) before editing an imported production package.
 
-Files used by a workflow can be embedded as package assets so the runner does not depend on the original editor machine's path. Never place credentials or secret values in assets.
+## Verification and simulation
 
-Canvas positions, comments, and visual settings are editing metadata and do not execute. The package also contains the executable graph, manifest, declarations, assets, and integrity information.
+**Verify** runs all editor checks and updates the top-bar status to Not verified, Verified, Warnings, or Failed. Graph changes invalidate the previous result.
 
-Export creates integrity metadata that the runner checks during import. Editing or repacking files inside `.bbs` invalidates verification; make changes in the editor and export a new package instead.
+The **Simulation** inspector tab presents each trigger and controlled payload fields. Triggering simulation always verifies first. Use runtime overrides to force fallible nodes down success or failed branches, adjust execution speed, inspect logs and variables, and choose **Stop** to cancel an active session.
 
-Use the [node reference](node-reference.md), [variables guide](variables.md), and [simulation guide](simulation.md) while building workflows.
+See [Verification and Simulation](simulation.md) for exact rule and payload behavior.
+
+## Browser persistence and backups
+
+The working editor project is stored in the current browser profile. It may survive refresh and browser restart, but it is not a reliable project archive.
+
+Export before clearing browser data, switching profiles or devices, using private browsing, resetting the project, or making a risky graph change. Back up exported packages in normal versioned storage.
+
+## Common problems
+
+| Problem | Resolution |
+| --- | --- |
+| Inspector looks empty | Select an executable node and open Properties |
+| Node is missing from library | Check target runtime compatibility and clear the library search |
+| Connection will not verify | Reconnect exact named output and input handles; remove stale edges |
+| `Ctrl` drag does not select | Begin on empty canvas, keep Ctrl held, and include the node bounds |
+| Copy affects text instead of node | Remove browser text selection and focus the canvas node |
+| Comment controls overlap | Resize the comment wider or reduce its font size |
+| Imported package is rejected | Keep the current project open and inspect the import verification error |
+| Work disappeared | Check the original browser profile; restore from the latest exported package |
+
+Continue with [Node Reference](node-reference.md) and [Variables and Data](variables.md).

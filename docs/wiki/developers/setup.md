@@ -9,6 +9,46 @@ tags: [developers, setup, contributing, testing]
 
 Install Git, Rust 1.95 or newer, Node.js 24, pnpm, and platform dependencies required by Tauri 2. Windows development requires WebView2 and Microsoft C++ build tools. Linux development requires the appropriate WebKitGTK and system libraries.
 
+Use pnpm 11.10.0 to match CI. The Cargo workspace pins Rust 1.95 as its minimum supported toolchain.
+
+## Platform prerequisites {.tabset}
+
+### Windows
+
+Install Git, Rust through `rustup` with the stable MSVC toolchain, Visual Studio Build Tools with **Desktop development with C++** and a current Windows SDK, Node.js 24, pnpm 11.10.0, and Microsoft Edge WebView2 Runtime.
+
+```powershell
+git --version
+rustc --version
+cargo --version
+node --version
+pnpm --version
+```
+
+### Linux
+
+Install Git, Rust 1.95, Node.js 24, pnpm 11.10.0, a C/C++ toolchain, pkg-config, WebKitGTK 4.1 development headers, AppIndicator, ALSA, udev, SVG, xdo, and patchelf packages. Package names differ by distribution; the authoritative Ubuntu package list used by CI is in `.github/workflows/runner-ci.yml`.
+
+```bash
+git --version
+rustc --version
+node --version
+pnpm --version
+pkg-config --modversion webkit2gtk-4.1
+```
+
+Linux native desktop tests require a graphical session. Headless CI can compile the desktop application but cannot prove every input, tray, notification, or window interaction.
+
+## Clone and install
+
+```text
+git clone https://github.com/NATroutter/BaudBound.git
+cd BaudBound
+pnpm --dir apps/editor install --frozen-lockfile
+pnpm --dir apps/baudbound/ui install --frozen-lockfile
+pnpm --dir tools/wiki-publisher install --frozen-lockfile
+```
+
 Install JavaScript dependencies:
 
 ```text
@@ -23,6 +63,42 @@ Use the interactive helper to launch the editor, desktop application, runner ser
 ```
 
 For direct work, use `pnpm --dir apps/editor dev` or `cargo run -p baudbound -- COMMAND`. Set `BAUDBOUND_HOME` to a disposable directory during runner development.
+
+The helper menu offers **Desktop**, **Desktop UI**, **Editor**, **Service**, **Status**, **Install**, **Checks**, **Tests**, **Editor E2E**, **Schemas**, and **Build**. Direct invocation is useful in automation:
+
+```powershell
+./tools/development.ps1 -Action Checks
+./tools/development.ps1 -Action Tests
+```
+
+## Use disposable runner state {.tabset}
+
+### PowerShell
+
+```powershell
+$env:BAUDBOUND_HOME = Join-Path $env:TEMP "baudbound-development"
+cargo run -p baudbound -- status
+```
+
+### POSIX shell
+
+```bash
+export BAUDBOUND_HOME="$(mktemp -d)"
+cargo run -p baudbound -- status
+```
+
+The first runner command creates a default `config.toml` and SQLite database in that directory. Remove the disposable directory only after all related runner and desktop processes have stopped.
+
+## Development loops
+
+| Work | Start command | Main fast checks |
+| --- | --- | --- |
+| Editor | `pnpm --dir apps/editor dev` | lint, typecheck, focused tests, schemas check |
+| Desktop UI only | `pnpm --dir apps/baudbound/ui dev` | typecheck and Vitest; Tauri APIs need the desktop shell |
+| Tauri desktop | Choose **Desktop** in the helper | UI tests plus focused Rust tests |
+| Headless service | `cargo run -p baudbound -- serve` | crate and command integration tests |
+| Schemas | `pnpm --dir apps/editor schemas:generate` | inspect diff, then `schemas:check` |
+| Wiki | `pnpm --dir tools/wiki-publisher validate` | publisher tests and rendered dry run |
 
 ## Contribution standards
 
@@ -67,3 +143,14 @@ pnpm --dir tools/wiki-publisher validate
 Tests should cover success, rejection, persistence, restart, concurrency, and platform boundaries. Native actions need platform-specific coverage.
 
 The editor uses Next.js 16. For framework changes, consult the versioned documentation shipped in its installed `node_modules/next/dist/docs` and address deprecation warnings.
+
+## Prepare a pull request
+
+1. Keep the change focused and preserve unrelated worktree changes.
+2. Add tests at the owning layer and at any changed cross-language boundary.
+3. Update schemas and public wiki pages in the same change when behavior changed.
+4. Run the gates listed by [Testing and CI](testing-ci.md).
+5. Review `git diff --check` and the complete diff before committing.
+6. Describe behavior, risk, platform coverage, and tests in the pull request.
+
+Do not commit generated build directories, private signing keys, runner state, private `.bbs` packages, or local plan files.

@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadWikiPages } from "./content.mjs";
+import { validateDocumentationCoverage } from "./coverage.mjs";
 import { WikiJsClient } from "./graphql-client.mjs";
 import { loadWikiNavigation, reconcileNavigation } from "./navigation.mjs";
 import { reconcileWiki } from "./sync.mjs";
@@ -13,13 +14,18 @@ const navigationPath = path.resolve(
   repositoryRoot,
   process.env.WIKI_NAVIGATION_SOURCE ?? "docs/wiki/navigation.json",
 );
+const coveragePath = path.resolve(
+  repositoryRoot,
+  process.env.WIKI_COVERAGE_SOURCE ?? "docs/wiki/coverage.json",
+);
 
 try {
   const pages = await loadWikiPages(sourceRoot);
   const navigation = await loadWikiNavigation(navigationPath, pages);
+  const coverage = await validateDocumentationCoverage(repositoryRoot, pages, coveragePath);
   if (command === "validate") {
     console.log(
-      `Validated ${pages.length} Wiki.js pages and ${navigation.tree[0].items.length} navigation items.`,
+      `Validated ${pages.length} Wiki.js pages, ${navigation.tree[0].items.length} navigation items, ${coverage.paths} repository surfaces, and ${coverage.pages} required documentation pages.`,
     );
   } else if (command === "publish") {
     const client = new WikiJsClient({

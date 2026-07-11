@@ -47,7 +47,7 @@ test("preserves Wiki.js tabset attributes", async (context) => {
   assert.match(home.content, /^### Linux$/m);
 });
 
-test("rejects missing links and local images with source locations", async (context) => {
+test("rejects missing links and missing local images with source locations", async (context) => {
   const root = await fixtureRoot(context);
   await writePage(
     root,
@@ -61,8 +61,38 @@ test("rejects missing links and local images with source locations", async (cont
 
   await assert.rejects(
     loadWikiPages(root),
-    /home\.md:1: link points to a missing Markdown page[\s\S]*local images are not supported/,
+    /home\.md:1: link points to a missing Markdown page[\s\S]*local images must be stored beneath assets/,
   );
+});
+
+test("validates and rewrites repository-controlled local images", async (context) => {
+  const root = await fixtureRoot(context);
+  await writePage(root, "guide/index.md", pageSource("Guide", "Guide", "![UI](../assets/ui.png)"));
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(path.join(root, "assets/ui.png"), "small-image-fixture", "utf8");
+
+  const [page] = await loadWikiPages(root);
+
+  assert.match(
+    page.content,
+    /https:\/\/raw\.githubusercontent\.com\/NATroutter\/BaudBound\/master\/docs\/wiki\/assets\/ui\.png/,
+  );
+});
+
+test("rejects insecure links and unsupported or oversized assets", async (context) => {
+  const root = await fixtureRoot(context);
+  await writePage(root, "home.md", pageSource("Home", "Home", "[Insecure](http://example.com)"));
+  await assert.rejects(loadWikiPages(root), /external URLs must use HTTPS/);
+
+  await writePage(root, "home.md", pageSource("Home", "Home", "Content"));
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(path.join(root, "assets/vector.svg"), "<svg></svg>", "utf8");
+  await assert.rejects(loadWikiPages(root), /unsupported wiki asset type \.svg/);
+
+  const { rm } = await import("node:fs/promises");
+  await rm(path.join(root, "assets/vector.svg"));
+  await writeFile(path.join(root, "assets/large.png"), Buffer.alloc(2 * 1024 * 1024 + 1));
+  await assert.rejects(loadWikiPages(root), /maximum is 2097152/);
 });
 
 test("rejects unknown frontmatter and duplicate published paths", async (context) => {
@@ -77,6 +107,16 @@ test("rejects unknown frontmatter and duplicate published paths", async (context
   await writePage(root, "home.md", pageSource("Home", "Home", "Content"));
   await writePage(root, "index.md", pageSource("Index", "Index", "Content"));
   await assert.rejects(loadWikiPages(root), /both publish to home/);
+});
+
+test("validates internal heading anchors", async (context) => {
+  const root = await fixtureRoot(context);
+  await writePage(root, "home.md", pageSource("Home", "Home", "[Good](guide.md#serial-devices)"));
+  await writePage(root, "guide.md", pageSource("Guide", "Guide", "## Serial Devices"));
+  await loadWikiPages(root);
+
+  await writePage(root, "home.md", pageSource("Home", "Home", "[Bad](guide.md#missing)"));
+  await assert.rejects(loadWikiPages(root), /missing heading #missing in guide\.md/);
 });
 
 async function fixtureRoot(context) {

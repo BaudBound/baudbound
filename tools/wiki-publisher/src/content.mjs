@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import fg from "fast-glob";
@@ -16,6 +16,12 @@ const markdownProcessor = remark().use(remarkParse).use(remarkStringify, {
   listItemIndent: "one",
 });
 
+const assetDirectory = "assets";
+const supportedAssetExtensions = new Set([".jpeg", ".jpg", ".png", ".webp"]);
+const maximumAssetBytes = 2 * 1024 * 1024;
+const defaultAssetBaseUrl =
+  "https://raw.githubusercontent.com/NATroutter/BaudBound/master/docs/wiki/assets";
+
 export async function loadWikiPages(sourceRoot) {
   const relativePaths = await fg("**/*.md", {
     absolute: false,
@@ -31,6 +37,7 @@ export async function loadWikiPages(sourceRoot) {
   );
   const byWikiPath = new Map();
   const bySourcePath = new Map(drafts.map((draft) => [normalizeSourcePath(draft.relativePath), draft]));
+  const assets = await loadAssets(sourceRoot);
 
   for (const draft of drafts) {
     const previous = byWikiPath.get(draft.path);
@@ -42,7 +49,39 @@ export async function loadWikiPages(sourceRoot) {
     byWikiPath.set(draft.path, draft);
   }
 
-  return drafts.map((draft) => finalizePage(draft, bySourcePath, byWikiPath));
+  return drafts.map((draft) => finalizePage(draft, bySourcePath, byWikiPath, assets));
+}
+
+async function loadAssets(sourceRoot) {
+  const relativePaths = await fg(`${assetDirectory}/**/*`, {
+    absolute: false,
+    cwd: sourceRoot,
+    onlyFiles: true,
+  });
+  const assets = new Map();
+  const errors = [];
+
+  await Promise.all(
+    relativePaths.sort().map(async (relativePath) => {
+      const normalizedPath = normalizeSourcePath(relativePath);
+      const extension = path.posix.extname(normalizedPath).toLowerCase();
+      if (!supportedAssetExtensions.has(extension)) {
+        errors.push(`${normalizedPath}: unsupported wiki asset type ${extension || "(none)"}`);
+        return;
+      }
+      const file = await stat(path.join(sourceRoot, relativePath));
+      if (file.size > maximumAssetBytes) {
+        errors.push(
+          `${normalizedPath}: wiki asset is ${file.size} bytes; maximum is ${maximumAssetBytes}`,
+        );
+        return;
+      }
+      assets.set(normalizedPath, file.size);
+    }),
+  );
+
+  if (errors.length > 0) throw new Error(errors.join("\n"));
+  return assets;
 }
 
 async function readPageDraft(sourceRoot, relativePath) {
@@ -65,7 +104,7 @@ async function readPageDraft(sourceRoot, relativePath) {
   };
 }
 
-function finalizePage(draft, bySourcePath, byWikiPath) {
+function finalizePage(draft, bySourcePath, byWikiPath, assets) {
   const tree = markdownProcessor.parse(draft.content);
   const errors = [];
 
@@ -77,14 +116,10 @@ function finalizePage(draft, bySourcePath, byWikiPath) {
     }
   });
   visit(tree, "image", (node) => {
-    if (!isExternalUrl(node.url)) {
-      errors.push(
-        formatNodeError(
-          draft.relativePath,
-          node,
-          "local images are not supported by the Wiki.js publisher; use an HTTPS asset URL",
-        ),
-      );
+    try {
+      node.url = resolveImage(draft, node.url, assets);
+    } catch (error) {
+      errors.push(formatNodeError(draft.relativePath, node, error.message));
     }
   });
 
@@ -150,7 +185,14 @@ function validateWikiPath(relativePath, wikiPath) {
 }
 
 function resolveLink(draft, url, bySourcePath, byWikiPath) {
-  if (isExternalUrl(url) || url.startsWith("#")) return url;
+  if (isExternalUrl(url)) {
+    validateExternalUrl(url, { allowContactSchemes: true });
+    return url;
+  }
+  if (url.startsWith("#")) {
+    validateAnchor(draft, url);
+    return url;
+  }
   const { pathname, suffix } = splitLink(url);
 
   if (pathname.startsWith("/")) {
@@ -158,6 +200,7 @@ function resolveLink(draft, url, bySourcePath, byWikiPath) {
     if (!byWikiPath.has(wikiPath)) {
       throw new Error(`link points to an unmanaged or missing wiki page: ${url}`);
     }
+    validateAnchor(byWikiPath.get(wikiPath), suffix);
     return `/${wikiPath}${suffix}`;
   }
 
@@ -172,7 +215,64 @@ function resolveLink(draft, url, bySourcePath, byWikiPath) {
   if (!target) {
     throw new Error(`link points to a missing Markdown page: ${url}`);
   }
+  validateAnchor(target, suffix);
   return `/${target.path}${suffix}`;
+}
+
+function validateAnchor(target, suffix) {
+  const fragment = suffix.match(/#([^?]+)/)?.[1];
+  if (!fragment) return;
+  const requested = decodeURIComponent(fragment).toLowerCase();
+  const tree = markdownProcessor.parse(target.content);
+  const anchors = new Set();
+  visit(tree, "heading", (node) => {
+    anchors.add(headingSlug(nodeText(node)));
+  });
+  if (!anchors.has(requested)) {
+    throw new Error(`link points to a missing heading #${fragment} in ${target.relativePath}`);
+  }
+}
+
+function nodeText(node) {
+  if (typeof node.value === "string") return node.value;
+  return (node.children ?? []).map(nodeText).join("");
+}
+
+function headingSlug(value) {
+  return value
+    .replace(/\s+\{\.[^}]+\}\s*$/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s_-]/gu, "")
+    .replace(/\s+/g, "-");
+}
+
+function resolveImage(draft, url, assets) {
+  if (isExternalUrl(url)) {
+    validateExternalUrl(url, { allowContactSchemes: false });
+    return url;
+  }
+
+  const { pathname, suffix } = splitLink(url);
+  const sourceDirectory = path.posix.dirname(normalizeSourcePath(draft.relativePath));
+  const targetPath = path.posix.normalize(path.posix.join(sourceDirectory, pathname));
+  if (!targetPath.startsWith(`${assetDirectory}/`)) {
+    throw new Error(`local images must be stored beneath ${assetDirectory}/: ${url}`);
+  }
+  if (!assets.has(targetPath)) {
+    throw new Error(`image points to a missing or invalid wiki asset: ${url}`);
+  }
+
+  const baseUrl = (process.env.WIKI_ASSET_BASE_URL ?? defaultAssetBaseUrl).replace(/\/$/, "");
+  const relativeAssetPath = targetPath.slice(assetDirectory.length + 1);
+  const encodedPath = relativeAssetPath.split("/").map(encodeURIComponent).join("/");
+  return `${baseUrl}/${encodedPath}${suffix}`;
+}
+
+function validateExternalUrl(url, { allowContactSchemes }) {
+  if (/^https:/i.test(url)) return;
+  if (allowContactSchemes && /^(?:mailto|tel):/i.test(url)) return;
+  throw new Error(`external URLs must use HTTPS: ${url}`);
 }
 
 function splitLink(url) {

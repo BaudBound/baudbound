@@ -13,6 +13,18 @@ Variables carry data between triggers, actions, and control-flow nodes. BaudBoun
 
 Variable-aware fields show matching suggestions after typing `{{`. Select a suggestion or press Tab to insert its complete token.
 
+## Choose the right data kind
+
+| Need | Use | Why |
+| --- | --- | --- |
+| Value only during the current trigger run | Runtime variable | Starts clean for each run and has the narrowest write scope |
+| Value retained for later runs of the same script | Persistent variable | Stored under that script identity |
+| Deliberately shared value across scripts on one runner | Global variable | One runner-level name; requires high-risk review |
+| Password, token, private key, or credential | Secret declaration | Value stays outside the project and package |
+| Data produced by a trigger or action | Node output | Read-only and namespaced by stable node ID |
+
+Prefer the narrowest lifetime that satisfies the workflow. Do not use global data merely to avoid passing node outputs, and never use ordinary persistent/global variables for credentials.
+
 ## References and interpolation
 
 A field containing only one reference preserves the value's original type:
@@ -226,3 +238,9 @@ These controls only affect the panel. They do not change the project, exported p
 **A value unexpectedly survives another run:** the variable is persistent or global rather than runtime-scoped.
 
 **Scripts affect each other's values:** they use the same global variable name. Change the name or use persistent scope for script-local storage.
+
+**The editor marks a reference red:** select a suggestion from the variable browser and compare the stable node ID, spelling, case, and nested path. For example, change `{{request.users[0].name}}` to the supported read form `{{request.users.0.name}}`.
+
+**A derived field does not resolve:** place `$length`, `$count`, `$type`, or `$is_empty` after the complete value name, such as `{{items.$length}}`. The older `.$meta.*` form is not supported.
+
+For node-specific output names and types, use [Node Reference](node-reference.md). For stored-state backup and recovery behavior, use [Storage, Backups, and Recovery](../runner/storage-backups.md).

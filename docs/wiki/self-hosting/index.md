@@ -127,4 +127,58 @@ curl --fail http://127.0.0.1:8085/healthz
 
 The final command should print `ok`. Point the schema hostname's HTTPS reverse proxy to `http://127.0.0.1:8085`, then verify the public `/healthz` URL.
 
+Schema documents are served as `application/schema+json` with `X-Content-Type-Options: nosniff`. The container uses a five-minute revalidation cache so clients can cache briefly without hiding schema updates indefinitely. Unknown paths return `404` and directory listing is disabled.
+
+## Caddy reverse-proxy example
+
+The following is a partial Caddyfile example for the editor. Replace `editor.example.com` and configure the schema hostname separately with port `8085`:
+
+```text
+editor.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+Caddy can obtain TLS certificates automatically when public DNS points to the server and ports 80/443 reach Caddy. This block does not define firewall, account, backup, or global logging policy.
+
+## Operate, update, and roll back
+
+Run commands from the service's `/opt/baudbound-*` directory:
+
+```text
+docker compose ps
+docker compose logs --tail 100
+docker compose restart
+```
+
+For controlled production environments, replace `latest` with a reviewed release tag or immutable digest. To update:
+
+1. Save the currently deployed image reference.
+2. Change the Compose image to the new reviewed tag.
+3. Run `docker compose pull` and `docker compose up -d`.
+4. Test the local health/page and public HTTPS URL.
+5. Inspect `docker compose logs --tail 100`.
+
+If verification fails, restore the previous image reference and run `docker compose up -d` again. The editor container is stateless, but users should export important browser-local projects before browser cleanup or workstation migration.
+
+## Remove a self-hosted service
+
+Removal stops the selected container and removes its Compose-created network. Run it only from the matching service directory:
+
+```text
+docker compose down
+```
+
+After confirming the container is gone, remove the reverse-proxy host and DNS record. Deleting `/opt/baudbound-editor` or `/opt/baudbound-schemas` removes local Compose configuration; it does not delete editor projects stored in users' browsers. Do not use `docker compose down -v` as a habit when other revised deployments may add persistent volumes later.
+
+## Public verification checklist
+
+- The public URL uses a valid HTTPS certificate and redirects HTTP to HTTPS.
+- The editor loads, creates a project, and exports a test package.
+- The schema `/healthz` endpoint returns `ok` and a known schema URL returns JSON.
+- Container ports remain bound to `127.0.0.1`, not directly to a public interface.
+- The reverse proxy preserves `Host` and forwarded protocol information.
+- HTML is not cached indefinitely, and schema cache headers match the intended update policy.
+- Logs contain no private package data or proxy authorization credentials.
+
 To run scripts continuously on a headless Linux host, follow the dedicated [Linux Background Service](linux-background-service.md) guide.

@@ -25,7 +25,7 @@ Use this page when a BaudBound term is unfamiliar or when two similar terms seem
 
 | Term | Meaning |
 | --- | --- |
-| **Package** | A portable `.bbs` archive exported by the editor. It contains the manifest, executable program, editor data, assets, schemas, and integrity metadata. |
+| **Package** | A portable `.bbs` archive exported by the editor. It contains the manifest, executable program, access declarations, optional editor data, and declared assets. The runner records a hash when installing it. |
 | **Manifest** | Package metadata such as script identity, display name, version requirements, target runtime, permissions, capabilities, and secrets. |
 | **Script identity** | The stable package ID used to recognize updates to the same installed script. It is different from the display name and filename. |
 | **Installed script** | A package revision imported into one runner's storage. The runner tracks whether it is enabled, approved, healthy, and eligible for trigger registration. |

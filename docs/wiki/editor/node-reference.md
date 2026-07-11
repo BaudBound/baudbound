@@ -1,74 +1,405 @@
 ---
 title: Node Reference
-description: Catalog of triggers, control-flow nodes, and actions available in the BaudBound editor.
+description: Configuration, flow, outputs, access, compatibility, failures, and simulation behavior for every BaudBound node.
 tags: [editor, nodes, reference]
 ---
 # Node Reference
 
-The editor currently provides the following executable nodes. Exact configuration is validated by the generated [node schemas](../package-format/index.md).
+This reference covers every executable node currently registered by the editor. `action_type` is the stable package identifier. Configuration marked variable-aware accepts `{{variable}}` references. Exact serialized fields are enforced by the linked [per-node schemas](../package-format/index.md).
+
+## Common node behavior
+
+- Every node may have an optional **Custom name** for editor readability.
+- Triggers begin runs and expose one `out` execution handle.
+- Ordinary actions continue through `out`.
+- Fallible actions expose `success` and `failed`. The failed route includes `error.message`, `error.code`, `error.type`, `error.retryable`, and `error.details`.
+- Runtime output references use the real node ID, for example `{{n-example.status_code}}`.
+- Simulation descriptions are controlled tests. Native runner paths, permissions, devices, processes, and desktop state still require target-machine testing.
+- Platform support defaults to all targets, then narrows through desktop-only, explicit target, and configuration-specific rules.
+
+Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](../security/approvals-capabilities.md).
 
 ## Triggers
 
-| Node | Purpose |
-| --- | --- |
-| Manual | Starts a run on demand from the runner or simulation panel. |
-| Schedule | Starts on a configured schedule while the service is running. |
-| File Watch | Starts when a watched filesystem path changes. |
-| Webhook | Accepts an HTTP request and optionally waits for a Webhook Response node. |
-| WebSocket | Starts from an inbound WebSocket message. |
-| Hotkey | Starts from a registered key combination in a desktop session. |
-| Serial Input | Reads from the runner serial device identified by `deviceId`. |
-| Startup | Starts when the runner service loads the script. |
-| Process Started | Starts when a matching process appears. |
+### Manual
 
-## Control flow
+- **Action type:** `trigger.manual`; capability `trigger.manual`; low risk.
+- **Configuration:** none. Only one Manual trigger is allowed per project.
+- **Output:** no trigger-specific data; continues through `out`.
+- **Use:** start a script on demand from Scripts or `baudbound script run SCRIPT`.
+- **Simulation:** trigger card starts immediately with optional test payload.
 
-| Node | Purpose |
-| --- | --- |
-| If/Else | Routes execution by one or more conditions, with optional inversion. |
-| Switch | Routes a value to matching cases or a default branch. |
-| Loop | Repeats a body for a configured iteration count. |
-| While | Repeats a body while its condition remains true. |
-| For Each | Iterates over a list and exposes the current item and index. |
+### Schedule
 
-## Data, network, and timing
+- **Action type:** `trigger.schedule`; capability `trigger.schedule`; low risk.
+- **Configuration:** **Every** positive number, default `5`; **Unit** `seconds`, `minutes`, `hours`, or `days`, default `minutes`.
+- **Output:** runner payload includes interval and due-time information; graph continues through `out`.
+- **Use:** recurring work while a background service is active.
+- **Runtime:** unchanged registrations preserve due timing across reload; missed intervals are counted without dispatching every missed occurrence.
+- **Simulation:** fires automatically while simulation remains active.
 
-| Node | Purpose |
-| --- | --- |
-| Variable Operation | Creates, updates, appends, or removes variable data. |
-| Calculate | Evaluates supported numeric calculations. |
-| Format Text | Produces formatted text from values and templates. |
-| Log | Writes a structured runtime message. |
-| Delay | Pauses the current execution path. |
-| HTTP Request | Sends an outbound HTTP request and returns response data. |
-| Webhook Response | Completes a waiting inbound webhook request. |
-| WebSocket Write | Sends data to the connection associated with a WebSocket-triggered run. |
+### File Watch
 
-## Files and processes
+- **Action type:** `trigger.file_watch`; capability `trigger.file_watch`; low risk.
+- **Configuration:** static **Path**; optional **Include subdirectories** for directory targets. Runtime templates are rejected.
+- **Outputs:** `path` and normalized `event` (`created`, `modified`, `deleted`, or `renamed`).
+- **Use:** react to one file or a directory tree.
+- **Runtime:** target must exist and be accessible when listener registration starts. OS save behavior may emit multiple events.
+- **Simulation:** supplied path/event become outputs; no filesystem watcher is opened.
 
-| Node | Purpose |
-| --- | --- |
-| Read File / Write File | Reads or writes filesystem content. |
-| Download File | Downloads remote content to a file. |
-| Delete / Copy / Move File | Performs the named filesystem operation. |
-| Run Process | Starts a process using native process APIs. |
-| Process Status | Checks whether a process is running. |
-| Kill Process | Terminates a matching process. |
-| Open Application | Opens an application through supported native platform APIs. |
-| Run Sub-script | Executes an installed BaudBound script as a child run. |
+### Webhook
 
-## Desktop and devices
+- **Action type:** `trigger.webhook`; capability `trigger.webhook`; permission `webhook_public_bind`; high risk.
+- **Configuration:** HTTP **Method**; required **Hook name**; optional wait switch, positive response timeout, fallback status `100-599`, content type, and body.
+- **Outputs:** `method`, `path`, `headers`, `query`, raw `body`, parsed `json`, and `response` state.
+- **Use:** receive HTTP at `/events/HOOK_NAME` while webhooks are enabled.
+- **Flow rule:** waiting mode requires a reachable Webhook Response node. Timeout uses the configured fallback.
+- **Simulation:** creates a request and response state from supplied payload; it does not open a network port.
 
-| Node | Purpose |
-| --- | --- |
-| Notification / Message Box | Displays native desktop feedback. |
-| Get Pixel Color | Reads a screen pixel on supported Windows desktops. |
-| Get Active Window / Focus Window | Queries or focuses supported Windows windows. |
-| Play Sound / Beep | Plays supported audio or a system beep. |
-| Serial Write | Writes bytes or text to a configured runner serial device. |
-| Keyboard / Type Text | Sends supported native keyboard input. |
-| Mouse Click / Mouse Move | Sends supported native pointer input. |
-| Clipboard | Reads or writes the native clipboard. |
-| Shell | Executes a configured shell command and carries elevated risk. |
+### WebSocket
 
-Nodes may request capabilities and platform support narrower than their category suggests. Always verify against the selected [target runtime](target-runtimes.md) and review the package in the runner before approval.
+- **Action type:** `trigger.websocket`; capability `trigger.websocket`; permission `websocket_public_bind`; high risk.
+- **Configuration:** required **Path** beginning with `/`, default `/events/messages`.
+- **Outputs:** message text, path, `connection_id`, headers, query, and remote address.
+- **Use:** begin one run per inbound text message on a matched connection.
+- **Runtime:** requires enabled WebSocket listener and connection capacity. Use WebSocket Write with this run's connection ID.
+- **Simulation:** supplies a synthetic connection when one is not entered.
+
+### Hotkey
+
+- **Action type:** `trigger.hotkey`; capability `trigger.hotkey`; medium risk; Desktop targets only.
+- **Configuration:** captured **Key** expression, default `Ctrl+Alt+B`.
+- **Output:** `key`.
+- **Use:** start a script from a desktop key combination while the desktop listener is active.
+- **Simulation:** uses the supplied or configured expression; it does not register a global OS hook.
+
+### Serial Input
+
+- **Action type:** `trigger.serial_input`; capability `trigger.serial_input`; permission `serial_input`; high risk.
+- **Configuration:** logical **Device id**, default `serial-device`; lowercase letters, numbers, `_`, and `-` only.
+- **Outputs:** `device_id`, received `data`, byte count, and runner `timestamp`.
+- **Use:** start when a runner-mapped serial device emits data.
+- **Graph rule:** the same device ID cannot be used by two Serial Input triggers in one project.
+- **Simulation:** supplied text produces output and UTF-8 byte length without opening a port.
+
+### Startup
+
+- **Action type:** `trigger.startup`; capability `trigger.startup`; permission `startup_trigger`; high risk.
+- **Configuration:** none.
+- **Output:** startup reason and service context where available.
+- **Use:** run once when an eligible script is loaded by a newly started service session.
+- **Simulation:** reports a synthetic `runner_startup` reason.
+
+### App / Process Started
+
+- **Action type:** `trigger.process_started`; capability `trigger.process_started`; medium risk.
+- **Configuration:** **Match by** process name, executable path, or window title; required **Target**.
+- **Outputs:** process name, process ID, executable path, and window title where available.
+- **Platform:** window-title matching requires Windows Desktop; other modes support compatible Windows/Linux targets.
+- **Runtime:** polling dispatches when a process first appears, not continuously while the same process remains present.
+- **Simulation:** uses supplied process facts or stable sample values.
+
+## Control Flow
+
+### If / Else
+
+- **Action type:** `control.if`; capability `runtime.if`; low risk.
+- **Configuration:** one or more condition rows with value, operator, optional inversion, target, and AND/OR combinator.
+- **Flow:** named `true` and `false` outputs.
+- **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, and null checks.
+- **Simulation/runtime:** values are resolved with their types before comparison. Inversion applies to one row before combinators.
+- **Example:** `{{status_code}} >= 400` routes errors to `true`.
+
+### Switch
+
+- **Action type:** `control.switch`; capability `runtime.switch`; low risk.
+- **Configuration:** variable-aware **Value** and ordered case rows with stable IDs, labels, and expected values.
+- **Flow:** one named output per case plus default behavior when no case matches.
+- **Runtime:** first typed-equal case wins.
+- **Example:** route `{{event_type}}` to `created`, `updated`, or default.
+
+### Loop
+
+- **Action type:** `control.loop`; capability `runtime.loop`; low risk.
+- **Configuration:** variable-aware non-negative **Repeat count**.
+- **Flow:** `loop` executes the body; `done` continues after all iterations.
+- **Outputs/data:** loop index variables are available through runtime loop context.
+- **Graph rule:** do not connect the body back to Loop; the runtime repeats it.
+- **Simulation:** visibly repeats the body at selected speed.
+
+### While
+
+- **Action type:** `control.while`; capability `runtime.while`; low risk.
+- **Configuration:** the same condition rows and inversion behavior as If/Else.
+- **Flow:** `loop` executes while conditions pass; `done` follows the first false result.
+- **Graph rule:** no explicit edge returns to While.
+- **Safety:** ensure body state can make the condition false; runtime limits and cancellation remain important.
+
+### For Each
+
+- **Action type:** `control.for_each`; capability `runtime.for_each`; low risk.
+- **Configuration:** variable-aware **Items** resolving to a list; **Item variable** and **Index variable** names.
+- **Flow:** `loop` runs once per item; `done` follows completion.
+- **Data:** configured variables hold the current item and zero-based index.
+- **Failure:** non-list input fails control-flow validation/execution.
+- **Example:** iterate `{{response.json.items}}` as `item` and `index`.
+
+## Data and Output
+
+### Variable Operation
+
+- **Action type:** `runtime.set_variable`; capabilities `runtime.variables` and, for stored scopes, `runtime.persistent_storage`.
+- **Configuration:** operation `set`, `increment`, `append_list`, `set_object_field`, or `clear`; name; scope `runtime`, `persistent`, or `global`; value type; operation-specific value and field path.
+- **Access:** runtime scope is low, persistent is medium, global is high.
+- **Data:** writes `{{name}}` and refreshes `$length`, `$count`, `$type`, and `$is_empty`.
+- **Validation:** names use letters, numbers, and underscores, cannot start with a number, and cannot use reserved prefixes.
+- **Simulation:** updates current simulation state; runner persistence must be tested separately.
+
+### Calculate
+
+- **Action type:** `action.calculate`; capability `action.calculate`; permission `calculate`; low risk; fallible.
+- **Configuration:** variable-aware numeric **Expression**.
+- **Output:** `result` number on success; structured error on failure.
+- **Use:** arithmetic supported by the runtime expression evaluator, not arbitrary code.
+- **Simulation:** evaluates with current values using the same supported expression rules.
+
+### Text Transform
+
+- **Action type:** `action.text.format`; capability `action.text`; permission `text_transform`; low risk.
+- **Configuration:** operation-specific fields for template, input, search, replacement, delimiter, items, start, length, padding, or target length.
+- **Operations:** template, trim, case conversion, literal/regex replace, split, join, substring, padding, URL/Base64 encode/decode, and JSON escape/unescape.
+- **Output:** transformed result data available from the node output.
+- **Failure:** invalid regex, encoding, indexes, or input shape produces validation/runtime error as applicable.
+
+### Log
+
+- **Action type:** `action.log`; capability `action.log`; permission `log`; low risk.
+- **Configuration:** level `info`, `warn`, `error`, or `debug`; variable-aware **Message**.
+- **Output:** no action-specific data; continues through `out`.
+- **Runtime:** stores the resolved message with node and run identity.
+- **Security:** do not intentionally log secrets or untrusted payloads without review.
+
+### Delay
+
+- **Action type:** `action.delay`; capability `action.delay`; permission `delay`; low risk.
+- **Configuration:** variable-aware positive **Amount** and unit seconds, minutes, hours, or days.
+- **Output:** none; continues after the cancellable wait.
+- **Simulation:** uses editor step timing plus the configured delay behavior without blocking the UI thread.
+
+### Beep
+
+- **Action type:** `action.beep`; capability `action.sound`; permission `beep`; low risk; fallible.
+- **Configuration:** variable-aware positive frequency Hz, default `800`; duration ms, default `200`.
+- **Flow/data:** success or failed with structured error.
+- **Simulation:** Web Audio sine tone clamped to safe editor bounds; browsers may block audio before interaction.
+
+### Show Notification
+
+- **Action type:** `action.notification`; capability `action.notification`; permission `show_notification`; medium risk; Desktop only; fallible.
+- **Configuration:** variable-aware **Title** and **Message**.
+- **Output:** success/failure state.
+- **Simulation:** editor toast rather than native notification-center behavior.
+
+### MessageBox
+
+- **Action type:** `action.message_box`; capability `action.message_box`; permission `show_message_box`; medium risk; Desktop only; fallible.
+- **Configuration:** type info/warning/error; title; message; buttons OK, OK/Cancel, Yes/No, or Yes/No/Cancel.
+- **Output:** selected button plus success/failure data.
+- **Simulation:** modal inside the editor; Stop aborts a waiting selection.
+
+### Play Sound
+
+- **Action type:** `action.sound.play`; capability `action.sound`; permission `play_sound`; medium risk; Desktop only; fallible.
+- **Configuration:** source package asset or file path and corresponding selected path.
+- **Output:** played source/path information and failure data.
+- **Simulation:** plays package audio in the browser; a runner filesystem path cannot be tested there.
+
+## Network and Serial
+
+### HTTP Request
+
+- **Action type:** `action.http`; capability `action.http`; permission `http_request`; medium risk; fallible.
+- **Configuration:** method; variable-aware URL, headers, body, timeout `1-300` seconds, and user agent.
+- **Outputs:** status code/text, headers, body, optional parsed `json`, duration, or structured network error.
+- **Runtime:** native HTTP client behavior may differ from browser redirects, CORS, forbidden headers, cookies, and TLS stores.
+- **Simulation:** sends a real browser `fetch`; use a safe test endpoint.
+
+### Webhook Response
+
+- **Action type:** `action.webhook_response`; capability `action.webhook_response`; permission `webhook_response`; low risk; fallible.
+- **Configuration:** variable-aware status `100-599`, content type, headers, and body.
+- **Outputs:** `sent`, status, content type, headers, body, owning `trigger_id`, or error.
+- **Graph rule:** must be reachable from a Webhook trigger with waiting enabled.
+- **Runtime:** exactly one response owns one pending request.
+
+### WebSocket Write
+
+- **Action type:** `action.websocket.write`; capability `action.websocket`; permission `websocket_write`; medium risk; fallible.
+- **Configuration:** variable-aware **Connection id** and **Message**.
+- **Outputs:** send result/byte information or connection error.
+- **Use:** reply to the connection ID emitted by the WebSocket trigger for the current run.
+- **Failure:** unknown, stale, or disconnected IDs are rejected.
+
+### Serial Write
+
+- **Action type:** `action.serial.write`; capability `action.serial`; permission `serial_write`; medium risk; fallible.
+- **Configuration:** logical device ID selected from Serial Input triggers, variable-aware data, and line ending none/LF/CRLF.
+- **Output:** write result or structured serial error.
+- **Graph rule:** requires a Serial Input trigger using the same logical ID.
+- **Simulation:** reports intended bytes and line ending without opening hardware.
+
+## Files
+
+### Read File
+
+- **Action type:** `action.file.read`; capability `action.file`; permission `file_read`; medium risk; fallible.
+- **Configuration:** variable-aware path and UTF-8 encoding.
+- **Outputs:** content, byte count, resolved path, or error.
+- **Simulation:** sample output only; runner account permissions and file existence remain untested.
+
+### Write File
+
+- **Action type:** `action.file.write`; capability `action.file`; permission `file_write_limited`; high risk; fallible.
+- **Configuration:** variable-aware path/content and mode overwrite or append.
+- **Outputs:** resolved path, bytes written, mode, or error.
+- **Review:** paths can be influenced by variables; confirm they cannot escape intended storage.
+
+### Download File
+
+- **Action type:** `action.file.download`; capabilities `action.file` and network behavior; permission `download_file`; medium risk; fallible.
+- **Configuration:** variable-aware URL and destination path; overwrite switch.
+- **Outputs:** destination, transferred size/status information, or error.
+- **Review:** validate both remote source and local overwrite consequences.
+
+### Delete File
+
+- **Action type:** `action.file.delete`; capability `action.file`; permission `delete_file`; dangerous; fallible.
+- **Configuration:** variable-aware path.
+- **Output:** deleted path or error.
+- **Warning:** deletion is not a recycle-bin operation. Restrict input and test on disposable data.
+
+### Copy File
+
+- **Action type:** `action.file.copy`; capability `action.file`; permission `file_copy`; medium risk; fallible.
+- **Configuration:** variable-aware source and destination; overwrite switch.
+- **Outputs:** resolved paths, copy result, or error.
+
+### Move File
+
+- **Action type:** `action.file.move`; capability `action.file`; permission `file_move`; medium risk; fallible.
+- **Configuration:** variable-aware source and destination; overwrite switch.
+- **Outputs:** resolved paths, move result, or error.
+- **Review:** a successful move removes the original path.
+
+## Processes and Windows
+
+### Run Process
+
+- **Action type:** `action.process.run`; capability `action.process`; permission `run_process`; high risk; fallible.
+- **Configuration:** variable-aware executable, arguments, and optional working directory.
+- **Outputs:** process ID, exit/status information where applicable, or error.
+- **Runtime:** uses native process APIs, not shell parsing. Arguments must match the target executable's contract.
+
+### Process Status
+
+- **Action type:** `action.process.status`; capability `action.process`; permission `process_query`; medium risk; fallible.
+- **Configuration:** match by process name, executable path, or window title; variable-aware target.
+- **Outputs:** running flag, matching process information, or error.
+- **Platform:** window-title mode requires Windows Desktop.
+
+### Kill Process
+
+- **Action type:** `action.process.kill`; capability `action.process`; permission `process_kill`; high risk; fallible.
+- **Configuration:** match by process name, executable path, window title, or PID; variable-aware target.
+- **Outputs:** matched/terminated process information or error.
+- **Platform:** window-title mode requires Windows Desktop.
+
+### Open Application
+
+- **Action type:** `action.application.open`; capability `action.window`; permission `open_application`; medium risk; Desktop only; fallible.
+- **Configuration:** variable-aware application name/ID/shortcut/desktop entry and arguments.
+- **Outputs:** resolved application ID and process ID when exposed.
+- **Simulation:** returns sample IDs without opening an application.
+
+### Get Active Window
+
+- **Action type:** `action.window.active`; capability `action.window`; permission `window_query`; medium risk; Windows Desktop only; fallible.
+- **Configuration:** none.
+- **Outputs:** window title, process ID/name, executable path, and native handle where available.
+- **Simulation:** sample window data; no native lookup.
+
+### Window Focus
+
+- **Action type:** `action.window.focus`; capability `action.window`; permission `window_focus`; high risk; Windows Desktop only; fallible.
+- **Configuration:** match by process name, executable path, or window title; variable-aware target.
+- **Outputs:** focused window/process details or error.
+- **Review:** focus changes can redirect subsequent keyboard or mouse actions.
+
+### Get Pixel Color
+
+- **Action type:** `action.pixel.get`; capability `action.pixel`; permission `screen_pixel_read`; medium risk; Windows Desktop only; fallible.
+- **Configuration:** variable-aware screen X and Y coordinates.
+- **Outputs:** coordinates, RGB channels, hex color, and error on failure.
+- **Simulation:** deterministic sample color derived for testing, not a real screenshot read.
+
+## Input Control
+
+### Clipboard
+
+- **Action type:** `action.clipboard`; capability `action.clipboard`; permission `write_clipboard`; medium risk; Desktop only; fallible.
+- **Configuration:** variable-aware value to write.
+- **Output:** written length/status or error.
+- **Review:** replaces the user's current clipboard and may expose data to other applications.
+
+### Keyboard
+
+- **Action type:** `action.keyboard`; capability `action.keyboard`; permission `keyboard_control`; high risk; Desktop only; fallible.
+- **Configuration:** key or combination captured by the editor.
+- **Output:** sent key/status or error.
+- **Review:** ensure the intended application has focus.
+
+### Type Text
+
+- **Action type:** `action.keyboard.type_text`; capability `action.keyboard`; permission `keyboard_control`; high risk; Desktop only; fallible.
+- **Configuration:** variable-aware text.
+- **Output:** typed length/status or error.
+- **Security:** never type secrets into an unverified foreground target.
+
+### Mouse Click
+
+- **Action type:** `action.mouse`; capability `action.mouse`; permission `mouse_control`; high risk; Desktop only; fallible.
+- **Configuration:** left/right/middle/back/forward button and single/double click.
+- **Output:** click details or error.
+- **Runtime:** acts at the current pointer position.
+
+### Move Mouse
+
+- **Action type:** `action.mouse.move`; capability `action.mouse`; permission `mouse_control`; high risk; Desktop only; fallible.
+- **Configuration:** variable-aware X/Y and relative switch.
+- **Output:** final coordinates/movement details or error.
+- **Review:** display scaling and monitor layout affect absolute coordinates.
+
+## Scripts and System
+
+### Sub-script
+
+- **Action type:** `action.script.run`; capability `action.sub_script`; permission `sub_script_run`; high risk; fallible.
+- **Configuration:** installed child script name or ID.
+- **Outputs:** child run ID/status/report summary or error.
+- **Runtime:** child must be independently installed, valid, current, approved, and manually runnable. Parent approval does not approve the child.
+
+### Shell Command
+
+- **Action type:** `action.shell`; capability supplied through process execution; permission `run_shell_command`; dangerous; fallible.
+- **Configuration:** variable-aware command string interpreted by the target shell.
+- **Outputs:** exit code, stdout, stderr, or error.
+- **Platform:** syntax is platform-specific even under a Generic target.
+- **Warning:** prefer a native node or Run Process. Shell interpolation can turn data into arbitrary commands and has independent runner policy gates.
+
+## Related references
+
+- [Variables and Data](variables.md) for output syntax and types.
+- [Target Runtimes](target-runtimes.md) for compatibility enforcement.
+- [Background Service and Triggers](../runner/service-triggers.md) for listener operation.
+- [Webhooks, WebSockets, and Network Access](../runner/network-listeners.md) for network exposure.
+- [Configuration and Serial Devices](../runner/configuration.md) for logical hardware mapping.

@@ -1,30 +1,68 @@
 ---
 title: BaudBound Runner
-description: Execute and operate BaudBound packages on Windows and Linux.
-tags: [runner]
+description: Choose desktop, CLI, or headless operation and understand the runner's responsibilities.
+tags: [runner, overview]
 ---
 # BaudBound Runner
 
-The runner validates `.bbs` packages, manages installed scripts, enforces target-runtime and security policy, and executes workflows. The same `baudbound` application provides a desktop UI and CLI.
+The native BaudBound runner validates `.bbs` packages, installs scripts, recalculates security requirements, records per-revision approval, executes graphs, owns long-running triggers, and stores durable state. Windows and Linux are supported.
 
-Launching `baudbound` with no subcommand opens the UI when a supported graphical session is available. In a headless session it prints status and CLI guidance instead of attempting to open a window.
+## Choose an operating mode
 
-The long-running `baudbound serve` process handles schedules, webhooks, WebSockets, file watchers, process watchers, serial listeners, startup triggers, and trigger reloads. Script administration commands remain available while it is running.
+| Mode | Start it with | Best for | Long-running triggers |
+| --- | --- | --- | --- |
+| **Desktop application** | Launch BaudBound or run `baudbound ui` | Interactive Windows/Linux users | Start and supervise from Service or tray |
+| **CLI command** | `baudbound COMMAND` | Scripting, inspection, package lifecycle, and one manual run | Command exits after its task |
+| **Foreground service** | `baudbound serve` | Testing listeners or external service-manager supervision | Active while process remains running |
 
-Runner data is stored beneath `BAUDBOUND_HOME`, or the platform application-data directory when that variable is unset. Use `baudbound config path` to locate the active configuration.
+Running `baudbound` without a subcommand opens the desktop UI when a desktop session is available. In a headless session it prints status instead of trying to open a window.
 
-## Desktop application
+## One runner home
 
-Launching `baudbound` without a command opens the desktop application in a supported graphical session.
+One runner home contains one logical installation's configuration, SQLite state, and installed package copies. The default is under the current user's platform data directory; `BAUDBOUND_HOME` can select a dedicated location.
 
-**Dashboard** shows runner health, script totals, recent runs, attention items, and the desktop background runner.
+Desktop and CLI commands use the same state when launched by the same account and environment. A headless service account normally has a different runner home unless explicitly configured.
 
-**Scripts** imports, updates, enables, disables, runs, removes, and reviews packages. Approval review shows requested capabilities before accepting an exact package revision.
+Do not run multiple services against one home. Database coordination does not prevent duplicate listeners from competing for network ports, files, desktop hooks, or serial devices.
 
-**Service** controls the desktop-owned background runner. **Triggers** reports loaded listeners and can request a reload. The application does not install or control external operating-system services.
+See [Storage, Backups, and Recovery](storage-backups.md) for exact paths and backup rules.
 
-**Security** shows approvals, capabilities, risk, and required secrets. **Devices** scans serial ports and creates logical device mappings.
+## What happens during import and execution
 
-**Runs** and **Logs** expose execution results, node messages, and variable snapshots. **Config** provides validated simple controls and an advanced TOML editor. **Doctor** checks storage, configuration, platform support, desktop integration, and service state.
+1. The package archive, paths, documents, schema-shaped data, and semantic graph are validated.
+2. Permissions, capabilities, risk, and target compatibility are recalculated independently from executable program data.
+3. The package is copied under the runner home and indexed in SQLite.
+4. The operator reviews and approves the exact installed hash.
+5. Required secret values and runtime policy are checked before a run.
+6. A trigger payload enters the graph runtime.
+7. Supported native adapters perform side effects.
+8. Redacted logs, variables, status, and result are stored as a run record.
 
-Closing the main window can leave the desktop background runner active when configured. Use the tray to reopen the window or exit the application completely.
+Changing installed package bytes or importing an updated revision makes approval invalid or stale.
+
+## Desktop background runner
+
+The desktop application includes a background-runner supervisor and system tray. Starting it activates eligible schedules, watchers, webhooks, WebSockets, hotkeys, startup triggers, and serial readers.
+
+Closing the window hides it to the tray. Choosing **Quit BaudBound** stops the background runner and exits. It is not an operating-system service and does not remain alive after the desktop process exits.
+
+Use [Desktop App Guide](desktop-app.md) for every tab and control.
+
+## Headless operation
+
+`baudbound serve` stays in the foreground and handles signals and authenticated local control requests. On a server, the operator supplies a service-manager definition and environment rather than asking the desktop UI to manage an external service.
+
+Follow [Linux Background Service](../self-hosting/linux-background-service.md) for systemd, OpenRC, and runit examples.
+
+## Continue by task
+
+| Task | Page |
+| --- | --- |
+| Install or update | [Installation and Updates](installation.md) |
+| Use the desktop interface | [Desktop App Guide](desktop-app.md) |
+| Import, approve, enable, or update a script | [Script Management](script-management.md) |
+| Use terminal commands | [CLI Reference](cli-reference.md) |
+| Configure listeners and serial devices | [Configuration and Serial Devices](configuration.md) |
+| Operate waiting triggers | [Background Service and Triggers](service-triggers.md) |
+| Protect and configure secrets | [Secrets](secrets.md) |
+| Diagnose a run | [Runs, Logs, and Troubleshooting](runs-logs-troubleshooting.md) |

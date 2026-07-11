@@ -14,7 +14,7 @@ Use a separate project for each tutorial. After building a graph, trigger it in 
 This low-risk workflow writes a timestamped message once per minute while the background service is running.
 
 **Target runtime:** Generic Desktop or a supported headless runtime  
-**Nodes:** [Schedule](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-network-and-timing)  
+**Nodes:** [Schedule](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-and-output)
 **Runner requirement:** schedule triggers enabled and `baudbound serve` or the desktop background runner active
 
 ### Build
@@ -54,7 +54,7 @@ This workflow accepts a local HTTP POST, logs a value from its JSON body, and re
 {.is-warning}
 
 **Target runtime:** any supported runtime  
-**Nodes:** [Webhook](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-network-and-timing), [Webhook Response](../editor/node-reference.md#data-network-and-timing)  
+**Nodes:** [Webhook](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-and-output), [Webhook Response](../editor/node-reference.md#network-and-serial)
 **Runner requirement:** webhook listener enabled on `127.0.0.1:43891`
 
 ### Build
@@ -132,7 +132,7 @@ This workflow receives text from a serial device and writes `ack` back to the sa
 {.is-warning}
 
 **Target runtime:** a Windows or Linux runtime supported by the connected device  
-**Nodes:** [Serial Input](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-network-and-timing), [Serial Write](../editor/node-reference.md#desktop-and-devices)  
+**Nodes:** [Serial Input](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-and-output), [Serial Write](../editor/node-reference.md#network-and-serial)
 **Runner requirement:** one serial mapping with logical device ID `tutorial-device`
 
 ### Build
@@ -183,7 +183,7 @@ Disable the script before disconnecting test hardware. Remove the `tutorial-devi
 This workflow starts when a test file changes and logs the event and path.
 
 **Target runtime:** any supported runtime with access to the chosen path  
-**Nodes:** [File Watch](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-network-and-timing)  
+**Nodes:** [File Watch](../editor/node-reference.md#triggers), [Log](../editor/node-reference.md#data-and-output)
 **Runner requirement:** file-watch triggers enabled and the configured path present before the listener starts
 
 ### Prepare a test path {.tabset}
@@ -272,7 +272,7 @@ rm -rf "$HOME/baudbound-tutorial"
 This workflow increments a persistent counter and logs a different message after the third run.
 
 **Target runtime:** any supported runtime  
-**Nodes:** [Manual](../editor/node-reference.md#triggers), [Variable Operation](../editor/node-reference.md#data-network-and-timing), [If/Else](../editor/node-reference.md#control-flow), [Log](../editor/node-reference.md#data-network-and-timing)  
+**Nodes:** [Manual](../editor/node-reference.md#triggers), [Variable Operation](../editor/node-reference.md#data-and-output), [If/Else](../editor/node-reference.md#control-flow), [Log](../editor/node-reference.md#data-and-output)
 **Runner requirement:** approval for persistent storage
 
 ### Build
