@@ -19,9 +19,9 @@
     { "id": "runner-scripts", "kind": "link", "label": "Script Management", "icon": "mdi-file-document", "path": "runner/quick-start" },
     { "id": "runner-cli", "kind": "link", "label": "CLI Reference", "icon": "mdi-console", "path": "runner/cli-reference" },
     { "id": "runner-config", "kind": "link", "label": "Configuration and Devices", "icon": "mdi-cog", "path": "runner/configuration" },
-    { "id": "runner-service", "kind": "link", "label": "Background Service and Triggers", "icon": "mdi-server", "path": "runner/background-service" },
+    { "id": "runner-service", "kind": "link", "label": "Service and Triggers", "icon": "mdi-server", "path": "runner/background-service" },
     { "id": "runner-secrets", "kind": "link", "label": "Secrets", "icon": "mdi-key", "path": "runner/secrets" },
-    { "id": "runner-storage", "kind": "link", "label": "Runs, Logs, and Troubleshooting", "icon": "mdi-history", "path": "runner/storage-logs" },
+    { "id": "runner-storage", "kind": "link", "label": "Runs, Logs, and Help", "icon": "mdi-history", "path": "runner/storage-logs" },
 
     { "id": "section-package", "kind": "header", "label": "Package and Security" },
     { "id": "package-format", "kind": "link", "label": "BBS Package Format", "icon": "mdi-package-variant", "path": "package-format" },
