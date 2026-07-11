@@ -30,7 +30,7 @@ baudbound --version
 
 `baudbound script` provides `import`, `update`, `list`, `status`, `inspect`, `enable`, `disable`, `remove`, `approval`, `triggers`, `dispatch-trigger`, `approve`, `revoke-approval`, `run`, and `logs`.
 
-Package arguments may be an installed script name or ID where the command supports installed scripts. Import preserves the original package filename in the scripts directory while SQLite holds canonical identity and state.
+Package arguments may be an installed script name or ID where the command supports installed scripts.
 
 ## Secret commands
 

@@ -25,6 +25,6 @@ The interactive PowerShell helper launches common applications and checks:
 ./tools/development.ps1
 ```
 
-Direct commands include `pnpm --dir apps/editor dev`, `cargo run -p baudbound`, and the Tauri development command configured by the app. Set `BAUDBOUND_HOME` to a disposable directory during manual runner testing so development data does not mix with a normal installation.
+Use `pnpm --dir apps/editor dev` for the editor and `cargo run -p baudbound -- COMMAND` for runner CLI work. The development helper launches the complete desktop development stack. Set `BAUDBOUND_HOME` to a disposable directory during manual runner testing so development data does not mix with a normal installation.
 
 The editor uses Next.js 16. When changing framework behavior, consult the versioned documentation shipped under its installed `node_modules/next/dist/docs` and address deprecation warnings rather than relying on older examples.

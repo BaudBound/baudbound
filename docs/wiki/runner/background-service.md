@@ -5,7 +5,7 @@ tags: [runner, service]
 ---
 # Background Service
 
-`baudbound serve` is the long-lived runtime for listener-based triggers. It loads enabled and approved scripts, starts configured listener families, records health, and periodically reconciles installed-script changes from SQLite.
+`baudbound serve` is the long-lived runtime for listener-based triggers. It loads enabled and approved scripts, starts configured listener families, records health, and reloads script changes.
 
 ## Desktop background runner
 

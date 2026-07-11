@@ -17,7 +17,7 @@ Use normal pointer selection for individual nodes. Hold the platform selection m
 
 ## Comments
 
-Comment nodes live in the same canvas collection as executable nodes so selection, movement, copy, paste, and duplication remain consistent. They are excluded from executable program validation and runtime dispatch. A comment supports editable text, color, size, and font size; drag it from its top bar.
+Comment nodes support the same selection, movement, copy, paste, duplication, and deletion controls as executable nodes. They are not executed by the runner. A comment supports editable text, color, size, and font size; drag it from its top bar.
 
 ## Edges
 

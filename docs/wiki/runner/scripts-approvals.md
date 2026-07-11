@@ -7,7 +7,7 @@ tags: [runner, scripts, security]
 
 ## Import and update
 
-Import validates a package and copies it into the runner's scripts directory using its original sanitized filename. SQLite records its immutable package identity, display name, current hash, enablement, and security state.
+Import validates a package and installs it under its package identity and name.
 
 Use `script update` to replace an existing package. The replacement must represent the same script identity. A content hash change invalidates the previous approval and requires review before execution.
 
@@ -25,6 +25,4 @@ Approval is per package revision, not a permanent trust grant to a filename. Rev
 
 Enabled scripts are eligible for background trigger loading. Enablement does not bypass validation or approval. Disabled scripts remain installed and inspectable but are not loaded by `serve`.
 
-## Removal
-
-Removing a script deletes its installed package and active script state. Historical run records may remain according to runner retention policy so operations can be audited.
+Removing a script removes it from the installed script list. Review any run information you need before removal.

@@ -1,14 +1,18 @@
 ---
 title: Headless Runner Deployment
-description: Operate baudbound serve with a platform-appropriate process supervisor.
+description: Operate baudbound serve with the system's process supervisor.
 tags: [deployment, runner, headless]
 ---
 # Headless Runner Deployment
 
-Install the native `baudbound` binary, create a dedicated unprivileged service account, and choose a persistent `BAUDBOUND_HOME`. Generate and securely provision `BAUDBOUND_SECRET_KEY` when scripts need secrets.
+BaudBound does not install or manage a system service. Configure the process supervisor used by the host to run:
 
-Run `baudbound doctor`, validate configuration, import and approve packages, then configure the supervisor to execute `baudbound serve`. Set restart-on-failure with backoff, graceful termination, and a startup dependency on required network or device resources.
+```text
+baudbound serve
+```
 
-Protect the home directory because it contains installed automation, the SQLite state database, configuration, and encrypted secrets. Restrict serial devices, filesystem paths, and listener ports at the operating-system level in addition to BaudBound policy.
+Use a dedicated service account and persistent `BAUDBOUND_HOME`. When scripts use secrets, provide `BAUDBOUND_SECRET_KEY` through the host's secret manager. The service account needs access only to the files, serial devices, and ports required by approved scripts.
 
-Use the supervisor's native status and log commands. The BaudBound CLI intentionally does not wrap systemctl or service commands. Script management from another CLI process is reflected by the running service through durable reload coordination.
+Before enabling automatic restart, run `baudbound doctor`, validate the configuration, and import and approve the required packages. Configure graceful termination and use the supervisor's own status and log commands.
+
+Script import, update, enablement, and approval commands can run while the service is active; it reloads durable script changes automatically.

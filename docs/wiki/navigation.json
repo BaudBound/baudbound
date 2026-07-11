@@ -28,7 +28,7 @@
     { "id": "runner-triggers", "kind": "link", "label": "Trigger Services", "icon": "mdi-access-point", "path": "runner/triggers" },
     { "id": "runner-serial", "kind": "link", "label": "Serial Devices", "icon": "mdi-usb-port", "path": "runner/serial-devices" },
     { "id": "runner-secrets", "kind": "link", "label": "Secrets", "icon": "mdi-key-outline", "path": "runner/secrets" },
-    { "id": "runner-storage", "kind": "link", "label": "State, Runs, and Logs", "icon": "mdi-database-clock-outline", "path": "runner/storage-logs" },
+    { "id": "runner-storage", "kind": "link", "label": "Runs, Logs, and Runner Data", "icon": "mdi-database-clock-outline", "path": "runner/storage-logs" },
     { "id": "runner-updates", "kind": "link", "label": "Updates", "icon": "mdi-update", "path": "runner/updates" },
     { "id": "runner-troubleshooting", "kind": "link", "label": "Troubleshooting", "icon": "mdi-lifebuoy", "path": "runner/troubleshooting" },
 
@@ -40,7 +40,6 @@
     { "id": "security-integrity", "kind": "link", "label": "Package Integrity", "icon": "mdi-check-decagram-outline", "path": "security/package-integrity" },
 
     { "id": "section-deployment", "kind": "header", "label": "Deployment" },
-    { "id": "deployment", "kind": "link", "label": "Deployment Overview", "icon": "mdi-cloud-outline", "path": "deployment" },
     { "id": "deployment-editor", "kind": "link", "label": "Editor Deployment", "icon": "mdi-web", "path": "deployment/editor" },
     { "id": "deployment-schemas", "kind": "link", "label": "Schema Host", "icon": "mdi-code-json", "path": "deployment/schemas" },
     { "id": "deployment-runner", "kind": "link", "label": "Headless Runner", "icon": "mdi-server-security", "path": "deployment/headless-runner" },

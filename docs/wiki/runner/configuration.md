@@ -36,6 +36,6 @@ max_connections = 128
 
 An empty `target_runtimes` uses the runner defaults for the current OS and session. Explicit values restrict packages further. Binding network listeners to a non-loopback address exposes them to the network and should be paired with host firewall and reverse-proxy policy.
 
-The desktop Config tab provides validated simple controls and an advanced TOML editor. Advanced edits are parsed and fully validated before an atomic write. The optional restart switch restarts the desktop background runner after a successful save.
+The desktop Config tab provides validated simple controls and an advanced TOML editor. Invalid configuration is rejected. The optional restart switch restarts the desktop background runner after a successful save.
 
-Listener configuration is reloaded periodically. Invalid replacement configuration is rejected without replacing the last valid in-memory state. See [Triggers](triggers.md) and [Serial devices](serial-devices.md).
+Listener configuration is reloaded periodically. See [Triggers](triggers.md) and [Serial devices](serial-devices.md).

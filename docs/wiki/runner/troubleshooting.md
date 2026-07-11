@@ -26,10 +26,6 @@ Inspect validation, target runtime, enablement, approval, required secrets, and 
 
 Confirm the script is enabled and approved, the listener family is enabled, and one runner service owns the home directory. Check port conflicts, bind addresses, file permissions, desktop-session availability, and trigger service logs. Reload triggers after configuration changes when immediate reconciliation is needed.
 
-## Desktop UI cannot reach a command
-
-A `Command ... not found` error usually means an old Tauri backend is still running after frontend code changed. Stop and restart the complete Tauri development process, not only the Vite server.
-
 ## Serial reconnect fails
 
 Check physical connectivity, port access, protocol settings, and identity fields. Ambiguous identical devices require serial numbers. An identity mismatch intentionally prevents connection to the wrong hardware.

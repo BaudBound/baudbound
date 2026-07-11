@@ -1,11 +1,11 @@
 ---
 title: Desktop UI
-description: Operate the BaudBound runner through its Tauri desktop application.
+description: Operate scripts, services, devices, security, and configuration through the desktop application.
 tags: [runner, desktop]
 ---
 # Desktop UI
 
-The desktop application is a React and TypeScript interface hosted by Tauri's platform webview. It calls typed Rust commands through Tauri IPC; it does not expose a local HTTP server for normal UI communication.
+The desktop application provides the same runner operations as the CLI through task-focused views.
 
 ## Dashboard
 
@@ -13,7 +13,7 @@ Shows runner health, installed and enabled script totals, recent runs, attention
 
 ## Scripts
 
-Imports, updates, enables, disables, runs, removes, and reviews installed packages. Rows expand independently for package details. Primary actions remain on the row; less common operations use the overflow menu. Approval review shows requested capabilities before accepting the exact package revision.
+Imports, updates, enables, disables, runs, removes, and reviews installed packages. Approval review shows requested capabilities before accepting the exact package revision.
 
 ## Service and triggers
 
@@ -21,11 +21,11 @@ The Service tab controls the desktop-owned background runner. The Triggers tab r
 
 ## Security
 
-Shows package approval state, capabilities, risk, and secret requirements. Security decisions are enforced by the Rust backend rather than trusted to UI state.
+Shows package approval state, capabilities, risk, and secret requirements.
 
 ## Devices
 
-Scans serial ports using the native serial library and adds selected hardware to runner configuration. Identity information helps bind logical device IDs to physical hardware.
+Scans serial ports and adds selected hardware to runner configuration. Identity information helps bind logical device IDs to physical hardware.
 
 ## Runs and logs
 

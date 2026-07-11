@@ -5,7 +5,7 @@ tags: [editor, compatibility]
 ---
 # Target Runtimes
 
-Every project selects the environment it is designed to run in. The editor derives node compatibility from each node definition, and the runner independently enforces the package target.
+Every project selects the environment it is designed to run in. Both the editor and runner enforce that selection.
 
 | Runtime | Intended environment |
 | --- | --- |
@@ -17,7 +17,5 @@ Every project selects the environment it is designed to run in. The editor deriv
 | Linux Desktop | Interactive Linux desktop and supported Linux-native actions |
 
 Desktop targets may use notifications, message boxes, clipboard, keyboard, mouse, and other supported interactive actions. Headless targets reject nodes that require an interactive session. Platform-specific definitions further narrow support; for example, active-window, window-focus, and pixel-color operations are currently Windows Desktop features.
-
-Omitting `supportedTargetRuntimes` from a node definition means the node is supported by all runtimes. Platform restrictions belong in the node definition, which is the editor's source of truth and is checked by contract tests against runner support.
 
 Choose the narrowest runtime that matches deployment. A package targeting Windows Desktop must not silently run in a Linux or headless process.

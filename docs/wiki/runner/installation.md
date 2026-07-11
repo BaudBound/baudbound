@@ -7,21 +7,22 @@ tags: [runner, installation]
 
 ## Supported systems
 
-BaudBound supports 64-bit Windows and major Linux desktop or server distributions. Desktop builds require the platform webview and graphical dependencies used by Tauri. Linux releases are distributed in formats suitable for Debian-family, Fedora-family, and portable AppImage use; Arch users can use the AppImage or package from source.
+BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is distributed as an installer. Linux is distributed as an AppImage built on Ubuntu 22.04.
 
 ## Windows
 
-Download the signed Windows installer from the project's GitHub release. The installer places the application and `baudbound` command in a managed installation location, registers uninstall metadata, and provides the files required by the updater. WebView2 is required and is normally present on supported Windows systems.
+Download and run the signed NSIS installer from the project's GitHub release. WebView2 is required and is normally present on supported Windows systems.
 
 ## Linux
 
-Choose the release artifact appropriate for the machine:
+Download the `.AppImage`, make it executable, and launch it:
 
-- `.deb` for Debian and Ubuntu families.
-- `.rpm` for Fedora, RHEL, and compatible families.
-- `.AppImage` for a portable distribution-independent desktop launch.
+```text
+chmod +x BaudBound_*.AppImage
+./BaudBound_*.AppImage
+```
 
-Install native packages with the distribution package manager so dependencies and uninstall behavior remain managed. Make an AppImage executable before launching it.
+BaudBound does not currently publish `.deb` or `.rpm` packages. AppImage compatibility still depends on the host kernel, architecture, graphics session, and required system integration; test it on the intended distribution before deployment.
 
 ## First launch
 
@@ -32,7 +33,5 @@ baudbound --version
 baudbound doctor
 baudbound config path
 ```
-
-The first release supports Windows and Linux only. macOS packages and runtime targets are not produced.
 
 Continue with the [quick start](quick-start.md) and [updates](updates.md).

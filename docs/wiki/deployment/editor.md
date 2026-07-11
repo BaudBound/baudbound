@@ -1,14 +1,17 @@
 ---
 title: Editor Deployment
-description: Build and host the BaudBound Next.js editor.
+description: Run the published BaudBound editor container.
 tags: [deployment, editor]
 ---
 # Editor Deployment
 
-The production editor is hosted at [editor.baudbound.app](https://editor.baudbound.app/). Its container workflow runs lint, TypeScript, schema freshness, unit, build, and browser checks before publication.
+The editor image is published as `ghcr.io/natroutter/baudbound-editor`. The repository compose file uses the `latest` tag and exposes port `3000`:
 
-The editor is client-heavy and performs package generation in the browser. Serve it through HTTPS with headers compatible with downloads, browser storage, workers, and the libraries used by Next.js and React Flow. Do not cache mutable HTML indefinitely; immutable hashed assets may use long-lived caching.
+```text
+docker compose -f apps/editor/compose.yaml pull
+docker compose -f apps/editor/compose.yaml up -d
+```
 
-The public deployment does not receive runner secrets. Packages are exported to the user's machine and later imported into a runner. Availability monitoring should cover page load, static assets, and a basic editor interaction rather than only TCP reachability.
+Set `NEXT_PUBLIC_EDITOR_URL` to the public HTTPS URL before building or deploying a customized instance. Point the reverse proxy to the host's port `3000` and allow `.bbs` file downloads.
 
-Use the published image tag matching the intended release and retain rollback access to the previous known-good image.
+The `master`, commit SHA, release tag, and `latest` image tags are published by the Editor Docker workflow. Pin a release or SHA tag when deployment must not change after the next build.
