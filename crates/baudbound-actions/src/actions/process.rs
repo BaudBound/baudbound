@@ -244,12 +244,7 @@ fn find_process<'a>(
         "process_name" => Ok(system
             .processes()
             .values()
-            .filter(|process| {
-                process
-                    .name()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(target.trim())
-            })
+            .filter(|process| process_matches_name(process, target))
             .min_by_key(|process| process.pid().as_u32())),
         "executable_path" => {
             let normalized_target = normalize_path_string(target);
@@ -273,6 +268,18 @@ fn find_process<'a>(
             message: format!("unsupported process match mode {other}"),
         }),
     }
+}
+
+fn process_matches_name(process: &sysinfo::Process, target: &str) -> bool {
+    let target = target.trim();
+    process
+        .name()
+        .to_string_lossy()
+        .eq_ignore_ascii_case(target)
+        || process
+            .exe()
+            .and_then(|path| path.file_name())
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(target))
 }
 
 fn process_status_output(process: &sysinfo::Process, running: bool) -> Map<String, Value> {
