@@ -1,9 +1,9 @@
 ---
-title: Runner Configuration
-description: Configure targets, triggers, HTTP listeners, WebSockets, and serial devices in config.toml.
+title: Configuration and Serial Devices
+description: Configure targets, listeners, and local serial hardware in config.toml.
 tags: [runner, configuration]
 ---
-# Runner Configuration
+# Configuration and Serial Devices
 
 The runner always has a TOML configuration file. If none exists, startup atomically creates a secure default. Locate it with `baudbound config path`.
 
@@ -38,4 +38,14 @@ An empty `target_runtimes` uses the runner defaults for the current OS and sessi
 
 The desktop Config tab provides validated simple controls and an advanced TOML editor. Invalid configuration is rejected. The optional restart switch restarts the desktop background runner after a successful save.
 
-Listener configuration is reloaded periodically. See [Triggers](triggers.md) and [Serial devices](serial-devices.md).
+Listener configuration is reloaded periodically.
+
+## Serial devices
+
+Editor serial nodes store only a logical `deviceId`. The runner maps that ID to machine-specific port and protocol settings.
+
+The Devices view scans available ports. Select a port, choose Add, and assign a unique device ID. Each entry can configure port, baud rate, data bits, parity, stop bits, flow control, read mode, and automatic reconnect. Serial Input and Serial Write nodes using the same ID share that mapping.
+
+Enable identity validation to require matching vendor and product IDs. Add a USB serial number when multiple devices share the same model; manufacturer and product strings alone may not distinguish identical hardware.
+
+Operating systems can assign a different COM or tty path after reconnect. `auto_rebind_port` allows the runner to find the configured hardware on another port and save an unambiguous match. It requires identity validation plus vendor and product IDs. The runner refuses ambiguous matches rather than guessing.

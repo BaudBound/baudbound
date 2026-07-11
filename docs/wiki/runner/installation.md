@@ -1,9 +1,9 @@
 ---
-title: Runner Installation
-description: Install BaudBound on supported Windows and Linux systems.
+title: Installation and Updates
+description: Install and update BaudBound on supported Windows and Linux systems.
 tags: [runner, installation]
 ---
-# Runner Installation
+# Installation and Updates
 
 ## Supported systems
 
@@ -34,4 +34,10 @@ baudbound doctor
 baudbound config path
 ```
 
-Continue with the [quick start](quick-start.md) and [updates](updates.md).
+## Updates
+
+Desktop builds check for a signed update at startup. When a newer version is available, the update dialog shows its release information and download progress. After verification, choose Restart to install and launch it.
+
+Headless operators and Linux users whose installation cannot be replaced automatically should download the new artifact from the project's GitHub releases. Never bypass signature verification.
+
+Continue with [Script Management](quick-start.md).

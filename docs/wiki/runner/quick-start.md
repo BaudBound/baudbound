@@ -1,45 +1,55 @@
 ---
-title: Runner Quick Start
-description: Import, inspect, approve, run, and monitor a BaudBound package.
-tags: [runner, getting-started]
+title: Script Management
+description: Import, inspect, approve, enable, update, run, and remove BaudBound packages.
+tags: [runner, scripts, getting-started]
 ---
-# Runner Quick Start
+# Script Management
 
-## Import a package
+The desktop Scripts view and `baudbound script` commands operate on the same installed scripts.
 
-Use the Scripts tab in the desktop UI, or run:
+## Import and inspect
 
 ```text
-baudbound script import C:\Downloads\my-automation.bbs
+baudbound script import C:\path\to\automation.bbs
 baudbound script list
+baudbound script inspect automation
 ```
 
-The runner validates the archive, manifest, program schema, node configurations, integrity hashes, minimum runner version, and target runtime before installation.
+Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation.
 
-## Review and approve
+**Verified** means package content matches its integrity information. **Not verified** means the package lacks valid integrity proof or its bytes no longer match. Re-export an unverified package from the current editor instead of modifying its archive.
+
+## Approve
 
 ```text
-baudbound script inspect my-automation
-baudbound script approval my-automation
-baudbound script approve my-automation
+baudbound script approval automation
+baudbound script approve automation
 ```
 
-The approval view shows whether the installed revision is approved and whether the capability decision still matches its content. Read [Scripts and approvals](scripts-approvals.md) before approving untrusted packages.
+Review author information, target runtime, requested capabilities, risk, secret declarations, and included nodes. **Approved for this version** means the decision matches the installed content and capabilities. **Review required** means approval is missing or no longer matches.
 
-## Run manually
+Approval belongs to an exact package revision, not a filename. Updating package content invalidates the previous approval.
+
+## Run and enable
+
+Run a manual trigger:
 
 ```text
-baudbound script run my-automation
-baudbound script logs my-automation
+baudbound script run automation
+baudbound script logs automation
 ```
 
-Manual execution selects an applicable manual trigger. Trigger dispatch and run output are recorded in durable storage.
-
-## Enable background triggers
+Enable the package when its listener-based triggers should load in the background:
 
 ```text
-baudbound script enable my-automation
+baudbound script enable automation
 baudbound serve
 ```
 
-The service loads enabled, valid, approved scripts. Listener families must also be enabled in `config.toml`. Use `baudbound status`, the desktop Service tab, and the Logs or Runs tabs to monitor execution.
+Enablement does not bypass validation or approval. A disabled script remains installed and inspectable but is not loaded by the service.
+
+## Update or remove
+
+Use `baudbound script update PATH` to replace an installed package with another export of the same script identity. Review and approve the new revision before running it.
+
+Use `baudbound script remove SCRIPT` to remove a package from the installed script list. Review any run information you need before removal.

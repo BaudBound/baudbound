@@ -49,4 +49,16 @@ Keep listener-based triggers active:
 baudbound serve
 ```
 
-Continue with the [runner quick start](../runner/quick-start.md), [script lifecycle](../runner/scripts-approvals.md), and [background service guide](../runner/background-service.md).
+Continue with [Script Management](../runner/quick-start.md) and the [Background Service](../runner/background-service.md).
+
+## Key terms
+
+**Project** is the editable graph and project settings in the editor. **Nodes** are triggers, control-flow operations, or actions; edges define their execution order and branches.
+
+**Trigger** starts a **run**, which is one execution with its own result, logs, and variable snapshots. Manual triggers start on demand. Schedules, webhooks, serial input, hotkeys, and file watchers require a running background service.
+
+**Variables** are named runtime values referenced with `{{variable_name}}`. **Secrets** are sensitive values declared by a package but supplied by the runner operator; they are never exported from the editor.
+
+A **package** is the exported `.bbs` file. Its **target runtime** describes the required operating system and whether desktop interaction is needed. **Capabilities** describe requested access such as filesystem writes, process execution, network access, desktop input, or serial I/O.
+
+An **approval** accepts one exact package revision and its capabilities. Updating package content invalidates that approval.

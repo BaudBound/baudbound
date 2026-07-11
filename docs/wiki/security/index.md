@@ -1,16 +1,34 @@
 ---
 title: Security Model
-description: BaudBound package integrity, capabilities, approvals, secrets, policy, and native execution boundaries.
-tags: [security]
+description: Package integrity, capabilities, approvals, secrets, policy, and execution boundaries.
+tags: [security, approvals, integrity]
 ---
 # Security Model
 
-BaudBound treats imported automation as untrusted executable intent. The runner validates package structure and hashes, recalculates permissions and capabilities from the graph, enforces target-runtime compatibility, applies runner policy, and requires approval for the exact installed revision.
+BaudBound treats imported automation as untrusted executable intent. The runner validates package structure and integrity, recalculates requested access from the graph, enforces target compatibility and policy, and requires approval for the installed revision.
 
-The editor's declarations are review material, not an authority the runner blindly trusts. Unknown action types, undeclared executable behavior, mismatched capability files, duplicate declarations, unsupported targets, and falsified risk are rejected.
+Editor declarations are review material rather than authority. Unknown node types, mismatched permissions or capabilities, duplicate declarations, unsupported targets, and false risk classifications are rejected.
 
-Unsupported native actions are rejected for incompatible target runtimes. The Shell node is an explicit high-risk feature and requires corresponding review and policy approval.
+## Permissions, capabilities, and risk
 
-Secrets are supplied by the runner operator, encrypted at rest, redacted from logs, and never included in exported packages. Network listeners default to loopback and remain subject to host firewall and proxy policy.
+Permissions are broad access categories. Capabilities describe more specific behavior requested by nodes. Package risk is the highest applicable classification across the graph.
 
-Read [Capabilities and approvals](permissions-capabilities.md), [Package integrity](package-integrity.md), and [Secrets](../runner/secrets.md).
+During import and update, the runner recalculates these values and requires package declarations to match. A truthful high-risk package can be inspected, but execution remains blocked until approval and runner policy allow it.
+
+Review shell commands, process control, filesystem mutation, network listeners, native input, desktop access, and serial I/O carefully. Unsupported native behavior is rejected for incompatible target runtimes. The Shell node is an explicit high-risk feature.
+
+## Approval
+
+Approval binds package identity, content hash, and reviewed access. It is not permanent trust in a filename. Package content or capability changes require another review.
+
+Authorization is checked again before execution. A sub-script must independently satisfy validation and approval requirements.
+
+## Package integrity
+
+The runner verifies integrity metadata during import and checks the installed package against its recorded hash. Content changed outside the runner is not silently trusted. Make workflow changes in the editor and install a newly exported package.
+
+## Secrets and network boundaries
+
+Packages declare secret names but never contain production values. The runner encrypts stored values and redacts them from logs. See [Secrets](../runner/secrets.md) for desktop and headless setup.
+
+Network listeners default to loopback. Exposing them on another interface also requires host firewall, proxy, and authentication decisions appropriate to the deployment.

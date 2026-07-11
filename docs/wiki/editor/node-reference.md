@@ -5,7 +5,7 @@ tags: [editor, nodes, reference]
 ---
 # Node Reference
 
-The editor currently provides the following executable nodes. Exact configuration is validated by the generated [node schemas](../package-format/contracts.md).
+The editor currently provides the following executable nodes. Exact configuration is validated by the generated [node schemas](../package-format/index.md).
 
 ## Triggers
 

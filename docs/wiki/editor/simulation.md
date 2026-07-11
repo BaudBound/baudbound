@@ -23,4 +23,4 @@ The simulation panel lets you define trigger payloads and runtime values. For de
 
 The output console records verification and execution events. Runtime variable snapshots appear in the Variables tab. At instant speed, execution advances without artificial node delays except behavior whose semantics require elapsed time.
 
-Before release, simulate every trigger, branch, error path, loop termination, and expected output. Then validate the exported package with the runner as described in [Package inspection](../runner/scripts-approvals.md).
+Before release, simulate every trigger, branch, error path, loop termination, and expected output. Then validate and inspect the exported package as described in [Script Management](../runner/quick-start.md).
