@@ -15,7 +15,7 @@ Download release files only from the [BaudBound GitHub Releases page](https://gi
 
 ### Windows
 
-1. Download the `.exe` setup file from the newest GitHub release.
+1. Download the `.exe` setup file from the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
 2. Open the downloaded file and complete the installer.
 3. Start **BaudBound** from the Start menu.
 4. Confirm that the Dashboard opens without an error banner.
@@ -28,7 +28,7 @@ The installer provides the desktop application. It does not guarantee that `baud
 
 An AppImage is a portable executable. The steps below keep it in your home directory and create a `baudbound` command for your user account. They do not install a system package and do not require `sudo`.
 
-1. Download the `.AppImage` from the newest GitHub release.
+1. Download the `.AppImage` from the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
 2. Open a terminal in the directory containing the download. Most browsers save it in `~/Downloads`.
 3. Confirm that only the new release matches the filename pattern:
 
@@ -111,25 +111,54 @@ On Linux, automatic updates require the real AppImage to remain writable by the 
 
 Use these steps only when the update dialog cannot complete the update.
 
-1. Exit BaudBound completely, including its tray process.
-2. Download the new AppImage from the GitHub release.
-3. Open a terminal in the download directory and confirm that only the intended release matches `BaudBound_*.AppImage`.
-4. Copy the download to a temporary file named `BaudBound.AppImage.replacement` and make it executable:
+1. Open **Service** and stop the desktop background runner.
+2. Open the tray menu and choose **Quit**. Closing only the window is not enough because BaudBound normally remains in the tray.
+3. Open a terminal and confirm that no BaudBound process remains:
 
 ```text
-cp BaudBound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement"
-chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement"
+pgrep -af 'BaudBound|baudbound'
 ```
 
-The temporary file protects the working application if copying fails. It is not another installation.
+No output means BaudBound has stopped. If a process is listed, return to the application or service manager and stop it normally before continuing.
 
-5. If both commands succeed, replace the old AppImage and verify the installed version:
+4. Download the new AppImage using either method below.
+
+#### Download method {.tabset}
+
+##### Web browser
+
+Open the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, move it to `~/Downloads` if necessary, and rename the downloaded file to `BaudBound.AppImage`.
+
+##### Terminal with curl
+
+Open the newest non-draft [BaudBound GitHub release](https://github.com/NATroutter/BaudBound/releases) in a browser and copy the link address of its `.AppImage` asset. Replace `APPIMAGE_DOWNLOAD_URL` in this command with that complete copied URL:
 
 ```text
-mv "$HOME/.local/opt/baudbound/BaudBound.AppImage.replacement" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "APPIMAGE_DOWNLOAD_URL"
+```
+
+`curl` prints an error and leaves the current installation unchanged when the download fails.
+
+5. Confirm that the downloaded file exists:
+
+```text
+ls -lh "$HOME/Downloads/BaudBound.AppImage"
+```
+
+6. Copy it over the currently installed AppImage and restore executable permissions:
+
+```text
+cp "$HOME/Downloads/BaudBound.AppImage" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+```
+
+7. Verify the installed version, then launch BaudBound:
+
+```text
 baudbound --version
+baudbound
 ```
 
-The `baudbound` symlink does not change. If copying or permission changes fail, do not run `mv`; the previous application remains intact. Headless operators should use the separate update procedure in [Linux Background Service](../self-hosting/linux-background-service.md). Never bypass signature verification.
+The `baudbound` symlink does not change because it still points to the stable installed path. Manual replacement does not use Tauri's automatic signature-verification flow, so download only from the official GitHub Releases page. Headless operators should use the separate procedure in [Linux Background Service](../self-hosting/linux-background-service.md).
 
 Continue with [Script Management](script-management.md).

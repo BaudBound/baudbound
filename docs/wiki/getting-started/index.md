@@ -66,7 +66,7 @@ If verification fails, do not export yet. Confirm that both nodes are connected 
 3. Continue only when export has no blocking failures.
 4. Download the package.
 
-Your browser downloads a file ending in `.bbs`. The exact filename is shown by the browser. Keep the file intact: changing files inside a package invalidates its integrity data.
+Your browser downloads a file ending in `.bbs`. The exact filename is shown by the browser. Keep the file intact: the runner records a hash of the imported package, and later file changes invalidate that installed revision.
 
 ## 5. Import and inspect
 

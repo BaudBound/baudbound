@@ -28,7 +28,7 @@ BaudBound can automate tasks such as reacting to a schedule or file change, rece
 1. **Build:** Add triggers, actions, and control-flow nodes in the editor.
 2. **Verify:** Let the editor check graph structure, node configuration, variables, permissions, and target compatibility.
 3. **Simulate:** Test the workflow with controlled input before it can affect a real machine.
-4. **Export:** Download a portable `.bbs` package containing the graph, metadata, assets, schemas, and integrity data.
+4. **Export:** Download a portable `.bbs` package containing the graph, metadata, access declarations, optional editor data, and declared assets.
 5. **Review:** Import the package into the runner and inspect its requested capabilities and risk.
 6. **Approve and run:** Approve that exact package revision, then run it manually or activate its listener-based triggers.
 

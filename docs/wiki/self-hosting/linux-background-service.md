@@ -340,8 +340,7 @@ Use graceful stop and restart commands from the selected service manager. The ru
 
 The desktop update dialog is not used for a root-owned headless installation. Update it manually:
 
-1. Download the new AppImage from the GitHub release.
-2. Stop BaudBound with the command for the active service manager:
+1. Stop BaudBound with the command for the active service manager:
 
 **systemd**
 
@@ -363,24 +362,48 @@ sudo sv down baudbound
 
 Run only one of the three commands above.
 
-3. Open a terminal in the download directory. Copy the new release to a temporary file named `BaudBound.AppImage.replacement`, then set its owner and permissions:
+2. Confirm that the matching service status reports stopped, down, or inactive before replacing the executable.
+
+3. Download the new AppImage using either method below.
+
+### Download method {.tabset}
+
+#### Web browser
+
+Open the newest non-draft release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Download its `.AppImage` file, transfer it to the server if the browser is on another machine, and save it as `~/Downloads/BaudBound.AppImage` for the administrator account running these commands.
+
+#### Terminal with curl
+
+Open the newest non-draft [BaudBound GitHub release](https://github.com/NATroutter/BaudBound/releases) and copy the link address of its `.AppImage` asset. Replace `APPIMAGE_DOWNLOAD_URL` with that complete copied URL:
 
 ```text
-sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage.replacement
-sudo chown root:root /opt/baudbound/BaudBound.AppImage.replacement
-sudo chmod 0755 /opt/baudbound/BaudBound.AppImage.replacement
+mkdir -p "$HOME/Downloads"
+curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "APPIMAGE_DOWNLOAD_URL"
 ```
 
-The existing runner has not changed yet. If one of these commands fails, correct the error before continuing.
-
-4. Replace the old executable and verify the new version:
+4. Confirm that the downloaded file exists:
 
 ```text
-sudo mv /opt/baudbound/BaudBound.AppImage.replacement /opt/baudbound/BaudBound.AppImage
-baudbound --version
+ls -lh "$HOME/Downloads/BaudBound.AppImage"
 ```
 
-5. Start BaudBound using the active service manager:
+5. Copy it directly over the installed AppImage, then restore the expected owner and permissions:
+
+```text
+sudo cp "$HOME/Downloads/BaudBound.AppImage" /opt/baudbound/BaudBound.AppImage
+sudo chown root:root /opt/baudbound/BaudBound.AppImage
+sudo chmod 0755 /opt/baudbound/BaudBound.AppImage
+```
+
+6. Verify the installed version before restarting the service:
+
+```text
+/opt/baudbound/BaudBound.AppImage --version
+```
+
+The command must print the intended new version. Correct the download, copy, ownership, or executable permission before continuing if it does not.
+
+7. Start BaudBound using the active service manager:
 
 **systemd**
 
@@ -404,6 +427,8 @@ sudo sv status baudbound
 ```
 
 Run only the matching pair. The final status must report that BaudBound is running before leaving the update unattended.
+
+Manual replacement does not use Tauri's automatic signature-verification flow. Download only from the official GitHub Releases page and never install an AppImage received from an untrusted mirror or message attachment.
 
 ## Uninstall or remove the service
 
