@@ -56,6 +56,7 @@ jobs:
             libayatana-appindicator3-dev \
             libudev-dev \
             librsvg2-dev \
+            libxdo-dev \
             patchelf
 
       - name: Set up Rust
