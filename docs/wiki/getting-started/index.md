@@ -54,13 +54,13 @@ baudbound script inspect automation
 baudbound script approve automation
 ```
 
-#### Linux AppImage
+#### Linux
 
 ```text
-./BaudBound_*.AppImage script import ~/Downloads/automation.bbs
-./BaudBound_*.AppImage script list
-./BaudBound_*.AppImage script inspect automation
-./BaudBound_*.AppImage script approve automation
+baudbound script import ~/Downloads/automation.bbs
+baudbound script list
+baudbound script inspect automation
+baudbound script approve automation
 ```
 
 ### What approval means
@@ -74,8 +74,6 @@ Run a manual trigger:
 ```powershell
 baudbound script run automation
 ```
-
-Linux AppImage users should replace `baudbound` with `./BaudBound_*.AppImage` or the stable AppImage path they configured.
 
 Keep listener-based triggers active:
 

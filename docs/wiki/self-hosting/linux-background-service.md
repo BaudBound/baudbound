@@ -148,19 +148,47 @@ Confirm the AppImage runs manually before creating the runit service.
 
 The package names above follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html), Fedora's current [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/), Gentoo's [`sys-fs/fuse` package](https://packages.gentoo.org/packages/sys-fs/fuse), and Void's official [`fuse` package template](https://github.com/void-linux/void-packages/blob/master/srcpkgs/fuse/template).
 
-Create the application, configuration, and state directories, then install the downloaded AppImage:
+Create the application, configuration, and state directories:
 
 ```text
-sudo install -d -m 0755 /opt/baudbound /etc/baudbound
-sudo install -d -o baudbound -g baudbound -m 0750 /var/lib/baudbound
-sudo install -m 0755 BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage
+sudo mkdir -p /opt/baudbound
+sudo mkdir -p /etc/baudbound
+sudo mkdir -p /var/lib/baudbound
+sudo chown baudbound:baudbound /var/lib/baudbound
+sudo chmod 0750 /var/lib/baudbound
+```
+
+Copy the downloaded AppImage to its stable service path, set its ownership and permissions, and create a system-wide `baudbound` command:
+
+```text
+sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage
+sudo chown root:root /opt/baudbound/BaudBound.AppImage
+sudo chmod 0755 /opt/baudbound/BaudBound.AppImage
+sudo ln -sfn /opt/baudbound/BaudBound.AppImage /usr/local/bin/baudbound
+```
+
+Initialize the runner home as the service account and verify the version:
+
+```text
 sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage config init
 sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage --version
 ```
 
 The final command must print the expected BaudBound version. Stop here and correct the file path, permissions, architecture, or missing libraries if it does not.
 
-The downloaded filename can differ between releases. The destination remains `/opt/baudbound/BaudBound.AppImage`; replace it atomically with the newer AppImage during a manual update.
+The downloaded filename can differ between releases. The destination always remains `/opt/baudbound/BaudBound.AppImage`.
+
+For a manual update, stop BaudBound using the selected service manager. From the directory containing the new AppImage, copy it to a temporary path, set its ownership and permissions, and move it over the old executable:
+
+```text
+sudo cp BaudBound_*.AppImage /opt/baudbound/BaudBound.AppImage.new
+sudo chown root:root /opt/baudbound/BaudBound.AppImage.new
+sudo chmod 0755 /opt/baudbound/BaudBound.AppImage.new
+sudo mv /opt/baudbound/BaudBound.AppImage.new /opt/baudbound/BaudBound.AppImage
+baudbound --version
+```
+
+Restart the service and confirm its status after the version command prints the expected release.
 
 Edit the generated configuration:
 
@@ -179,7 +207,9 @@ sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound
 Create the environment file with restricted permissions, then use `sudoedit` to paste the printed assignment into it:
 
 ```text
-sudo install -m 0600 -o root -g root /dev/null /etc/baudbound/runner.env
+sudo touch /etc/baudbound/runner.env
+sudo chown root:root /etc/baudbound/runner.env
+sudo chmod 0600 /etc/baudbound/runner.env
 sudoedit /etc/baudbound/runner.env
 ```
 

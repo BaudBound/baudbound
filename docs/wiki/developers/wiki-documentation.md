@@ -14,7 +14,7 @@ Write user documentation for a reader who has never used BaudBound and may not k
 5. the expected successful result; and
 6. what to inspect before continuing when a step fails.
 
-Do not assume a downloaded AppImage creates a global command, that a container user has cloned this repository, or that a reader knows their service manager. Keep commands in fenced code blocks. Use tabs only for mutually exclusive platform or service-manager instructions, and keep shared steps outside the tabset.
+Do not assume a downloaded AppImage creates a global command, that a container user has cloned this repository, or that a reader knows their service manager. Keep commands in fenced code blocks. Prefer familiar, explicit file commands such as `mkdir`, `cp`, `chmod`, and `chown` over the less familiar multi-purpose `install` utility in user procedures. Use tabs only for mutually exclusive platform or service-manager instructions, and keep shared steps outside the tabset.
 
 `docs/wiki/**/*.md` is the source of truth for public documentation. Each page requires `title` and `description` frontmatter; `published`, `private`, `locale`, and `tags` are optional. Internal Markdown links are resolved and rewritten to Wiki.js paths. Local images are rejected; use an HTTPS asset URL.
 

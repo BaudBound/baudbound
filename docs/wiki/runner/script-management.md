@@ -28,7 +28,7 @@ baudbound script import "C:\Users\Alice\Downloads\desk-lights.bbs"
 ```
 
 ```text
-./BaudBound_*.AppImage script import "$HOME/Downloads/desk-lights.bbs"
+baudbound script import "$HOME/Downloads/desk-lights.bbs"
 ```
 
 Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. A failed import does not install a partially accepted package.
