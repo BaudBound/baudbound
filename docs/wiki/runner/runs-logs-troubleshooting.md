@@ -13,26 +13,41 @@ Do not edit runner-managed state directly. Use runner commands or the desktop UI
 
 ## Troubleshooting
 
-Start with:
+Use this order instead of changing files or approvals at random:
 
 ```text
 baudbound doctor
 baudbound status
-baudbound script status SCRIPT
-baudbound script logs SCRIPT
+baudbound script status
+baudbound script inspect SCRIPT
+baudbound script approval SCRIPT
+baudbound script logs --script SCRIPT --limit 20
 ```
+
+Replace `SCRIPT` with the installed name or ID shown by `baudbound script list`. `doctor` checks the machine and configuration. `status` checks runner-wide health. `script status` identifies scripts needing attention. The remaining commands inspect one script, its approval, and its recent runs.
+
+In the desktop application, the equivalent information is available in **Doctor**, **Service**, **Scripts**, **Runs**, and **Logs**. Copy the exact error message before changing configuration; it normally names the failing script, node, listener, or policy check.
 
 ### Package hash is not verified
 
-Re-export from the current editor. Do not modify or repack `.bbs` contents. Validate the source with `baudbound validate`, update the installed script, and approve the new revision.
+The package was created without valid integrity metadata or changed after export. Open the original project in the current editor and export it again. Do not modify or repack `.bbs` contents.
+
+Validate the newly exported file before replacing the installed revision:
+
+```text
+baudbound validate PATH_TO_NEW_PACKAGE
+baudbound script update PATH_TO_NEW_PACKAGE
+baudbound script inspect SCRIPT
+baudbound script approve SCRIPT
+```
 
 ### Script will not run
 
-Check package validation, target runtime, enablement, approval, required secrets, and requested capabilities. Approval must match the exact installed revision.
+Run `baudbound script inspect SCRIPT` and read each reported state. Fix validation or target incompatibility in the editor. Approve the current revision only after review. Configure every required secret. For manual execution, the script also needs a manual trigger. Enablement is required for listener-based triggers but not for a direct manual run.
 
 ### Trigger does not fire
 
-Confirm the script is enabled and approved, its listener family is enabled, and only one runner service owns the home directory. Check port conflicts, bind addresses, file permissions, desktop-session availability, and service logs.
+Confirm the script is enabled and approved, then open **Triggers** or run `baudbound script triggers SCRIPT`. The expected trigger must appear as registered. Confirm its listener family is enabled in `config.toml` and that exactly one runner service uses this runner home. Then inspect service logs for a port conflict, inaccessible path, unavailable desktop session, or device error.
 
 ### Serial reconnect fails
 

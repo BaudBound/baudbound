@@ -5,6 +5,12 @@ tags: [getting-started]
 ---
 # Getting Started
 
+## Before you begin
+
+You need a current web browser, access to the [BaudBound editor](https://editor.baudbound.app/), and a supported Windows or Linux machine on which to install the runner. No account is required to build a project in the public editor.
+
+This guide uses `automation` as an example installed script name. Replace it with the name printed by the import command or shown in the desktop Scripts view.
+
 ## 1. Build a workflow
 
 Open the [public editor](https://editor.baudbound.app/). Add a trigger, connect actions or control-flow nodes, and configure each node in the inspector. A workflow begins at a trigger and follows directed edges through the graph.
@@ -23,15 +29,41 @@ Export the project as a `.bbs` package. The package contains the manifest, execu
 
 ## 4. Install the runner
 
-Follow [Runner installation](../runner/installation.md). On a desktop, launching `baudbound` without a command opens the UI. On a headless system, use the CLI.
+Follow [Runner installation](../runner/installation.md), then open the desktop application. The first launch creates the configuration and runner storage automatically.
 
 ## 5. Import and approve
 
+The simplest desktop workflow is:
+
+1. Open **Scripts**.
+2. Choose **Import package** and select the exported `.bbs` file.
+3. Open the imported script's approval review.
+4. Read the target runtime, risk level, requested capabilities, nodes, and required secrets.
+5. Choose **Approve** only when the requested access matches the workflow you intended to build.
+
+The equivalent CLI workflow is shown below. Replace the example user and filename with the actual downloaded package path.
+
+### CLI workflow {.tabset}
+
+#### Windows
+
 ```powershell
-baudbound script import C:\path\to\automation.bbs
+baudbound script import "C:\Users\Alice\Downloads\automation.bbs"
+baudbound script list
 baudbound script inspect automation
 baudbound script approve automation
 ```
+
+#### Linux AppImage
+
+```text
+./BaudBound_*.AppImage script import ~/Downloads/automation.bbs
+./BaudBound_*.AppImage script list
+./BaudBound_*.AppImage script inspect automation
+./BaudBound_*.AppImage script approve automation
+```
+
+### What approval means
 
 Approval applies to the exact imported package and its requested capabilities. Updating package content requires a new review.
 
@@ -43,11 +75,15 @@ Run a manual trigger:
 baudbound script run automation
 ```
 
+Linux AppImage users should replace `baudbound` with `./BaudBound_*.AppImage` or the stable AppImage path they configured.
+
 Keep listener-based triggers active:
 
 ```powershell
 baudbound serve
 ```
+
+`serve` stays in the foreground and continues running until it is stopped. It is needed only for schedules and other triggers that wait for an event. A desktop user can instead start the background runner from the **Service** view. A headless Linux user should follow [Linux Background Service](../self-hosting/linux-background-service.md).
 
 Continue with [Script Management](../runner/script-management.md) and [Service and Triggers](../runner/service-triggers.md).
 

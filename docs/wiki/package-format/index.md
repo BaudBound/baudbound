@@ -21,7 +21,7 @@ Export records digests for protected package content. Import verifies every requ
 
 Integrity proves content consistency, not publisher identity. Runner release signatures verify runner artifacts, while operator approval accepts one package revision and its requested access.
 
-To change a workflow, edit it in the editor, export a new `.bbs`, run `script update`, and review the new revision. Do not patch or repack an installed archive.
+To change a workflow, edit it in the editor, export a new `.bbs`, run `baudbound script update PATH_TO_PACKAGE`, and review the new revision. Do not patch or repack an installed archive.
 
 ## Schemas and semantic validation
 

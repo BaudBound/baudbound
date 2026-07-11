@@ -5,7 +5,33 @@ tags: [self-hosting, runner, service, linux]
 ---
 # Linux Background Service
 
-Run `baudbound serve` under the service manager provided by the distribution. The installation preparation below covers Debian, Ubuntu, Fedora, and Arch. Service definitions are provided for systemd, OpenRC, and runit.
+Run `baudbound serve` under the service manager provided by the distribution. The installation preparation below covers Debian, Ubuntu, Fedora, Arch, Gentoo, and glibc-based Void Linux. Service definitions are provided for systemd, OpenRC, and runit.
+
+Use this guide only when BaudBound must continue listening for triggers after you sign out. For ordinary desktop use, start the desktop-owned background runner from the application's **Service** view instead.
+
+## Before you begin
+
+You need a 64-bit Linux machine, administrator access through `sudo`, and a downloaded BaudBound AppImage. First launch the AppImage manually and confirm that it runs on the machine. Do not create a service for an AppImage that already fails when started directly.
+
+Choose only the service-manager tab used by the machine:
+
+Run each check until one prints a path:
+
+```text
+command -v systemctl
+command -v rc-service
+command -v sv
+```
+
+Use the matching service-manager tab:
+
+| Command that printed a path | Use |
+| --- | --- |
+| `command -v systemctl` | systemd |
+| `command -v rc-service` | OpenRC |
+| `command -v sv` | runit |
+
+Debian, Ubuntu, Fedora, and Arch normally use systemd. If none of these checks succeeds, consult the operating-system documentation before continuing rather than installing another service manager only for BaudBound.
 
 All variants below use:
 
@@ -17,7 +43,16 @@ All variants below use:
 An AppImage is a portable executable rather than a traditional installed package. These instructions copy the downloaded release to a stable path so service definitions do not change with every version.
 {.is-info}
 
-Download the current x86-64 AppImage from the project's GitHub release before continuing. Keep only the release you intend to install in the current directory when using the wildcard commands below.
+Download the current x86-64 AppImage from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open a terminal in the download directory and verify that exactly one matching file is present:
+
+```text
+cd ~/Downloads
+ls -1 BaudBound_*.AppImage
+```
+
+If more than one filename is printed, move old releases elsewhere or replace the wildcard in later commands with the exact new filename.
+
+Each distribution tab installs FUSE 2 and creates the same `baudbound` service account. If the group or user already exists, inspect the existing account instead of recreating it. It must use the `baudbound` group and `/var/lib/baudbound` home used by this guide.
 
 ## Distribution preparation {.tabset}
 
@@ -83,9 +118,35 @@ sudo groupadd --system baudbound
 sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
 ```
 
+### Gentoo
+
+Install the FUSE 2 slot required by AppImage, then create the service identity:
+
+```text
+sudo emerge --ask sys-fs/fuse:0
+sudo groupadd --system baudbound
+sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
+```
+
+Choose this tab only for a Gentoo installation using OpenRC. Confirm the AppImage runs manually before creating the OpenRC service.
+
+### Void Linux
+
+These instructions require the glibc edition of 64-bit Void Linux. The published AppImage is not supported on Void's musl edition.
+
+Install FUSE 2 and create the service identity:
+
+```text
+sudo xbps-install -S fuse
+sudo groupadd --system baudbound
+sudo useradd --system --gid baudbound --home-dir /var/lib/baudbound --create-home --shell "$(command -v nologin)" baudbound
+```
+
+Confirm the AppImage runs manually before creating the runit service.
+
 ## Install and initialize BaudBound
 
-The package names above follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) and Fedora's current [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/).
+The package names above follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html), Fedora's current [`fuse-libs` package](https://packages.fedoraproject.org/pkgs/fuse/fuse-libs/), Gentoo's [`sys-fs/fuse` package](https://packages.gentoo.org/packages/sys-fs/fuse), and Void's official [`fuse` package template](https://github.com/void-linux/void-packages/blob/master/srcpkgs/fuse/template).
 
 Create the application, configuration, and state directories, then install the downloaded AppImage:
 
@@ -97,14 +158,22 @@ sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound
 sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage --version
 ```
 
+The final command must print the expected BaudBound version. Stop here and correct the file path, permissions, architecture, or missing libraries if it does not.
+
 The downloaded filename can differ between releases. The destination remains `/opt/baudbound/BaudBound.AppImage`; replace it atomically with the newer AppImage during a manual update.
 
-Edit `/var/lib/baudbound/config.toml`, then keep it writable by `baudbound` when automatic serial-port rebinding is enabled. Add the account to the distribution's serial-device group, commonly `dialout` or `uucp`, when scripts use serial ports.
+Edit the generated configuration:
+
+```text
+sudoedit /var/lib/baudbound/config.toml
+```
+
+The default listener addresses use loopback and are not reachable from other machines. Review trigger families, ports, and target runtimes before starting the service. Keep this file writable by `baudbound` when automatic serial-port rebinding is enabled. Add the account to the distribution's serial-device group, commonly `dialout` or `uucp`, only when scripts use serial ports.
 
 For headless secrets, generate a key:
 
 ```text
-/opt/baudbound/BaudBound.AppImage secret generate-key
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage secret generate-key
 ```
 
 Create the environment file with restricted permissions, then use `sudoedit` to paste the printed assignment into it:
@@ -114,12 +183,14 @@ sudo install -m 0600 -o root -g root /dev/null /etc/baudbound/runner.env
 sudoedit /etc/baudbound/runner.env
 ```
 
-Omit the file when no installed script uses secrets. CLI commands that access secret values must receive the same key through the host's secret-management process.
+The generate command prints an assignment beginning with `BAUDBOUND_SECRET_KEY=`. Paste that entire assignment into `runner.env`, save it, and close the editor. Omit the file when no installed script uses secrets. CLI commands that access secret values must receive the same key through the host's secret-management process.
 
 Do not run the desktop-owned background runner and an operating-system service against the same `BAUDBOUND_HOME`. Two service owners can deliver triggers twice and conflict over listener ports.
 {.is-warning}
 
 ## Service manager {.tabset}
+
+Complete exactly one tab. Do not install or enable multiple BaudBound service definitions for the same runner home.
 
 ### systemd
 
@@ -155,6 +226,8 @@ sudo systemctl enable --now baudbound.service
 sudo systemctl status baudbound.service
 sudo journalctl -u baudbound.service -f
 ```
+
+`systemctl status` should report `active (running)`. The `journalctl` command follows live logs; press `Ctrl+C` to stop following logs without stopping BaudBound.
 
 After changing the unit, run `daemon-reload` and restart it. Installed-script lifecycle changes reload automatically; changes to `config.toml` require a service restart.
 
@@ -197,7 +270,7 @@ sudo rc-service baudbound start
 sudo rc-service baudbound status
 ```
 
-OpenRC service scripts live in `/etc/init.d`; Alpine documents service control through `rc-service` and boot enablement through `rc-update` in its [OpenRC guide](https://wiki.alpinelinux.org/wiki/OpenRC).
+OpenRC service scripts live in `/etc/init.d`. Gentoo documents OpenRC as its dependency-based service manager in the [Gentoo OpenRC guide](https://wiki.gentoo.org/wiki/OpenRC).
 
 ### runit
 
@@ -230,5 +303,17 @@ runit expects the `run` script to keep the service in the foreground and restart
 ## Operating the service
 
 Import, inspect, approve, and enable packages using the same `BAUDBOUND_HOME` and service account. Do not run the desktop-owned background runner and a system service against the same runner home; that can duplicate trigger delivery and conflict over listener ports.
+
+For example, copy a package to a location readable by the service account, then run lifecycle commands as that account:
+
+```text
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script import /path/to/automation.bbs
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script list
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script inspect SCRIPT
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script approve SCRIPT
+sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound.AppImage script enable SCRIPT
+```
+
+Replace `/path/to/automation.bbs` and `SCRIPT` with real values. The service notices imported and enabled scripts at the configured reload interval.
 
 Use graceful stop and restart commands from the selected service manager. The runner handles `baudbound serve` as a foreground process and reloads durable script lifecycle changes automatically. Restart the service after editing `config.toml` so listener settings are reconstructed from the new configuration.
