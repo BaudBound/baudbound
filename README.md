@@ -229,13 +229,14 @@ max_body_bytes = 1048576
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
+max_connections = 128
 ```
 
 Serial Input Trigger nodes only store the logical `deviceId`. Runner TOML maps that id to the local serial port and hardware settings, which keeps exported packages portable across machines. If `auto_rebind_port = true`, the runner can recover when the OS moves a USB serial device to another COM/tty port. That mode requires `validate_usb_identity = true`, `vendor_id`, and `product_id`; add `serial_number`, `manufacturer`, or `product` when multiple identical devices may be connected so the runner refuses ambiguous matches instead of guessing.
 
 Use `baudbound script status` to check installed package hash health, package loadability, approval freshness, enabled script counts, and trigger counts.
 
-For headless machines, run `baudbound serve` under your chosen process manager and use the same `BAUDBOUND_HOME` for CLI commands such as `script import`, `script update`, `script enable`, `script disable`, `script approve`, `script status`, and `script logs`. Script imports, updates, removals, enables, and disables write a reload signal into runner storage, so the background runner refreshes listener registrations on its next loop tick. The runner also periodically reloads registrations as a fallback, so manual storage changes are picked up without restarting the process. A running background process writes `service-status.json`; use your process manager's own commands to inspect or control it.
+For headless machines, run `baudbound serve` under your chosen process manager and use the same `BAUDBOUND_HOME` for CLI commands such as `script import`, `script update`, `script enable`, `script disable`, `script approve`, `script status`, and `script logs`. Script lifecycle changes write a durable reload signal into `runner.sqlite3`, so the background runner refreshes listener registrations on its next loop tick. The runner also periodically compares registrations as a fallback. Runtime status snapshots are stored in SQLite and exposed through `baudbound status`; use your process manager's own commands to inspect or control the process.
 
 ## Security Model
 

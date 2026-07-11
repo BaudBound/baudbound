@@ -2,6 +2,11 @@ use serde_json::json;
 
 use super::*;
 
+#[path = "tests/abuse_cases.rs"]
+mod abuse_cases;
+#[path = "tests/capabilities.rs"]
+mod capabilities;
+
 #[test]
 fn validates_matching_permissions() {
     let report = validate_program_permissions(
@@ -43,6 +48,19 @@ fn rejects_stale_extra_permission() {
 }
 
 #[test]
+fn rejects_duplicate_permission() {
+    let error = validate_program_permissions(
+        &program_with_steps(&["action.log"]),
+        &["log".to_owned(), "log".to_owned()],
+        RiskLevel::Low,
+        &RunnerPolicy::default(),
+    )
+    .expect_err("duplicate permission should fail");
+
+    assert!(error.to_string().contains("duplicate permission log"));
+}
+
+#[test]
 fn rejects_risk_mismatch() {
     let error = validate_program_permissions(
         &program_with_steps(&["action.file.read"]),
@@ -68,6 +86,39 @@ fn policy_blocks_dangerous_permissions() {
     assert!(error.to_string().contains("dangerous actions are disabled"));
 }
 
+#[test]
+fn derives_scope_and_secret_permissions_from_configuration() {
+    let program = program_with_steps(&["runtime.set_variable"]);
+    let mut program = program;
+    program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("global");
+    let report = validate_program_permissions_with_secrets(
+        &program,
+        &["read_secret".to_owned(), "set_global_variable".to_owned()],
+        RiskLevel::High,
+        &RunnerPolicy::permissive(),
+        true,
+    )
+    .expect("global and secret permissions should derive from package configuration");
+
+    assert_eq!(
+        report
+            .required_permissions
+            .iter()
+            .map(|permission| permission.name.as_str())
+            .collect::<Vec<_>>(),
+        ["read_secret", "set_global_variable"]
+    );
+}
+
+#[test]
+fn rejects_legacy_writable_secret_scope() {
+    let mut program = program_with_steps(&["runtime.set_variable"]);
+    program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("secret");
+    let error = calculate_program_permissions(&program)
+        .expect_err("secret scope must be read-only and declared in the manifest");
+    assert!(error.to_string().contains("unsupported scope"));
+}
+
 fn program_with_steps(action_types: &[&str]) -> Value {
     json!({
         "entry": {
@@ -87,7 +138,11 @@ fn program_with_steps(action_types: &[&str]) -> Value {
                         "id": format!("n-{index}"),
                         "action_type": action_type,
                         "type": "action",
-                        "config": {},
+                        "config": if *action_type == "runtime.set_variable" {
+                            json!({"scope": "runtime"})
+                        } else {
+                            json!({})
+                        },
                         "runtime_outputs": []
                     }))
                     .collect::<Vec<_>>(),

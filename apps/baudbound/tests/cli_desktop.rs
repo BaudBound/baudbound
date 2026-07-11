@@ -623,7 +623,7 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["trigger.manual"], "target_runtime": "Generic Desktop"}"#,
         ),
     ] {
         writer
@@ -695,7 +695,7 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["trigger.hotkey"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["trigger.hotkey", "trigger.manual"], "target_runtime": "Generic Desktop"}"#,
         ),
     ] {
         writer

@@ -18,6 +18,7 @@ import type {
 	ProjectSettings,
 	RiskLevel,
 	ScriptNodeData,
+	SecretDeclaration,
 	TargetRuntime,
 } from "../lib/types";
 import { calculateCapabilities, calculatePermissions, calculateRiskLevel, toProgramJson } from "./analysis";
@@ -36,6 +37,7 @@ type ImportedBbsPackage = {
 	edges: Edge[];
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
+	secretDeclarations: SecretDeclaration[];
 };
 
 type PackageAssetRecord = {
@@ -57,9 +59,10 @@ export async function exportBbsPackage(params: {
 	assets: EditorAsset[];
 	comments: EditorComment[];
 	edgeStyle: EditorEdgeStyle;
+	secretDeclarations: SecretDeclaration[];
 }) {
-	const permissions = calculatePermissions(params.nodes);
-	const capabilities = calculateCapabilities(params.nodes);
+	const permissions = calculatePermissions(params.nodes, params.secretDeclarations);
+	const capabilities = calculateCapabilities(params.nodes, params.secretDeclarations);
 	const assetManifest = params.assets.map(toAssetManifestEntry);
 	const now = new Date().toISOString();
 	const zip = new JSZip();
@@ -84,6 +87,12 @@ export async function exportBbsPackage(params: {
 			name: asset.name,
 			path: asset.packagePath,
 			size: asset.size,
+		})),
+		secrets: params.secretDeclarations.map((secret) => ({
+			name: secret.name,
+			type: secret.type,
+			description: secret.description,
+			required: secret.required,
 		})),
 	});
 	const programJson = toProgramJson(params.nodes, params.edges, params.projectSettings);
@@ -195,6 +204,7 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 	const { nodes, edges } = toEditorGraph(program, editorMetadata);
 	const comments = toEditorComments(editorMetadata);
 	const edgeStyle = toEditorEdgeStyle(editorMetadata);
+	const secretDeclarations = toSecretDeclarations(manifest);
 
 	return {
 		assets,
@@ -203,7 +213,35 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 		edges,
 		nodes,
 		projectSettings,
+		secretDeclarations,
 	};
+}
+
+function toSecretDeclarations(manifest: Record<string, unknown>): SecretDeclaration[] {
+	if (!Array.isArray(manifest.secrets)) {
+		return [];
+	}
+
+	return manifest.secrets.flatMap((value) => {
+		const secret = isRecord(value) ? value : null;
+		if (
+			!secret ||
+			typeof secret.name !== "string" ||
+			typeof secret.type !== "string" ||
+			typeof secret.required !== "boolean"
+		) {
+			return [];
+		}
+
+		return [
+			{
+				description: typeof secret.description === "string" ? secret.description : "",
+				name: secret.name,
+				required: secret.required,
+				type: secret.type as SecretDeclaration["type"],
+			},
+		];
+	});
 }
 
 function compactObject(value: Record<string, unknown>) {

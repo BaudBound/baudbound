@@ -111,7 +111,7 @@ fn node_compatibility_error(
     node: ProgramNode<'_>,
     target_runtime: TargetRuntime,
 ) -> Option<String> {
-    let support = action_support(node.action_type)?;
+    let support = configured_action_support(node).or_else(|| action_support(node.action_type))?;
     if support.supports(target_runtime) {
         return None;
     }
@@ -126,6 +126,22 @@ fn node_compatibility_error(
             node.id, node.action_type, target_runtime
         ),
     })
+}
+
+fn configured_action_support(node: ProgramNode<'_>) -> Option<ActionSupport> {
+    if matches!(
+        node.action_type,
+        "action.process.kill" | "action.process.status" | "trigger.process_started"
+    ) && node
+        .config
+        .and_then(|config| config.get("matchMode"))
+        .and_then(Value::as_str)
+        .is_some_and(|mode| mode.trim() == "window_title")
+    {
+        return Some(ActionSupport::WindowsDesktop);
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -177,6 +193,7 @@ pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
 #[derive(Debug, Clone, Copy)]
 struct ProgramNode<'a> {
     action_type: &'a str,
+    config: Option<&'a Value>,
     id: &'a str,
 }
 
@@ -226,7 +243,11 @@ fn push_program_node<'a>(
         .unwrap_or(action_type);
 
     if seen_ids.insert(id) {
-        nodes.push(ProgramNode { action_type, id });
+        nodes.push(ProgramNode {
+            action_type,
+            config: record.get("config"),
+            id,
+        });
     }
 }
 
@@ -342,6 +363,55 @@ mod tests {
     }
 
     #[test]
+    fn process_window_title_matching_requires_windows_desktop() {
+        for action_type in ["action.process.status", "action.process.kill"] {
+            let mut package = package_with_target_and_step("Generic Desktop", action_type);
+            package.program["entry"]["program"]["steps"][0]["config"] =
+                json!({"matchMode": "window_title", "target": "BaudBound"});
+
+            let error = validate_package_target_runtime(&package)
+                .expect_err("generic desktop must not claim native Windows window matching");
+            assert!(error.to_string().contains("requires Windows Desktop"));
+
+            package.capabilities.target_runtime = "Windows Desktop".to_owned();
+            validate_package_target_runtime(&package)
+                .expect("Windows Desktop should support native window-title matching");
+        }
+    }
+
+    #[test]
+    fn process_started_window_title_matching_requires_windows_desktop() {
+        let mut package = package_with_target_and_step("Linux Desktop", "action.text.format");
+        package.program["entry"]["triggers"] = json!([{
+            "id": "n-process-started",
+            "action_type": "trigger.process_started",
+            "type": "process_started",
+            "config": {"matchMode": "window_title", "target": "BaudBound"},
+            "runtime_outputs": []
+        }]);
+
+        let error = validate_package_target_runtime(&package)
+            .expect_err("Linux Desktop must reject Windows-native window matching");
+        assert!(error.to_string().contains("requires Windows Desktop"));
+
+        package.capabilities.target_runtime = "Windows Desktop".to_owned();
+        validate_package_target_runtime(&package)
+            .expect("Windows Desktop should accept process-started window matching");
+    }
+
+    #[test]
+    fn cross_platform_process_match_modes_remain_cross_platform() {
+        for action_type in ["action.process.status", "action.process.kill"] {
+            let mut package = package_with_target_and_step("Linux Headless", action_type);
+            package.program["entry"]["program"]["steps"][0]["config"] =
+                json!({"matchMode": "process_name", "target": "baudbound"});
+
+            validate_package_target_runtime(&package)
+                .expect("process-name matching should remain cross-platform");
+        }
+    }
+
+    #[test]
     fn rejects_packages_not_supported_by_this_runner_config() {
         let package = package_with_target_and_step("Windows Desktop", "action.text.format");
 
@@ -389,6 +459,7 @@ mod tests {
                 tags: Vec::new(),
                 minimum_runner_version: "0.1.0".to_owned(),
                 assets: Vec::new(),
+                secrets: Vec::new(),
             },
             permissions: Permissions {
                 declared_permissions: Vec::new(),

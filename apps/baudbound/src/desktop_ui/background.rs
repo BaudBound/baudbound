@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use baudbound_core::RunnerCore;
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use serde::Serialize;
 
 use crate::service::{ServeOptions, ServeRuntimeControl, serve_triggers_with_control};
@@ -60,7 +60,7 @@ impl DesktopRunnerSupervisor {
     pub fn start(
         &self,
         core: RunnerCore,
-        store: FilesystemScriptStore,
+        store: SqliteRunnerStore,
         options: ServeOptions,
     ) -> Result<String> {
         let shutdown_requested = Arc::new(AtomicBool::new(false));

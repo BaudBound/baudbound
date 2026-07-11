@@ -20,6 +20,7 @@ export type SimulationRunOptions = {
 	) => Promise<SimulationSideEffectResult[] | undefined> | SimulationSideEffectResult[] | undefined;
 	overrides: SimulationOverride[];
 	projectSettings: ProjectSettings;
+	secretValues?: Record<string, JsonValue>;
 	signal?: AbortSignal;
 	stepDelayMs?: number;
 	triggerNodeId?: string;
@@ -82,6 +83,8 @@ export type SimulationContext = {
 	) => Promise<SimulationSideEffectResult[] | undefined> | SimulationSideEffectResult[] | undefined;
 	overridesByNodeId: Map<string, SimulationOverride["outcome"]>;
 	runtimeVariables: Record<string, JsonValue>;
+	secretNames: Set<string>;
+	secretValues: JsonValue[];
 	signal?: AbortSignal;
 	stepDelayMs: number;
 	streamedSteps: number;

@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, TriggerEvent};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use crate::output::print_run_report;
 
 pub(super) fn dispatch_trigger_command(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
     trigger: String,
     payload_json: Option<String>,
@@ -31,7 +31,7 @@ pub(super) fn dispatch_trigger_command(
 
 pub(super) fn run_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
     trigger: Option<String>,
     payload_json: Option<String>,

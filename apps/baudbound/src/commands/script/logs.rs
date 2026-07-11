@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use baudbound_storage::{FilesystemScriptStore, ScriptStore};
+use baudbound_storage::{ScriptStore, SqliteRunnerStore};
 
 use crate::output::print_run_record;
 
 pub(super) fn print_logs(
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: Option<String>,
     limit: usize,
     json: bool,

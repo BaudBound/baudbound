@@ -124,6 +124,7 @@ pub fn read_package_asset_reader<R: Read + Seek>(
 
     let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
     validate_manifest_assets(&entries, &manifest)?;
+    validate_manifest_secrets(&manifest)?;
 
     let reference = asset_reference.trim();
     let manifest_asset = if reference.starts_with(&format!("{ASSET_PACKAGE_DIR}/")) {
@@ -169,6 +170,7 @@ pub fn load_script_package_reader<R: Read + Seek>(
     let editor = read_optional_json_file::<EditorMetadata, _>(&mut archive, "editor.json")?;
 
     validate_manifest_assets(&entries, &manifest)?;
+    validate_manifest_secrets(&manifest)?;
 
     Ok(ScriptPackage {
         capabilities,
@@ -299,6 +301,55 @@ fn validate_manifest_assets(
     finish_validation(errors)
 }
 
+fn validate_manifest_secrets(manifest: &Manifest) -> Result<(), PackageLoadError> {
+    const SUPPORTED_TYPES: &[&str] = &[
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "list",
+        "http_response",
+        "datetime",
+        "duration",
+        "file_path",
+    ];
+
+    let mut errors = Vec::new();
+    let mut names = BTreeSet::new();
+    for secret in &manifest.secrets {
+        if !is_variable_identifier(&secret.name) {
+            errors.push(format!(
+                "manifest secret {:?} must start with a letter or underscore and contain only letters, numbers, or underscores",
+                secret.name
+            ));
+        }
+        if secret.name.starts_with("system_") || secret.name.starts_with("manifest_") {
+            errors.push(format!(
+                "manifest secret {:?} uses a reserved variable prefix",
+                secret.name
+            ));
+        }
+        if !names.insert(secret.name.as_str()) {
+            errors.push(format!("duplicate manifest secret name {:?}", secret.name));
+        }
+        if !SUPPORTED_TYPES.contains(&secret.value_type.as_str()) {
+            errors.push(format!(
+                "manifest secret {:?} uses unsupported type {:?}",
+                secret.name, secret.value_type
+            ));
+        }
+    }
+    finish_validation(errors)
+}
+
+fn is_variable_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
 pub fn validate_asset_package_path(path: &str) -> Result<(), &'static str> {
     if !path.starts_with(&format!("{ASSET_PACKAGE_DIR}/")) {
         return Err("asset path must be inside assets/");
@@ -412,6 +463,89 @@ mod tests {
     }
 
     #[test]
+    fn loads_valid_secret_declarations() {
+        let manifest = r#"{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+            "name": "hello-log",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "secrets": [{
+                "name": "api_token",
+                "type": "string",
+                "description": "API token",
+                "required": true
+            }]
+        }"#;
+        let package = load_script_package_reader(Cursor::new(create_test_package_with_manifest(
+            manifest,
+            &[],
+        )))
+        .expect("valid secret declaration should load");
+
+        assert_eq!(package.manifest.secrets.len(), 1);
+        assert_eq!(package.manifest.secrets[0].name, "api_token");
+        assert!(package.manifest.secrets[0].required);
+    }
+
+    #[test]
+    fn rejects_invalid_secret_declarations() {
+        for (manifest, expected) in [
+            (
+                r#"{
+                    "format_version": 1,
+                    "script_language_version": 1,
+                    "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+                    "name": "hello-log",
+                    "created_with": "BaudBound Test",
+                    "created_at": "2026-01-01T00:00:00.000Z",
+                    "minimum_runner_version": "0.1.0",
+                    "secrets": [
+                        {"name": "api_token", "type": "string"},
+                        {"name": "api_token", "type": "string"}
+                    ]
+                }"#,
+                "duplicate manifest secret name",
+            ),
+            (
+                r#"{
+                    "format_version": 1,
+                    "script_language_version": 1,
+                    "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+                    "name": "hello-log",
+                    "created_with": "BaudBound Test",
+                    "created_at": "2026-01-01T00:00:00.000Z",
+                    "minimum_runner_version": "0.1.0",
+                    "secrets": [{"name": "system_token", "type": "string"}]
+                }"#,
+                "reserved variable prefix",
+            ),
+            (
+                r#"{
+                    "format_version": 1,
+                    "script_language_version": 1,
+                    "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+                    "name": "hello-log",
+                    "created_with": "BaudBound Test",
+                    "created_at": "2026-01-01T00:00:00.000Z",
+                    "minimum_runner_version": "0.1.0",
+                    "secrets": [{"name": "api_token", "type": "binary"}]
+                }"#,
+                "unsupported type",
+            ),
+        ] {
+            let error = load_script_package_reader(Cursor::new(create_test_package_with_manifest(
+                manifest,
+                &[],
+            )))
+            .expect_err("invalid secret declaration should fail");
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
     fn rejects_orphaned_asset_file() {
         let error = load_script_package_reader(Cursor::new(create_test_package(&[(
             "assets/orphan.txt",
@@ -455,13 +589,8 @@ mod tests {
     }
 
     fn create_test_package(extra_files: &[(&str, &str)]) -> Vec<u8> {
-        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-
-        for (path, content) in [
-            (
-                "manifest.json",
-                r#"{
+        create_test_package_with_manifest(
+            r#"{
 					"format_version": 1,
 					"script_language_version": 1,
 					"id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
@@ -470,7 +599,16 @@ mod tests {
 					"created_at": "2026-01-01T00:00:00.000Z",
 					"minimum_runner_version": "0.1.0"
 				}"#,
-            ),
+            extra_files,
+        )
+    }
+
+    fn create_test_package_with_manifest(manifest: &str, extra_files: &[(&str, &str)]) -> Vec<u8> {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+        for (path, content) in [
+            ("manifest.json", manifest),
             (
                 "program.json",
                 r#"{

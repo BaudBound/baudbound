@@ -3,7 +3,7 @@ import { defineNode } from "../../node-definition";
 import { processMatchModeOptions } from "../options";
 import { fallible, processStatusRuntimeOutputs } from "../runtime-outputs";
 import { actionProcess } from "../shared";
-import { requiredConfig } from "../validators";
+import { requiredConfig, windowsDesktopOnlyConfigValue } from "../validators";
 
 export const processStatusNode = defineNode({
 	actionType: "action.process.status",
@@ -24,6 +24,16 @@ export const processStatusNode = defineNode({
 	runtimeOutputs: fallible(processStatusRuntimeOutputs()),
 	runnerType: "process_status",
 	validateConfig: (config) => [requiredConfig(config, "target", "process target")].filter(Boolean),
+	validateTargetRuntime: ({ config, targetRuntime }) =>
+		[
+			windowsDesktopOnlyConfigValue(
+				config,
+				"matchMode",
+				"window_title",
+				targetRuntime,
+				"Window-title process matching",
+			),
+		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,

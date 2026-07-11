@@ -10,4 +10,5 @@ pub use package::{
 };
 pub use types::{
     Capabilities, EditorMetadata, Manifest, ManifestAsset, Permissions, Program, RiskLevel,
+    SecretDeclaration,
 };

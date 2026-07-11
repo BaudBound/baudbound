@@ -11,6 +11,7 @@ import {
 	validateNodeConfig,
 } from "@/data/nodes/registry";
 import { targetRuntimes } from "@/data/project/runtimes";
+import { variableTypes } from "@/data/project/variables";
 import type { ActionType, JsonValue, PermissionSummary, RiskLevel, TargetRuntime } from "@/lib/types";
 
 export const canonicalCapabilities = [
@@ -62,6 +63,9 @@ export const canonicalPermissions = [
 	"calculate",
 	"text_transform",
 	"set_local_variable",
+	"set_persistent_variable",
+	"set_global_variable",
+	"read_secret",
 	"read_runtime_data",
 	"show_notification",
 	"show_message_box",
@@ -112,8 +116,16 @@ export function validatePackageJsonContracts(jsonFiles: PackageJsonFiles) {
 	return [
 		...validateManifestContract(jsonFiles["manifest.json"]),
 		...validateProgramContract(jsonFiles["program.json"]),
-		...validatePermissionsContract(jsonFiles["permissions.json"], jsonFiles["program.json"]),
-		...validateCapabilitiesContract(jsonFiles["capabilities.json"], jsonFiles["program.json"]),
+		...validatePermissionsContract(
+			jsonFiles["permissions.json"],
+			jsonFiles["program.json"],
+			jsonFiles["manifest.json"],
+		),
+		...validateCapabilitiesContract(
+			jsonFiles["capabilities.json"],
+			jsonFiles["program.json"],
+			jsonFiles["manifest.json"],
+		),
 		...validateEditorContract(jsonFiles["editor.json"]),
 	];
 }
@@ -153,6 +165,37 @@ export function validateManifestContract(value: unknown) {
 	}
 	if (manifest.assets !== undefined && !Array.isArray(manifest.assets)) {
 		errors.push("manifest.json assets must be an array when present.");
+	}
+	if (manifest.secrets !== undefined) {
+		if (!Array.isArray(manifest.secrets)) {
+			errors.push("manifest.json secrets must be an array when present.");
+		} else {
+			const names = new Set<string>();
+			for (const value of manifest.secrets) {
+				const secret = asRecord(value);
+				if (!secret) {
+					errors.push("manifest.json secret declarations must be objects.");
+					continue;
+				}
+				const name = typeof secret.name === "string" ? secret.name : "";
+				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.startsWith("system_") || name.startsWith("manifest_")) {
+					errors.push(`manifest.json secret name "${name}" is invalid or reserved.`);
+				}
+				if (names.has(name)) {
+					errors.push(`manifest.json contains duplicate secret name "${name}".`);
+				}
+				names.add(name);
+				if (!variableTypes.includes(secret.type as (typeof variableTypes)[number])) {
+					errors.push(`manifest.json secret "${name}" has invalid type "${String(secret.type)}".`);
+				}
+				if (typeof secret.required !== "boolean") {
+					errors.push(`manifest.json secret "${name}" required must be boolean.`);
+				}
+				if (secret.description !== undefined && typeof secret.description !== "string") {
+					errors.push(`manifest.json secret "${name}" description must be a string.`);
+				}
+			}
+		}
 	}
 
 	return errors;
@@ -308,7 +351,11 @@ export function validateProgramGraphContract(value: unknown) {
 	return errors;
 }
 
-export function validateCapabilitiesContract(capabilitiesValue: unknown, programValue: unknown) {
+export function validateCapabilitiesContract(
+	capabilitiesValue: unknown,
+	programValue: unknown,
+	manifestValue?: unknown,
+) {
 	const errors: string[] = [];
 	const capabilities = asRecord(capabilitiesValue);
 	if (!capabilities) {
@@ -320,7 +367,7 @@ export function validateCapabilitiesContract(capabilitiesValue: unknown, program
 		errors.push("capabilities.json required_capabilities must be an array of strings.");
 	} else {
 		errors.push(...validateUniqueKnownStrings(declared, capabilitySet, "capability"));
-		const recalculated = recalculateProgramDeclarations(programValue).capabilities;
+		const recalculated = recalculateProgramDeclarations(programValue, manifestValue).capabilities;
 		errors.push(...compareStringSets(declared, recalculated, "capabilities.json required_capabilities"));
 	}
 
@@ -341,7 +388,7 @@ export function validateCapabilitiesContract(capabilitiesValue: unknown, program
 	return errors;
 }
 
-export function validatePermissionsContract(permissionsValue: unknown, programValue: unknown) {
+export function validatePermissionsContract(permissionsValue: unknown, programValue: unknown, manifestValue?: unknown) {
 	const errors: string[] = [];
 	const permissions = asRecord(permissionsValue);
 	if (!permissions) {
@@ -353,7 +400,7 @@ export function validatePermissionsContract(permissionsValue: unknown, programVa
 		errors.push("permissions.json declared_permissions must be an array of strings.");
 	} else {
 		errors.push(...validateUniqueKnownStrings(declared, permissionSet, "permission"));
-		const recalculated = recalculateProgramDeclarations(programValue);
+		const recalculated = recalculateProgramDeclarations(programValue, manifestValue);
 		errors.push(
 			...compareStringSets(
 				declared,
@@ -470,7 +517,7 @@ function isEditorCommentColor(value: unknown) {
 	return value === "amber" || value === "blue" || value === "green" || value === "rose" || value === "violet";
 }
 
-export function recalculateProgramDeclarations(programValue: unknown) {
+export function recalculateProgramDeclarations(programValue: unknown, manifestValue?: unknown) {
 	const program = asRecord(programValue);
 	const entry = asRecord(program?.entry);
 	const block = asRecord(entry?.program);
@@ -487,17 +534,23 @@ export function recalculateProgramDeclarations(programValue: unknown) {
 
 	for (const node of programNodes) {
 		const actionType = node.action_type as ActionType;
-		for (const capability of getNodeCapabilities(actionType)) {
+		const config = isJsonObject(node.config) ? node.config : {};
+		for (const capability of getNodeCapabilities(actionType, config)) {
 			capabilities.add(capability);
 		}
 
-		const config = isJsonObject(node.config) ? node.config : {};
 		for (const permission of getNodePermissions(actionType, config)) {
 			const existing = permissions.get(permission.name);
 			if (!existing || riskWeight[permission.risk] > riskWeight[existing.risk]) {
 				permissions.set(permission.name, permission);
 			}
 		}
+	}
+
+	const manifest = asRecord(manifestValue);
+	if (Array.isArray(manifest?.secrets) && manifest.secrets.length > 0) {
+		capabilities.add("runtime.secrets");
+		permissions.set("read_secret", { name: "read_secret", risk: "high" });
 	}
 
 	const permissionList = [...permissions.values()].sort(

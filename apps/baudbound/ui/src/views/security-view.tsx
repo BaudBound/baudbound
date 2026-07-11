@@ -4,9 +4,19 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import type { DashboardAction } from "@/lib/app-types";
 import { approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
+import { SecretManagementPanel } from "@/views/secret-management-panel";
 
-export function SecurityView({ dashboard }: { dashboard: DashboardPayload }) {
+export function SecurityView({
+  busyActions,
+  dashboard,
+  runAction,
+}: {
+  busyActions: Set<string>;
+  dashboard: DashboardPayload;
+  runAction: DashboardAction;
+}) {
   const scripts = dashboard.runner.scripts;
   const attention = scripts.filter(scriptNeedsAttention);
 
@@ -104,6 +114,12 @@ export function SecurityView({ dashboard }: { dashboard: DashboardPayload }) {
           </CardContent>
         </Card>
       )}
+
+      <SecretManagementPanel
+        busyActions={busyActions}
+        dashboard={dashboard}
+        runAction={runAction}
+      />
     </div>
   );
 }

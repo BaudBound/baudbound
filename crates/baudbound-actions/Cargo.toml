@@ -17,7 +17,9 @@ serde_json.workspace = true
 serialport.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
-urlencoding.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

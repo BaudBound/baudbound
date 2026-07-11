@@ -14,4 +14,4 @@ pub use schedule::ScheduleService;
 pub use serial_input::{SerialDeviceConfig, SerialInputService, SerialReaderStatus};
 pub use startup::StartupService;
 pub use webhook::{WebhookDispatch, WebhookRequest, WebhookResponse, WebhookService};
-pub use websocket::{WebSocketConnectionRegistry, WebSocketService};
+pub use websocket::{WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig};

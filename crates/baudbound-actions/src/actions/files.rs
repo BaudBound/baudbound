@@ -10,6 +10,10 @@ use serde_json::{Map, Number, Value};
 
 use crate::{config_bool, config_string, failed, required_string, timeout_duration};
 
+mod move_file;
+
+use move_file::move_file;
+
 pub(crate) fn read_file_action(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
@@ -152,6 +156,8 @@ pub(crate) fn copy_file_action(
     let source = PathBuf::from(&source_path);
     let destination = PathBuf::from(&destination_path);
 
+    ensure_regular_source(request, &source)?;
+    ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
 
@@ -181,16 +187,11 @@ pub(crate) fn move_file_action(
     let source = PathBuf::from(&source_path);
     let destination = PathBuf::from(&destination_path);
 
+    ensure_regular_source(request, &source)?;
+    ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
-    if overwrite && destination.exists() {
-        fs::remove_file(&destination).map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed to remove existing {destination_path}: {source}"),
-        })?;
-    }
-
-    fs::rename(&source, &destination).map_err(|source| RuntimeActionError::Failed {
+    move_file(&source, &destination, overwrite).map_err(|source| RuntimeActionError::Failed {
         action_type: request.action_type.clone(),
         message: format!("failed to move {source_path} to {destination_path}: {source}"),
     })?;
@@ -249,6 +250,66 @@ fn ensure_destination_available(
             format!(
                 "destination {} is not a regular file",
                 destination.display()
+            ),
+        );
+    }
+    Ok(())
+}
+
+fn ensure_regular_source(
+    request: &RuntimeActionRequest,
+    source: &Path,
+) -> Result<(), RuntimeActionError> {
+    let metadata = fs::metadata(source).map_err(|source_error| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!(
+            "failed to inspect source {}: {source_error}",
+            source.display()
+        ),
+    })?;
+    if !metadata.is_file() {
+        return failed(
+            request,
+            format!("source {} is not a regular file", source.display()),
+        );
+    }
+    Ok(())
+}
+
+fn ensure_distinct_paths(
+    request: &RuntimeActionRequest,
+    source: &Path,
+    destination: &Path,
+) -> Result<(), RuntimeActionError> {
+    if !source.exists() || !destination.exists() {
+        return Ok(());
+    }
+
+    let source = source
+        .canonicalize()
+        .map_err(|source_error| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!(
+                "failed to resolve source path {}: {source_error}",
+                source.display()
+            ),
+        })?;
+    let destination =
+        destination
+            .canonicalize()
+            .map_err(|source_error| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!(
+                    "failed to resolve destination path {}: {source_error}",
+                    destination.display()
+                ),
+            })?;
+    if source == destination {
+        return failed(
+            request,
+            format!(
+                "source and destination resolve to the same file: {}",
+                source.display()
             ),
         );
     }

@@ -1,5 +1,5 @@
 import type { Edge, Node, XYPosition } from "@xyflow/react";
-import type { EditorAsset, ProjectSettings, ScriptNodeData } from "@/lib/types";
+import type { EditorAsset, ProjectSettings, ScriptNodeData, SecretDeclaration } from "@/lib/types";
 
 const SCRIPT_NODE_WIDTH = 256;
 const SCRIPT_NODE_ESTIMATED_HEIGHT = 144;
@@ -39,9 +39,11 @@ export function createEditorVerificationSignature(
 	nodes: Node<ScriptNodeData>[],
 	edges: Edge[],
 	assets: EditorAsset[],
+	secretDeclarations: SecretDeclaration[] = [],
 ) {
 	return JSON.stringify({
 		projectSettings,
+		secretDeclarations,
 		assets: assets.map((asset) => ({
 			id: asset.id,
 			kind: asset.kind,

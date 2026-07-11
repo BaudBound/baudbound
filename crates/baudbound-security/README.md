@@ -7,6 +7,10 @@ Current implementation:
 - Maps known node `action_type` values to runner permissions and risk levels
 - Recalculates required permissions from `program.json`
 - Verifies `permissions.json` exactly matches the executable graph
+- Loads the generated editor-owned node capability contract at compile time
+- Recalculates required capabilities from `program.json`
+- Verifies `capabilities.json` exactly matches the executable graph
+- Rejects duplicate permissions, duplicate capabilities, and unknown action types
 - Verifies declared package risk matches the recalculated highest risk
 - Applies `RunnerPolicy` blocks for:
   - dangerous actions
@@ -20,6 +24,5 @@ Runner lifecycle:
 
 Planned responsibilities:
 
-- Capability analysis
 - Persisted user approvals
 - Per-script and per-run allow/block policy

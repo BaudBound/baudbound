@@ -15,7 +15,7 @@ pub(crate) fn process_status_action(
     let target = required_string(request, "target")?;
     let match_mode =
         config_string(&request.config, "matchMode").unwrap_or_else(|| "process_name".to_owned());
-    let mut system = process_system();
+    let system = process_system();
     let process = find_process(request, &system, &match_mode, &target)?;
 
     let output_data = match process {
@@ -29,7 +29,6 @@ pub(crate) fn process_status_action(
         ]),
     };
 
-    system.refresh_processes(ProcessesToUpdate::All, true);
     Ok(RuntimeActionResult { output_data })
 }
 
@@ -242,20 +241,28 @@ fn find_process<'a>(
                     })?;
             Ok(system.process(Pid::from(process_id)))
         }
-        "process_name" => Ok(system.processes().values().find(|process| {
-            process
-                .name()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(target.trim())
-        })),
+        "process_name" => Ok(system
+            .processes()
+            .values()
+            .filter(|process| {
+                process
+                    .name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(target.trim())
+            })
+            .min_by_key(|process| process.pid().as_u32())),
         "executable_path" => {
             let normalized_target = normalize_path_string(target);
-            Ok(system.processes().values().find(|process| {
-                process
-                    .exe()
-                    .map(|path| normalize_path_string(&path.display().to_string()))
-                    .is_some_and(|path| path == normalized_target)
-            }))
+            Ok(system
+                .processes()
+                .values()
+                .filter(|process| {
+                    process
+                        .exe()
+                        .map(|path| normalize_path_string(&path.display().to_string()))
+                        .is_some_and(|path| path == normalized_target)
+                })
+                .min_by_key(|process| process.pid().as_u32()))
         }
         "window_title" => Err(RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
@@ -293,10 +300,15 @@ fn process_status_output(process: &sysinfo::Process, running: bool) -> Map<Strin
 }
 
 fn normalize_path_string(path: &str) -> String {
-    path.trim().replace('\\', "/").to_ascii_lowercase()
+    let normalized = path.trim().replace('\\', "/");
+    if cfg!(windows) {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    }
 }
 
-fn parse_command_arguments(
+pub(crate) fn parse_command_arguments(
     request: &RuntimeActionRequest,
     input: &str,
 ) -> Result<Vec<String>, RuntimeActionError> {
@@ -304,17 +316,18 @@ fn parse_command_arguments(
     let mut current = String::new();
     let mut chars = input.chars().peekable();
     let mut quote = None::<char>;
-    let mut escaped = false;
 
     while let Some(character) = chars.next() {
-        if escaped {
-            current.push(character);
-            escaped = false;
-            continue;
-        }
-
         if character == '\\' {
-            escaped = true;
+            let escaped_character = chars.peek().copied().filter(|next| {
+                *next == '\\' || next.is_whitespace() || matches!(*next, '"' | '\'')
+            });
+            if let Some(escaped_character) = escaped_character {
+                chars.next();
+                current.push(escaped_character);
+            } else {
+                current.push('\\');
+            }
             continue;
         }
 
@@ -334,9 +347,6 @@ fn parse_command_arguments(
         }
     }
 
-    if escaped {
-        current.push('\\');
-    }
     if quote.is_some() {
         return failed(
             request,

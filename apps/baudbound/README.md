@@ -55,6 +55,17 @@ cargo run -p baudbound -- script logs --script <script-id-or-name>
 cargo run -p baudbound -- script logs --json
 ```
 
+Secret values are managed separately from packages. The package contains names, types, descriptions, and required flags only:
+
+```bash
+cargo run -p baudbound -- secret generate-key
+cargo run -p baudbound -- secret list <script-id-or-name>
+cargo run -p baudbound -- secret set <script-id-or-name> <secret-name>
+cargo run -p baudbound -- secret remove <script-id-or-name> <secret-name>
+```
+
+Desktop mode stores its randomly generated database key in the operating system credential vault. Headless mode never creates a plaintext fallback: set the 32-byte base64 key printed by `secret generate-key` as `BAUDBOUND_SECRET_KEY` in both the long-running service and any CLI process that configures or executes secrets. Secret values are encrypted with XChaCha20-Poly1305 in SQLite, are read-only to scripts, and are removed from durable run variables and logs.
+
 Runner storage defaults to the platform user data directory. Set `BAUDBOUND_HOME` to use a custom storage root:
 
 ```bash
@@ -112,6 +123,7 @@ max_body_bytes = 1048576
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
+max_connections = 128
 ```
 
 Missing config files are initialized from the built-in template. Webhook hosting remains disabled unless `webhooks_enabled = true` is set or `serve --webhooks` is passed. `runner.trigger_reload_seconds` controls how often `serve` checks installed scripts for import/update/remove/enable/disable changes; it defaults to 2 seconds and can be overridden with `serve --reload-interval-seconds`.
@@ -124,7 +136,7 @@ The `script run` command starts from the script manual trigger by default. Use `
 
 Current execution supports trigger-selected graph execution, control flow, variable operations, delay, calculate, file read/write/copy/move/delete, process execution, shell commands, and text transform.
 
-The `ui` command opens the Tauri desktop shell. The desktop screen shows runner health, installed scripts, script package details, declared permissions, trigger registrations, recent run history, service heartbeat data, trigger reload requests, service reload/stop requests, package import/update, script removal, script approval, enable/disable, and manual script runs. It uses the same runner core and storage paths as the CLI, so actions taken in the UI are immediately visible to `script status`, `script logs`, and the long-lived `serve` process.
+The `ui` command opens the Tauri desktop shell. The desktop screen shows runner health, installed scripts, script package details, declared permissions, encrypted secret configuration, trigger registrations, recent run history, service heartbeat data, trigger reload requests, service reload/stop requests, package import/update, script removal, script approval, enable/disable, and manual script runs. It uses the same runner core and storage paths as the CLI, so actions taken in the UI are immediately visible to `script status`, `script logs`, and the long-lived `serve` process.
 
 The desktop UI frontend lives in `apps/baudbound/ui` and uses Vite, TypeScript, React, Tailwind, and shadcn-style local components:
 
@@ -144,7 +156,11 @@ The `script dispatch-trigger` command is a development harness for trigger adapt
 
 The `serve` command hosts long-lived trigger listeners. Use `serve --dry-run` to preview which listener services would be active without opening ports, file watchers, serial devices, or background polling threads. It dispatches enabled `trigger.startup` nodes once when the runner service starts. It registers enabled `trigger.schedule` nodes and dispatches them on their configured intervals when schedules are enabled. It registers enabled `trigger.file_watch` nodes when file watching is enabled. It polls enabled `trigger.process_started` nodes and dispatches when a matching new process appears. It opens enabled `trigger.serial_input` nodes when serial triggers are enabled and the trigger `deviceId` has a matching runner-side serial device entry, then dispatches when serial data arrives. Webhook and WebSocket hosting are opt-in through config or `--webhooks` / `--websockets`; when enabled, matching webhook requests are available as `{{webhook-node.method}}`, `{{webhook-node.path}}`, `{{webhook-node.headers}}`, `{{webhook-node.query}}`, `{{webhook-node.body}}`, and `{{webhook-node.json}}`, while WebSocket messages expose `{{websocket-node.connection_id}}`, `{{websocket-node.message}}`, `{{websocket-node.headers}}`, `{{websocket-node.query}}`, and `{{websocket-node.json}}`. Pressing Ctrl+C requests graceful shutdown and lets active listener services stop cleanly.
 
-For headless servers, run `baudbound serve` under your chosen process manager, then use the same binary and `BAUDBOUND_HOME` for `script import` / `script update` / `script list` commands. Importing, updating, removing, enabling, or disabling a script writes a reload signal into runner storage, so a running `serve` process reloads listener registrations on its next loop tick. The service also periodically reloads trigger registrations as a fallback, so manual storage changes are picked up without restarting the process. While it runs, `serve` writes `service-status.json` with its process id, heartbeat, reload time, and active listener service counts. Use your process manager's own commands to inspect, restart, and stop the background runner.
+Schedule intervals support positive fractional values down to one nanosecond. If polling is delayed across multiple ticks, the runner emits one event with `missed_intervals` and advances to the next point on the original cadence instead of drifting or replaying an unbounded backlog. Trigger reload preserves deadlines for unchanged schedules and starts changed or newly added schedules from the reload time.
+
+The process-start listener uses process ID plus process start time as its identity, so a long-lived process emits once while PID reuse is detected correctly. Reload reuses the same polling thread, preserves unchanged window-title candidates, baselines changed and newly added registrations, and prevents removed registrations from receiving processes first observed at the reload boundary.
+
+For headless servers, run `baudbound serve` under your chosen process manager, then use the same binary and `BAUDBOUND_HOME` for `script import` / `script update` / `script list` commands. Importing, updating, removing, enabling, or disabling a script writes a durable reload signal into `runner.sqlite3`, so a running `serve` process reloads listener registrations on its next loop tick. The service also periodically compares trigger registrations as a fallback. Runtime status snapshots are stored in SQLite and exposed through `baudbound status`; use your process manager's own commands to inspect, restart, and stop the background runner.
 
 Approvals are bound to the exact installed package hash and declared permissions. Updating a package clears the previous approval, so changed scripts must be reviewed again before the runner applies permissive policy.
 

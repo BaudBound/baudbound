@@ -1,4 +1,4 @@
-import type { JsonValue } from "@/lib/types";
+import type { JsonValue, TargetRuntime } from "@/lib/types";
 
 export function configString(config: Record<string, JsonValue>, key: string) {
 	const value = config[key];
@@ -15,6 +15,27 @@ export function configString(config: Record<string, JsonValue>, key: string) {
 
 export function requiredConfig(config: Record<string, JsonValue>, key: string, label: string) {
 	return configString(config, key).trim() ? "" : `must define ${label}.`;
+}
+
+export function requiredStaticConfig(config: Record<string, JsonValue>, key: string, label: string) {
+	const value = configString(config, key).trim();
+	if (!value) {
+		return `must define ${label}.`;
+	}
+
+	return hasTemplateReference(value) ? `${label} cannot use runtime variable references.` : "";
+}
+
+export function windowsDesktopOnlyConfigValue(
+	config: Record<string, JsonValue>,
+	key: string,
+	value: string,
+	targetRuntime: TargetRuntime,
+	label: string,
+) {
+	return configString(config, key) === value && targetRuntime !== "Windows Desktop"
+		? `${label} requires the Windows Desktop target runtime.`
+		: "";
 }
 
 export function staticNonNegativeNumberConfig(config: Record<string, JsonValue>, key: string, label: string) {
@@ -57,6 +78,37 @@ export function staticPositiveNumberConfig(config: Record<string, JsonValue>, ke
 
 	const numberValue = Number(value);
 	return Number.isFinite(numberValue) && numberValue > 0 ? "" : `${label} must be greater than zero.`;
+}
+
+export function staticPositiveDurationConfig(
+	config: Record<string, JsonValue>,
+	valueKey: string,
+	unitKey: string,
+	label: string,
+) {
+	const value = configString(config, valueKey).trim();
+	if (!value) {
+		return `must define ${label}.`;
+	}
+	if (hasTemplateReference(value)) {
+		return `${label} cannot use runtime variable references.`;
+	}
+
+	const multiplier = {
+		seconds: 1,
+		minutes: 60,
+		hours: 60 * 60,
+		days: 24 * 60 * 60,
+	}[configString(config, unitKey).trim()];
+	const numericValue = Number(value);
+	const seconds = numericValue * (multiplier ?? Number.NaN);
+	if (!Number.isFinite(numericValue) || numericValue <= 0) {
+		return `${label} must be greater than zero.`;
+	}
+	if (!Number.isFinite(seconds) || seconds < 1e-9 || seconds >= 2 ** 64) {
+		return `${label} must fit the supported duration range and be at least one nanosecond.`;
+	}
+	return "";
 }
 
 export function staticNumberConfig(config: Record<string, JsonValue>, key: string, label: string) {

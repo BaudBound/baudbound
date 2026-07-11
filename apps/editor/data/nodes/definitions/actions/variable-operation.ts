@@ -31,6 +31,20 @@ export const variableOperationNode = defineNode({
 		fieldPath: "",
 	}),
 	description: "Set, increment, append, clear, or edit variable values.",
+	deriveCapabilities: (config) =>
+		configString(config.scope) === "runtime"
+			? ["runtime.variables"]
+			: ["runtime.variables", "runtime.persistent_storage"],
+	derivePermissions: (config) => {
+		const scope = configString(config.scope);
+		if (scope === "persistent") {
+			return [{ name: "set_persistent_variable", risk: "medium" }];
+		}
+		if (scope === "global") {
+			return [{ name: "set_global_variable", risk: "high" }];
+		}
+		return [{ name: "set_local_variable", risk: "low" }];
+	},
 	group: "actions",
 	icon: Database,
 	kind: "action",
@@ -43,11 +57,13 @@ export const variableOperationNode = defineNode({
 		const nameError = validateVariableName(name);
 		const operation = normalizeVariableOperation(configString(config.operation));
 		const rawType = configString(config.valueType);
+		const scope = configString(config.scope);
 		const fixedType = getVariableOperationFixedType(operation);
 		const declaredType = variableTypes.find((type) => type === rawType);
 		const valueType = fixedType ?? declaredType;
 		const errors = [
 			nameError ? `has invalid variable name: ${nameError}` : "",
+			["runtime", "persistent", "global"].includes(scope) ? "" : `has invalid variable scope "${scope || "missing"}".`,
 			valueType ? "" : `has invalid variable type "${rawType || "missing"}".`,
 		];
 

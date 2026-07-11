@@ -15,7 +15,7 @@ export const variableTypes = [
 
 export type VariableType = (typeof variableTypes)[number];
 
-export const variableScopes = ["runtime", "persistent", "global", "secret"] as const;
+export const variableScopes = ["runtime", "persistent", "global"] as const;
 
 export type VariableScope = (typeof variableScopes)[number];
 
@@ -25,9 +25,9 @@ export type VariableOperation = (typeof variableOperations)[number];
 
 export const reservedVariablePrefixes = ["manifest_", "system_"] as const;
 
-export type EditorVariableScope = VariableScope | "manifest" | "system" | "node_output";
+export type EditorVariableScope = VariableScope | "secret" | "manifest" | "system" | "node_output";
 
-export type EditorVariableSource = "user" | "built_in" | "node_output";
+export type EditorVariableSource = "user" | "built_in" | "node_output" | "secret";
 
 export type EditorVariable<TValue extends JsonValue | undefined = JsonValue | undefined> = {
 	description?: string;
@@ -88,7 +88,6 @@ export const variableScopeDefinitions: Record<VariableScope, string> = {
 	runtime: "Exists only during one script run.",
 	persistent: "Stored between runs.",
 	global: "Configured globally and available to scripts.",
-	secret: "Sensitive encrypted value such as an API key.",
 };
 
 export const variableOperationDefinitions: Record<

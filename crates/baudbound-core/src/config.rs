@@ -13,6 +13,7 @@ pub const DEFAULT_WEBHOOK_MAX_BODY_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_WEBSOCKET_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBSOCKET_PORT: u16 = 43892;
 pub const DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_WEBSOCKET_MAX_CONNECTIONS: usize = 128;
 pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -70,6 +71,18 @@ impl RunnerConfig {
     }
 
     fn validate(&self, path: &Path) -> Result<(), RunnerConfigError> {
+        if self.websockets.max_connections == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "websockets.max_connections must be greater than zero".to_owned(),
+            });
+        }
+        if self.websockets.max_message_bytes == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "websockets.max_message_bytes must be greater than zero".to_owned(),
+            });
+        }
         for (device_id, device) in &self.serial.devices {
             if !device.auto_rebind_port {
                 continue;
@@ -179,6 +192,7 @@ max_body_bytes = 1048576
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
+max_connections = 128
 "#
     }
 }
@@ -297,6 +311,7 @@ impl Default for WebhookSettings {
 #[serde(default)]
 pub struct WebSocketSettings {
     pub bind: String,
+    pub max_connections: usize,
     pub max_message_bytes: usize,
     pub port: u16,
 }
@@ -305,6 +320,7 @@ impl Default for WebSocketSettings {
     fn default() -> Self {
         Self {
             bind: DEFAULT_WEBSOCKET_BIND.to_owned(),
+            max_connections: DEFAULT_WEBSOCKET_MAX_CONNECTIONS,
             max_message_bytes: DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
             port: DEFAULT_WEBSOCKET_PORT,
         }
@@ -431,6 +447,7 @@ mod tests {
                 bind = "127.0.0.1"
                 port = 9001
                 max_message_bytes = 4096
+                max_connections = 32
             "#,
             "runner.toml",
         )
@@ -455,6 +472,7 @@ mod tests {
         assert_eq!(config.websockets.bind, "127.0.0.1");
         assert_eq!(config.websockets.port, 9001);
         assert_eq!(config.websockets.max_message_bytes, 4096);
+        assert_eq!(config.websockets.max_connections, 32);
         let device = config
             .serial
             .devices
@@ -511,6 +529,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_websocket_resource_limits() {
+        for (field, config) in [
+            (
+                "max_connections",
+                "[websockets]\nmax_connections = 0\nmax_message_bytes = 1024",
+            ),
+            (
+                "max_message_bytes",
+                "[websockets]\nmax_connections = 4\nmax_message_bytes = 0",
+            ),
+        ] {
+            let error = RunnerConfig::from_toml(config, "runner.toml")
+                .expect_err("zero WebSocket resource limit should fail");
+            assert!(error.to_string().contains(field), "{error}");
+        }
+    }
+
+    #[test]
     fn template_toml_parses_as_valid_config() {
         let config = RunnerConfig::from_toml(RunnerConfig::template_toml(), "template.toml")
             .expect("template should parse");
@@ -518,6 +554,10 @@ mod tests {
         assert_eq!(config.runner_name(), "BaudBound Runner");
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
         assert_eq!(config.websockets.port, DEFAULT_WEBSOCKET_PORT);
+        assert_eq!(
+            config.websockets.max_connections,
+            DEFAULT_WEBSOCKET_MAX_CONNECTIONS
+        );
         assert!(!config.triggers.webhooks_enabled);
         assert!(!config.triggers.websockets_enabled);
     }

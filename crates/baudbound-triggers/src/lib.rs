@@ -4,6 +4,7 @@ mod services;
 
 use std::{
     collections::BTreeMap,
+    sync::mpsc::{SyncSender, TrySendError},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -15,7 +16,8 @@ use thiserror::Error;
 pub use services::{
     FileWatchService, HotkeyService, ProcessStartedService, ScheduleService, SerialDeviceConfig,
     SerialInputService, SerialReaderStatus, StartupService, WebSocketConnectionRegistry,
-    WebSocketService, WebhookDispatch, WebhookRequest, WebhookResponse, WebhookService,
+    WebSocketService, WebSocketServiceConfig, WebhookDispatch, WebhookRequest, WebhookResponse,
+    WebhookService,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
@@ -53,6 +55,32 @@ pub trait TriggerDispatcher: Send + Sync {
 
 pub trait SerialPortRebindSink: Send + Sync {
     fn update_serial_device_port(&self, device_id: &str, port: &str) -> Result<(), String>;
+}
+
+pub(crate) fn try_send_trigger_event(
+    sender: &SyncSender<TriggerEvent>,
+    event: TriggerEvent,
+    source: &str,
+) -> bool {
+    match sender.try_send(event) {
+        Ok(()) => true,
+        Err(TrySendError::Full(event)) => {
+            tracing::warn!(
+                "{source} trigger {} for script {} was rejected because the listener event channel is at capacity",
+                event.node_id,
+                event.script_id
+            );
+            false
+        }
+        Err(TrySendError::Disconnected(event)) => {
+            tracing::warn!(
+                "{source} trigger {} for script {} was rejected because the listener event channel is closed",
+                event.node_id,
+                event.script_id
+            );
+            false
+        }
+    }
 }
 
 pub const SUPPORTED_SERVICE_TRIGGER_ACTION_TYPES: &[&str] = &[

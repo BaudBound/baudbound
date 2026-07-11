@@ -74,14 +74,12 @@ pub(crate) fn text_format_action(
             ),
             Vec::new(),
         ),
-        "url_encode" => (urlencoding::encode(&input).into_owned(), Vec::new()),
+        "url_encode" => (encode_uri_component(&input), Vec::new()),
         "url_decode" => (
-            urlencoding::decode(&input)
-                .map_err(|source| RuntimeActionError::Failed {
-                    action_type: request.action_type.clone(),
-                    message: format!("invalid URL encoded input: {source}"),
-                })?
-                .into_owned(),
+            decode_uri_component(&input).map_err(|message| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message,
+            })?,
             Vec::new(),
         ),
         "base64_encode" => (
@@ -115,7 +113,16 @@ pub(crate) fn text_format_action(
                     message: format!("failed to JSON unescape input: {source}"),
                 }
             })?;
-            (value_to_string(&value), Vec::new())
+            let text = match value {
+                Value::String(value) => value,
+                value => {
+                    serde_json::to_string(&value).map_err(|source| RuntimeActionError::Failed {
+                        action_type: request.action_type.clone(),
+                        message: format!("failed to serialize JSON value: {source}"),
+                    })?
+                }
+            };
+            (text, Vec::new())
         }
         _ => {
             return failed(
@@ -176,5 +183,63 @@ fn pad_text(input: &str, target_length: usize, pad: &str, start: bool) -> String
         format!("{repeated}{input}")
     } else {
         format!("{input}{repeated}")
+    }
+}
+
+fn encode_uri_component(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
+        {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(encoded, "%{byte:02X}").expect("writing to a string cannot fail");
+        }
+    }
+    encoded
+}
+
+fn decode_uri_component(input: &str) -> Result<String, String> {
+    let input = input.as_bytes();
+    let mut decoded = Vec::with_capacity(input.len());
+    let mut index = 0;
+
+    while index < input.len() {
+        if input[index] != b'%' {
+            decoded.push(input[index]);
+            index += 1;
+            continue;
+        }
+
+        if index + 2 >= input.len() {
+            return Err("invalid URL encoded input: incomplete percent escape".to_owned());
+        }
+        let high = decode_hex_digit(input[index + 1]);
+        let low = decode_hex_digit(input[index + 2]);
+        let (Some(high), Some(low)) = (high, low) else {
+            return Err(
+                "invalid URL encoded input: percent escape must contain two hexadecimal digits"
+                    .to_owned(),
+            );
+        };
+        decoded.push((high << 4) | low);
+        index += 3;
+    }
+
+    String::from_utf8(decoded)
+        .map_err(|source| format!("invalid URL encoded UTF-8 input: {source}"))
+}
+
+fn decode_hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }

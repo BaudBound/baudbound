@@ -24,6 +24,19 @@ pub struct Manifest {
     pub minimum_runner_version: String,
     #[serde(default)]
     pub assets: Vec<ManifestAsset>,
+    #[serde(default)]
+    pub secrets: Vec<SecretDeclaration>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SecretDeclaration {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub value_type: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

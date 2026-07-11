@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -46,11 +46,6 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
         .execute_batch(
             r#"
             BEGIN;
-
-            CREATE TABLE IF NOT EXISTS runner_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
 
             CREATE TABLE IF NOT EXISTS scripts (
                 id TEXT PRIMARY KEY,
@@ -104,7 +99,32 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 requested_at_unix INTEGER NOT NULL
             );
 
-            PRAGMA user_version = 1;
+            CREATE TABLE IF NOT EXISTS persistent_variables (
+                script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                value_json TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK (version >= 1),
+                updated_at_unix INTEGER NOT NULL,
+                PRIMARY KEY (script_id, name)
+            );
+
+            CREATE TABLE IF NOT EXISTS global_variables (
+                name TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK (version >= 1),
+                updated_at_unix INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS secret_values (
+                script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                nonce BLOB NOT NULL,
+                ciphertext BLOB NOT NULL,
+                updated_at_unix INTEGER NOT NULL,
+                PRIMARY KEY (script_id, name)
+            );
+
+            PRAGMA user_version = 2;
             COMMIT;
             "#,
         )

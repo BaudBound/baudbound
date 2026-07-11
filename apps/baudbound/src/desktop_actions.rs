@@ -10,6 +10,7 @@ mod dialogs;
 mod input;
 mod keyboard;
 mod mouse;
+mod process;
 mod screen;
 #[cfg(windows)]
 mod windows_desktop;
@@ -19,6 +20,7 @@ use clipboard::run_clipboard;
 use dialogs::{run_message_box, run_notification};
 use keyboard::{run_keyboard, run_keyboard_type_text};
 use mouse::{run_mouse_click, run_mouse_move};
+use process::{run_kill_process_by_window_title, run_process_status_by_window_title};
 use screen::{run_active_window, run_pixel_get, run_window_focus};
 
 #[derive(Debug, Default)]
@@ -111,6 +113,22 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
         _context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         run_window_focus(request)
+    }
+
+    fn process_status_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        run_process_status_by_window_title(request)
+    }
+
+    fn kill_process_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        run_kill_process_by_window_title(request)
     }
 }
 

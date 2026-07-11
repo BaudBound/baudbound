@@ -1,6 +1,6 @@
 # Runner Production Readiness Plan
 
-Snapshot date: 2026-07-09
+Snapshot date: 2026-07-11
 
 This document tracks what must be completed before publishing the first production BaudBound runner release. The editor is considered mostly ready feature-wise, so this plan focuses on making the Rust runner support every editor-exported feature, or explicitly reject unsupported platform combinations before execution.
 
@@ -33,7 +33,20 @@ SQLite owns durable state:
 - Run history and run logs.
 - Service/background-runner status snapshots.
 - Durable reload signals where a persisted signal is appropriate.
+- Per-script persistent variables and runner-wide global variables, with optimistic concurrency control.
+- Authenticated-encrypted secret values. Secret plaintext is never stored in SQLite.
 - Future config migration metadata.
+
+Variable and secret ownership:
+
+- `runtime` variables exist only for one execution.
+- `persistent` variables are writable script-owned values retained across executions.
+- `global` variables are writable runner-owned values shared across scripts and require an elevated permission.
+- Secrets are runner-managed, read-only script inputs. Packages contain declarations only: name, type, description, and whether the value is required.
+- Desktop secret encryption uses a random key held by the operating-system credential vault.
+- Headless secret encryption requires `BAUDBOUND_SECRET_KEY`; there is no plaintext or automatically persisted key fallback.
+- The editor may accept real secret values for simulation only when the user enters them for that session. Simulation values are never written into editor state, autosaves, or exported packages, and simulation logs/snapshots redact them.
+- Secret values do not expose derived metadata variables such as `$length`, `$count`, `$type`, or `$is_empty`.
 
 IPC owns live control:
 
@@ -41,6 +54,8 @@ IPC owns live control:
 - Reload trigger registrations.
 - Query live runner status when a runner process is active.
 - Future live commands that should not be represented as files.
+
+Long-running trigger execution must not block the service control loop. Network trigger hosts use bounded execution queues and fixed worker pools so reload, stop, heartbeat, and unrelated requests remain responsive under load. Client response deadlines are coordination deadlines: a timed-out workflow continues to completion and its run result remains durable until explicit runtime cancellation semantics are implemented.
 
 Tauri commands own desktop UI communication:
 
@@ -55,22 +70,22 @@ Files remain valid only for file-shaped data:
 - Optional exported diagnostics/log bundles.
 - Human-authored deployment templates and documentation.
 
-The existing `index.json`, `approvals.json`, `runs.jsonl`, `service-status.json`, `.service-control.json`, and `.trigger-reload` storage/control files are transitional compatibility paths. They must either be migrated into SQLite/IPC before first release or explicitly removed before release. The final production runner must not rely on JSON files for live process control.
+The runner has not been publicly released with an older storage format, so no legacy JSON migration is required. Obsolete JSON storage and control implementations have been removed. Runner operation uses SQLite plus IPC and does not maintain parallel metadata formats.
 
 ## Current Readiness Snapshot
 
 | Area | Current estimate | Notes |
 | --- | ---: | --- |
-| Runtime execution engine | 88% | Core graph execution, variables, conditions, loops, while, for-each, switch, calculate, delay, log, and external action dispatch exist. Needs broader end-to-end test coverage. |
-| Action coverage | 83% | Most editor actions have runner handlers. Editor-to-runner support ownership is now CI-gated. Native desktop behavior still needs real-machine verification and platform gating review. |
-| Trigger services | 83% | Schedule, file watch, webhook, websocket, serial, startup, process started, and hotkey services exist. Long-lived serve reload/stop behavior now has automated CLI coverage; long soak validation is user-owned for now. |
+| Runtime execution engine | 97% | Control flow, all writable variable scopes, read-only secret inputs, derived metadata, and the complete documented Calculate expression contract have focused coverage. Cooperative cancellation policy remains. |
+| Action coverage | 93% | Text, calculation, HTTP, filesystem, process, and shell behavior have focused coverage. Process window-title query/termination now use native Win32 APIs and are rejected for every non-Windows-Desktop target. Remaining work is concentrated in native desktop verification and final platform review. |
+| Trigger services | 99% | Webhook, WebSocket, File Watch, process-start, and schedule lifecycle/reload behavior have focused concurrency coverage. Process-start uses stable process identities and acknowledged in-place reload; schedules preserve cadence and coalesce missed ticks. Final serial/hotkey platform verification remains. |
 | Serial/device system | 80% | Logical device IDs, reconnect, USB identity validation, port rebinding, scanner, and UI exist. Codex-owned work focuses on config/import/UI correctness; physical multi-device validation is user-owned for now. |
-| Security/approval/storage | 86% | Import validation, package hash checks, minimum runner version enforcement, approvals, stale approval states, and run records exist. SQLite backend now implements the script lifecycle contract, but the app still needs to switch active storage from JSON/index files before release. |
-| Desktop UI | 75% | Main tabs and workflows exist. Needs final polish, error states, packaging validation, and production install behavior. |
-| Codebase maintainability | 92% | Inline tests were moved out and action/runtime/trigger/core/storage domain modules were extracted. Trigger services live under `services/`, action implementations live under `actions/`, runtime graph/config/control/condition/template/variable/calculation helpers live under `runtime/`, core package/run-record/serial/status/sub-script/trigger/version logic lives in focused modules, and storage filesystem/metadata/service-control/approval/run helpers live under `storage/`. Remaining maintainability work is mostly fixture cleanup and targeted splits only where production files continue to grow. |
+| Security/approval/storage | 99% | Permissions/capabilities are independently recalculated, package/update/hash policy is covered, durable variables use SQLite CAS, and secrets use authenticated encryption with vault/environment key ownership and report redaction. Desktop approval UI reliability remains. |
+| Desktop UI | 80% | Main workflows use SQLite-backed state, live trigger reload uses authenticated IPC, and declared secrets can be configured without returning values to React. Final polish, error states, packaging validation, and production install behavior remain. |
+| Codebase maintainability | 99% | Domain code and focused suites are modular, the editor generates the runner capability contract from node definitions as the single source of truth, trigger execution uses one tested bounded executor, and File Watch, WebSocket, process-start, and schedule ownership are split into focused modules. A few older broad fixture/test modules remain candidates for later splitting. |
 | Packaging/release | 40% | Initial runner CI quality gate exists. Still needs Tauri release packaging, GitHub Releases updater artifacts, Linux AppImage, versioning, signing decisions, and documentation. |
-| Cross-platform native support | 50% | First release supports Windows and Linux only. Windows has the strongest native desktop path; Linux desktop support must be verified or precisely gated. |
-| Overall first production runner readiness | 80% | Good foundation, but not safe to publish as production until the SQLite/IPC architecture migration and the checklist below are complete. |
+| Cross-platform native support | 56% | First release supports Windows and Linux only. Windows now has native window-title process actions and trigger matching with precise config-sensitive gating; Linux desktop support still needs verification or precise rejection for remaining native features. |
+| Overall first production runner readiness | 93% | SQLite/IPC, package truthfulness, all variable lifecycles, encrypted secrets, file/network/process behavior, Sub-script approval boundaries, and major trigger lifecycle/reload behavior are substantially covered. Release packaging, cancellation, platform verification, and final desktop polish remain. |
 
 ## Feature Coverage Baseline
 
@@ -80,19 +95,19 @@ The runner must support or intentionally reject every feature exported by the ed
 
 | Editor node | Runner status | Production requirement |
 | --- | --- | --- |
-| If / Else | Implemented | Add more condition matrix tests, including inverted conditions. |
-| Switch | Implemented | Test default/no-match behavior and all exported case shapes. |
-| Loop | Implemented | Verify loop branch does not need to return to loop input. |
-| While | Implemented | Add long-running and false-first-condition tests. |
-| For Each | Implemented | Test lists from variables, nested object paths, empty lists, and non-list rejection. |
+| If / Else | Implemented and matrix-tested | All exported comparison operators, malformed numeric/regex conditions, and inversion are covered. |
+| Switch | Implemented and tested | Matching, no-match branch termination, and both exported case value field shapes are covered. |
+| Loop | Implemented and tested | The body executes for the configured count without returning to the loop input, then follows `done`. |
+| While | Implemented and tested | Iterative and false-first behavior are covered. Long-running soak validation is user-owned. |
+| For Each | Implemented and tested | JSON lists, nested variable paths, empty lists, and non-list rejection are covered. |
 
 ### Runtime/Data Actions
 
 | Editor node | Runner status | Production requirement |
 | --- | --- | --- |
-| Variable Operation | Implemented | Test all operations and derived metadata for strings, lists, and objects. |
-| Calculate | Implemented | Test supported operators/functions against editor docs. |
-| Format Text | Implemented | Add operation-by-operation tests matching editor options. |
+| Variable Operation | All writable scopes implemented and tested | Runtime, per-script persistent, and runner-wide global scopes support the exported operations. Stored writes use versioned compare-and-set updates. Secrets are intentionally separate read-only manifest declarations and cannot be selected as a writable scope. |
+| Calculate | Implemented and matrix-tested | Every documented operator/function, precedence, scientific notation, malformed expression, non-finite result, and random range is covered. |
+| Format Text | Implemented and matrix-tested | All 17 editor operations, exported join-list strings, and malformed regex/Base64/URL/JSON/list inputs are covered. |
 | Log | Implemented | Ensure logs appear consistently in CLI and desktop UI. |
 | Delay | Implemented | Add cancellation/stop behavior decision for long delays. |
 
@@ -100,18 +115,18 @@ The runner must support or intentionally reject every feature exported by the ed
 
 | Editor node | Runner status | Production requirement |
 | --- | --- | --- |
-| HTTP Request | Implemented | Add timeout, headers, body, failure, and large response tests. |
-| Download File | Implemented | Add overwrite/path/error tests. |
-| Read File | Implemented | Confirm encoding and permissions behavior. |
-| Write File | Implemented | Confirm append/overwrite and permissions behavior. |
-| Delete File | Implemented | Verify path validation and dangerous approval flow. |
-| Copy File | Implemented | Verify overwrite behavior and path errors. |
-| Move File | Implemented | Verify overwrite behavior and path errors. |
-| Run Process | Implemented | Test wait/no-wait, args, exit code, stdout/stderr. |
-| Process Status | Implemented | Test by name/path/window title/PID where supported. |
-| Kill Process | Implemented | Test PID mode and name/path modes safely. |
-| Shell Command | Implemented | Keep dangerous; verify approval gating and output capture. |
-| Sub-script | Implemented | Test recursion prevention, missing script, approval, and run record linkage. |
+| HTTP Request | Implemented and matrix-tested | All editor methods, body policy, list/object headers, timeout, connection/config failures, JSON output, and multi-megabyte responses are covered. |
+| Download File | Implemented and tested | Success, HTTP failure, overwrite protection, overwrite replacement, destination creation, and output metadata are covered. |
+| Read File | Implemented and tested | UTF-8 success, unsupported encoding, invalid UTF-8, missing paths, and output byte counts are covered. |
+| Write File | Implemented and tested | Append, overwrite, parent creation, invalid modes, and invalid destination types are covered. |
+| Delete File | Runtime behavior tested | Regular-file deletion, missing paths, and directory rejection are covered. Dangerous approval flow remains in the security audit. |
+| Copy File | Implemented and tested | Overwrite policy, missing/invalid paths, same-file protection, parent creation, byte counts, and data preservation are covered. |
+| Move File | Implemented with native platform backends and tested | Linux uses native rename; Windows uses `MoveFileExW` with replace/cross-volume flags. Overwrite, missing/invalid paths, same-file protection, and source preservation are covered. |
+| Run Process | Implemented and tested | Arguments, quoted values, Windows paths, working directory, exit code, stdout/stderr, missing executables, and invalid working directories are covered. The current editor contract is wait-and-capture only; it does not export a wait/no-wait option. |
+| Process Status | Implemented and tested | PID/name/path matching is deterministic and platform-correct. Window-title mode uses native Win32 enumeration on Windows Desktop; editor verification and runner import reject that mode for generic, Linux, and headless targets. Safe native not-found behavior is automated; real-window validation is user-owned. |
+| Kill Process | Implemented and tested | PID/name/path use the shared process backend. Window-title mode uses native Win32 enumeration plus `TerminateProcess`, selects the lowest matching PID deterministically, and is gated to Windows Desktop. Real-window termination validation is user-owned. |
+| Shell Command | Implemented and tested | Nonzero exit, stdout/stderr capture, dangerous classification, and the independent shell policy gate are covered. |
+| Sub-script | Implemented and tested | Successful child execution, persisted child run linkage, missing child failure, recursion prevention, and independent child approval enforcement are covered. |
 
 ### Desktop Actions
 
@@ -138,14 +153,14 @@ These must use native APIs only. If a platform has no native backend, the editor
 | Editor trigger | Runner status | Production requirement |
 | --- | --- | --- |
 | Manual | Implemented | Must work from CLI and desktop UI. |
-| Schedule | Implemented | Add automated coverage for reload, clock drift, and missed interval behavior where practical. Long soak validation is user-owned for now. |
-| File Watch | Implemented | Test create/modify/delete/rename and recursive behavior. |
-| Webhook | Implemented | Test wait-for-response mode, timeout, body limits, headers, methods, and concurrent requests. |
-| WebSocket | Implemented | Test connection lifecycle, message payloads, max message size, and writes back to connection. |
+| Schedule | Implemented and timing-tested | Fractional intervals, strict duration bounds, unchanged/changed reload behavior, drift-free cadence, and coalesced missed intervals are covered. |
+| File Watch | Implemented and lifecycle-tested | Static paths, file deletion/recreation, normalized create/modify/delete/rename events, optional recursive directory watching, burst delivery, and registration replacement are covered. |
+| Webhook | Implemented and concurrency-tested | Bounded worker execution, overload rejection, immediate responses, response-node success, configured deadlines/fallback, missing responses, body limits, headers, method routing, dispatch failures, and active route reloads are covered. Timed-out runs intentionally continue until runtime cancellation semantics exist. |
+| WebSocket | Implemented and concurrency-tested | Real loopback tests cover concurrent clients, text/JSON/binary payloads, handshake headers/query data, server writes, unique connection IDs, unknown routes, connection limits, protocol-level message limits, disconnect cleanup, shutdown, and route reload without listener rebinding. |
 | Serial Input | Implemented | Add automated coverage for config, reconnect decisions, auto-rebind decisions, identity matching, and line/raw modes where practical. Physical multi-device validation is user-owned for now. |
 | Hotkey | Implemented | Verify native hotkey support and OS permission requirements. |
 | Startup | Implemented as runner-start trigger | Document that headless startup is controlled by user service manager; desktop app startup behavior still needs release decision. |
-| App/Process Started | Implemented | Test polling accuracy, duplicate suppression, process matching modes. |
+| App/Process Started | Implemented and lifecycle-tested with platform gating | Name/path matching remains cross-platform. Window-title matching uses native Win32 enumeration only for Windows Desktop. Stable process identities, duplicate suppression, PID reuse, pending-window preservation, reload boundaries, worker reuse, and prompt shutdown are covered. |
 
 ## Blocking Work Before First Release
 
@@ -216,12 +231,12 @@ Done when:
 
 Codex-owned automated tests:
 
-- Webhook concurrent requests.
-- Webhook wait-for-response success, timeout, and missing response behavior.
-- WebSocket connect/message/disconnect and write response.
-- File watch with rapid changes.
-- Process-started duplicate suppression.
-- Trigger reload while events are arriving.
+- [x] Webhook concurrent requests.
+- [x] Webhook wait-for-response success, timeout, and missing response behavior.
+- [x] WebSocket connect/message/disconnect and write response.
+- [x] File watch with rapid changes.
+- [x] Process-started duplicate suppression.
+- [x] Trigger reload while events are arriving.
 
 Done when:
 
@@ -259,7 +274,7 @@ Done when:
 
 Required:
 
-- Installed script metadata, approvals, run records, and package hashes are migrated to SQLite.
+- Installed script metadata, approvals, run records, and package hashes are stored in SQLite.
 - Package hash mismatch blocks execution.
 - Updated packages invalidate approval.
 - Dangerous/high/medium permissions are visible and require approval where intended.
@@ -267,12 +282,16 @@ Required:
 - Capabilities are recalculated by runner and compared to package declarations.
 - Minimum runner version is enforced.
 - Tampered `.bbs` packages fail import or execution safely.
-- Sub-scripts cannot bypass approval.
+- Sub-scripts cannot bypass approval. Completed 2026-07-10.
 - Shell and process-kill permissions are clearly high-risk/dangerous.
+- Persistent/global writes and secret reads have configuration-derived permissions and capabilities.
+- Secret values are authenticated-encrypted at rest and never returned by CLI status or Tauri dashboard commands.
+- Runtime reports, logs, errors, and editor simulation snapshots redact secret values.
+- Required secret declarations block execution when no value is configured.
 
 Done when:
 
-- A small abuse-case suite exists.
+- A small abuse-case suite exists. Completed 2026-07-10.
 - Desktop UI approval modal works reliably.
 - CLI approval commands remain complete for headless users.
 
@@ -285,6 +304,7 @@ Required:
 - Config tab: simple and advanced modes both work, with TOML validation.
 - Devices tab: scanner and add-to-config flow work reliably.
 - Security tab: approval/risk/package hash language is user-friendly.
+- Security tab: declared secrets can be configured, replaced, and removed without revealing stored values.
 - Service tab: background runner state is accurate and not confused with external service management.
 - Doctor tab: shows real diagnostics, not placeholder/config duplication.
 - No horizontal scrolling in normal responsive layouts.
@@ -388,7 +408,7 @@ Required:
 - Tauri build check.
 - Example package validation.
 - Optional release artifact smoke test.
-- SQLite migration tests.
+- SQLite schema initialization and upgrade tests.
 - IPC live-control tests.
 
 Done when:
@@ -418,27 +438,23 @@ Done when:
 - Tests remain green after each split.
 - Future feature work has obvious module homes.
 
-### 12. SQLite and IPC Production Migration
+### 12. SQLite and IPC Production Architecture
 
 Required:
 
-- Move installed script metadata from `index.json` into SQLite.
-- Move approvals from `approvals.json` into SQLite.
-- Move run history from `runs.jsonl` into SQLite.
-- Move service status from `service-status.json` into SQLite.
-- Replace `.service-control.json` live stop/reload requests with a real IPC channel.
-- Decide whether `.trigger-reload` becomes an IPC request, a SQLite durable signal, or both depending on whether the serve process is currently running.
-- Add one-time migration from existing JSON files where practical, or document that pre-release storage is not migrated if this happens before any public runner release.
+- Store installed script metadata, approvals, run history, service status, and durable reload signals in SQLite.
+- Use authenticated IPC for live stop/reload requests.
+- Keep a single production storage implementation; no unpublished JSON backend or migration path is required.
 - Keep `.bbs` packages as files under a controlled packages directory and store only metadata/hash/path references in SQLite.
 - Keep TOML config as the user-editable config source unless a future release intentionally moves config into the database.
-- Add tests for schema initialization, idempotent migrations, state round-trips, and IPC stop/reload behavior.
+- Add tests for schema initialization and upgrades, state round-trips, and IPC stop/reload behavior.
 
 Done when:
 
 - New runner homes create a SQLite database automatically.
 - CLI, serve mode, desktop UI, and tests use SQLite-backed durable state.
 - Live stop/reload control no longer uses JSON files.
-- Existing JSON control/state code is removed or isolated behind a clearly named pre-release migration path.
+- Obsolete JSON control/state code is removed.
 
 ## Missing or Weak Areas To Investigate
 
@@ -449,11 +465,10 @@ These are not confirmed blockers yet, but must be reviewed before release:
 - Whether process/window title matching is available outside desktop contexts and gated correctly.
 - Whether Linux desktop native input/notification behavior works under Wayland, X11, or both.
 - Whether package/run logs need retention limits or cleanup controls.
-- Whether secrets and persistent variables are fully implemented or should be documented as not in first release.
 - Whether minimum runner version should be bumped before first release.
 - Whether runner config migration is needed for future changes.
 - Whether old packages using removed target runtimes should be rejected with a clear unsupported-platform message.
-- Exact IPC transport choice for first release: local TCP loopback, named pipe/Unix domain socket, or a small cross-platform IPC crate.
+- Whether the authenticated loopback IPC transport should move to platform-specific named pipes/Unix sockets in a later release. The first-release transport is now fixed as authenticated local TCP with bounded typed messages.
 
 ## First Release Exit Criteria
 
@@ -465,11 +480,11 @@ The first production runner release can be published only when all of these are 
 - [ ] Native desktop action support is either implemented and automated where possible, or gated with clear unsupported-platform errors.
 - [ ] Headless serve mode passes automated command/reload/status checks.
 - [ ] Serial device config and UI flows are verified automatically where possible.
-- [ ] Webhook/WebSocket trigger tests pass under concurrency.
+- [x] Webhook/WebSocket trigger tests pass under concurrency.
 - [ ] Package hash and approval flows are verified in CLI and desktop UI.
 - [ ] Desktop UI can complete import, approve, run, view logs, edit config, scan devices, and manage background runner state.
-- [ ] Durable state uses SQLite.
-- [ ] Live runner control uses IPC instead of JSON control files.
+- [x] Durable state uses SQLite.
+- [x] Live runner control uses IPC instead of JSON control files.
 - [ ] Release packages can be built from a clean checkout.
 - [ ] First-release documentation exists.
 
@@ -483,9 +498,9 @@ User-owned release validation outside this Codex execution plan:
 
 1. Build the editor-to-runner feature matrix and use it to find exact gaps.
 2. Close missing implementation gaps or add precise platform rejections.
-3. Migrate durable runner state to SQLite.
-4. Replace live service-control JSON files with IPC.
-5. Add automated tests for graph execution, actions, triggers, package validation, storage, and IPC.
+3. Migrate durable runner state to SQLite. Completed 2026-07-10.
+4. Replace live service-control JSON files with IPC. Completed 2026-07-10.
+5. Add automated tests for graph execution, actions, triggers, package validation, storage, and IPC. Completed for the first-release automated matrix on 2026-07-10; user-owned physical and native desktop checks remain separate.
 6. Harden headless serve/reload workflows.
 7. Finish desktop UI release polish.
 8. Add release packaging and CI.
@@ -536,7 +551,6 @@ Completed:
 - Extracted `baudbound-core` sub-script action dispatch and recursion-safe child-run handling into `baudbound-core/src/sub_script.rs`.
 - Extracted `baudbound-storage` script id validation, package filename validation, package hashing, atomic writes, safe package deletion, directory creation, file copy, and timestamp helpers into `baudbound-storage/src/storage/filesystem.rs`.
 - Extracted `baudbound-storage` storage and approval metadata index structs into `baudbound-storage/src/storage/metadata.rs`.
-- Extracted `baudbound-storage` service status and service-control request handling into `baudbound-storage/src/storage/service_control.rs`.
 - Extracted `baudbound-storage` approval read/write/approve/revoke lookup logic into `baudbound-storage/src/storage/approvals.rs`.
 - Extracted `baudbound-storage` run history append/list/sort/filter logic into `baudbound-storage/src/storage/runs.rs`.
 - Extracted the schedule trigger service into `baudbound-triggers/src/services/schedule.rs`.
@@ -607,8 +621,7 @@ Completed:
 - The test starts `baudbound serve` with webhook hosting enabled and no installed scripts.
 - It imports a webhook script while the serve process is already running.
 - It verifies that the trigger reload signal causes the running service to activate the new webhook listener.
-- It writes a targeted `.service-control.json` stop request and verifies the serve process exits cleanly.
-- The test reads `service-status.json` instead of using internal test-only hooks, so it covers the same status/control files used by headless deployments and the desktop UI.
+- This original coverage used transitional JSON status/control files. It was replaced on 2026-07-10 by SQLite status assertions and authenticated IPC shutdown coverage.
 
 Validation:
 
@@ -622,11 +635,11 @@ Validation:
 Completed:
 
 - Added the long-term architecture decision to this plan: SQLite for durable runner state, IPC for live runner control, and Tauri commands for the desktop UI bridge.
-- Marked JSON service status/control files as transitional pre-release compatibility paths instead of production architecture.
+- Established SQLite as the only durable runner metadata store and IPC as the live control channel.
 - Added `rusqlite` with bundled SQLite to avoid depending on system SQLite libraries.
 - Added a `SqliteRunnerStore` backend under `baudbound-storage`.
 - Added versioned schema initialization with `PRAGMA user_version`.
-- Added schema tables for installed scripts, approvals, run records, service status, durable runner signals, and migration metadata.
+- Added schema tables for installed scripts, approvals, run records, service status, and durable runner signals.
 - Enabled foreign keys, WAL journal mode, and a busy timeout for production-friendly multi-process behavior.
 - Implemented the shared `ScriptStore` contract for the SQLite backend.
 - Added SQLite-backed installed script import/update/list/find/remove/enable flows.
@@ -637,12 +650,12 @@ Completed:
 - Added tested one-shot SQLite trigger-reload signal behavior.
 - Added a SQLite script lifecycle test covering import, approval, run records, hash verification, enable/disable, removal, and reload signaling.
 
-Still remaining:
+Completed in the subsequent 2026-07-10 activation batch:
 
-- Switch the active app store from `FilesystemScriptStore` to `SqliteRunnerStore`, or add a clean store selector while migration is in progress.
-- Add a one-time pre-release migration path from JSON/index storage to SQLite if existing local test installs must be preserved.
-- Replace JSON service-control files with IPC stop/reload commands.
-- Wire desktop Tauri commands and headless serve control to the final IPC channel.
+- Switched CLI, serve mode, desktop UI, and background runner to `SqliteRunnerStore`.
+- Removed the unpublished filesystem/JSON storage backend so tests and production use the same SQLite implementation.
+- Replaced JSON live control with authenticated loopback IPC.
+- Wired desktop reload commands and headless serve control to IPC.
 
 Validation:
 
@@ -653,29 +666,309 @@ Validation:
 - Ran `cargo test --workspace --locked`.
 - Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 
-### 2026-07-09 Filesystem-to-SQLite Migration Path
+### 2026-07-10 SQLite and IPC Activation
 
 Completed:
 
-- Added a non-destructive pre-release migration path from the current filesystem store into `SqliteRunnerStore`.
-- Migrated installed script metadata into SQLite.
-- Migrated approvals into SQLite.
-- Migrated run history into SQLite with idempotent run-record upserts.
-- Migrated the latest service status snapshot into SQLite.
-- Verified package hashes before migration so tampered installed packages block migration instead of becoming trusted database rows.
-- Kept `.bbs` packages in their existing controlled package-file location and stored package metadata/path references in SQLite.
-- Added migration idempotence coverage so re-running the migration does not duplicate run records.
-- Added tampered-package migration rejection coverage.
+- Switched every runner command, trigger service, status path, and desktop background-runner path to `SqliteRunnerStore`.
+- Added automatic creation of `runner.sqlite3` in the runner home.
+- Removed the unpublished filesystem/JSON metadata backend and migration code.
+- Converted core and storage tests to use SQLite directly.
+- Removed the obsolete `.service-control.json` implementation and its storage tests.
+- Added authenticated loopback IPC with an operating-system-generated 256-bit token, bounded messages, read/write timeouts, protocol versioning, and loopback endpoint validation.
+- Added live IPC reload and stop handling to the serve loop.
+- Wired desktop trigger reload through IPC while keeping SQLite reload signals for durable script lifecycle changes.
+- Stored service status snapshots in SQLite and redacted IPC credentials from CLI and desktop UI payloads.
+- Restricted the SQLite database file to owner read/write permissions on Linux.
+- Added IPC authentication/rejection tests and converted the long-lived CLI lifecycle test to SQLite status plus IPC shutdown.
+- Made SQLite run-history ordering deterministic when multiple records share the same second-resolution timestamp.
 
-Still remaining:
+Remaining architecture follow-up:
 
-- Wire the application startup path to use the SQLite store as the active durable store.
-- Decide whether pre-release JSON files should be deleted, archived, or left untouched after first successful migration.
-- Replace JSON service-control files with IPC.
+- Consider platform-specific named pipes/Unix sockets only as a later hardening change if authenticated loopback IPC proves insufficient.
 
 Validation:
 
 - Ran `cargo test -p baudbound-storage --locked`.
+- Ran the SQLite/IPC CLI lifecycle integration suite.
+- Ran `cargo test --workspace --locked`.
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+
+### 2026-07-10 Runtime and Text Contract Hardening
+
+Completed:
+
+- Aligned For Each execution with the editor contract: only lists are accepted, including JSON-list strings and nested variable references; arbitrary objects and comma-separated text are rejected.
+- Added complete condition-operator coverage, inverted-condition coverage, switch no-match behavior, false-first While behavior, and nested/empty/invalid For Each coverage.
+- Made Variable Operation resolve templates consistently for set, increment, append-list, and object-field values.
+- Added JSON container coercion for list/object and structured variable values exported as strings.
+- Added editor-compatible nested object paths with numeric list indexes and strict path validation.
+- Added all derived variable metadata fields: `$length`, `$count`, `$type`, and `$is_empty`.
+- Matched JavaScript UTF-16 string length semantics for derived string metadata.
+- Reserved every derived metadata name and aligned runtime variable-name validation with the editor identifier contract.
+- Aligned clear defaults for object, list, duration, datetime, HTTP response, primitive, and file-path values.
+- Rejected non-finite increment values instead of silently applying a fallback.
+- Added a focused Variable Operation matrix covering every runtime-scope operation, defaults, metadata, and failure behavior.
+- Added an operation-by-operation Text Transform matrix for all 17 editor options.
+- Replaced permissive URL decoding with strict `decodeURIComponent`-compatible validation and aligned URL encoding with `encodeURIComponent` allowed characters.
+- Fixed JSON unescape output for null and other non-string JSON values.
+- Kept the new runtime and text suites in focused test modules instead of growing the existing broad test files.
+
+Remaining runtime/data decisions:
+
+- Define cooperative cancellation behavior for delays and long-running graph execution.
+
+Validation:
+
+- Ran `cargo test -p baudbound-runtime --locked` (30 tests passed).
+- Ran `cargo test -p baudbound-actions --locked` (28 tests passed).
+- Ran `cargo test --workspace --locked`.
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Verified generated editor schemas are current.
+- Ran all 34 editor contract tests.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 Concurrent Webhook Runtime Hardening
+
+Completed:
+
+- Replaced synchronous webhook execution in the serve loop with a fixed worker pool and bounded queue derived from available parallelism.
+- Kept heartbeat, authenticated IPC stop/reload, route acceptance, and unrelated webhook requests responsive while workflows execute.
+- Implemented the editor-exported `responseTimeoutSeconds` contract with strict positive finite validation and sub-second precision.
+- Made immediate mode return its configured response without waiting for execution.
+- Made waiting mode return Webhook Response node output when available, or the configured fallback at the response deadline.
+- Defined timeout behavior explicitly: the client receives the fallback while workflow execution continues and is recorded normally.
+- Added explicit 503 overload/stopping responses and non-fatal handling for clients that disconnect before a response is written.
+- Preserved the listener, worker pool, pending responses, and active executions while trigger reload replaces webhook routes.
+- Split webhook execution, HTTP translation, coordinator behavior, and their tests into focused modules.
+- Added real loopback HTTP tests for immediate and waiting responses, custom response headers, timeout fallback, body-size rejection, method mismatch, and route reload during an active request.
+- Added executor tests for parallel execution, bounded queue rejection, and dispatch failure propagation.
+
+Remaining trigger hardening:
+
+- WebSocket connection/message/disconnect/write concurrency coverage completed 2026-07-10.
+- File Watch rapid-change and registration-replacement coverage completed 2026-07-10.
+- Process-start polling/reload concurrency coverage completed 2026-07-10.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (220 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Ran editor lint, typecheck, schema freshness, all 36 editor contract tests, and the production build.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 WebSocket Lifecycle and Concurrent Trigger Execution
+
+Completed:
+
+- Fixed trigger reload so WebSocket registration changes reuse the bound listener instead of attempting a second bind and failing with an address-in-use error.
+- Added atomic route replacement, duplicate-path rejection, unchanged-route connection preservation, and deterministic disconnects for changed or removed routes.
+- Replaced timestamp-based connection identifiers with collision-free registry sequence identifiers.
+- Added native socket shutdown handles so service stop and route replacement unblock readers and remove stale connection IDs.
+- Added bounded handshake/read/write timeouts and explicitly reset accepted sockets to blocking mode to prevent intermittent Windows handshake interruption.
+- Enforced `max_message_bytes` inside Tungstenite before oversized frames or fragmented messages can be fully accumulated.
+- Added configurable `websockets.max_connections`, CLI override validation, desktop simple-mode configuration, diagnostics, template defaults, and documentation.
+- Added a bounded connection permit system with an HTTP 503 handshake response when capacity is exhausted.
+- Replaced the WebSocket service monolith with focused connection, listener, registry, route, service, and test modules.
+- Extracted webhook execution into a shared bounded trigger executor and routed WebSocket, file-watch, process-start, and serial listener workflows through the same concurrent execution boundary.
+- Replaced the unbounded listener event channel with bounded backpressure and explicit persisted/logged failures when the execution queue is saturated.
+- Added real loopback tests for concurrent clients, text/JSON/binary payloads, response writes, headers/query data, connection-ID uniqueness, 404 routes, 503 capacity, protocol message limits, disconnect cleanup, shutdown, and route reload.
+- Stress-ran the WebSocket lifecycle suite repeatedly and fixed the Windows accepted-socket nonblocking inheritance race it exposed.
+
+Remaining trigger hardening:
+
+- File Watch create/modify/delete/rename, recursion, burst, and registration-replacement coverage completed 2026-07-10.
+- Process-start polling/reload concurrency coverage completed 2026-07-10.
+- Schedule reload, drift, and missed-interval coverage completed 2026-07-10.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (228 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Ran editor lint, typecheck, schema freshness, all 36 editor contract tests, and the production build.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 File Watch Lifecycle and Reload Hardening
+
+Completed:
+
+- Added an explicit `recursive` File Watch option to the editor, generated node schema, and runner contract, defaulting to non-recursive behavior.
+- Made File Watch paths static subscription configuration and reject runtime variable templates in both editor verification and the runner parser.
+- Changed file-target subscriptions to watch the parent directory and filter the configured file so delete, recreate, and rename events remain observable.
+- Normalized platform events to `created`, `modified`, `deleted`, and `renamed`, ignored access-only noise, filtered unrelated paths, and emitted the rename destination.
+- Adopted the stable `notify-debouncer-full` companion crate to stitch native Windows rename pairs and remove duplicate filesystem event noise without a custom timing state machine.
+- Dropped the old File Watch service before constructing replacement registrations during trigger reload, preventing old and new watchers from overlapping.
+- Split File Watch parsing, target selection/service ownership, event normalization, and tests into focused modules.
+- Added real temporary-filesystem tests for modify/delete/recreate/rename, recursive and non-recursive directories, 24-file bursts, missing targets, static-path enforcement, and watcher replacement.
+- Stress-ran the complete File Watch suite ten consecutive times on Windows.
+- Added an editor contract test that protects the static path and recursive schema shape.
+
+Remaining trigger hardening:
+
+- Process-start polling/reload concurrency coverage completed 2026-07-10.
+- Schedule reload, drift, and missed-interval coverage completed 2026-07-10.
+- Cross-service trigger reload boundary coverage completed 2026-07-10.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (235 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Ran editor lint, typecheck, schema freshness, all 37 editor contract tests, and the production build.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 Process-Start and Schedule Lifecycle Hardening
+
+Completed:
+
+- Replaced process-start restart-on-reload behavior with one persistent, named polling worker controlled through a bounded command channel.
+- Added synchronous initialization and reload acknowledgements so the runner has explicit watcher lifecycle boundaries.
+- Made shutdown interrupt the worker immediately instead of waiting through the one-second polling sleep.
+- Identified processes by process ID plus process start time, preventing duplicate events while recognizing PID reuse.
+- Preserved unchanged window-title candidates across reload and baselined newly added or changed registrations so already-running processes do not fire retroactively.
+- Defined the reload boundary so processes first observed during reload notify only unchanged registrations; changed, removed, and newly added registrations cannot emit stale events.
+- Added duplicate registration rejection and corrected process watcher diagnostics to report registration count rather than thread count.
+- Split process-start service ownership, worker control, matching engine, snapshots, state tracking, event creation, parsing, native Windows lookup, and tests into focused modules.
+- Added deterministic state/engine tests plus a real child-process test covering event delivery, duplicate suppression, in-place reload, stale-registration rejection, and prompt shutdown.
+- Stress-ran the real process-start lifecycle suite ten consecutive times on Windows.
+- Added positive fractional schedule intervals matching the editor contract, with strict finite and one-nanosecond bounds on both editor and runner sides.
+- Preserved unchanged schedule deadlines across trigger reload while resetting changed and newly added schedules from the reload time.
+- Defined missed schedule behavior as one coalesced event with `missed_intervals`, then advanced in constant time to the next point on the original cadence.
+- Replaced schedule task vectors with deterministic keyed ownership and rejected duplicate registrations.
+- Split schedule parsing, service state, and timing tests into focused modules.
+- Added editor contract coverage for static schedule duration validation.
+
+Remaining trigger work:
+
+- Complete final serial and hotkey platform verification as part of their dedicated readiness areas.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (243 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Ran editor lint, typecheck, schema freshness, all 38 editor contract tests, and the production build.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 Capability, Process, and Security Hardening
+
+Completed:
+
+- Added an editor-generated, versioned node capability contract sourced directly from node definitions and embedded into the Rust security crate at compile time.
+- Added a contract test that requires every editor node to appear exactly once in the generated runner capability map and makes stale generated output fail CI.
+- Recalculated required capabilities from the executable graph and required `capabilities.json` to match exactly during package validation, import, execution, and trigger registration.
+- Rejected missing, extra, and duplicate capabilities, duplicate permissions, unknown executable action types, and malformed programs.
+- Added an end-to-end import test proving that a package cannot hide an executable node by omitting its capability declaration.
+- Added abuse-case coverage proving that shell, process-kill, delete, webhook, and WebSocket declarations cannot bypass their risk or independent policy gates.
+- Hardened process lookup so name/path matches select a deterministic lowest PID and Linux executable paths remain case-sensitive while Windows paths remain case-insensitive.
+- Fixed process argument parsing so quoted arguments work without corrupting ordinary Windows backslash paths.
+- Added focused process and shell tests for arguments, working directories, stdout/stderr, nonzero exits, missing executables, PID/name/path status, invalid modes, process termination, and policy classifications.
+- Corrected app integration fixtures so exported test packages declare the capabilities their executable graphs actually require.
+
+Remaining process/security work:
+
+- Verify the desktop approval modal end to end, including approval invalidation after package updates.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (202 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran all 35 editor contract tests and verified generated schemas/contracts are current.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 Native Process Matching and Sub-script Boundaries
+
+Completed:
+
+- Added native Win32 window-title lookup for Process Status and Kill Process without shell or PowerShell execution.
+- Routed only the window-title process mode through the desktop adapter; PID, process-name, and executable-path modes remain in the shared cross-platform backend.
+- Made Windows window-title process selection deterministic by selecting the lowest matching process ID.
+- Added native Win32 process termination through `OpenProcess` and `TerminateProcess`.
+- Added config-sensitive editor verification and runner import rules so Process Status, Kill Process, and App / Process Started allow window-title matching only for an explicit Windows Desktop target.
+- Added an editor contract gate requiring all three node definitions to retain the config-sensitive Windows rule.
+- Implemented native Windows window-title matching for App / Process Started.
+- Added a per-registration process tracker that ignores processes already running when the service starts, tracks each new PID until its window appears, suppresses duplicate events, removes exited candidates, and handles PID reuse.
+- Preserved case-sensitive executable-path matching on Linux while retaining Windows case-insensitive behavior.
+- Added Sub-script coverage for missing targets, failed parent run persistence, independent child approval enforcement, and persisted child run ID linkage.
+- Split the Win32 process action backend, process-start state tracker, native trigger lookup, and Sub-script tests into focused modules.
+
+Remaining related work:
+
+- Perform user-owned real-window validation for successful Windows title query/termination and process-start title events.
+- Process-start polling/reload concurrency coverage completed 2026-07-10.
+- Verify the desktop approval modal end to end.
+
+Validation:
+
+- Ran `cargo test --workspace --locked` (211 tests passed).
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo fmt --all -- --check`.
+- Ran editor lint, typecheck, schema freshness, and all 36 editor contract tests.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-10 Calculation, HTTP, and Filesystem Hardening
+
+Completed:
+
+- Added a focused Calculate matrix covering all documented arithmetic operators, precedence, grouping, unary operators, exponents, scientific notation, round/floor/ceil, min/max, and every random function shape.
+- Aligned negative half-value rounding with JavaScript `Math.round()` instead of Rust's away-from-zero tie behavior.
+- Replaced timestamp-derived pseudo-random values with operating-system randomness and a 53-bit unit-interval conversion.
+- Added malformed-expression coverage for empty input, division/modulo by zero, non-finite exponents/numbers, invalid function arity, unknown functions, missing parentheses, trailing tokens, and invalid characters.
+- Added an HTTP matrix covering all seven editor methods and the GET/HEAD body policy.
+- Added HTTP object/list header, user-agent, request body, parsed JSON, raw body, response header, status, duration, connection failure, invalid configuration, timeout, and 2 MiB response coverage.
+- Added Download File coverage for successful writes, non-success HTTP statuses, destination creation, overwrite protection, and explicit overwrite.
+- Added Read/Write/Copy/Move/Delete failure and boundary coverage using isolated temporary directories.
+- Prevented Copy File and Move File from targeting the same resolved file, including equivalent path spellings, so overwrite cannot truncate or remove the source.
+- Required Copy File and Move File sources to be regular files.
+- Replaced the Windows move overwrite sequence that deleted the destination first with native `MoveFileExW` replace/cross-volume behavior.
+- Kept Linux Move File on the native atomic rename path.
+- Split calculation, HTTP, filesystem, and native move code/tests into focused modules.
+
+Validation:
+
+- Ran `cargo test -p baudbound-runtime -p baudbound-actions --locked` (33 runtime and 40 action tests passed).
+- Ran `cargo test --workspace --locked`.
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Verified generated editor schemas are current.
+- Ran all 34 editor contract tests.
+- Ran desktop UI typecheck and production build.
+
+### 2026-07-11 Durable Variables and Encrypted Secrets
+
+Completed:
+
+- Defined `runtime`, per-script `persistent`, and runner-wide `global` as the only writable variable scopes.
+- Added SQLite-backed persistent/global values with versioned compare-and-set writes so concurrent executions do not silently lose updates.
+- Defined secrets as runner-managed read-only inputs declared by packages rather than writable variables.
+- Added strict manifest secret declaration validation, generated schema coverage, and configuration-derived `read_secret`, persistent-write, and global-write permissions/capabilities.
+- Added authenticated XChaCha20-Poly1305 encryption for SQLite secret values with script/name associated data and operating-system randomness.
+- Added desktop key ownership through the operating-system credential vault and explicit headless key ownership through `BAUDBOUND_SECRET_KEY`, with no plaintext fallback.
+- Added hidden CLI secret entry and desktop Security-tab management that expose only configured/missing status, never stored values.
+- Loaded typed required/optional secrets into runtime execution and excluded secret names and values from persisted reports.
+- Added recursive report/log/error redaction and editor simulation redaction for direct or copied secret values.
+- Added editor secret declaration management and explicit session-only simulation values that are reset on import and never exported.
+- Prevented derived metadata generation for secrets and rejected the obsolete writable `secret` Variable Operation scope.
+- Added focused package, storage encryption/CAS, runtime state/redaction, security derivation, core, CLI-parser, and editor contract coverage.
+
+Remaining related work:
+
+- Define cooperative cancellation behavior for long-running graph execution.
+- Complete the existing desktop approval reliability and release packaging work.
+
+Validation:
+
+- Ran `cargo fmt --all -- --check`.
+- Ran `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Ran `cargo test --workspace --locked` (254 tests passed).
+- Built the `baudbound` application with the locked dependency graph.
+- Ran editor lint, typecheck, generated-schema freshness, and all 39 editor contract tests.
+- Built the editor production bundle.
+- Ran all 26 editor Chromium/Firefox end-to-end tests.
+- Typechecked and built the desktop React UI production bundle.
 
 ## Tracking Notes
 

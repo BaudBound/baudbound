@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -8,6 +8,13 @@ const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(appRoot, "..", "..");
 const schemasRoot = join(repoRoot, "schemas");
 const nodeSchemasRoot = join(schemasRoot, "nodes");
+const runnerCapabilityContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-security",
+	"contracts",
+	"node-capabilities.json",
+);
 const publicSchemaRoot = "https://schemas.baudbound.app";
 const programSchemaUrl = `${publicSchemaRoot}/program.schema.json`;
 const jsonValueRef = `${programSchemaUrl}#/$defs/jsonValue`;
@@ -15,6 +22,7 @@ const runtimeOutputRef = `${programSchemaUrl}#/$defs/runtimeOutput`;
 const checkMode = process.argv.includes("--check");
 
 const optionValues = createOptionValueMap();
+const sharedCapabilityValues = createSharedCapabilityValueMap();
 const definitions = readNodeDefinitions().sort((a, b) => a.actionType.localeCompare(b.actionType));
 const generatedNodeSchemas = Object.fromEntries(
 	definitions.map((definition) => [getNodeSchemaFileName(definition.actionType), createNodeSchema(definition)]),
@@ -22,9 +30,11 @@ const generatedNodeSchemas = Object.fromEntries(
 const generatedProgramSchema = createProgramSchema(
 	JSON.parse(readFileSync(join(schemasRoot, "program.schema.json"), "utf8")),
 );
+const generatedRunnerCapabilityContract = createRunnerCapabilityContract();
 
 if (checkMode) {
 	assertGeneratedFile(join(schemasRoot, "program.schema.json"), generatedProgramSchema);
+	assertGeneratedFile(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
 	for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 		assertGeneratedFile(join(nodeSchemasRoot, fileName), schema);
 	}
@@ -45,8 +55,17 @@ for (const fileName of readdirSync(nodeSchemasRoot)) {
 	}
 }
 writeJson(join(schemasRoot, "program.schema.json"), generatedProgramSchema);
+mkdirSync(dirname(runnerCapabilityContractPath), { recursive: true });
+writeJson(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
 for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 	writeJson(join(nodeSchemasRoot, fileName), schema);
+}
+
+function createRunnerCapabilityContract() {
+	return {
+		version: 1,
+		nodes: Object.fromEntries(definitions.map((definition) => [definition.actionType, definition.capabilities])),
+	};
 }
 
 function createProgramSchema(programSchema) {
@@ -225,11 +244,13 @@ function readDefinitionObject(object, filePath) {
 	const label = getRequiredStringProperty(object, "label", filePath);
 	const runnerType = getOptionalStringProperty(object, "runnerType");
 	const controlType = getOptionalStringProperty(object, "controlType");
+	const capabilities = readCapabilities(getPropertyInitializer(object, "capabilities"), actionType);
 	const configFields = readConfigFields(getPropertyInitializer(object, "configFields"), actionType);
 	const defaultConfigKeys = readDefaultConfigKeys(getPropertyInitializer(object, "defaultConfig"));
 
 	return {
 		actionType,
+		capabilities,
 		configFields,
 		controlType,
 		defaultConfigKeys,
@@ -238,6 +259,51 @@ function readDefinitionObject(object, filePath) {
 		runnerType,
 		source: relative(appRoot, filePath).split(sep).join("/"),
 	};
+}
+
+function readCapabilities(initializer, actionType) {
+	if (ts.isArrayLiteralExpression(initializer)) {
+		const capabilities = readStringArrayValues(initializer);
+		if (capabilities.length > 0) {
+			return [...new Set(capabilities)].sort();
+		}
+	}
+
+	if (ts.isIdentifier(initializer)) {
+		const capabilities = sharedCapabilityValues.get(initializer.text);
+		if (capabilities) {
+			return capabilities;
+		}
+	}
+
+	throw new Error(`${actionType} capabilities must be a non-empty string array or a shared capability constant.`);
+}
+
+function createSharedCapabilityValueMap() {
+	const source = ts.createSourceFile(
+		"shared.ts",
+		readFileSync(join(appRoot, "data", "nodes", "definitions", "shared.ts"), "utf8"),
+		ts.ScriptTarget.Latest,
+		true,
+	);
+	const values = new Map();
+
+	for (const statement of source.statements) {
+		if (!ts.isVariableStatement(statement)) {
+			continue;
+		}
+		for (const declaration of statement.declarationList.declarations) {
+			if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+				continue;
+			}
+			const capabilities = readStringArrayValues(unwrapAsConst(declaration.initializer));
+			if (capabilities.length > 0) {
+				values.set(declaration.name.text, [...new Set(capabilities)].sort());
+			}
+		}
+	}
+
+	return values;
 }
 
 function readConfigFields(initializer, actionType) {

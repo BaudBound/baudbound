@@ -2,6 +2,15 @@ use serde_json::json;
 
 use super::*;
 
+#[path = "tests/calculation_matrix.rs"]
+mod calculation_matrix;
+#[path = "tests/control_flow_matrix.rs"]
+mod control_flow_matrix;
+#[path = "tests/state.rs"]
+mod state;
+#[path = "tests/variable_operations.rs"]
+mod variable_operations;
+
 #[test]
 fn executes_manual_log_and_variable_operation() {
     let report = execute_manual_program(

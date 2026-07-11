@@ -4,15 +4,18 @@ use std::{
 };
 
 use baudbound_core::{RunnerCore, TriggerEvent};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{HotkeyService, ScheduleService, StartupService};
 
-use super::heartbeat::ServeStatusTracker;
+use super::{
+    executor::{TriggerExecutor, TriggerSubmitError},
+    heartbeat::ServeStatusTracker,
+};
 use crate::{commands::hotkey::dispatch_hotkey_key, output::print_run_report};
 
 pub(super) fn dispatch_hotkey_stdin_events(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     service: &HotkeyService,
     receiver: &Receiver<String>,
     status: &mut ServeStatusTracker,
@@ -43,7 +46,7 @@ pub(super) fn dispatch_hotkey_stdin_events(
 
 pub(super) fn dispatch_startup_events(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     startup: &mut StartupService,
     status: &mut ServeStatusTracker,
 ) -> bool {
@@ -70,7 +73,7 @@ pub(super) fn dispatch_startup_events(
 
 pub(super) fn dispatch_due_schedules(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     schedules: &mut ScheduleService,
     status: &mut ServeStatusTracker,
 ) -> bool {
@@ -96,38 +99,58 @@ pub(super) fn dispatch_due_schedules(
     dispatched_any_event
 }
 
-pub(super) fn dispatch_trigger_events(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
+pub(super) fn queue_trigger_events(
     receiver: &Receiver<TriggerEvent>,
+    executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
-) -> bool {
-    let mut dispatched_any_event = false;
-    for event in receiver.try_iter() {
-        dispatched_any_event = true;
-        dispatch_trigger_event(core, store, event, status);
+) {
+    const MAX_EVENTS_PER_POLL: usize = 256;
+    for event in receiver.try_iter().take(MAX_EVENTS_PER_POLL) {
+        queue_trigger_event(executor, event, status);
     }
-    dispatched_any_event
 }
 
-pub(super) fn dispatch_trigger_event(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
+pub(super) fn queue_trigger_event(
+    executor: &mut TriggerExecutor,
     event: TriggerEvent,
     status: &mut ServeStatusTracker,
 ) {
     println!(
-        "Dispatching trigger {} for script {}",
+        "Queueing trigger {} for script {}",
         event.node_id, event.script_id
     );
-    match core.dispatch_trigger_event(store, event.clone()) {
-        Ok(report) => {
-            status.record_report("listener", &report);
-            print_run_report(report);
+    match executor.submit(event.clone()) {
+        Ok(_) => {}
+        Err(TriggerSubmitError::Full) => {
+            let error = "trigger execution queue is at capacity";
+            status.record_event_failure("listener", &event, error.to_owned());
+            eprintln!("Trigger dispatch rejected for {}: {error}", event.node_id);
         }
-        Err(error) => {
-            status.record_event_failure("listener", &event, error.to_string());
-            eprintln!("Trigger dispatch failed: {error}");
+        Err(TriggerSubmitError::Stopped) => {
+            let error = "trigger execution workers are unavailable";
+            status.record_event_failure("listener", &event, error.to_owned());
+            eprintln!("Trigger dispatch rejected for {}: {error}", event.node_id);
         }
     }
+}
+
+pub(super) fn record_trigger_completions(
+    executor: &TriggerExecutor,
+    status: &mut ServeStatusTracker,
+) -> bool {
+    let mut completed_any = false;
+    while let Some(completion) = executor.try_completion() {
+        completed_any = true;
+        match completion.result {
+            Ok(report) => {
+                status.record_report("listener", &report);
+                print_run_report(report);
+            }
+            Err(error) => {
+                status.record_event_failure("listener", &completion.event, error.clone());
+                eprintln!("Trigger dispatch failed: {error}");
+            }
+        }
+    }
+    completed_any
 }

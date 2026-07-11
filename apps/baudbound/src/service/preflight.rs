@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, TriggerRegistration};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use super::options::ServeOptions;
 
 pub fn print_serve_preflight(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: &ServeOptions,
     json: bool,
 ) -> Result<()> {

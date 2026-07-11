@@ -1,6 +1,7 @@
 use std::{
     fs,
-    io::{Cursor, Write},
+    io::{BufRead, BufReader, Cursor, Write},
+    net::TcpStream,
     path::Path,
     process::{Child, Command, Output, Stdio},
     thread,
@@ -227,20 +228,23 @@ fn cli_supports_script_group_aliases() {
 fn cli_status_reports_service_health() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
-    fs::create_dir_all(&runner_home).expect("runner home should be created");
-    fs::write(
-        runner_home.join("service-status.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "active_service_count": 1,
-            "last_heartbeat_unix": 1,
-            "pid": 1234,
-            "reload_interval_seconds": 2,
-            "services": [],
-            "state": "running"
-        }))
-        .expect("service status should serialize"),
-    )
-    .expect("service status should be written");
+    assert_success(run_baudbound(&runner_home, ["status"]));
+    let service_status = serde_json::json!({
+        "active_service_count": 1,
+        "last_heartbeat_unix": 1,
+        "pid": 1234,
+        "reload_interval_seconds": 2,
+        "services": [],
+        "state": "running"
+    });
+    let connection = rusqlite::Connection::open(runner_home.join("runner.sqlite3"))
+        .expect("runner database should open");
+    connection
+        .execute(
+            "INSERT INTO service_status (id, status_json, updated_at_unix) VALUES (1, ?1, 1)",
+            [serde_json::to_string(&service_status).expect("service status should serialize")],
+        )
+        .expect("service status should be inserted");
 
     let status = command_json(run_baudbound(&runner_home, ["status", "--json"]));
 
@@ -250,7 +254,7 @@ fn cli_status_reports_service_health() {
 }
 
 #[test]
-fn cli_reports_serve_preflight_and_writes_service_control_requests() {
+fn cli_reports_serve_preflight_without_opening_services() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
     let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
@@ -303,8 +307,6 @@ fn cli_reports_serve_preflight_and_writes_service_control_requests() {
     assert_eq!(disabled_preflight["active_service_count"], 0);
     assert_eq!(disabled_preflight["idle"], true);
     assert_eq!(disabled_preflight["trigger_registration_count"], 0);
-
-    assert!(!runner_home.join(".service-control.json").exists());
 }
 
 #[test]
@@ -359,11 +361,8 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
     );
     assert_eq!(records[0]["variables"]["n-schedule.schedule"]["every"], 30);
 
-    let service_status = serde_json::from_slice::<Value>(
-        &fs::read(runner_home.join("service-status.json"))
-            .expect("serve should write service status"),
-    )
-    .expect("service status should be JSON");
+    let service_status =
+        read_service_status(&runner_home).expect("serve should persist service status in SQLite");
     assert_eq!(service_status["state"], "stopped");
     assert_eq!(service_status["active_service_count"], 1);
     assert_eq!(service_status["idle"], false);
@@ -371,7 +370,7 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
 }
 
 #[test]
-fn cli_serve_reloads_triggers_after_import_and_stops_from_control_file() {
+fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
     let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
@@ -399,6 +398,15 @@ fn cli_serve_reloads_triggers_after_import_and_stops_from_control_file() {
     });
     assert_eq!(initial_status["active_service_count"], 0);
     assert_eq!(initial_status["idle"], true);
+    let public_status = command_json(run_baudbound(&runner_home, ["status", "--json"]));
+    assert_eq!(
+        public_status["service"]["control"]["protocol"],
+        "baudbound-control-v1"
+    );
+    assert!(
+        public_status["service"]["control"].get("token").is_none(),
+        "status output must not expose the IPC authentication token"
+    );
 
     assert_success(run_baudbound(
         &runner_home,
@@ -417,13 +425,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_from_control_file() {
     assert_eq!(webhook["registrations"], 1);
     assert_eq!(webhook["target"], format!("127.0.0.1:{webhook_port}"));
 
-    write_service_control_request(
-        &runner_home,
-        reloaded_status["pid"]
-            .as_u64()
-            .expect("service pid should be present") as u32,
-        "stop",
-    );
+    request_service_control(&reloaded_status, "stop");
     assert_child_exits_successfully(serve, Duration::from_secs(8));
 
     let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {
@@ -502,36 +504,63 @@ fn wait_for_service_status(
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {
     let deadline = Instant::now() + timeout;
-    let status_path = runner_home.join("service-status.json");
     loop {
-        if let Ok(content) = fs::read_to_string(&status_path) {
-            let status = serde_json::from_str::<Value>(&content)
-                .expect("service status should contain valid JSON");
-            if predicate(&status) {
-                return status;
-            }
+        if let Some(status) = read_service_status(runner_home)
+            && predicate(&status)
+        {
+            return status;
         }
         assert!(
             Instant::now() < deadline,
-            "timed out waiting for service status at {}",
-            status_path.display()
+            "timed out waiting for service status in {}",
+            runner_home.join("runner.sqlite3").display()
         );
         thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn write_service_control_request(runner_home: &Path, target_pid: u32, command: &str) {
-    fs::write(
-        runner_home.join(".service-control.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({
+fn read_service_status(runner_home: &Path) -> Option<Value> {
+    let connection = rusqlite::Connection::open(runner_home.join("runner.sqlite3")).ok()?;
+    let status = connection
+        .query_row(
+            "SELECT status_json FROM service_status WHERE id = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()?;
+    serde_json::from_str(&status).ok()
+}
+
+fn request_service_control(status: &Value, command: &str) {
+    let control = &status["control"];
+    let address = control["address"]
+        .as_str()
+        .expect("IPC address should be present");
+    let token = control["token"]
+        .as_str()
+        .expect("IPC token should be present");
+    let protocol = control["protocol"]
+        .as_str()
+        .expect("IPC protocol should be present");
+    let mut stream = TcpStream::connect(address).expect("IPC client should connect");
+    serde_json::to_writer(
+        &mut stream,
+        &serde_json::json!({
             "command": command,
-            "requested_at_unix": 123,
-            "requested_by_pid": std::process::id(),
-            "target_pid": target_pid
-        }))
-        .expect("service control request should serialize"),
+            "protocol": protocol,
+            "token": token,
+        }),
     )
-    .expect("service control request should be written");
+    .expect("IPC request should serialize");
+    stream.write_all(b"\n").expect("IPC request should write");
+    stream.flush().expect("IPC request should flush");
+
+    let mut response = String::new();
+    BufReader::new(stream)
+        .read_line(&mut response)
+        .expect("IPC response should read");
+    let response: Value = serde_json::from_str(&response).expect("IPC response should be JSON");
+    assert_eq!(response["accepted"], true, "IPC command should be accepted");
 }
 
 fn assert_child_exits_successfully(mut child: Child, timeout: Duration) {
@@ -674,7 +703,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["action.log", "trigger.manual", "trigger.webhook"], "target_runtime": "Generic Desktop"}"#,
         ),
     ] {
         writer
@@ -761,7 +790,7 @@ fn create_schedule_package() -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["action.log", "trigger.schedule"], "target_runtime": "Generic Desktop"}"#,
         ),
     ] {
         writer

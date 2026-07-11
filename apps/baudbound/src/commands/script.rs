@@ -1,6 +1,6 @@
 use anyhow::Result;
 use baudbound_core::RunnerCore;
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use crate::cli::ScriptCommand;
 
@@ -13,7 +13,7 @@ mod logs;
 
 pub fn handle_script_command(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     command: ScriptCommand,
 ) -> Result<()> {
     match command {

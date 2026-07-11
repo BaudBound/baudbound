@@ -3,7 +3,12 @@ import { defineNode } from "../../node-definition";
 import { killProcessMatchModeOptions } from "../options";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
-import { configString, requiredConfig, staticNonNegativeIntegerConfig } from "../validators";
+import {
+	configString,
+	requiredConfig,
+	staticNonNegativeIntegerConfig,
+	windowsDesktopOnlyConfigValue,
+} from "../validators";
 
 export const killProcessNode = defineNode({
 	actionType: "action.process.kill",
@@ -40,6 +45,16 @@ export const killProcessNode = defineNode({
 		[
 			requiredConfig(config, "target", "process target"),
 			configString(config, "matchMode") === "pid" ? staticNonNegativeIntegerConfig(config, "target", "process ID") : "",
+		].filter(Boolean),
+	validateTargetRuntime: ({ config, targetRuntime }) =>
+		[
+			windowsDesktopOnlyConfigValue(
+				config,
+				"matchMode",
+				"window_title",
+				targetRuntime,
+				"Window-title process matching",
+			),
 		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => {

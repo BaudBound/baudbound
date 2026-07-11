@@ -260,7 +260,7 @@ fn evaluate_calculation_function(name: &str, args: &[f64]) -> Result<f64, String
             }
             let value = args[0];
             Ok(match name {
-                "round" => value.round(),
+                "round" => javascript_round(value),
                 "floor" => value.floor(),
                 _ => value.ceil(),
             })
@@ -283,10 +283,7 @@ fn evaluate_calculation_function(name: &str, args: &[f64]) -> Result<f64, String
             if args.len() > 2 {
                 return Err("random() expects zero, one, or two arguments".to_owned());
             }
-            let seed = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.subsec_nanos() as f64 / 1_000_000_000.0)
-                .unwrap_or(0.0);
+            let seed = random_unit_interval()?;
             Ok(match args {
                 [] => seed,
                 [max] => seed * max,
@@ -296,4 +293,26 @@ fn evaluate_calculation_function(name: &str, args: &[f64]) -> Result<f64, String
         }
         _ => Err(format!("unknown function \"{name}\"")),
     }
+}
+
+fn javascript_round(value: f64) -> f64 {
+    let floor = value.floor();
+    let rounded = if value - floor < 0.5 {
+        floor
+    } else {
+        floor + 1.0
+    };
+    if rounded == 0.0 && value.is_sign_negative() {
+        -0.0
+    } else {
+        rounded
+    }
+}
+
+fn random_unit_interval() -> Result<f64, String> {
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes)
+        .map_err(|source| format!("failed to obtain operating-system randomness: {source}"))?;
+    let random_bits = u64::from_le_bytes(bytes) >> 11;
+    Ok(random_bits as f64 / ((1_u64 << 53) as f64))
 }

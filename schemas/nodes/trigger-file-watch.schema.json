@@ -45,6 +45,9 @@
 				},
 				"path": {
 					"type": "string"
+				},
+				"recursive": {
+					"type": "boolean"
 				}
 			}
 		}

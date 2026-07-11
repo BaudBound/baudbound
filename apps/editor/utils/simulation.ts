@@ -94,6 +94,7 @@ export async function createSimulationRun({
 	onStep,
 	overrides,
 	projectSettings,
+	secretValues = {},
 	signal,
 	stepDelayMs = 0,
 	triggerNodeId,
@@ -109,7 +110,12 @@ export async function createSimulationRun({
 		nodesById: new Map(nodes.map((node) => [node.id, node])),
 		onStep,
 		overridesByNodeId: new Map(overrides.map((override) => [override.nodeId, override.outcome])),
-		runtimeVariables: createSimulationBuiltInVariableValues(projectSettings),
+		runtimeVariables: {
+			...createSimulationBuiltInVariableValues(projectSettings),
+			...secretValues,
+		},
+		secretNames: new Set(Object.keys(secretValues)),
+		secretValues: Object.values(secretValues),
 		signal,
 		stepDelayMs,
 		streamedSteps: 0,
@@ -1002,6 +1008,9 @@ function getReferenceValue(reference: string, context: SimulationContext): JsonV
 
 	const variableReference = getRuntimeVariableReference(reference, context.runtimeVariables);
 	if (variableReference) {
+		if (context.secretNames.has(variableReference.name) && variableReference.path.startsWith("$")) {
+			return `{{${reference}}}`;
+		}
 		return getPathValue(variableReference.value, variableReference.path) ?? `{{${reference}}}`;
 	}
 
@@ -1028,6 +1037,7 @@ function getRuntimeVariableReference(reference: string, variables: Record<string
 		: reference.slice(variableName.length);
 
 	return {
+		name: variableName,
 		path,
 		value: variables[variableName],
 	};
@@ -1139,12 +1149,12 @@ async function pushStep(
 		context.failed = true;
 	}
 
-	return emitStep(context, createTraceStep(context, truncateTrace(trace), sideEffects));
+	return emitStep(context, createTraceStep(context, truncateTrace(redactTrace(context, trace)), sideEffects));
 }
 
 async function pushOutputLog(context: SimulationContext, log: LogEntry) {
 	return emitStep(context, {
-		outputLogs: [truncateLog(log)],
+		outputLogs: [truncateLog(redactLog(context, log))],
 		sideEffects: [],
 		traces: [],
 		variables: createVariableSnapshot(context),
@@ -1223,17 +1233,19 @@ function createTraceStep(
 }
 
 function createVariableSnapshot(context: SimulationContext): SimulationVariableSnapshot[] {
-	const runtimeVariables = Object.entries(context.runtimeVariables).map(([name, value]) => ({
-		name,
-		source: "runtime" as const,
-		value: createSnapshotValue(value),
-	}));
+	const runtimeVariables = Object.entries(context.runtimeVariables)
+		.filter(([name]) => !context.secretNames.has(name))
+		.map(([name, value]) => ({
+			name,
+			source: "runtime" as const,
+			value: createSnapshotValue(redactSnapshotValue(context, value)),
+		}));
 
 	const nodeOutputVariables = Object.entries(context.nodeOutputs).flatMap(([nodeId, outputs]) =>
 		flattenObject(outputs).map(([name, value]) => ({
 			name: `${nodeId}.${name}`,
 			source: "node_output" as const,
-			value: createSnapshotValue(value),
+			value: createSnapshotValue(redactSnapshotValue(context, value)),
 		})),
 	);
 
@@ -1271,6 +1283,44 @@ function createSnapshotValue(value: JsonValue): JsonValue {
 	}
 
 	return value;
+}
+
+function redactTrace(context: SimulationContext, trace: SimulationTraceEntry): SimulationTraceEntry {
+	return { ...trace, message: redactSecretText(context, trace.message) };
+}
+
+function redactLog(context: SimulationContext, log: LogEntry): LogEntry {
+	return { ...log, message: redactSecretText(context, log.message) };
+}
+
+function redactSecretText(context: SimulationContext, value: string) {
+	return context.secretValues.reduce<string>((redacted, secret) => {
+		const serialized = typeof secret === "string" ? secret : JSON.stringify(secret);
+		return serialized ? redacted.replaceAll(serialized, "[REDACTED]") : redacted;
+	}, value);
+}
+
+function redactSnapshotValue(context: SimulationContext, value: JsonValue): JsonValue {
+	if (context.secretValues.some((secret) => jsonValuesEqual(secret, value))) {
+		return "[REDACTED]";
+	}
+	if (typeof value === "string") {
+		return redactSecretText(context, value);
+	}
+
+	if (Array.isArray(value)) {
+		return value.map((entry) => redactSnapshotValue(context, entry));
+	}
+
+	if (value && typeof value === "object") {
+		return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactSnapshotValue(context, entry)]));
+	}
+
+	return value;
+}
+
+function jsonValuesEqual(left: JsonValue, right: JsonValue) {
+	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function groupEdgesBySource(edges: Edge[]) {

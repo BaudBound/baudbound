@@ -4,6 +4,8 @@ mod compatibility;
 mod config;
 mod package;
 mod run_records;
+mod runtime_state;
+mod secrets;
 mod serial;
 mod status;
 mod sub_script;
@@ -14,11 +16,11 @@ use std::{path::Path, sync::Arc};
 
 use baudbound_actions::{HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
-    RuntimeActionHandler, execute_manual_program_with_actions_and_package_path,
-    execute_trigger_program_with_actions_and_package_path,
+    RuntimeActionHandler, RuntimeExecutionResources, RuntimeSecretDeclaration,
+    execute_manual_program_with_state, execute_trigger_program_with_state,
 };
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
-use baudbound_security::{PermissionValidationError, RunnerPolicy};
+use baudbound_security::{RunnerPolicy, SecurityValidationError};
 use baudbound_storage::{
     ApproveScriptRequest, InstalledScript, ScriptApproval, ScriptStore, StorageError,
 };
@@ -28,7 +30,7 @@ use compatibility::{
     CompatibilityError, default_host_target_runtime_names, runner_target_runtime_names,
     validate_package_for_runner,
 };
-use package::{import_request_from_package, validate_package_permissions};
+use package::{import_request_from_package, validate_package_security};
 use run_records::{append_failed_run_record, stored_run_record_from_report};
 use version::{VersionCompatibilityError, validate_minimum_runner_version};
 
@@ -42,12 +44,14 @@ pub use config::{
     SerialSettings, TriggerSettings, WebSocketSettings, WebhookSettings,
 };
 pub use package::PackageInspection;
+pub use secrets::InstalledSecretStatus;
 pub use serial::{SerialDeviceConfig, serial_device_configs_from_settings};
 pub use status::{
     ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptStatus, TriggerRegistrationStatus,
 };
 pub use triggers::CoreTriggerDispatcher;
 
+use runtime_state::CoreRuntimeStateStore;
 use serial::action_serial_devices_from_config;
 use status::{approval_status_from_package, has_current_approval};
 use sub_script::CoreRuntimeActionHandler;
@@ -146,9 +150,19 @@ impl RunnerCore {
         let path = path.as_ref();
         let package = load_script_package(path)?;
         self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
-        store
-            .update_script(import_request_from_package(path, package))
-            .map_err(CoreError::Storage)
+        let declared_secret_names = package
+            .manifest
+            .secrets
+            .iter()
+            .map(|secret| secret.name.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let installed = store.update_script(import_request_from_package(path, package))?;
+        for secret in store.list_secret_statuses(&installed.id)? {
+            if !declared_secret_names.contains(&secret.name) {
+                store.remove_secret(&installed.id, &secret.name)?;
+            }
+        }
+        Ok(installed)
     }
 
     pub fn list_installed(
@@ -275,6 +289,33 @@ impl RunnerCore {
             .map_err(CoreError::Storage)
     }
 
+    pub fn list_installed_secrets(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+    ) -> Result<Vec<InstalledSecretStatus>, CoreError> {
+        secrets::list_installed_secrets(self, store, reference)
+    }
+
+    pub fn set_installed_secret_from_text(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        name: &str,
+        value: &str,
+    ) -> Result<InstalledSecretStatus, CoreError> {
+        secrets::set_installed_secret_from_text(self, store, reference, name, value)
+    }
+
+    pub fn remove_installed_secret(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        name: &str,
+    ) -> Result<bool, CoreError> {
+        secrets::remove_installed_secret(self, store, reference, name)
+    }
+
     pub fn run_installed(
         &self,
         store: &impl ScriptStore,
@@ -328,7 +369,7 @@ impl RunnerCore {
         } else {
             RunnerPolicy::default()
         };
-        if let Err(source) = validate_package_permissions(&package, &policy) {
+        if let Err(source) = validate_package_security(&package, &policy) {
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
             return Err(CoreError::Security(source));
         }
@@ -342,21 +383,35 @@ impl RunnerCore {
             };
         let core_action_handler =
             CoreRuntimeActionHandler::new(call_stack, self, action_handler, store);
+        let runtime_state_store = CoreRuntimeStateStore::new(store);
+        let secret_declarations = package
+            .manifest
+            .secrets
+            .iter()
+            .map(|secret| RuntimeSecretDeclaration {
+                name: secret.name.clone(),
+                required: secret.required,
+                value_type: secret.value_type.clone(),
+            })
+            .collect::<Vec<_>>();
 
+        let runtime_resources = || {
+            RuntimeExecutionResources::new(&core_action_handler)
+                .with_package_path(installed.package_path.clone())
+                .with_state(&runtime_state_store, &secret_declarations)
+        };
         let report = match trigger_node_id {
-            Some(trigger_node_id) => execute_trigger_program_with_actions_and_package_path(
+            Some(trigger_node_id) => execute_trigger_program_with_state(
                 &package.program,
                 &package.manifest.id,
                 trigger_node_id,
-                Some(installed.package_path.clone()),
                 trigger_payload,
-                &core_action_handler,
+                runtime_resources(),
             ),
-            None => execute_manual_program_with_actions_and_package_path(
+            None => execute_manual_program_with_state(
                 &package.program,
                 &package.manifest.id,
-                Some(installed.package_path.clone()),
-                &core_action_handler,
+                runtime_resources(),
             ),
         }
         .map_err(|source| {
@@ -471,7 +526,7 @@ impl RunnerCore {
         policy: &RunnerPolicy,
     ) -> Result<(), CoreError> {
         self.validate_package_compatibility(package)?;
-        validate_package_permissions(package, policy)?;
+        validate_package_security(package, policy)?;
         Ok(())
     }
 }
@@ -487,11 +542,13 @@ pub enum CoreError {
     #[error(transparent)]
     Runtime(#[from] baudbound_runtime::RuntimeError),
     #[error(transparent)]
-    Security(#[from] PermissionValidationError),
+    Security(#[from] SecurityValidationError),
     #[error(transparent)]
     Storage(#[from] StorageError),
     #[error("sub-script cycle detected: {0}")]
     SubScriptCycle(String),
+    #[error("secret configuration is invalid: {0}")]
+    InvalidSecret(String),
     #[error(transparent)]
     Version(#[from] VersionCompatibilityError),
 }

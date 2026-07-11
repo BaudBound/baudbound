@@ -1,29 +1,30 @@
 use anyhow::{Context, Result};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::TriggerServiceDiagnostics;
 use serde_json::Value;
 
-use super::{activity::ServiceActivity, options::ServeOptions, triggers::TriggerServices};
+use super::{
+    activity::ServiceActivity, ipc::ServiceControlDescriptor, options::ServeOptions,
+    triggers::TriggerServices,
+};
 use crate::paths::current_unix_timestamp;
 
 pub(super) fn write_serve_status(
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: &ServeOptions,
     services: &TriggerServices,
-    state: &str,
-    started_at_unix: u64,
-    last_reload_at_unix: u64,
-    activity: &ServiceActivity,
+    snapshot: ServeStatusSnapshot<'_>,
 ) -> Result<()> {
     let service_rows = serve_status_services(options, services);
     let active_service_count = service_rows.iter().filter(|row| row.active).count();
     let document = serde_json::json!({
         "active_service_count": active_service_count,
-        "activity": activity,
+        "activity": snapshot.activity,
         "configured_serial_device_count": options.serial_devices.len(),
+        "control": snapshot.service_control,
         "idle": active_service_count == 0,
         "last_heartbeat_unix": current_unix_timestamp(),
-        "last_reload_unix": last_reload_at_unix,
+        "last_reload_unix": snapshot.last_reload_at_unix,
         "pid": std::process::id(),
         "reload_interval_seconds": options.reload_check_interval.as_secs(),
         "runner_name": options.runner_name.clone(),
@@ -41,13 +42,21 @@ pub(super) fn write_serve_status(
                 })
             })
             .collect::<Vec<_>>(),
-        "started_at_unix": started_at_unix,
-        "state": state,
+        "started_at_unix": snapshot.started_at_unix,
+        "state": snapshot.state,
         "storage_root": store.root(),
     });
     store
         .write_service_status(&document)
         .context("failed to write runner service status")
+}
+
+pub(super) struct ServeStatusSnapshot<'a> {
+    pub(super) activity: &'a ServiceActivity,
+    pub(super) last_reload_at_unix: u64,
+    pub(super) service_control: &'a ServiceControlDescriptor,
+    pub(super) started_at_unix: u64,
+    pub(super) state: &'a str,
 }
 
 fn serve_status_services(

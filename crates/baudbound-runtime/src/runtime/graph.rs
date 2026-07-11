@@ -110,6 +110,10 @@ impl RuntimeGraph {
             .ok_or_else(|| RuntimeError::InvalidGraph(format!("node {node_id} does not exist")))
     }
 
+    pub(crate) fn nodes(&self) -> impl Iterator<Item = &RuntimeNode> {
+        self.nodes.values()
+    }
+
     pub(crate) fn target_node_ids_for_handle(&self, node_id: &str, handle: &str) -> Vec<String> {
         let mut targets = self
             .edges_by_source

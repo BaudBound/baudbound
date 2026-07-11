@@ -2,10 +2,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use baudbound_core::{RunReport, TriggerEvent};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use super::{
-    activity::ServiceActivity, options::ServeOptions, status::write_serve_status,
+    activity::ServiceActivity,
+    ipc::ServiceControlDescriptor,
+    options::ServeOptions,
+    status::{ServeStatusSnapshot, write_serve_status},
     triggers::TriggerServices,
 };
 use crate::paths::current_unix_timestamp;
@@ -16,23 +19,25 @@ pub(super) struct ServeStatusTracker {
     activity: ServiceActivity,
     last_reload_at_unix: u64,
     last_status_write: Instant,
+    service_control: ServiceControlDescriptor,
     started_at_unix: u64,
 }
 
 impl ServeStatusTracker {
-    pub(super) fn start() -> Self {
+    pub(super) fn start(service_control: ServiceControlDescriptor) -> Self {
         let started_at_unix = current_unix_timestamp();
         Self {
             activity: ServiceActivity::default(),
             last_reload_at_unix: started_at_unix,
             last_status_write: Instant::now(),
+            service_control,
             started_at_unix,
         }
     }
 
     pub(super) fn write_running(
         &mut self,
-        store: &FilesystemScriptStore,
+        store: &SqliteRunnerStore,
         options: &ServeOptions,
         services: &TriggerServices,
     ) -> Result<()> {
@@ -40,10 +45,13 @@ impl ServeStatusTracker {
             store,
             options,
             services,
-            "running",
-            self.started_at_unix,
-            self.last_reload_at_unix,
-            &self.activity,
+            ServeStatusSnapshot {
+                activity: &self.activity,
+                last_reload_at_unix: self.last_reload_at_unix,
+                service_control: &self.service_control,
+                started_at_unix: self.started_at_unix,
+                state: "running",
+            },
         )?;
         self.last_status_write = Instant::now();
         Ok(())
@@ -51,7 +59,7 @@ impl ServeStatusTracker {
 
     pub(super) fn write_stopped(
         &self,
-        store: &FilesystemScriptStore,
+        store: &SqliteRunnerStore,
         options: &ServeOptions,
         services: &TriggerServices,
     ) -> Result<()> {
@@ -59,10 +67,13 @@ impl ServeStatusTracker {
             store,
             options,
             services,
-            "stopped",
-            self.started_at_unix,
-            self.last_reload_at_unix,
-            &self.activity,
+            ServeStatusSnapshot {
+                activity: &self.activity,
+                last_reload_at_unix: self.last_reload_at_unix,
+                service_control: &self.service_control,
+                started_at_unix: self.started_at_unix,
+                state: "stopped",
+            },
         )
     }
 
@@ -72,7 +83,7 @@ impl ServeStatusTracker {
 
     pub(super) fn write_heartbeat_if_due(
         &mut self,
-        store: &FilesystemScriptStore,
+        store: &SqliteRunnerStore,
         options: &ServeOptions,
         services: &TriggerServices,
     ) -> Result<()> {

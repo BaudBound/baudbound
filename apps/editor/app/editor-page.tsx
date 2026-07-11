@@ -35,6 +35,7 @@ import {
 	isDevelopmentGraphEnabled,
 } from "@/data/nodes/development-graph";
 import { createNodeFromPaletteItem, getFlatPaletteItems } from "@/data/nodes/registry";
+import { createSimulationSecretValues, getSecretSimulationProblems } from "@/data/project/secrets";
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
 import type {
 	CommentNodeData,
@@ -44,6 +45,7 @@ import type {
 	LogEntry,
 	PaletteItem,
 	ProjectSettings,
+	SecretDeclaration,
 	SimulationOverride,
 	SimulationOverrideOutcome,
 	SimulationRunStatus,
@@ -162,6 +164,8 @@ export function EditorPage() {
 	const [exportOpen, setExportOpen] = useState(false);
 	const [clipboard, setClipboard] = useState<EditorClipboard | null>(null);
 	const [assets, setAssets] = useState<EditorAsset[]>([]);
+	const [secretDeclarations, setSecretDeclarations] = useState<SecretDeclaration[]>([]);
+	const [simulationSecretValues, setSimulationSecretValues] = useState<Record<string, string>>({});
 	const [edgeStyle, setEdgeStyle] = useState<EditorEdgeStyle>(defaultEditorEdgeStyle);
 	const [viewportCenter, setViewportCenter] = useState<XYPosition | null>(null);
 	const [bottomPanelFollow, setBottomPanelFollow] = useState({
@@ -201,8 +205,14 @@ export function EditorPage() {
 		() => scriptNodes.find((node) => node.id === selectedNodeId) ?? null,
 		[scriptNodes, selectedNodeId],
 	);
-	const permissions = useMemo(() => calculatePermissions(scriptNodes), [scriptNodes]);
-	const capabilities = useMemo(() => calculateCapabilities(scriptNodes), [scriptNodes]);
+	const permissions = useMemo(
+		() => calculatePermissions(scriptNodes, secretDeclarations),
+		[scriptNodes, secretDeclarations],
+	);
+	const capabilities = useMemo(
+		() => calculateCapabilities(scriptNodes, secretDeclarations),
+		[scriptNodes, secretDeclarations],
+	);
 	const riskLevel = useMemo(() => calculateRiskLevel(permissions), [permissions]);
 	const exportSummary = useMemo(
 		() => createExportSummary(projectSettings.name, projectSettings.targetRuntime, assets),
@@ -215,18 +225,19 @@ export function EditorPage() {
 				edges,
 				nodes: scriptNodes,
 				permissions,
+				secretDeclarations,
 				scriptName: projectSettings.name,
 				targetRuntime: projectSettings.targetRuntime,
 			}),
-		[assets, edges, scriptNodes, permissions, projectSettings.name, projectSettings.targetRuntime],
+		[assets, edges, scriptNodes, permissions, projectSettings.name, projectSettings.targetRuntime, secretDeclarations],
 	);
 	const verificationSignature = useMemo(
-		() => createEditorVerificationSignature(projectSettings, scriptNodes, edges, assets),
-		[projectSettings, scriptNodes, edges, assets],
+		() => createEditorVerificationSignature(projectSettings, scriptNodes, edges, assets, secretDeclarations),
+		[projectSettings, scriptNodes, edges, assets, secretDeclarations],
 	);
 	const variableEntries = useMemo(
-		() => createVariablePanelEntries(projectSettings, scriptNodes, simulationVariables),
-		[projectSettings, scriptNodes, simulationVariables],
+		() => createVariablePanelEntries(projectSettings, scriptNodes, simulationVariables, secretDeclarations),
+		[projectSettings, scriptNodes, simulationVariables, secretDeclarations],
 	);
 	const normalizedProjectSettings = {
 		...projectSettings,
@@ -318,6 +329,7 @@ export function EditorPage() {
 			assets,
 			comments,
 			edgeStyle,
+			secretDeclarations,
 		});
 	};
 
@@ -424,6 +436,13 @@ export function EditorPage() {
 			runId: number;
 			triggerNodeId: string;
 		}) => {
+			const secretProblems = getSecretSimulationProblems(secretDeclarations, simulationSecretValues);
+			if (secretProblems.length > 0) {
+				setSimulationStatus("failed");
+				appendSimulationLogs(secretProblems.map((message) => ({ level: "error", message: `[Simulation] ${message}` })));
+				completeSimulationLifecycle(runId);
+				return;
+			}
 			setSimulationStatus("running");
 
 			try {
@@ -433,6 +452,7 @@ export function EditorPage() {
 					edges,
 					overrides: simulationOverrides,
 					projectSettings,
+					secretValues: createSimulationSecretValues(secretDeclarations, simulationSecretValues),
 					signal: abortController.signal,
 					stepDelayMs: getSimulationStepDelay(simulationSettings.speed),
 					triggerNodeId,
@@ -460,7 +480,9 @@ export function EditorPage() {
 			edges,
 			handleSimulationStep,
 			projectSettings,
+			secretDeclarations,
 			scriptNodes,
+			simulationSecretValues,
 			simulationOverrides,
 			simulationSettings.speed,
 		],
@@ -614,12 +636,13 @@ export function EditorPage() {
 			}
 
 			const importedPackage = await importBbsPackage(file);
-			const importedPermissions = calculatePermissions(importedPackage.nodes);
+			const importedPermissions = calculatePermissions(importedPackage.nodes, importedPackage.secretDeclarations);
 			const importedVerificationChecks = createVerificationChecks({
 				assets: importedPackage.assets,
 				edges: importedPackage.edges,
 				nodes: importedPackage.nodes,
 				permissions: importedPermissions,
+				secretDeclarations: importedPackage.secretDeclarations,
 				scriptName: importedPackage.projectSettings.name,
 				targetRuntime: importedPackage.projectSettings.targetRuntime,
 			});
@@ -629,11 +652,14 @@ export function EditorPage() {
 				importedPackage.nodes,
 				importedPackage.edges,
 				importedPackage.assets,
+				importedPackage.secretDeclarations,
 			);
 
 			abortSimulationLifecycle("imported package loaded");
 			setProjectSettings(importedPackage.projectSettings);
 			setAssets(importedPackage.assets);
+			setSecretDeclarations(importedPackage.secretDeclarations);
+			setSimulationSecretValues({});
 			setEdgeStyle(importedPackage.edgeStyle);
 			setNodes([
 				...(importedPackage.nodes as ScriptFlowNode[]),
@@ -1130,11 +1156,24 @@ export function EditorPage() {
 						systemLogs={systemLogs}
 						simulationLogs={simulationLogs}
 						variables={variableEntries}
+						secretDeclarations={secretDeclarations}
+						simulationSecretValues={simulationSecretValues}
 						height={sizes.bottom}
 						onClearTab={handleClearBottomPanelTab}
 						onFollowChange={handleFollowBottomPanelTab}
 						onTabChange={setBottomPanelTab}
 						onToggle={() => setBottomPanelOpen((open) => !open)}
+						onSecretDeclarationsChange={setSecretDeclarations}
+						onSimulationSecretValueChange={(name, value) =>
+							setSimulationSecretValues((current) => {
+								if (value === "") {
+									const next = { ...current };
+									delete next[name];
+									return next;
+								}
+								return { ...current, [name]: value };
+							})
+						}
 					/>
 				</main>
 

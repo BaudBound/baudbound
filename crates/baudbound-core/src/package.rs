@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use baudbound_script::{PackageSummary, RiskLevel, ScriptPackage};
-use baudbound_security::{PermissionValidationError, RunnerPolicy, validate_program_permissions};
+use baudbound_security::{
+    RunnerPolicy, SecurityValidationError, validate_program_capabilities_with_secrets,
+    validate_program_permissions_with_secrets,
+};
 use baudbound_storage::ImportScriptRequest;
 
 #[derive(Debug, Clone)]
@@ -40,17 +43,24 @@ pub(crate) fn import_request_from_package(
     }
 }
 
-pub(crate) fn validate_package_permissions(
+pub(crate) fn validate_package_security(
     package: &ScriptPackage,
     policy: &RunnerPolicy,
-) -> Result<(), PermissionValidationError> {
-    validate_program_permissions(
+) -> Result<(), SecurityValidationError> {
+    let has_secret_declarations = !package.manifest.secrets.is_empty();
+    validate_program_permissions_with_secrets(
         &package.program,
         &package.permissions.declared_permissions,
         security_risk_level(&package.permissions.risk_level),
         policy,
-    )
-    .map(|_| ())
+        has_secret_declarations,
+    )?;
+    validate_program_capabilities_with_secrets(
+        &package.program,
+        &package.capabilities.required_capabilities,
+        has_secret_declarations,
+    )?;
+    Ok(())
 }
 
 fn risk_level_name(risk_level: &RiskLevel) -> &'static str {

@@ -1,10 +1,18 @@
 //! Security and policy primitives shared by BaudBound runner apps.
 
+mod capabilities;
+
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+
+pub use capabilities::{
+    CapabilityValidationError, ProgramCapabilityReport, calculate_program_capabilities,
+    calculate_program_capabilities_with_secrets, validate_program_capabilities,
+    validate_program_capabilities_with_secrets,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -67,6 +75,8 @@ pub enum PermissionValidationError {
     MissingPermission(String),
     #[error("permissions.json declares unused permission {0}")]
     UndeclaredPermission(String),
+    #[error("permissions.json declares duplicate permission {0}")]
+    DuplicatePermission(String),
     #[error("permissions.json risk_level is {declared:?}, expected {expected:?}")]
     RiskMismatch {
         declared: RiskLevel,
@@ -78,13 +88,37 @@ pub enum PermissionValidationError {
     InvalidProgram(String),
 }
 
+#[derive(Debug, Error)]
+pub enum SecurityValidationError {
+    #[error(transparent)]
+    Capability(#[from] CapabilityValidationError),
+    #[error(transparent)]
+    Permission(#[from] PermissionValidationError),
+}
+
 pub fn validate_program_permissions(
     program: &Value,
     declared_permissions: &[String],
     declared_risk: RiskLevel,
     policy: &RunnerPolicy,
 ) -> Result<ProgramPermissionReport, PermissionValidationError> {
-    let report = calculate_program_permissions(program)?;
+    validate_program_permissions_with_secrets(
+        program,
+        declared_permissions,
+        declared_risk,
+        policy,
+        false,
+    )
+}
+
+pub fn validate_program_permissions_with_secrets(
+    program: &Value,
+    declared_permissions: &[String],
+    declared_risk: RiskLevel,
+    policy: &RunnerPolicy,
+    has_secret_declarations: bool,
+) -> Result<ProgramPermissionReport, PermissionValidationError> {
+    let report = calculate_program_permissions_with_secrets(program, has_secret_declarations)?;
     let required = report
         .required_permissions
         .iter()
@@ -94,6 +128,12 @@ pub fn validate_program_permissions(
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
+
+    if declared.len() != declared_permissions.len() {
+        let duplicate = first_duplicate(declared_permissions)
+            .expect("set length proves that a duplicate permission exists");
+        return Err(PermissionValidationError::DuplicatePermission(duplicate));
+    }
 
     for permission in &required {
         if !declared.contains(permission) {
@@ -125,10 +165,22 @@ pub fn validate_program_permissions(
 pub fn calculate_program_permissions(
     program: &Value,
 ) -> Result<ProgramPermissionReport, PermissionValidationError> {
+    calculate_program_permissions_with_secrets(program, false)
+}
+
+pub fn calculate_program_permissions_with_secrets(
+    program: &Value,
+    has_secret_declarations: bool,
+) -> Result<ProgramPermissionReport, PermissionValidationError> {
     let mut permissions = Vec::<PermissionGrant>::new();
     let mut seen_permissions = BTreeSet::<String>::new();
 
-    for action_type in executable_action_types(program)? {
+    for action_type in
+        executable_action_types(program).map_err(PermissionValidationError::InvalidProgram)?
+    {
+        if action_type == "runtime.set_variable" {
+            continue;
+        }
         let Some(permission) = permission_for_action_type(&action_type) else {
             if !is_known_permissionless_action_type(&action_type) {
                 return Err(PermissionValidationError::UnsupportedActionType(
@@ -141,6 +193,40 @@ pub fn calculate_program_permissions(
         if seen_permissions.insert(permission.name.clone()) {
             permissions.push(permission);
         }
+    }
+
+    for scope in
+        variable_operation_scopes(program).map_err(PermissionValidationError::InvalidProgram)?
+    {
+        let permission = match scope.as_str() {
+            "runtime" => PermissionGrant {
+                name: "set_local_variable".to_owned(),
+                risk: RiskLevel::Low,
+            },
+            "persistent" => PermissionGrant {
+                name: "set_persistent_variable".to_owned(),
+                risk: RiskLevel::Medium,
+            },
+            "global" => PermissionGrant {
+                name: "set_global_variable".to_owned(),
+                risk: RiskLevel::High,
+            },
+            invalid => {
+                return Err(PermissionValidationError::InvalidProgram(format!(
+                    "runtime.set_variable contains unsupported scope {invalid:?}"
+                )));
+            }
+        };
+        if seen_permissions.insert(permission.name.clone()) {
+            permissions.push(permission);
+        }
+    }
+
+    if has_secret_declarations && seen_permissions.insert("read_secret".to_owned()) {
+        permissions.push(PermissionGrant {
+            name: "read_secret".to_owned(),
+            risk: RiskLevel::High,
+        });
     }
 
     permissions.sort_by(|left, right| left.name.cmp(&right.name));
@@ -246,11 +332,11 @@ fn enforce_runner_policy(
     Ok(())
 }
 
-fn executable_action_types(program: &Value) -> Result<Vec<String>, PermissionValidationError> {
+pub(crate) fn executable_action_types(program: &Value) -> Result<Vec<String>, String> {
     let entry = program
         .get("entry")
         .and_then(Value::as_object)
-        .ok_or_else(|| PermissionValidationError::InvalidProgram("missing entry".to_owned()))?;
+        .ok_or_else(|| "missing entry".to_owned())?;
     let mut action_types = Vec::new();
 
     if let Some(action_type) = entry
@@ -273,9 +359,7 @@ fn executable_action_types(program: &Value) -> Result<Vec<String>, PermissionVal
         .get("program")
         .and_then(|program| program.get("steps"))
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            PermissionValidationError::InvalidProgram("missing entry.program.steps".to_owned())
-        })?;
+        .ok_or_else(|| "missing entry.program.steps".to_owned())?;
 
     for step in steps {
         if let Some(action_type) = step.get("action_type").and_then(Value::as_str) {
@@ -286,6 +370,37 @@ fn executable_action_types(program: &Value) -> Result<Vec<String>, PermissionVal
     action_types.sort();
     action_types.dedup();
     Ok(action_types)
+}
+
+pub(crate) fn variable_operation_scopes(program: &Value) -> Result<Vec<String>, String> {
+    let steps = program
+        .get("entry")
+        .and_then(|entry| entry.get("program"))
+        .and_then(|program| program.get("steps"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing entry.program.steps".to_owned())?;
+
+    steps
+        .iter()
+        .filter(|step| {
+            step.get("action_type").and_then(Value::as_str) == Some("runtime.set_variable")
+        })
+        .map(|step| {
+            step.get("config")
+                .and_then(|config| config.get("scope"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| "runtime.set_variable is missing string config.scope".to_owned())
+        })
+        .collect()
+}
+
+pub(crate) fn first_duplicate(values: &[String]) -> Option<String> {
+    let mut seen = BTreeSet::new();
+    values
+        .iter()
+        .find(|value| !seen.insert(value.as_str()))
+        .cloned()
 }
 
 #[cfg(test)]

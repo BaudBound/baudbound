@@ -19,6 +19,10 @@ pub fn default_config_path(runner_home: &std::path::Path) -> PathBuf {
     runner_home.join("config.toml")
 }
 
+pub fn default_database_path(runner_home: &std::path::Path) -> PathBuf {
+    runner_home.join("runner.sqlite3")
+}
+
 pub fn current_unix_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

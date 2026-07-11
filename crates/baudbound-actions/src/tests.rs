@@ -14,6 +14,15 @@ use super::{
     WebSocketMessageSink,
 };
 
+#[path = "tests/file_actions.rs"]
+mod file_actions;
+#[path = "tests/http_action.rs"]
+mod http_action;
+#[path = "tests/process_actions.rs"]
+mod process_actions;
+#[path = "tests/text_format.rs"]
+mod text_format;
+
 #[derive(Default)]
 struct FakeWebSocketSink {
     sent: Mutex<Vec<(String, String)>>,
@@ -153,6 +162,34 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("window_focus"))]),
+        })
+    }
+
+    fn process_status_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+        self.record(request);
+        Ok(baudbound_runtime::RuntimeActionResult {
+            output_data: Map::from_iter([(
+                "handled".to_owned(),
+                json!("process_status_by_window_title"),
+            )]),
+        })
+    }
+
+    fn kill_process_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+        self.record(request);
+        Ok(baudbound_runtime::RuntimeActionResult {
+            output_data: Map::from_iter([(
+                "handled".to_owned(),
+                json!("kill_process_by_window_title"),
+            )]),
         })
     }
 }
@@ -494,6 +531,49 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
             "action.pixel.get".to_owned(),
             "action.window.active".to_owned(),
             "action.window.focus".to_owned()
+        ]
+    );
+}
+
+#[test]
+fn desktop_action_handler_routes_only_window_title_process_modes_to_adapter() {
+    let adapter = FakeDesktopAdapter::default();
+    let handler = DesktopActionHandler::new(HeadlessActionHandler::default(), adapter);
+
+    for (action_type, expected) in [
+        ("action.process.status", "process_status_by_window_title"),
+        ("action.process.kill", "kill_process_by_window_title"),
+    ] {
+        let result = execute_with_handler(
+            &handler,
+            action_type,
+            json!({"matchMode": "window_title", "target": "BaudBound"}),
+            Value::Null,
+        )
+        .expect("window-title process action should route to the desktop adapter");
+        assert_eq!(result.output_data.get("handled"), Some(&json!(expected)));
+    }
+
+    let current_pid = std::process::id();
+    let result = execute_with_handler(
+        &handler,
+        "action.process.status",
+        json!({"matchMode": "pid", "target": current_pid}),
+        Value::Null,
+    )
+    .expect("PID process status should remain in the shared handler");
+    assert_eq!(result.output_data.get("running"), Some(&json!(true)));
+
+    assert_eq!(
+        handler
+            .adapter
+            .called
+            .lock()
+            .expect("fake adapter lock should not be poisoned")
+            .as_slice(),
+        &[
+            "action.process.status".to_owned(),
+            "action.process.kill".to_owned(),
         ]
     );
 }

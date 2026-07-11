@@ -1,20 +1,15 @@
 # baudbound-storage
 
-Filesystem-backed runner storage for installed script packages.
+SQLite-backed durable storage for the BaudBound runner.
 
-Current implementation:
+The crate owns:
 
-- Imports validated `.bbs` packages into runner-owned storage
-- Stores installed package bytes as `scripts/<original-package-file-name>.bbs`
-- Persists an `index.json` with package metadata
-- Supports list, find by id/name, update, enable/disable, hash verification, and remove
-- Hashes imported packages with SHA-256
-- Rejects unsafe script ids and unsafe package file names before creating filesystem paths
-- Persists completed and failed run history to `runs.jsonl`
-- Supports run history listing, script filtering, and limits
+- Installed script metadata and controlled `.bbs` package references
+- SHA-256 package integrity checks
+- Script approvals bound to package hashes and permissions
+- Completed and failed run records
+- Service status snapshots
+- Durable trigger-reload signals
+- Versioned SQLite schema initialization
 
-Planned responsibilities:
-
-- Script permissions and approvals
-- Runner settings
-
+Package files remain under the runner-owned `scripts/` directory. All mutable runner metadata is stored in `runner.sqlite3`; the runner does not maintain parallel JSON indexes or logs.

@@ -455,7 +455,6 @@
 						"runtime",
 						"persistent",
 						"global",
-						"secret",
 						"manifest",
 						"system",
 						"node_output"

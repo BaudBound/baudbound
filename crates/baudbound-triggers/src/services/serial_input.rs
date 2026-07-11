@@ -4,7 +4,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
+        mpsc::SyncSender,
     },
     thread::{self, JoinHandle},
     time::{Duration, SystemTime},
@@ -18,7 +18,8 @@ use serialport::{
 
 use crate::{
     SerialPortRebindSink, TriggerError, TriggerEvent, TriggerRegistration,
-    TriggerServiceDiagnostics, required_config_string, unix_timestamp, unix_timestamp_millis,
+    TriggerServiceDiagnostics, required_config_string, try_send_trigger_event, unix_timestamp,
+    unix_timestamp_millis,
 };
 #[derive(Debug, Clone, Serialize)]
 pub struct SerialReaderStatus {
@@ -55,7 +56,7 @@ impl SerialInputService {
     pub fn start(
         registrations: impl IntoIterator<Item = TriggerRegistration>,
         devices: impl IntoIterator<Item = SerialDeviceConfig>,
-        sender: Sender<TriggerEvent>,
+        sender: SyncSender<TriggerEvent>,
         rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     ) -> Result<Self, TriggerError> {
         let mut handles = Vec::new();
@@ -258,7 +259,7 @@ impl SerialInputSpec {
 fn run_serial_input_reader(
     registration: TriggerRegistration,
     mut spec: SerialInputSpec,
-    sender: Sender<TriggerEvent>,
+    sender: SyncSender<TriggerEvent>,
     running: Arc<AtomicBool>,
     reader_statuses: SerialReaderStatusMap,
     rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
@@ -445,7 +446,7 @@ fn run_serial_input_reader(
 fn read_serial_lines(
     registration: &TriggerRegistration,
     spec: &SerialInputSpec,
-    sender: &Sender<TriggerEvent>,
+    sender: &SyncSender<TriggerEvent>,
     running: &AtomicBool,
     port: &mut dyn serialport::SerialPort,
     reader_statuses: &SerialReaderStatusMap,
@@ -473,7 +474,7 @@ fn read_serial_lines(
 fn read_serial_raw_chunks(
     registration: &TriggerRegistration,
     spec: &SerialInputSpec,
-    sender: &Sender<TriggerEvent>,
+    sender: &SyncSender<TriggerEvent>,
     running: &AtomicBool,
     port: &mut dyn serialport::SerialPort,
     reader_statuses: &SerialReaderStatusMap,
@@ -499,7 +500,7 @@ fn read_serial_raw_chunks(
 pub(crate) fn send_serial_event(
     registration: &TriggerRegistration,
     spec: &SerialInputSpec,
-    sender: &Sender<TriggerEvent>,
+    sender: &SyncSender<TriggerEvent>,
     bytes: &[u8],
     reader_statuses: Option<&SerialReaderStatusMap>,
 ) {
@@ -507,16 +508,20 @@ pub(crate) fn send_serial_event(
         set_serial_reader_status(reader_statuses, registration, spec, "reading", None, true);
     }
     let data = String::from_utf8_lossy(bytes).into_owned();
-    let _ = sender.send(TriggerEvent {
-        node_id: registration.node_id.clone(),
-        payload: json!({
-            "bytes": bytes.len(),
-            "data": data,
-            "device_id": spec.device_id,
-            "timestamp": unix_timestamp_millis(SystemTime::now()).to_string(),
-        }),
-        script_id: registration.script_id.clone(),
-    });
+    try_send_trigger_event(
+        sender,
+        TriggerEvent {
+            node_id: registration.node_id.clone(),
+            payload: json!({
+                "bytes": bytes.len(),
+                "data": data,
+                "device_id": spec.device_id,
+                "timestamp": unix_timestamp_millis(SystemTime::now()).to_string(),
+            }),
+            script_id: registration.script_id.clone(),
+        },
+        "serial input",
+    );
 }
 
 pub(crate) fn set_serial_reader_status(

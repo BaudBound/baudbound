@@ -101,6 +101,31 @@
         }
       },
       "uniqueItems": true
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type", "required"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "object", "list", "http_response", "datetime", "duration", "file_path"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "uniqueItems": true
     }
   }
 }

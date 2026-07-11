@@ -1,254 +1,45 @@
 use super::*;
+use crate::storage::filesystem::validate_script_id;
 
-#[test]
-fn imports_lists_finds_and_removes_script() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-
-    assert!(imported.package_path.exists());
-    assert_eq!(imported.package_file_name, "script.bbs");
-    assert_eq!(store.list_scripts().expect("scripts should list").len(), 1);
-    assert_eq!(
-        store
-            .find_script("Script One")
-            .expect("script should be found by name")
-            .id,
-        "script-1"
-    );
-
-    let removed = store
-        .remove_script("script-1")
-        .expect("script should be removed");
-    assert_eq!(removed.id, "script-1");
-    assert!(
-        store
-            .list_scripts()
-            .expect("scripts should list")
-            .is_empty()
-    );
-    assert!(!store.root().join("scripts").join("script.bbs").exists());
+fn open_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
+    SqliteRunnerStore::open(
+        temporary_directory
+            .path()
+            .join("runner")
+            .join("runner.sqlite3"),
+    )
+    .expect("SQLite store should open")
 }
 
-#[test]
-fn updates_existing_script_package() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+fn import_test_script(
+    store: &SqliteRunnerStore,
+    temporary_directory: &tempfile::TempDir,
+) -> InstalledScript {
     let package_path = temporary_directory.path().join("script.bbs");
-    let updated_package_path = temporary_directory.path().join("script-updated.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-    fs::write(&updated_package_path, b"updated bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    std::fs::write(&package_path, b"package bytes").expect("test package should be written");
     store
         .import_script(ImportScriptRequest {
             id: "script-1".to_owned(),
             name: "Script One".to_owned(),
             package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-
-    let updated = store
-        .update_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One Updated".to_owned(),
-            package_source: updated_package_path,
             package_format_version: 1,
             script_language_version: 1,
             target_runtime: "Generic Desktop".to_owned(),
             asset_count: 0,
             risk_level: "medium".to_owned(),
         })
-        .expect("script should update");
-
-    assert_eq!(updated.name, "Script One Updated");
-    assert_eq!(updated.risk_level, "medium");
-    assert_eq!(updated.package_file_name, "script-updated.bbs");
-    assert!(updated.package_path.exists());
-    assert!(!store.root().join("scripts").join("script.bbs").exists());
-    assert!(store.verify_script_package_hash("script-1").is_ok());
+        .expect("script should import")
 }
 
 #[test]
-fn toggles_installed_script_enabled_state() {
+fn initializes_and_reopens_versioned_schema() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-
-    let disabled = store
-        .set_script_enabled("Script One", false)
-        .expect("script should disable");
-    assert!(!disabled.enabled);
-    assert!(
-        !store
-            .find_script("script-1")
-            .expect("script should exist")
-            .enabled
-    );
-
-    let enabled = store
-        .set_script_enabled("script-1", true)
-        .expect("script should enable");
-    assert!(enabled.enabled);
-    assert!(
-        store
-            .find_script("Script One")
-            .expect("script should exist")
-            .enabled
-    );
-}
-
-#[test]
-fn installed_script_changes_request_trigger_reload() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    assert!(
-        !store
-            .consume_trigger_reload_request()
-            .expect("missing reload signal should be consumed cleanly")
-    );
-
-    store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-
-    assert!(
-        store
-            .consume_trigger_reload_request()
-            .expect("import should request reload")
-    );
-    assert!(
-        !store
-            .consume_trigger_reload_request()
-            .expect("reload signal should only be consumed once")
-    );
-
-    store
-        .set_script_enabled("script-1", false)
-        .expect("script should disable");
-    assert!(
-        store
-            .consume_trigger_reload_request()
-            .expect("enable state change should request reload")
-    );
-
-    store
-        .remove_script("script-1")
-        .expect("script should remove");
-    assert!(
-        store
-            .consume_trigger_reload_request()
-            .expect("remove should request reload")
-    );
-}
-
-#[test]
-fn reads_and_writes_service_status() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-
-    assert!(
-        store
-            .read_service_status()
-            .expect("missing service status should read cleanly")
-            .is_none()
-    );
-
-    let status = serde_json::json!({
-        "active_service_count": 1,
-        "last_heartbeat_unix": 123,
-        "pid": 42,
-        "services": [
-            {
-                "active": true,
-                "enabled": true,
-                "name": "schedule",
-                "registrations": 1,
-                "target": "internal timer"
-            }
-        ],
-        "state": "running"
-    });
-    store
-        .write_service_status(&status)
-        .expect("service status should write");
-
-    assert_eq!(
-        store
-            .read_service_status()
-            .expect("service status should read"),
-        Some(status)
-    );
-
-    assert!(
-        store
-            .clear_service_status()
-            .expect("service status should clear")
-    );
-    assert!(
-        store
-            .read_service_status()
-            .expect("cleared service status should read cleanly")
-            .is_none()
-    );
-    assert!(
-        !store
-            .clear_service_status()
-            .expect("missing service status should clear cleanly")
-    );
-}
-
-#[test]
-fn sqlite_runner_store_initializes_versioned_schema() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let database_path = temporary_directory.path().join("runner").join("runner.db");
+    let database_path = temporary_directory
+        .path()
+        .join("runner")
+        .join("runner.sqlite3");
 
     let store = SqliteRunnerStore::open(&database_path).expect("SQLite store should open");
-
     assert_eq!(store.path(), database_path);
     assert_eq!(
         store
@@ -267,11 +58,9 @@ fn sqlite_runner_store_initializes_versioned_schema() {
 }
 
 #[test]
-fn sqlite_runner_store_round_trips_service_status() {
+fn round_trips_service_status() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = SqliteRunnerStore::open(temporary_directory.path().join("runner.db"))
-        .expect("SQLite store should open");
-
+    let store = open_store(&temporary_directory);
     assert!(
         store
             .read_service_status()
@@ -287,7 +76,6 @@ fn sqlite_runner_store_round_trips_service_status() {
     store
         .write_service_status(&status)
         .expect("status should write");
-
     assert_eq!(
         store
             .read_service_status()
@@ -296,23 +84,20 @@ fn sqlite_runner_store_round_trips_service_status() {
     );
     assert!(store.clear_service_status().expect("status should clear"));
     assert!(
-        store
-            .read_service_status()
-            .expect("cleared status should read cleanly")
-            .is_none()
+        !store
+            .clear_service_status()
+            .expect("status is already clear")
     );
 }
 
 #[test]
-fn sqlite_runner_store_trigger_reload_signal_is_one_shot() {
+fn trigger_reload_signal_is_one_shot() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = SqliteRunnerStore::open(temporary_directory.path().join("runner.db"))
-        .expect("SQLite store should open");
-
+    let store = open_store(&temporary_directory);
     assert!(
         !store
             .consume_trigger_reload_request()
-            .expect("missing reload request should read cleanly")
+            .expect("missing signal should read cleanly")
     );
 
     store
@@ -331,32 +116,14 @@ fn sqlite_runner_store_trigger_reload_signal_is_one_shot() {
 }
 
 #[test]
-fn sqlite_runner_store_supports_script_lifecycle() {
+fn supports_complete_script_lifecycle() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
+    let store = open_store(&temporary_directory);
+    let imported = import_test_script(&store, &temporary_directory);
 
-    let store = SqliteRunnerStore::open(temporary_directory.path().join("store").join("runner.db"))
-        .expect("SQLite store should open");
-
-    let imported = store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "medium".to_owned(),
-        })
-        .expect("script should import");
     assert!(imported.package_path.exists());
-    assert!(
-        store
-            .consume_trigger_reload_request()
-            .expect("import should request reload")
-    );
+    assert_eq!(imported.package_file_name, "script.bbs");
+    assert!(store.verify_script_package_hash("script-1").is_ok());
     assert_eq!(
         store
             .find_script("Script One")
@@ -364,45 +131,16 @@ fn sqlite_runner_store_supports_script_lifecycle() {
             .id,
         "script-1"
     );
-    assert!(store.verify_script_package_hash("script-1").is_ok());
-
-    let approval = store
-        .approve_script(ApproveScriptRequest {
-            approved_permissions: vec!["http_request".to_owned()],
-            package_hash: imported.package_hash,
-            script_id: imported.id,
-        })
-        .expect("script should approve");
-    assert_eq!(approval.approved_permissions, ["http_request"]);
-    assert_eq!(
+    assert!(
         store
-            .find_script_approval("Script One")
-            .expect("approval lookup should succeed")
-            .expect("approval should exist")
-            .script_id,
-        "script-1"
-    );
-
-    store
-        .append_run_record(test_run_record("run-1", "script-1", 123))
-        .expect("run record should append");
-    assert_eq!(
-        store
-            .list_run_records(Some("script-1"), Some(1))
-            .expect("run records should list")[0]
-            .run_id,
-        "run-1"
+            .consume_trigger_reload_request()
+            .expect("import should request reload")
     );
 
     let disabled = store
         .set_script_enabled("script-1", false)
         .expect("script should disable");
     assert!(!disabled.enabled);
-    assert!(
-        store
-            .consume_trigger_reload_request()
-            .expect("disable should request reload")
-    );
 
     let removed = store
         .remove_script("script-1")
@@ -418,340 +156,187 @@ fn sqlite_runner_store_supports_script_lifecycle() {
 }
 
 #[test]
-fn sqlite_runner_store_migrates_filesystem_store() {
+fn update_replaces_package_and_invalidates_approval() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let filesystem_store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = filesystem_store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 2,
-            risk_level: "high".to_owned(),
-        })
-        .expect("script should import");
-    filesystem_store
+    let store = open_store(&temporary_directory);
+    let imported = import_test_script(&store, &temporary_directory);
+    store
         .approve_script(ApproveScriptRequest {
             approved_permissions: vec!["file_write_limited".to_owned()],
             package_hash: imported.package_hash,
             script_id: imported.id,
         })
         .expect("script should approve");
-    filesystem_store
-        .append_run_record(test_run_record("run-1", "script-1", 123))
-        .expect("run record should append");
-    filesystem_store
-        .write_service_status(&serde_json::json!({
-            "pid": 1234,
-            "state": "running"
-        }))
-        .expect("service status should write");
 
-    let sqlite_store =
-        SqliteRunnerStore::open(temporary_directory.path().join("store").join("runner.db"))
-            .expect("SQLite store should open");
-    sqlite_store
-        .migrate_from_filesystem(&filesystem_store)
-        .expect("filesystem store should migrate");
-    sqlite_store
-        .migrate_from_filesystem(&filesystem_store)
-        .expect("filesystem migration should be idempotent");
+    let updated_package_path = temporary_directory.path().join("script-updated.bbs");
+    std::fs::write(&updated_package_path, b"updated bytes")
+        .expect("updated package should be written");
+    let updated = store
+        .update_script(ImportScriptRequest {
+            id: "script-1".to_owned(),
+            name: "Script One Updated".to_owned(),
+            package_source: updated_package_path,
+            package_format_version: 1,
+            script_language_version: 1,
+            target_runtime: "Generic Desktop".to_owned(),
+            asset_count: 1,
+            risk_level: "high".to_owned(),
+        })
+        .expect("script should update");
 
-    let migrated = sqlite_store
-        .find_script("Script One")
-        .expect("migrated script should resolve");
-    assert_eq!(migrated.id, "script-1");
-    assert_eq!(migrated.asset_count, 2);
-    assert!(sqlite_store.verify_script_package_hash("script-1").is_ok());
-    assert_eq!(
-        sqlite_store
+    assert_eq!(updated.name, "Script One Updated");
+    assert_eq!(updated.package_file_name, "script-updated.bbs");
+    assert!(updated.package_path.exists());
+    assert!(
+        store
             .find_script_approval("script-1")
             .expect("approval lookup should succeed")
-            .expect("approval should exist")
-            .approved_permissions,
-        ["file_write_limited"]
-    );
-    assert_eq!(
-        sqlite_store
-            .list_run_records(None, None)
-            .expect("run records should list")
-            .len(),
-        1
-    );
-    assert_eq!(
-        sqlite_store
-            .read_service_status()
-            .expect("service status should read")
-            .expect("service status should exist")["state"],
-        "running"
-    );
-}
-
-#[test]
-fn sqlite_runner_store_rejects_migration_when_package_hash_is_tampered() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let filesystem_store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = filesystem_store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-    fs::write(&imported.package_path, b"tampered bytes").expect("package should be tampered");
-
-    let sqlite_store =
-        SqliteRunnerStore::open(temporary_directory.path().join("store").join("runner.db"))
-            .expect("SQLite store should open");
-
-    assert!(matches!(
-        sqlite_store.migrate_from_filesystem(&filesystem_store),
-        Err(StorageError::HashMismatch { .. })
-    ));
-    assert!(
-        sqlite_store
-            .list_scripts()
-            .expect("SQLite scripts should list")
-            .is_empty()
-    );
-}
-
-#[test]
-fn service_control_request_is_one_shot() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-
-    assert!(
-        store
-            .consume_service_control_request()
-            .expect("missing service control should read cleanly")
-            .is_none()
-    );
-
-    let request = serde_json::json!({
-        "command": "reload",
-        "requested_at_unix": 123,
-        "target_pid": 42
-    });
-    store
-        .write_service_control_request(&request)
-        .expect("service control should write");
-
-    assert_eq!(
-        store
-            .consume_service_control_request()
-            .expect("service control should read"),
-        Some(request)
-    );
-    assert!(
-        store
-            .consume_service_control_request()
-            .expect("service control should only be consumed once")
             .is_none()
     );
 }
 
 #[test]
-fn typed_service_control_targets_running_service_pid() {
+fn stores_finds_and_revokes_approval() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-
-    store
-        .write_service_status(&serde_json::json!({
-            "pid": 1234,
-            "state": "running"
-        }))
-        .expect("service status should write");
-    assert_eq!(
-        store
-            .running_service_pid()
-            .expect("running service pid should parse"),
-        1234
-    );
-
-    store
-        .request_service_control(ServiceControlCommand::Stop, 5678)
-        .expect("service stop should be requested");
-    assert_eq!(
-        store
-            .consume_service_control_request_for_pid(9999)
-            .expect("wrong pid request should be consumed"),
-        Some(ConsumedServiceControl::Ignored {
-            reason: "request targets pid 1234, but this process is 9999".to_owned()
-        })
-    );
-
-    store
-        .request_service_control(ServiceControlCommand::Reload, 5678)
-        .expect("service reload should be requested");
-    assert_eq!(
-        store
-            .consume_service_control_request_for_pid(1234)
-            .expect("targeted request should be consumed"),
-        Some(ConsumedServiceControl::Command(
-            ServiceControlCommand::Reload
-        ))
-    );
-}
-
-#[test]
-fn stores_finds_and_revokes_script_approvals() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "medium".to_owned(),
-        })
-        .expect("script should import");
-
+    let store = open_store(&temporary_directory);
+    let imported = import_test_script(&store, &temporary_directory);
     let approval = store
         .approve_script(ApproveScriptRequest {
             approved_permissions: vec!["http_request".to_owned()],
             package_hash: imported.package_hash.clone(),
-            script_id: imported.id.clone(),
+            script_id: imported.id,
         })
         .expect("script should approve");
 
-    assert_eq!(approval.script_id, "script-1");
-    assert_eq!(approval.package_hash, imported.package_hash);
     assert_eq!(approval.approved_permissions, ["http_request"]);
     assert_eq!(
         store
             .find_script_approval("Script One")
             .expect("approval lookup should succeed")
             .expect("approval should exist")
-            .script_id,
-        "script-1"
+            .package_hash,
+        imported.package_hash
     );
-
-    let revoked = store
-        .revoke_script_approval("script-1")
-        .expect("approval should revoke");
-    assert!(revoked.is_some());
     assert!(
         store
-            .find_script_approval("script-1")
-            .expect("approval lookup should succeed")
-            .is_none()
+            .revoke_script_approval("script-1")
+            .expect("approval should revoke")
+            .is_some()
     );
 }
 
 #[test]
-fn update_and_remove_clear_script_approval() {
+fn detects_installed_package_hash_mismatch() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    let updated_package_path = temporary_directory.path().join("script-updated.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-    fs::write(&updated_package_path, b"updated bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "high".to_owned(),
-        })
-        .expect("script should import");
-
-    store
-        .approve_script(ApproveScriptRequest {
-            approved_permissions: vec!["file_write_limited".to_owned()],
-            package_hash: imported.package_hash,
-            script_id: "script-1".to_owned(),
-        })
-        .expect("script should approve");
-
-    store
-        .update_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One Updated".to_owned(),
-            package_source: updated_package_path.clone(),
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "high".to_owned(),
-        })
-        .expect("script should update");
-    assert!(
-        store
-            .find_script_approval("script-1")
-            .expect("approval lookup should succeed")
-            .is_none()
-    );
-
-    let updated = store.find_script("script-1").expect("script should exist");
-    store
-        .approve_script(ApproveScriptRequest {
-            approved_permissions: vec!["file_write_limited".to_owned()],
-            package_hash: updated.package_hash,
-            script_id: "script-1".to_owned(),
-        })
-        .expect("script should approve again");
-
-    store
-        .remove_script("script-1")
-        .expect("script should remove");
-    assert!(matches!(
-        store.find_script_approval("script-1"),
-        Err(StorageError::NotFound(_))
-    ));
-}
-
-#[test]
-fn detects_hash_mismatch() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    let imported = store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
-
-    fs::write(&imported.package_path, b"tampered bytes").expect("stored package should mutate");
+    let store = open_store(&temporary_directory);
+    let imported = import_test_script(&store, &temporary_directory);
+    std::fs::write(&imported.package_path, b"tampered bytes")
+        .expect("stored package should mutate");
 
     assert!(matches!(
         store.verify_script_package_hash("script-1"),
         Err(StorageError::HashMismatch { .. })
+    ));
+}
+
+#[test]
+fn compare_and_set_variables_prevent_lost_updates() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+
+    assert!(
+        store
+            .compare_and_set_variable(
+                StoredVariableScope::Persistent,
+                "script-1",
+                "counter",
+                None,
+                &serde_json::json!(1),
+            )
+            .expect("initial value should store")
+    );
+    let initial = store
+        .load_variable(StoredVariableScope::Persistent, "script-1", "counter")
+        .expect("value should load")
+        .expect("value should exist");
+    assert_eq!(initial.version, 1);
+    assert!(
+        store
+            .compare_and_set_variable(
+                StoredVariableScope::Persistent,
+                "script-1",
+                "counter",
+                Some(initial.version),
+                &serde_json::json!(2),
+            )
+            .expect("matching update should execute")
+    );
+    assert!(
+        !store
+            .compare_and_set_variable(
+                StoredVariableScope::Persistent,
+                "script-1",
+                "counter",
+                Some(initial.version),
+                &serde_json::json!(99),
+            )
+            .expect("stale update should execute safely")
+    );
+    let current = store
+        .load_variable(StoredVariableScope::Persistent, "script-1", "counter")
+        .expect("value should load")
+        .expect("value should exist");
+    assert_eq!(current.value, serde_json::json!(2));
+    assert_eq!(current.version, 2);
+}
+
+#[test]
+fn encrypts_secret_values_and_rejects_the_wrong_key() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let database_path = temporary_directory
+        .path()
+        .join("runner")
+        .join("runner.sqlite3");
+    let key = SecretCipher::generate_key().expect("test key should generate");
+    let store = SqliteRunnerStore::open(&database_path)
+        .expect("store should open")
+        .with_secret_cipher(SecretCipher::from_key(key));
+    import_test_script(&store, &temporary_directory);
+    store
+        .set_secret(
+            "script-1",
+            "api_key",
+            &serde_json::json!("super-secret-value"),
+        )
+        .expect("secret should store");
+    assert_eq!(
+        store
+            .read_secret("script-1", "api_key")
+            .expect("secret should decrypt"),
+        Some(serde_json::json!("super-secret-value"))
+    );
+
+    let connection = rusqlite::Connection::open(&database_path).expect("database should inspect");
+    let ciphertext = connection
+        .query_row(
+            "SELECT ciphertext FROM secret_values WHERE script_id = 'script-1' AND name = 'api_key'",
+            [],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .expect("ciphertext should exist");
+    assert!(
+        !String::from_utf8_lossy(&ciphertext).contains("super-secret-value"),
+        "plaintext must not appear in stored ciphertext"
+    );
+
+    let wrong_key = SecretCipher::generate_key().expect("second test key should generate");
+    let wrong_store = SqliteRunnerStore::open(&database_path)
+        .expect("store should reopen")
+        .with_secret_cipher(SecretCipher::from_key(wrong_key));
+    assert!(matches!(
+        wrong_store.read_secret("script-1", "api_key"),
+        Err(StorageError::SecretCrypto(_))
     ));
 }
 
@@ -768,24 +353,10 @@ fn rejects_unsafe_script_ids() {
 }
 
 #[test]
-fn appends_and_filters_run_records() {
+fn appends_orders_and_filters_run_records() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let package_path = temporary_directory.path().join("script.bbs");
-    fs::write(&package_path, b"package bytes").expect("test package should be written");
-
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
-    store
-        .import_script(ImportScriptRequest {
-            id: "script-1".to_owned(),
-            name: "Script One".to_owned(),
-            package_source: package_path,
-            package_format_version: 1,
-            script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
-            asset_count: 0,
-            risk_level: "low".to_owned(),
-        })
-        .expect("script should import");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
 
     store
         .append_run_record(test_run_record("run-1", "script-1", 10))
@@ -807,7 +378,6 @@ fn appends_and_filters_run_records() {
             .collect::<Vec<_>>(),
         ["run-3", "run-2"]
     );
-
     let script_records = store
         .list_run_records(Some("Script One"), None)
         .expect("script records should list");

@@ -1498,7 +1498,7 @@ function normalizeScope(value: string) {
 		return "global";
 	}
 
-	return value === "persistent" || value === "global" || value === "secret" ? value : "runtime";
+	return value === "persistent" || value === "global" ? value : "runtime";
 }
 
 function updateSwitchCase(

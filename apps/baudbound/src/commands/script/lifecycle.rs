@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use baudbound_core::RunnerCore;
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use crate::output::print_installed_script;
 
 pub(super) fn import_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     package: PathBuf,
 ) -> Result<()> {
     let script = core
@@ -26,7 +26,7 @@ pub(super) fn import_script(
 
 pub(super) fn update_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     package: PathBuf,
 ) -> Result<()> {
     let script = core
@@ -39,11 +39,7 @@ pub(super) fn update_script(
     Ok(())
 }
 
-pub(super) fn list_scripts(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
-    json: bool,
-) -> Result<()> {
+pub(super) fn list_scripts(core: &RunnerCore, store: &SqliteRunnerStore, json: bool) -> Result<()> {
     let scripts = core
         .list_installed(store)
         .context("failed to list installed scripts")?;
@@ -71,7 +67,7 @@ pub(super) fn list_scripts(
 
 pub(super) fn inspect_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
     json: bool,
 ) -> Result<()> {
@@ -88,7 +84,7 @@ pub(super) fn inspect_script(
 
 pub(super) fn set_script_enabled(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
     enabled: bool,
 ) -> Result<()> {
@@ -111,7 +107,7 @@ pub(super) fn set_script_enabled(
 
 pub(super) fn remove_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
 ) -> Result<()> {
     let removed = core

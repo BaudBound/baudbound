@@ -176,6 +176,13 @@ export type PermissionSummary = {
 	risk: RiskLevel;
 };
 
+export type SecretDeclaration = {
+	description: string;
+	name: string;
+	required: boolean;
+	type: import("@/data/project/variables").VariableType;
+};
+
 export type CapabilitySummary = {
 	name: string;
 };
@@ -246,7 +253,7 @@ export type SimulationTriggerPayload = {
 
 export type SimulationVariableSnapshot = {
 	name: string;
-	source: "runtime" | "node_output";
+	source: "runtime" | "node_output" | "secret";
 	value: JsonValue;
 };
 

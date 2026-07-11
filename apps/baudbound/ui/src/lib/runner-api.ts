@@ -224,10 +224,20 @@ export type DashboardPayload = {
   native_doctor_checks: NativeDoctorCheck[];
   recent_runs: StoredRunRecord[];
   runner: RunnerStatus;
+  secret_statuses: Record<string, InstalledSecretStatus[]>;
   serial_devices: SerialDeviceStatus[];
   service_health: ServiceHealthDocument;
   service_status: ServiceStatusDocument | null;
   storage_root: string;
+};
+
+export type InstalledSecretStatus = {
+  configured: boolean;
+  description: string;
+  name: string;
+  required: boolean;
+  updated_at_unix: number | null;
+  value_type: string;
 };
 
 export type ActionPayload = {
@@ -289,6 +299,7 @@ export type WebhookSettings = {
 
 export type WebSocketSettings = {
   bind: string;
+  max_connections: number;
   max_message_bytes: number;
   port: number;
 };
@@ -369,4 +380,12 @@ export function runScript(reference: string) {
 
 export function setScriptEnabled(reference: string, enabled: boolean) {
   return invoke<ActionPayload>("set_script_enabled", { enabled, reference });
+}
+
+export function setScriptSecret(reference: string, name: string, value: string) {
+  return invoke<ActionPayload>("set_script_secret", { name, reference, value });
+}
+
+export function removeScriptSecret(reference: string, name: string) {
+  return invoke<ActionPayload>("remove_script_secret", { name, reference });
 }

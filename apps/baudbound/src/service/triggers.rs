@@ -1,14 +1,14 @@
 use std::{
-    sync::{Arc, mpsc::Sender},
+    sync::{Arc, mpsc::SyncSender},
     time::{Instant, SystemTime},
 };
 
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, TriggerEvent, TriggerRegistration};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{
     FileWatchService, HotkeyService, ProcessStartedService, ScheduleService, SerialInputService,
-    StartupService, WebSocketService,
+    StartupService, WebSocketService, WebSocketServiceConfig,
 };
 
 use super::{
@@ -33,8 +33,44 @@ struct TriggerRegistrationSet {
     registrations: Vec<TriggerRegistration>,
 }
 
+struct ReusableTriggerServices {
+    process_started: Option<ProcessStartedService>,
+    schedules: Option<ScheduleService>,
+    webhook: Option<WebhookHost>,
+    websocket: Option<WebSocketService>,
+}
+
+impl ReusableTriggerServices {
+    fn empty() -> Self {
+        Self {
+            process_started: None,
+            schedules: None,
+            webhook: None,
+            websocket: None,
+        }
+    }
+
+    fn take_from(current: &mut TriggerServices, options: &ServeOptions) -> Self {
+        Self {
+            process_started: Some(std::mem::replace(
+                &mut current.process_started_service,
+                ProcessStartedService::empty(),
+            )),
+            schedules: Some(std::mem::replace(
+                &mut current.schedules,
+                ScheduleService::empty(),
+            )),
+            webhook: current.webhook_host.take(),
+            websocket: Some(std::mem::replace(
+                &mut current.websocket_service,
+                WebSocketService::empty(Arc::clone(&options.websocket_registry)),
+            )),
+        }
+    }
+}
+
 impl TriggerRegistrationSet {
-    fn load(core: &RunnerCore, store: &FilesystemScriptStore, operation: &str) -> Result<Self> {
+    fn load(core: &RunnerCore, store: &SqliteRunnerStore, operation: &str) -> Result<Self> {
         let registrations = core
             .list_trigger_registrations(store, None)
             .with_context(|| format!("failed to {operation} trigger registrations"))?;
@@ -63,26 +99,27 @@ impl TriggerServices {
 
 pub(super) fn load_trigger_services(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: &ServeOptions,
-    trigger_sender: &Sender<TriggerEvent>,
-    previous_webhook_host: Option<WebhookHost>,
+    trigger_sender: &SyncSender<TriggerEvent>,
 ) -> Result<TriggerServices> {
     let registration_set = TriggerRegistrationSet::load(core, store, "load")?;
 
     build_trigger_services(
+        core,
+        store,
         registration_set,
         options,
         trigger_sender,
-        previous_webhook_host,
+        ReusableTriggerServices::empty(),
     )
 }
 
 pub(super) fn reload_trigger_services_if_changed(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: &ServeOptions,
-    trigger_sender: &Sender<TriggerEvent>,
+    trigger_sender: &SyncSender<TriggerEvent>,
     mut current: TriggerServices,
 ) -> Result<(TriggerServices, bool)> {
     let registration_set = TriggerRegistrationSet::load(core, store, "reload")?;
@@ -91,28 +128,47 @@ pub(super) fn reload_trigger_services_if_changed(
         return Ok((current, false));
     }
 
-    let previous_webhook_host = current.webhook_host.take();
+    drop(std::mem::replace(
+        &mut current.file_watch_service,
+        FileWatchService::empty(),
+    ));
+    let reusable = ReusableTriggerServices::take_from(&mut current, options);
     let mut services = build_trigger_services(
+        core,
+        store,
         registration_set,
         options,
         trigger_sender,
-        previous_webhook_host,
+        reusable,
     )?;
     services.startup.drain_events();
     Ok((services, true))
 }
 
 fn build_trigger_services(
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
     registration_set: TriggerRegistrationSet,
     options: &ServeOptions,
-    trigger_sender: &Sender<TriggerEvent>,
-    previous_webhook_host: Option<WebhookHost>,
+    trigger_sender: &SyncSender<TriggerEvent>,
+    reusable: ReusableTriggerServices,
 ) -> Result<TriggerServices> {
+    let ReusableTriggerServices {
+        process_started: previous_process_started_service,
+        schedules: previous_schedules,
+        webhook: previous_webhook_host,
+        websocket: previous_websocket_service,
+    } = reusable;
     let registrations = registration_set.registrations;
     let schedules = if options.schedules_enabled {
-        ScheduleService::from_registrations(registrations.clone(), Instant::now())
-            .context("failed to register schedule triggers")?
+        ScheduleService::start_or_reconfigure(
+            registrations.clone(),
+            Instant::now(),
+            previous_schedules,
+        )
+        .context("failed to register schedule triggers")?
     } else {
+        drop(previous_schedules);
         ScheduleService::empty()
     };
     let startup = if options.startup_enabled {
@@ -128,9 +184,14 @@ fn build_trigger_services(
         FileWatchService::empty()
     };
     let process_started_service = if options.process_watch_enabled {
-        ProcessStartedService::start(registrations.clone(), trigger_sender.clone())
-            .context("failed to register process started triggers")?
+        ProcessStartedService::start_or_reconfigure(
+            registrations.clone(),
+            trigger_sender.clone(),
+            previous_process_started_service,
+        )
+        .context("failed to register process started triggers")?
     } else {
+        drop(previous_process_started_service);
         ProcessStartedService::empty()
     };
     let serial_input_service = if options.serial_enabled {
@@ -151,19 +212,25 @@ fn build_trigger_services(
         HotkeyService::empty()
     };
     let websocket_service = if options.websockets_enabled {
-        WebSocketService::start(
+        WebSocketService::start_or_reconfigure(
             registrations.clone(),
-            &options.websocket_bind,
-            options.websocket_port,
-            options.max_websocket_message_bytes,
+            WebSocketServiceConfig {
+                bind: options.websocket_bind.clone(),
+                max_connections: options.max_websocket_connections,
+                max_message_bytes: options.max_websocket_message_bytes,
+                port: options.websocket_port,
+            },
             trigger_sender.clone(),
             Arc::clone(&options.websocket_registry),
+            previous_websocket_service,
         )
         .context("failed to register WebSocket triggers")?
     } else {
+        drop(previous_websocket_service);
         WebSocketService::empty(Arc::clone(&options.websocket_registry))
     };
-    let webhook_host = build_webhook_host(registrations, options, previous_webhook_host)?;
+    let webhook_host =
+        build_webhook_host(core, store, registrations, options, previous_webhook_host)?;
 
     Ok(TriggerServices {
         file_watch_service,

@@ -20,6 +20,7 @@ import type {
 	ProjectSettings,
 	RiskLevel,
 	ScriptNodeData,
+	SecretDeclaration,
 	TargetRuntime,
 	TriggerActionType,
 } from "../lib/types";
@@ -31,7 +32,10 @@ const riskWeight: Record<RiskLevel, number> = {
 	dangerous: 4,
 };
 
-export function calculatePermissions(nodes: Node<ScriptNodeData>[]): PermissionSummary[] {
+export function calculatePermissions(
+	nodes: Node<ScriptNodeData>[],
+	secretDeclarations: SecretDeclaration[] = [],
+): PermissionSummary[] {
 	const permissions = new Map<string, PermissionSummary>();
 
 	for (const node of nodes) {
@@ -42,19 +46,28 @@ export function calculatePermissions(nodes: Node<ScriptNodeData>[]): PermissionS
 			}
 		}
 	}
+	if (secretDeclarations.length > 0) {
+		permissions.set("read_secret", { name: "read_secret", risk: "high" });
+	}
 
 	return [...permissions.values()].sort(
 		(a, b) => riskWeight[a.risk] - riskWeight[b.risk] || a.name.localeCompare(b.name),
 	);
 }
 
-export function calculateCapabilities(nodes: Node<ScriptNodeData>[]): CapabilitySummary[] {
+export function calculateCapabilities(
+	nodes: Node<ScriptNodeData>[],
+	secretDeclarations: SecretDeclaration[] = [],
+): CapabilitySummary[] {
 	const capabilities = new Set<string>();
 
 	for (const node of nodes) {
-		for (const capability of getNodeCapabilities(node.data.actionType)) {
+		for (const capability of getNodeCapabilities(node.data.actionType, node.data.config)) {
 			capabilities.add(capability);
 		}
+	}
+	if (secretDeclarations.length > 0) {
+		capabilities.add("runtime.secrets");
 	}
 
 	return [...capabilities].sort().map((name) => ({ name }));

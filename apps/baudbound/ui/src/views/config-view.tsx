@@ -321,6 +321,7 @@ function SimpleConfigEditor({
           />
           <NetworkSection
             bind={config.websockets.bind}
+            maxConnections={config.websockets.max_connections}
             maxBytes={config.websockets.max_message_bytes}
             maxBytesLabel="Max message bytes"
             onBindChange={(bind) =>
@@ -330,6 +331,12 @@ function SimpleConfigEditor({
               onChange({
                 ...config,
                 websockets: { ...config.websockets, max_message_bytes },
+              })
+            }
+            onMaxConnectionsChange={(max_connections) =>
+              onChange({
+                ...config,
+                websockets: { ...config.websockets, max_connections },
               })
             }
             onPortChange={(port) =>
@@ -397,19 +404,23 @@ function SimpleConfigEditor({
 
 function NetworkSection({
   bind,
+  maxConnections,
   maxBytes,
   maxBytesLabel,
   onBindChange,
   onMaxBytesChange,
+  onMaxConnectionsChange,
   onPortChange,
   port,
   title,
 }: {
   bind: string;
+  maxConnections?: number;
   maxBytes: number;
   maxBytesLabel: string;
   onBindChange: (value: string) => void;
   onMaxBytesChange: (value: number) => void;
+  onMaxConnectionsChange?: (value: number) => void;
   onPortChange: (value: number) => void;
   port: number;
   title: string;
@@ -425,6 +436,14 @@ function NetworkSection({
         onChange={onMaxBytesChange}
         value={maxBytes}
       />
+      {maxConnections !== undefined && onMaxConnectionsChange ? (
+        <NumberField
+          label="Max concurrent connections"
+          min={1}
+          onChange={onMaxConnectionsChange}
+          value={maxConnections}
+        />
+      ) : null}
     </div>
   );
 }

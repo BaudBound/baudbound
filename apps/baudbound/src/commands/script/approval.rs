@@ -1,14 +1,10 @@
 use anyhow::{Context, Result};
 use baudbound_core::RunnerCore;
-use baudbound_storage::{FilesystemScriptStore, ScriptStore};
+use baudbound_storage::{ScriptStore, SqliteRunnerStore};
 
 use crate::output::print_approval_permissions;
 
-pub(super) fn print_approval(
-    store: &FilesystemScriptStore,
-    script: String,
-    json: bool,
-) -> Result<()> {
+pub(super) fn print_approval(store: &SqliteRunnerStore, script: String, json: bool) -> Result<()> {
     let approval = store
         .find_script_approval(&script)
         .with_context(|| format!("failed to inspect approval for {script:?}"))?;
@@ -30,7 +26,7 @@ pub(super) fn print_approval(
 
 pub(super) fn approve_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
 ) -> Result<()> {
     let approval = core
@@ -46,7 +42,7 @@ pub(super) fn approve_script(
 
 pub(super) fn revoke_approval(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: String,
 ) -> Result<()> {
     let revoked = core

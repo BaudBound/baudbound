@@ -5,14 +5,14 @@ use std::{
 
 use anyhow::{Context, Result};
 use baudbound_core::{RunReport, RunnerCore};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::HotkeyService;
 
 use crate::{cli::HotkeyCommand, output::print_run_report};
 
 pub fn handle_hotkey_command(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     command: HotkeyCommand,
 ) -> Result<()> {
     let service = desktop_hotkey_service(core, store)?;
@@ -70,7 +70,7 @@ pub fn handle_hotkey_command(
 
 fn listen_for_stdin_hotkeys(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     service: &HotkeyService,
     json: bool,
 ) -> Result<()> {
@@ -115,7 +115,7 @@ fn listen_for_stdin_hotkeys(
 
 pub fn dispatch_hotkey_key(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     service: &HotkeyService,
     key: &str,
     timestamp: SystemTime,
@@ -135,10 +135,7 @@ pub fn dispatch_hotkey_key(
         .collect::<Result<Vec<_>>>()
 }
 
-fn desktop_hotkey_service(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
-) -> Result<HotkeyService> {
+fn desktop_hotkey_service(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<HotkeyService> {
     let registrations = core
         .list_trigger_registrations(store, None)
         .context("failed to load enabled trigger registrations")?;

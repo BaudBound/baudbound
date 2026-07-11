@@ -1,16 +1,20 @@
 mod activity;
-mod control;
 mod dispatch;
+mod executor;
 mod heartbeat;
+mod hotkey_stdin;
 mod idle;
+mod ipc;
 mod options;
 mod preflight;
 mod runtime;
+mod shutdown;
 mod status;
 mod summary;
 mod triggers;
 mod webhooks;
 
+pub(crate) use ipc::{ServiceControlCommand, redact_service_control, request_service_control};
 pub use options::{RunnerConfigSerialPortRebindSink, ServeOptions, ServeOverrides};
 pub use preflight::print_serve_preflight;
 pub use runtime::{ServeRuntimeControl, serve_triggers, serve_triggers_with_control};

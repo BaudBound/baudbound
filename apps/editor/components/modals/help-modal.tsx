@@ -462,8 +462,13 @@ function VariablesSection() {
 				<div className="grid gap-2">
 					<InfoCard>
 						<Code>{"runtime"}</Code> exists for one script run. <Code>{"persistent"}</Code> is stored between runs.{" "}
-						<Code>{"global"}</Code> is provided by the runner. <Code>{"secret"}</Code> is for sensitive encrypted
-						values.
+						<Code>{"global"}</Code> is shared between scripts. Persistent and global writes require explicit runner
+						approval.
+					</InfoCard>
+					<InfoCard>
+						Secrets are declared in the Variables tab and referenced with <Code>{"{{secret_name}}"}</Code>. Values are
+						configured in the runner, are read-only to scripts, and are never stored in exported packages. Simulation
+						values remain only in the current editor session.
 					</InfoCard>
 				</div>
 			</div>

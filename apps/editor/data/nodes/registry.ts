@@ -454,8 +454,9 @@ export function getRuntimeDataOutputs(actionType: ActionType) {
 	return definition.fallible ? [failureErrorOutput] : [];
 }
 
-export function getNodeCapabilities(actionType: ActionType) {
-	return getNodeDefinition(actionType)?.capabilities ?? [];
+export function getNodeCapabilities(actionType: ActionType, config: Record<string, JsonValue> = {}) {
+	const definition = getNodeDefinition(actionType);
+	return definition?.deriveCapabilities?.(config) ?? definition?.capabilities ?? [];
 }
 
 export function getNodePermission(actionType: ActionType) {

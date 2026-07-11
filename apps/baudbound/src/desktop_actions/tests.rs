@@ -113,3 +113,51 @@ fn asset_sound_requires_package_context_before_audio_io() {
 
     assert!(error.to_string().contains("installed package context"));
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_process_title_actions_handle_missing_windows_safely() {
+    let adapter = SystemDesktopActionAdapter;
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.process.status".to_owned(),
+        config: Map::from_iter([(
+            "target".to_owned(),
+            Value::String("BaudBound-Window-That-Does-Not-Exist-7B8C3D9E".to_owned()),
+        )]),
+        node_id: "n-process-status".to_owned(),
+    };
+    let context = RuntimeContext {
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "n-trigger".to_owned(),
+        },
+        package_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+
+    let status = adapter
+        .process_status_by_window_title(&request, &context)
+        .expect("missing window status should produce a not-found result");
+    assert_eq!(status.output_data.get("running"), Some(&Value::Bool(false)));
+    assert_eq!(
+        status.output_data.get("state"),
+        Some(&Value::String("not_found".to_owned()))
+    );
+
+    let kill_request = RuntimeActionRequest {
+        action_type: "action.process.kill".to_owned(),
+        node_id: "n-process-kill".to_owned(),
+        ..request
+    };
+    let error = adapter
+        .kill_process_by_window_title(&kill_request, &context)
+        .expect_err("terminating a missing window must fail safely");
+    assert!(
+        error
+            .to_string()
+            .contains("no process window title contains")
+    );
+}

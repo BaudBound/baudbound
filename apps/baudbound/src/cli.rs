@@ -75,7 +75,7 @@ pub enum Command {
         #[arg(long)]
         webhook_port: Option<u16>,
         /// Maximum webhook request body size in bytes.
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_usize)]
         max_webhook_body_bytes: Option<usize>,
         /// Enable local WebSocket trigger listener.
         #[arg(long)]
@@ -87,8 +87,11 @@ pub enum Command {
         #[arg(long)]
         websocket_port: Option<u16>,
         /// Maximum WebSocket message size in bytes.
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_usize)]
         max_websocket_message_bytes: Option<usize>,
+        /// Maximum number of concurrent WebSocket connections.
+        #[arg(long, value_parser = parse_positive_usize)]
+        max_websocket_connections: Option<usize>,
         /// Seconds between installed trigger registration reload checks.
         #[arg(long)]
         reload_interval_seconds: Option<u64>,
@@ -103,6 +106,27 @@ pub enum Command {
         #[command(subcommand)]
         command: HotkeyCommand,
     },
+    /// Configure encrypted values for declared script secrets.
+    Secret {
+        #[command(subcommand)]
+        command: SecretCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SecretCommand {
+    /// Generate a new base64 key for BAUDBOUND_SECRET_KEY.
+    GenerateKey,
+    /// List declared secrets and whether each has a configured value.
+    List {
+        script: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Prompt securely for a declared secret value.
+    Set { script: String, name: String },
+    /// Remove a configured secret value.
+    Remove { script: String, name: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -252,4 +276,40 @@ pub enum ScriptCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| format!("expected a positive integer, found {value:?}"))?;
+    if parsed == 0 {
+        return Err("value must be greater than zero".to_owned());
+    }
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Command, SecretCommand, parse_positive_usize};
+
+    #[test]
+    fn positive_size_parser_rejects_zero_and_invalid_values() {
+        assert_eq!(parse_positive_usize("1").expect("one is positive"), 1);
+        assert!(parse_positive_usize("0").is_err());
+        assert!(parse_positive_usize("invalid").is_err());
+    }
+
+    #[test]
+    fn parses_grouped_secret_management_commands() {
+        let cli = Cli::try_parse_from(["baudbound", "secret", "list", "script-1", "--json"])
+            .expect("secret list command should parse");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Secret {
+                command: SecretCommand::List { script, json: true }
+            }) if script == "script-1"
+        ));
+    }
 }

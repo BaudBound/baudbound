@@ -10,6 +10,13 @@ import addFormats from "ajv-formats";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(appRoot, "..", "..");
 const schemasRoot = join(repoRoot, "schemas");
+const runnerCapabilityContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-security",
+	"contracts",
+	"node-capabilities.json",
+);
 
 test("schemas are valid JSON", () => {
 	for (const filePath of readJsonFiles(schemasRoot)) {
@@ -24,6 +31,19 @@ test("generated node schemas are current", () => {
 			stdio: "pipe",
 		});
 	});
+});
+
+test("generated runner capability contract covers every editor node", () => {
+	const contract = JSON.parse(read(runnerCapabilityContractPath));
+	const definitionsSource = readDefinitions();
+	const actionTypes = extractDefinitionActionTypes(definitionsSource).sort();
+
+	assert.equal(contract.version, 1);
+	assert.deepEqual(Object.keys(contract.nodes).sort(), actionTypes);
+	for (const [actionType, capabilities] of Object.entries(contract.nodes)) {
+		assert.ok(capabilities.length > 0, `${actionType} must require at least one capability`);
+		assert.equal(new Set(capabilities).size, capabilities.length, `${actionType} capabilities must be unique`);
+	}
 });
 
 test("program schema uses public per-node schema references", () => {
@@ -180,6 +200,27 @@ test("serial input stores only logical device ids in script packages", () => {
 	assert.doesNotMatch(serialProjectSource, /baudRate|vendorId|productId|\bport\b/);
 });
 
+test("file watch uses a static path and explicit recursive configuration", () => {
+	const fileWatchSource = read(join(appRoot, "data", "nodes", "definitions", "triggers", "file-watch.ts"));
+	const fileWatchSchema = JSON.parse(read(join(schemasRoot, "nodes", "trigger-file-watch.schema.json")));
+	const configSchema = fileWatchSchema.$defs.config;
+
+	assert.deepEqual(configSchema.required, ["path"]);
+	assert.deepEqual(configSchema.properties.path, { type: "string" });
+	assert.deepEqual(configSchema.properties.recursive, { type: "boolean" });
+	assert.match(fileWatchSource, /requiredStaticConfig\(config, "path", "file watch path"\)/);
+	assert.doesNotMatch(fileWatchSource, /key:\s*"path"[^\n]*usesVariables/);
+});
+
+test("schedule intervals use the shared static duration contract", () => {
+	const scheduleSource = read(join(appRoot, "data", "nodes", "definitions", "triggers", "schedule.ts"));
+	const validatorsSource = read(join(appRoot, "data", "nodes", "definitions", "validators.ts"));
+
+	assert.match(scheduleSource, /staticPositiveDurationConfig\(config, "every", "unit", "schedule interval"\)/);
+	assert.match(validatorsSource, /seconds < 1e-9/);
+	assert.match(validatorsSource, /cannot use runtime variable references/);
+});
+
 test("runner types used by node definitions are declared by the program schema", () => {
 	const programSchema = JSON.parse(read(join(schemasRoot, "program.schema.json")));
 	const allowedRunnerTypes = new Set([
@@ -332,6 +373,24 @@ test("native Windows-only desktop nodes declare target runtime compatibility", (
 			definitionBlock,
 			/supportedTargetRuntimes:\s*\[\s*"Windows Desktop"\s*\]/,
 			`${actionType} must be restricted to Windows Desktop until native backends exist for other desktop targets`,
+		);
+	}
+});
+
+test("window-title process matching has config-sensitive Windows Desktop validation", () => {
+	const definitionsSource = readDefinitions();
+
+	for (const actionType of ["action.process.status", "action.process.kill", "trigger.process_started"]) {
+		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
+		assert.match(
+			definitionBlock,
+			/validateTargetRuntime:/,
+			`${actionType} must validate its match mode for the target`,
+		);
+		assert.match(
+			definitionBlock,
+			/windowsDesktopOnlyConfigValue/,
+			`${actionType} must restrict window-title matching to Windows Desktop`,
 		);
 	}
 });
@@ -691,6 +750,25 @@ function extractConstStringArray(source, constName) {
 	assert.ok(match, `${constName} must be exported as a const string array`);
 	return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
 }
+
+test("secret declarations are package metadata while simulation values remain session-only", () => {
+	const manifestSchema = JSON.parse(read(join(schemasRoot, "manifest.schema.json")));
+	const variableSchema = JSON.parse(read(join(schemasRoot, "nodes", "runtime-set-variable.schema.json")));
+	const permissionsSchema = JSON.parse(read(join(schemasRoot, "permissions.schema.json")));
+	const editorPage = read(join(appRoot, "app", "editor-page.tsx"));
+	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
+	const simulationSource = read(join(appRoot, "utils", "simulation.ts"));
+
+	assert.ok(manifestSchema.properties.secrets, "manifest must declare secret references");
+	assert.deepEqual(variableSchema.$defs.config.properties.scope.enum, ["runtime", "persistent", "global"]);
+	assert.ok(permissionsSchema.properties.declared_permissions.items.enum.includes("read_secret"));
+	assert.match(editorPage, /simulationSecretValues/);
+	assert.match(packageSource, /secretDeclarations/);
+	assert.doesNotMatch(packageSource, /simulationSecretValues/);
+	assert.match(simulationSource, /redactSecretText/);
+	assert.match(simulationSource, /redactSnapshotValue/);
+	assert.match(simulationSource, /\[REDACTED\]/);
+});
 
 function extractRustConstStringArray(source, constName) {
 	const match = source.match(new RegExp(`(?:pub\\s+)?const ${constName}: &\\[&str\\] = &\\[([\\s\\S]*?)\\];`));

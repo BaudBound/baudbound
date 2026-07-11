@@ -1,8 +1,8 @@
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use super::triggers::TriggerServices;
 
-pub(super) fn print_service_summary(services: &TriggerServices, store: &FilesystemScriptStore) {
+pub(super) fn print_service_summary(services: &TriggerServices, store: &SqliteRunnerStore) {
     print_count(
         !services.schedules.is_empty(),
         services.schedules.len(),
@@ -51,12 +51,7 @@ pub(super) fn print_service_summary(services: &TriggerServices, store: &Filesyst
     }
 }
 
-fn print_count(
-    should_print: bool,
-    count: usize,
-    label: &str,
-    store: Option<&FilesystemScriptStore>,
-) {
+fn print_count(should_print: bool, count: usize, label: &str, store: Option<&SqliteRunnerStore>) {
     if !should_print {
         return;
     }

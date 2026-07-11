@@ -18,6 +18,8 @@ use windows_sys::Win32::{
 
 use super::{config::failed_error, screen::pixel_color_map};
 
+pub(in crate::desktop_actions) mod process;
+
 pub(super) fn pixel_color(
     request: &RuntimeActionRequest,
     x: u32,

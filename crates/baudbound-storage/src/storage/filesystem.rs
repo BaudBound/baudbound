@@ -82,23 +82,6 @@ pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), Storage
     Ok(())
 }
 
-pub(crate) fn write_atomic(path: &Path, content: &[u8]) -> Result<(), StorageError> {
-    if let Some(parent) = path.parent() {
-        create_dir_all(parent)?;
-    }
-
-    let temporary_path = path.with_extension("tmp");
-    fs::write(&temporary_path, content).map_err(|source| StorageError::Io {
-        path: temporary_path.clone(),
-        source,
-    })?;
-    fs::rename(&temporary_path, path).map_err(|source| StorageError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(())
-}
-
 pub(crate) fn create_dir_all(path: impl AsRef<Path>) -> Result<(), StorageError> {
     let path = path.as_ref();
     fs::create_dir_all(path).map_err(|source| StorageError::Io {

@@ -1,14 +1,14 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
-    ApproveScriptRequest, FilesystemScriptStore, ImportScriptRequest, InstalledScript,
-    ScriptApproval, ScriptStore, StorageError, StoredRunRecord,
+    ApproveScriptRequest, ImportScriptRequest, InstalledScript, ScriptApproval, ScriptStore,
+    SecretCipher, SecretStatus, StorageError, StoredRunRecord, StoredVariable, StoredVariableScope,
     storage::filesystem::{
         copy_file, create_dir_all, current_unix_timestamp, package_file_name_from_path,
         remove_file_inside_root, sha256_file, validate_package_file_name, validate_script_id,
@@ -18,6 +18,8 @@ use crate::{
 mod conversions;
 mod rows;
 mod schema;
+mod scoped_variables;
+mod secrets;
 
 use conversions::{
     bool_to_sqlite, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite, usize_to_sqlite,
@@ -27,11 +29,12 @@ use schema::{configure_connection, migrate, query_schema_version};
 
 pub use schema::CURRENT_SCHEMA_VERSION;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SqliteRunnerStore {
     path: PathBuf,
     root: PathBuf,
-    connection: Mutex<Connection>,
+    connection: Arc<Mutex<Connection>>,
+    secret_cipher: Option<SecretCipher>,
 }
 
 impl SqliteRunnerStore {
@@ -56,14 +59,27 @@ impl SqliteRunnerStore {
             path: path.clone(),
             source,
         })?;
+        restrict_database_permissions(&path)?;
         configure_connection(&connection, &path)?;
         migrate(&connection, &path)?;
 
         Ok(Self {
             path,
             root,
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
+            secret_cipher: None,
         })
+    }
+
+    #[must_use]
+    pub fn with_secret_cipher(mut self, secret_cipher: SecretCipher) -> Self {
+        self.secret_cipher = Some(secret_cipher);
+        self
+    }
+
+    #[must_use]
+    pub fn has_secret_cipher(&self) -> bool {
+        self.secret_cipher.is_some()
     }
 
     #[must_use]
@@ -205,50 +221,6 @@ impl SqliteRunnerStore {
                 source,
             })?;
         Ok(exists)
-    }
-
-    pub fn migrate_from_filesystem(
-        &self,
-        source: &FilesystemScriptStore,
-    ) -> Result<(), StorageError> {
-        let scripts = source.list_scripts()?;
-        let run_records = source.list_run_records(None, None)?;
-        let service_status = source.read_service_status()?;
-
-        let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction()
-            .map_err(|source| StorageError::Sqlite {
-                path: self.path.clone(),
-                source,
-            })?;
-
-        for script in &scripts {
-            source.verify_script_package_hash(&script.id)?;
-            insert_installed_script(&transaction, &self.path, script)?;
-
-            if let Some(approval) = source.find_script_approval(&script.id)? {
-                insert_approval(&transaction, &self.path, &approval)?;
-            }
-        }
-
-        for record in &run_records {
-            upsert_run_record(&transaction, &self.path, record)?;
-        }
-
-        transaction
-            .commit()
-            .map_err(|source| StorageError::Sqlite {
-                path: self.path.clone(),
-                source,
-            })?;
-        drop(connection);
-
-        if let Some(status) = service_status {
-            self.write_service_status(&status)?;
-        }
-
-        Ok(())
     }
 
     fn connection(&self) -> Result<MutexGuard<'_, Connection>, StorageError> {
@@ -401,6 +373,28 @@ impl SqliteRunnerStore {
         let connection = self.connection()?;
         resolve_script(&connection, &self.path, reference)
     }
+}
+
+#[cfg(unix)]
+fn restrict_database_permissions(path: &Path) -> Result<(), StorageError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .map_err(|source| StorageError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o600);
+    fs::set_permissions(path, permissions).map_err(|source| StorageError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_database_permissions(_path: &Path) -> Result<(), StorageError> {
+    Ok(())
 }
 
 impl ScriptStore for SqliteRunnerStore {
@@ -602,7 +596,7 @@ impl ScriptStore for SqliteRunnerStore {
                         logs_json, variables_json
                     FROM run_records
                     WHERE script_id = ?1
-                    ORDER BY completed_at_unix DESC
+                    ORDER BY completed_at_unix DESC, rowid DESC
                     LIMIT ?2
                     "#,
                 )
@@ -631,7 +625,7 @@ impl ScriptStore for SqliteRunnerStore {
                     SELECT run_id, script_id, status, trigger_node_id, completed_at_unix,
                         logs_json, variables_json
                     FROM run_records
-                    ORDER BY completed_at_unix DESC
+                    ORDER BY completed_at_unix DESC, rowid DESC
                     LIMIT ?1
                     "#,
                 )
@@ -724,155 +718,52 @@ impl ScriptStore for SqliteRunnerStore {
         }
         Ok(installed)
     }
-}
 
-fn insert_installed_script(
-    connection: &Connection,
-    database_path: &Path,
-    script: &InstalledScript,
-) -> Result<(), StorageError> {
-    connection
-        .execute(
-            r#"
-            INSERT INTO scripts (
-                id,
-                enabled,
-                name,
-                package_hash,
-                package_file_name,
-                package_path,
-                imported_at_unix,
-                package_format_version,
-                script_language_version,
-                target_runtime,
-                asset_count,
-                risk_level
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-            ON CONFLICT(id) DO UPDATE SET
-                enabled = excluded.enabled,
-                name = excluded.name,
-                package_hash = excluded.package_hash,
-                package_file_name = excluded.package_file_name,
-                package_path = excluded.package_path,
-                imported_at_unix = excluded.imported_at_unix,
-                package_format_version = excluded.package_format_version,
-                script_language_version = excluded.script_language_version,
-                target_runtime = excluded.target_runtime,
-                asset_count = excluded.asset_count,
-                risk_level = excluded.risk_level
-            "#,
-            params![
-                script.id,
-                bool_to_sqlite(script.enabled),
-                script.name,
-                script.package_hash,
-                script.package_file_name,
-                script.package_path.to_string_lossy(),
-                u64_to_sqlite(script.imported_at_unix)?,
-                u32_to_sqlite(script.package_format_version),
-                u32_to_sqlite(script.script_language_version),
-                script.target_runtime,
-                usize_to_sqlite(script.asset_count)?,
-                script.risk_level,
-            ],
-        )
-        .map_err(|source| StorageError::Sqlite {
-            path: database_path.to_path_buf(),
-            source,
-        })?;
-    Ok(())
-}
+    fn load_variable(
+        &self,
+        scope: StoredVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<Option<StoredVariable>, StorageError> {
+        self.load_scoped_variable(scope, script_id, name)
+    }
 
-fn insert_approval(
-    connection: &Connection,
-    database_path: &Path,
-    approval: &ScriptApproval,
-) -> Result<(), StorageError> {
-    let permissions_json =
-        serde_json::to_string(&approval.approved_permissions).map_err(|source| {
-            StorageError::Json {
-                path: database_path.to_path_buf(),
-                source,
-            }
-        })?;
-    connection
-        .execute(
-            r#"
-            INSERT INTO approvals (
-                script_id,
-                package_hash,
-                approved_permissions_json,
-                approved_at_unix
-            )
-            VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(script_id) DO UPDATE SET
-                package_hash = excluded.package_hash,
-                approved_permissions_json = excluded.approved_permissions_json,
-                approved_at_unix = excluded.approved_at_unix
-            "#,
-            params![
-                approval.script_id,
-                approval.package_hash,
-                permissions_json,
-                u64_to_sqlite(approval.approved_at_unix)?,
-            ],
-        )
-        .map_err(|source| StorageError::Sqlite {
-            path: database_path.to_path_buf(),
-            source,
-        })?;
-    Ok(())
-}
+    fn compare_and_set_variable(
+        &self,
+        scope: StoredVariableScope,
+        script_id: &str,
+        name: &str,
+        expected_version: Option<u64>,
+        value: &serde_json::Value,
+    ) -> Result<bool, StorageError> {
+        self.compare_and_set_scoped_variable(scope, script_id, name, expected_version, value)
+    }
 
-fn upsert_run_record(
-    connection: &Connection,
-    database_path: &Path,
-    record: &StoredRunRecord,
-) -> Result<(), StorageError> {
-    let logs_json = serde_json::to_string(&record.logs).map_err(|source| StorageError::Json {
-        path: database_path.to_path_buf(),
-        source,
-    })?;
-    let variables_json =
-        serde_json::to_string(&record.variables).map_err(|source| StorageError::Json {
-            path: database_path.to_path_buf(),
-            source,
-        })?;
-    connection
-        .execute(
-            r#"
-            INSERT INTO run_records (
-                run_id,
-                script_id,
-                status,
-                trigger_node_id,
-                completed_at_unix,
-                logs_json,
-                variables_json
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            ON CONFLICT(run_id) DO UPDATE SET
-                script_id = excluded.script_id,
-                status = excluded.status,
-                trigger_node_id = excluded.trigger_node_id,
-                completed_at_unix = excluded.completed_at_unix,
-                logs_json = excluded.logs_json,
-                variables_json = excluded.variables_json
-            "#,
-            params![
-                record.run_id,
-                record.script_id,
-                record.status,
-                record.trigger_node_id,
-                u64_to_sqlite(record.completed_at_unix)?,
-                logs_json,
-                variables_json,
-            ],
-        )
-        .map_err(|source| StorageError::Sqlite {
-            path: database_path.to_path_buf(),
-            source,
-        })?;
-    Ok(())
+    fn list_secret_statuses(
+        &self,
+        script_reference: &str,
+    ) -> Result<Vec<SecretStatus>, StorageError> {
+        self.list_stored_secret_statuses(script_reference)
+    }
+
+    fn read_secret(
+        &self,
+        script_id: &str,
+        name: &str,
+    ) -> Result<Option<serde_json::Value>, StorageError> {
+        self.read_stored_secret(script_id, name)
+    }
+
+    fn set_secret(
+        &self,
+        script_reference: &str,
+        name: &str,
+        value: &serde_json::Value,
+    ) -> Result<SecretStatus, StorageError> {
+        self.set_stored_secret(script_reference, name, value)
+    }
+
+    fn remove_secret(&self, script_reference: &str, name: &str) -> Result<bool, StorageError> {
+        self.remove_stored_secret(script_reference, name)
+    }
 }

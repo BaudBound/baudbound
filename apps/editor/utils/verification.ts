@@ -7,8 +7,12 @@ import {
 } from "@/data/nodes/registry";
 import { isAllowedPackageFile, validateEditorAssets, validatePackageAssetPaths } from "@/data/project/assets";
 import { builtInVariableNames } from "@/data/project/built-in-variables";
-import { createNodeOutputVariables, normalizeVariableReferenceName } from "@/data/project/variables";
-import type { EditorAsset, PermissionSummary, ScriptNodeData, TargetRuntime } from "@/lib/types";
+import {
+	createConfiguredVariableDefinitions,
+	createNodeOutputVariables,
+	normalizeVariableReferenceName,
+} from "@/data/project/variables";
+import type { EditorAsset, PermissionSummary, ScriptNodeData, SecretDeclaration, TargetRuntime } from "@/lib/types";
 import { validatePackageJsonContracts } from "./package-contract";
 
 export type VerificationOutcome = "passed" | "warning" | "failed";
@@ -34,6 +38,7 @@ type CreateVerificationChecksOptions = {
 	edges: Edge[];
 	nodes: Node<ScriptNodeData>[];
 	permissions: PermissionSummary[];
+	secretDeclarations?: SecretDeclaration[];
 	scriptName: string;
 	targetRuntime: TargetRuntime;
 };
@@ -99,6 +104,30 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 				? `${scriptName.trim()} targets ${targetRuntime}.`
 				: "Script name is required before export.",
 		}),
+	},
+	{
+		id: "secret-references",
+		title: "Secret references",
+		description: "Checking secret declarations and writable variable conflicts.",
+		run: ({ nodes, secretDeclarations }) => {
+			const declarations = secretDeclarations ?? [];
+			const writableNames = new Set(createConfiguredVariableDefinitions(nodes).map((variable) => variable.name));
+			const names = new Set<string>();
+			const problems = declarations.flatMap((secret) => {
+				const errors = [];
+				if (names.has(secret.name)) errors.push(`Secret "${secret.name}" is declared more than once.`);
+				if (writableNames.has(secret.name)) errors.push(`Secret "${secret.name}" conflicts with a writable variable.`);
+				names.add(secret.name);
+				return errors;
+			});
+			return {
+				outcome: problems.length === 0 ? "passed" : "failed",
+				message:
+					problems.length === 0
+						? `${declarations.length} secret reference${declarations.length === 1 ? "" : "s"} declared.`
+						: problems.join(" "),
+			};
+		},
 	},
 	{
 		id: "target-runtime",

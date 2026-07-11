@@ -9,11 +9,24 @@ use baudbound_runtime::{
     RuntimeContext,
 };
 use baudbound_script::{Capabilities, Manifest, Permissions, RiskLevel};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use serde_json::{Map, Value, json};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::*;
+
+#[path = "tests/sub_script.rs"]
+mod sub_script;
+
+fn test_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
+    SqliteRunnerStore::open(
+        temporary_directory
+            .path()
+            .join("store")
+            .join("runner.sqlite3"),
+    )
+    .expect("SQLite test store should open")
+}
 
 #[derive(Default)]
 struct RecordingActionHandler {
@@ -60,6 +73,7 @@ fn creates_failed_run_record_with_package_identity() {
             tags: Vec::new(),
             minimum_runner_version: "0.1.0".to_owned(),
             assets: Vec::new(),
+            secrets: Vec::new(),
         },
         permissions: Permissions {
             declared_permissions: Vec::new(),
@@ -98,7 +112,7 @@ fn current_script_approval_allows_policy_blocked_permissions() {
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
@@ -137,7 +151,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     )
     .expect("updated test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
 
     let imported = core
@@ -232,7 +246,7 @@ fn custom_action_handler_is_used_for_script_execution() {
     fs::write(&package_path, create_action_handler_test_package())
         .expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let handler = Arc::new(RecordingActionHandler::default());
     let core = RunnerCore::default().with_action_handler(handler.clone());
     core.import_package(&store, &package_path)
@@ -256,6 +270,34 @@ fn custom_action_handler_is_used_for_script_execution() {
 }
 
 #[test]
+fn import_rejects_tampered_capability_declarations() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("tampered-capabilities.bbs");
+    fs::write(
+        &package_path,
+        create_action_handler_test_package_with_capabilities(Some(&["trigger.manual"])),
+    )
+    .expect("test package should be written");
+
+    let store = test_store(&temporary_directory);
+    let error = RunnerCore::default()
+        .import_package(&store, &package_path)
+        .expect_err("package hiding its action capability must fail import");
+
+    assert!(
+        error
+            .to_string()
+            .contains("missing declared capability action.text")
+    );
+    assert!(
+        store
+            .list_scripts()
+            .expect("installed scripts should list")
+            .is_empty()
+    );
+}
+
+#[test]
 fn import_rejects_desktop_actions_for_headless_target_runtime() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let package_path = temporary_directory.path().join("headless-notification.bbs");
@@ -269,7 +311,7 @@ fn import_rejects_desktop_actions_for_headless_target_runtime() {
     )
     .expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let error = RunnerCore::default()
         .import_package(&store, &package_path)
         .expect_err("desktop-only action should not import into headless target");
@@ -292,7 +334,7 @@ fn import_rejects_windows_only_actions_for_non_windows_desktop_target_runtime() 
     )
     .expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let error = RunnerCore::default()
         .import_package(&store, &package_path)
         .expect_err("Windows-only action should not import into Linux Desktop target");
@@ -317,7 +359,7 @@ fn import_rejects_removed_target_runtime() {
     )
     .expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let error = RunnerCore::default()
         .import_package(&store, &package_path)
         .expect_err("removed target runtime should not import");
@@ -360,7 +402,7 @@ fn import_rejects_packages_that_require_newer_runner() {
     )
     .expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let error = RunnerCore::default()
         .import_package(&store, &package_path)
         .expect_err("package requiring a newer runner should not import");
@@ -379,7 +421,7 @@ fn run_rejects_installed_package_that_requires_newer_runner() {
     .expect("test package should be written");
 
     let package = load_script_package(&package_path).expect("test package should load");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     store
         .import_script(import_request_from_package(&package_path, package))
         .expect("test package should be inserted into storage");
@@ -413,7 +455,7 @@ fn trigger_registration_rejects_installed_package_that_requires_newer_runner() {
     .expect("test package should be written");
 
     let package = load_script_package(&package_path).expect("test package should load");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     store
         .import_script(import_request_from_package(&package_path, package))
         .expect("test package should be inserted into storage");
@@ -436,7 +478,7 @@ fn status_reports_installed_package_that_requires_newer_runner() {
     .expect("test package should be written");
 
     let package = load_script_package(&package_path).expect("test package should load");
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     store
         .import_script(import_request_from_package(&package_path, package))
         .expect("test package should be inserted into storage");
@@ -473,7 +515,7 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
         ..RunnerConfig::default()
     };
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let error = RunnerCore::from_config(&config)
         .import_package(&store, &package_path)
         .expect_err("headless-only runner should reject desktop package target");
@@ -499,7 +541,7 @@ fn sub_script_action_runs_installed_manual_script() {
     )
     .expect("parent test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &child_package_path)
         .expect("child package should import");
@@ -539,7 +581,7 @@ fn sub_script_action_rejects_recursive_cycle() {
     )
     .expect("recursive test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("recursive package should import");
@@ -564,7 +606,7 @@ fn lists_trigger_registrations_for_installed_scripts() {
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
@@ -594,7 +636,7 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
@@ -630,7 +672,7 @@ fn status_reports_script_health_and_approval_state() {
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
@@ -681,7 +723,7 @@ fn dispatches_trigger_event_through_core_dispatcher() {
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
 
-    let store = FilesystemScriptStore::new(temporary_directory.path().join("store"));
+    let store = test_store(&temporary_directory);
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
@@ -754,6 +796,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
                     }}
                 }}"#
     );
+    let capabilities = capabilities_json(&program, "Generic Desktop");
 
     for (path, content) in [
         ("manifest.json", manifest.as_str()),
@@ -762,10 +805,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
             "permissions.json",
             r#"{"declared_permissions": ["webhook_public_bind"], "risk_level": "high"}"#,
         ),
-        (
-            "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
-        ),
+        ("capabilities.json", capabilities.as_str()),
     ] {
         writer
             .start_file(path, options)
@@ -838,6 +878,7 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
                 }}
             }}"#
     );
+    let capabilities = capabilities_json(&program, "Generic Desktop");
 
     create_test_package([
         ("manifest.json", manifest.as_str()),
@@ -846,30 +887,18 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
             "permissions.json",
             r#"{"declared_permissions": ["sub_script_run"], "risk_level": "high"}"#,
         ),
-        (
-            "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
-        ),
+        ("capabilities.json", capabilities.as_str()),
     ])
 }
 
 fn create_action_handler_test_package() -> Vec<u8> {
-    create_test_package([
-        (
-            "manifest.json",
-            r#"{
-                    "format_version": 1,
-                    "script_language_version": 1,
-                    "id": "action-handler-test",
-                    "name": "action-handler-test",
-                    "created_with": "BaudBound Test",
-                    "created_at": "2026-01-01T00:00:00.000Z",
-                    "minimum_runner_version": "0.1.0"
-                }"#,
-        ),
-        (
-            "program.json",
-            r#"{
+    create_action_handler_test_package_with_capabilities(None)
+}
+
+fn create_action_handler_test_package_with_capabilities(
+    capability_override: Option<&[&str]>,
+) -> Vec<u8> {
+    let program = r#"{
                     "entry": {
                         "trigger": {
                             "id": "n-manual",
@@ -912,16 +941,36 @@ fn create_action_handler_test_package() -> Vec<u8> {
                             ]
                         }
                     }
+                }"#;
+    let capabilities = capability_override.map_or_else(
+        || capabilities_json(program, "Generic Desktop"),
+        |capabilities| {
+            serde_json::json!({
+                "required_capabilities": capabilities,
+                "target_runtime": "Generic Desktop"
+            })
+            .to_string()
+        },
+    );
+    create_test_package([
+        (
+            "manifest.json",
+            r#"{
+                    "format_version": 1,
+                    "script_language_version": 1,
+                    "id": "action-handler-test",
+                    "name": "action-handler-test",
+                    "created_with": "BaudBound Test",
+                    "created_at": "2026-01-01T00:00:00.000Z",
+                    "minimum_runner_version": "0.1.0"
                 }"#,
         ),
+        ("program.json", program),
         (
             "permissions.json",
             r#"{"declared_permissions": ["text_transform"], "risk_level": "low"}"#,
         ),
-        (
-            "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
-        ),
+        ("capabilities.json", capabilities.as_str()),
     ])
 }
 
@@ -990,8 +1039,7 @@ fn create_target_runtime_test_package_with_action_config(
                 }}
             }}"#
     );
-    let capabilities =
-        format!(r#"{{"required_capabilities": [], "target_runtime": "{target_runtime}"}}"#);
+    let capabilities = capabilities_json(&program, target_runtime);
 
     create_test_package([
         ("manifest.json", manifest.as_str()),
@@ -1017,11 +1065,7 @@ fn create_minimum_runner_version_test_package(script_id: &str, minimum_version: 
             }}"#
     );
 
-    create_test_package([
-        ("manifest.json", manifest.as_str()),
-        (
-            "program.json",
-            r#"{
+    let program = r#"{
                     "entry": {
                         "trigger": {
                             "id": "n-manual",
@@ -1041,16 +1085,17 @@ fn create_minimum_runner_version_test_package(script_id: &str, minimum_version: 
                         ],
                         "program": {"type": "block", "steps": [], "edges": []}
                     }
-                }"#,
-        ),
+                }"#;
+    let capabilities = capabilities_json(program, "Generic Desktop");
+
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program),
         (
             "permissions.json",
             r#"{"declared_permissions": [], "risk_level": "low"}"#,
         ),
-        (
-            "capabilities.json",
-            r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
-        ),
+        ("capabilities.json", capabilities.as_str()),
     ])
 }
 
@@ -1071,4 +1116,20 @@ fn create_test_package<const N: usize>(files: [(&str, &str); N]) -> Vec<u8> {
         .finish()
         .expect("test zip should finish")
         .into_inner()
+}
+
+fn capabilities_json(program: &str, target_runtime: &str) -> String {
+    let program = serde_json::from_str(program).expect("test program should be valid JSON");
+    let report = baudbound_security::calculate_program_capabilities(&program)
+        .expect("test program capabilities should calculate");
+    let required_capabilities = report
+        .required_capabilities
+        .into_iter()
+        .map(|capability| capability.name)
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "required_capabilities": required_capabilities,
+        "target_runtime": target_runtime
+    })
+    .to_string()
 }

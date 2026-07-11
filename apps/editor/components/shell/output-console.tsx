@@ -1,11 +1,12 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 import type { DependencyList, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { SecretReferenceManager } from "@/components/shell/secret-reference-manager";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { logLevelClassName } from "@/data/editor/output-console";
 import type { EditorVariable } from "@/data/project/variables";
-import type { LogEntry, SimulationTraceEntry } from "@/lib/types";
+import type { LogEntry, SecretDeclaration, SimulationTraceEntry } from "@/lib/types";
 
 type OutputConsoleProps = {
 	activeTab: BottomPanelTab;
@@ -15,11 +16,15 @@ type OutputConsoleProps = {
 	systemLogs: LogEntry[];
 	simulationLogs: SimulationTraceEntry[];
 	variables: EditorVariable[];
+	secretDeclarations: SecretDeclaration[];
+	simulationSecretValues: Record<string, string>;
 	height: number;
 	onClearTab: (tab: ClearableBottomPanelTab) => void;
 	onFollowChange: (tab: ClearableBottomPanelTab, enabled: boolean) => void;
 	onTabChange: (tab: BottomPanelTab) => void;
 	onToggle: () => void;
+	onSecretDeclarationsChange: (declarations: SecretDeclaration[]) => void;
+	onSimulationSecretValueChange: (name: string, value: string) => void;
 };
 
 export type BottomPanelTab = "system" | "output" | "simulation" | "variables";
@@ -42,11 +47,15 @@ export function OutputConsole({
 	systemLogs,
 	simulationLogs,
 	variables,
+	secretDeclarations,
+	simulationSecretValues,
 	height,
 	onClearTab,
 	onFollowChange,
 	onTabChange,
 	onToggle,
+	onSecretDeclarationsChange,
+	onSimulationSecretValueChange,
 }: OutputConsoleProps) {
 	const handleTabClick = (tab: BottomPanelTab) => {
 		onTabChange(tab);
@@ -126,7 +135,15 @@ export function OutputConsole({
 							<SimulationTab logs={simulationLogs} />
 						</LogPanel>
 					)}
-					{activeTab === "variables" && <VariablesTab variables={variables} />}
+					{activeTab === "variables" && (
+						<VariablesTab
+							variables={variables}
+							secretDeclarations={secretDeclarations}
+							simulationSecretValues={simulationSecretValues}
+							onSecretDeclarationsChange={onSecretDeclarationsChange}
+							onSimulationSecretValueChange={onSimulationSecretValueChange}
+						/>
+					)}
 				</div>
 			)}
 		</section>
@@ -236,7 +253,19 @@ function LogLine({ log }: { log: LogEntry }) {
 	);
 }
 
-function VariablesTab({ variables }: { variables: EditorVariable[] }) {
+function VariablesTab({
+	variables,
+	secretDeclarations,
+	simulationSecretValues,
+	onSecretDeclarationsChange,
+	onSimulationSecretValueChange,
+}: {
+	variables: EditorVariable[];
+	secretDeclarations: SecretDeclaration[];
+	simulationSecretValues: Record<string, string>;
+	onSecretDeclarationsChange: (declarations: SecretDeclaration[]) => void;
+	onSimulationSecretValueChange: (name: string, value: string) => void;
+}) {
 	const [sortUpdatedFirst, setSortUpdatedFirst] = useState(true);
 	const [showDerivedMetadata, setShowDerivedMetadata] = useState(false);
 	const [showBuiltInVariables, setShowBuiltInVariables] = useState(false);
@@ -300,55 +329,55 @@ function VariablesTab({ variables }: { variables: EditorVariable[] }) {
 		});
 	}, [showBuiltInVariables, showDerivedMetadata, showSystemVariables, sortUpdatedFirst, variables]);
 
-	if (variables.length === 0) {
-		return (
-			<div className="h-full overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
-				<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
-					Variables will appear here when the script defines them.
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
-			<div className="overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
-				{displayedVariables.length === 0 ? (
-					<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
-						All variables are currently hidden by display options.
-					</div>
-				) : (
-					<div className="overflow-x-auto rounded border border-baud-border bg-baud-soft">
-						<div className="min-w-[720px]">
-							<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
-								<div>Name</div>
-								<div>Type</div>
-								<div>Scope</div>
-								<div>Source</div>
-								<div>Value</div>
-							</div>
-							<div className="divide-y divide-baud-border/80">
-								{displayedVariables.map((variable) => (
-									<div
-										key={getVariableKey(variable)}
-										className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
-									>
-										<div className="min-w-0">
-											<div className="break-all text-baud-text">{variable.name}</div>
-											<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
+			<div className="overflow-y-auto select-text" data-selectable-text="true">
+				<SecretReferenceManager
+					declarations={secretDeclarations}
+					simulationValues={simulationSecretValues}
+					onDeclarationsChange={onSecretDeclarationsChange}
+					onSimulationValueChange={onSimulationSecretValueChange}
+				/>
+				<div className="px-4 py-3">
+					{displayedVariables.length === 0 ? (
+						<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
+							{variables.length === 0
+								? "Variables will appear here when the script defines them."
+								: "All variables are currently hidden by display options."}
+						</div>
+					) : (
+						<div className="overflow-x-auto rounded border border-baud-border bg-baud-soft">
+							<div className="min-w-[720px]">
+								<div className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 border-b border-baud-border px-3 py-2 text-xs font-bold tracking-[0.12em] text-baud-muted uppercase">
+									<div>Name</div>
+									<div>Type</div>
+									<div>Scope</div>
+									<div>Source</div>
+									<div>Value</div>
+								</div>
+								<div className="divide-y divide-baud-border/80">
+									{displayedVariables.map((variable) => (
+										<div
+											key={getVariableKey(variable)}
+											className="grid grid-cols-[minmax(180px,0.8fr)_96px_104px_88px_minmax(220px,1fr)] gap-3 px-3 py-2 font-mono text-sm"
+										>
+											<div className="min-w-0">
+												<div className="break-all text-baud-text">{variable.name}</div>
+												<div className="mt-1 break-all text-xs text-baud-muted">{variable.token}</div>
+											</div>
+											<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
+											<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
+											<div className="text-baud-muted">{variable.source}</div>
+											<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
+												{formatVariableValue(variable.value)}
+											</pre>
 										</div>
-										<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
-										<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
-										<div className="text-baud-muted">{variable.source}</div>
-										<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
-											{formatVariableValue(variable.value)}
-										</pre>
-									</div>
-								))}
+									))}
+								</div>
 							</div>
 						</div>
-					</div>
-				)}
+					)}
+				</div>
 			</div>
 			<VariablesFooter
 				showBuiltInVariables={showBuiltInVariables}

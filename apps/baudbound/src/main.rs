@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use clap::Parser;
 use desktop_actions::SystemDesktopActionAdapter;
@@ -14,6 +14,7 @@ mod desktop_actions;
 mod desktop_ui;
 mod output;
 mod paths;
+mod secrets;
 mod service;
 
 use cli::{Cli, Command};
@@ -47,7 +48,16 @@ fn main() -> Result<()> {
         SystemDesktopActionAdapter,
     ));
     let core = core.with_action_handler(action_handler);
-    let store = FilesystemScriptStore::new(runner_home);
+    let secret_cipher = if matches!(&command, Command::Ui) {
+        Some(secrets::desktop_secret_cipher()?)
+    } else {
+        secrets::headless_secret_cipher_from_environment()?
+    };
+    let mut store = SqliteRunnerStore::open(paths::default_database_path(&runner_home))
+        .context("failed to open runner database")?;
+    if let Some(secret_cipher) = secret_cipher {
+        store = store.with_secret_cipher(secret_cipher);
+    }
 
     dispatch_command(
         command,
@@ -65,7 +75,7 @@ fn dispatch_command(
     runner_config: &RunnerConfig,
     websocket_registry: &Arc<WebSocketConnectionRegistry>,
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
 ) -> Result<()> {
     match command {
         Command::Config { .. } => unreachable!("config command returns before runner config loads"),
@@ -94,6 +104,7 @@ fn dispatch_command(
             websocket_bind,
             websocket_port,
             max_websocket_message_bytes,
+            max_websocket_connections,
             reload_interval_seconds,
         } => {
             let options = service::ServeOptions::from_config(
@@ -102,6 +113,7 @@ fn dispatch_command(
                     hotkey_stdin,
                     max_webhook_body_bytes,
                     max_websocket_message_bytes,
+                    max_websocket_connections,
                     webhook_bind,
                     webhook_port,
                     webhooks,
@@ -130,6 +142,9 @@ fn dispatch_command(
         }
         Command::Hotkey { command } => {
             commands::hotkey::handle_hotkey_command(core, store, command)
+        }
+        Command::Secret { command } => {
+            commands::secret::handle_secret_command(core, store, command)
         }
     }
 }

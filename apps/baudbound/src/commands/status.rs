@@ -1,26 +1,27 @@
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, RunnerStatus};
-use baudbound_storage::FilesystemScriptStore;
+use baudbound_storage::SqliteRunnerStore;
 
 use crate::{
     commands::service_health::service_health_document,
     output::{print_runner_status, print_service_status, print_trigger_registrations},
+    service::redact_service_control,
 };
 
-pub fn runner_status(core: &RunnerCore, store: &FilesystemScriptStore) -> Result<RunnerStatus> {
+pub fn runner_status(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<RunnerStatus> {
     core.status(store).context("failed to build runner status")
 }
 
-pub fn print_app_status(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
-    json: bool,
-) -> Result<()> {
+pub fn print_app_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool) -> Result<()> {
     let status = runner_status(core, store)?;
     let service_status = store
         .read_service_status()
         .context("failed to read runner service status")?;
     let service_health = service_health_document(service_status.as_ref());
+    let mut public_service_status = service_status.clone();
+    if let Some(status) = public_service_status.as_mut() {
+        redact_service_control(status);
+    }
 
     if json {
         println!(
@@ -35,7 +36,7 @@ pub fn print_app_status(
                 },
                 "runner": status,
                 "service_health": service_health,
-                "service": service_status,
+                "service": public_service_status,
             }))?
         );
         return Ok(());
@@ -51,17 +52,13 @@ pub fn print_app_status(
         "Desktop action adapter: clipboard, notifications, message boxes, audio, keyboard, mouse, and window actions."
     );
     println!("Native tray/UI: not started yet");
-    print_service_status(service_status.as_ref(), Some(&service_health));
+    print_service_status(public_service_status.as_ref(), Some(&service_health));
     println!();
     print_runner_status(&status, store.root());
     Ok(())
 }
 
-pub fn print_script_status(
-    core: &RunnerCore,
-    store: &FilesystemScriptStore,
-    json: bool,
-) -> Result<()> {
+pub fn print_script_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool) -> Result<()> {
     let status = runner_status(core, store)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&status)?);
@@ -73,7 +70,7 @@ pub fn print_script_status(
 
 pub fn print_trigger_registrations_for_script(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     script: Option<&str>,
     json: bool,
 ) -> Result<()> {

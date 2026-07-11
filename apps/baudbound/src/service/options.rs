@@ -16,6 +16,7 @@ pub struct ServeOptions {
     pub(crate) file_watch_enabled: bool,
     pub(crate) hotkey_stdin_enabled: bool,
     pub max_webhook_body_bytes: usize,
+    pub max_websocket_connections: usize,
     pub max_websocket_message_bytes: usize,
     pub(crate) once: bool,
     pub(crate) process_watch_enabled: bool,
@@ -39,6 +40,7 @@ pub struct ServeOptions {
 pub struct ServeOverrides {
     pub hotkey_stdin: bool,
     pub max_webhook_body_bytes: Option<usize>,
+    pub max_websocket_connections: Option<usize>,
     pub max_websocket_message_bytes: Option<usize>,
     pub webhook_bind: Option<String>,
     pub webhook_port: Option<u16>,
@@ -64,10 +66,12 @@ impl ServeOptions {
                 .max_webhook_body_bytes
                 .unwrap_or(config.webhooks.max_body_bytes)
                 .max(1),
+            max_websocket_connections: overrides
+                .max_websocket_connections
+                .unwrap_or(config.websockets.max_connections),
             max_websocket_message_bytes: overrides
                 .max_websocket_message_bytes
-                .unwrap_or(config.websockets.max_message_bytes)
-                .max(1),
+                .unwrap_or(config.websockets.max_message_bytes),
             once,
             process_watch_enabled: config.triggers.process_watch_enabled,
             reload_check_interval: Duration::from_secs(

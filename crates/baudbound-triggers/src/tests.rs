@@ -9,7 +9,7 @@ use super::*;
 use crate::services::{
     file_watch::{FileWatchSpec, file_watch_event},
     hotkey::HotkeySpec,
-    process_started::ProcessStartedSpec,
+    process_started::{ProcessMatchMode, ProcessStartedSpec},
     serial_input::{
         SerialInputSpec, SerialReadMode, send_serial_event, set_serial_reader_status,
         sorted_serial_reader_statuses, usb_port_matches_identity,
@@ -19,6 +19,31 @@ use crate::services::{
 use serde_json::json;
 use serialport::SerialPortType;
 use tungstenite::Message;
+
+#[test]
+fn bounded_trigger_channel_rejects_overload_without_blocking() {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let first = TriggerEvent {
+        node_id: "n-first".to_owned(),
+        payload: Value::Null,
+        script_id: "script-1".to_owned(),
+    };
+    let second = TriggerEvent {
+        node_id: "n-second".to_owned(),
+        payload: Value::Null,
+        script_id: "script-1".to_owned(),
+    };
+
+    assert!(try_send_trigger_event(&sender, first, "test"));
+    assert!(!try_send_trigger_event(&sender, second, "test"));
+    assert_eq!(
+        receiver
+            .recv()
+            .expect("first event should remain queued")
+            .node_id,
+        "n-first"
+    );
+}
 
 #[test]
 fn creates_due_schedule_events_and_advances_next_due() {
@@ -243,10 +268,11 @@ fn parses_process_started_registration() {
     let spec = ProcessStartedSpec::from_registration(registration)
         .expect("process started trigger should parse");
 
-    assert_eq!(spec.match_mode, "process_name");
+    assert_eq!(spec.match_mode, ProcessMatchMode::ProcessName);
     assert_eq!(spec.target, "app.exe");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn rejects_desktop_only_process_started_window_matching() {
     let registration = process_started_registration(json!({
@@ -257,7 +283,22 @@ fn rejects_desktop_only_process_started_window_matching() {
     let error = ProcessStartedSpec::from_registration(registration)
         .expect_err("window matching should require desktop runner");
 
-    assert!(error.to_string().contains("desktop runner"));
+    assert!(error.to_string().contains("Windows Desktop"));
+}
+
+#[cfg(windows)]
+#[test]
+fn accepts_windows_process_started_window_matching() {
+    let registration = process_started_registration(json!({
+        "matchMode": "window_title",
+        "target": "BaudBound"
+    }));
+
+    let spec = ProcessStartedSpec::from_registration(registration)
+        .expect("Windows runner should accept native window-title matching");
+
+    assert_eq!(spec.match_mode, ProcessMatchMode::WindowTitle);
+    assert_eq!(spec.target, "BaudBound");
 }
 
 #[test]
@@ -349,7 +390,7 @@ fn builds_serial_input_trigger_event_payload() {
     let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
     let spec = SerialInputSpec::from_registration(&registration, &devices)
         .expect("serial config should parse");
-    let (sender, receiver) = std::sync::mpsc::channel();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(32);
 
     send_serial_event(&registration, &spec, &sender, b"hello", None);
 
@@ -371,7 +412,7 @@ fn tracks_serial_reader_status() {
     let spec = SerialInputSpec::from_registration(&registration, &devices)
         .expect("serial config should parse");
     let statuses = Arc::new(Mutex::new(BTreeMap::new()));
-    let (sender, receiver) = std::sync::mpsc::channel();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(32);
 
     set_serial_reader_status(
         &statuses,
@@ -456,6 +497,7 @@ fn matches_webhook_request_and_builds_payload() {
     let service = WebhookService::from_registrations([webhook_registration(json!({
         "method": "POST",
         "hookName": "deploy",
+        "responseTimeoutSeconds": "0.25",
         "waitForResponse": false
     }))])
     .expect("webhook should register");
@@ -475,6 +517,34 @@ fn matches_webhook_request_and_builds_payload() {
     assert_eq!(dispatch.event.payload["query"]["source"], "test");
     assert_eq!(dispatch.event.payload["json"]["status"], "ok");
     assert_eq!(dispatch.fallback_response.status_code, 200);
+    assert_eq!(dispatch.response_timeout, Duration::from_millis(250));
+}
+
+#[test]
+fn rejects_invalid_webhook_response_timeouts() {
+    for timeout in [json!(0), json!(-1), json!("not-a-number")] {
+        let error = WebhookService::from_registrations([webhook_registration(json!({
+            "method": "POST",
+            "hookName": "deploy",
+            "responseTimeoutSeconds": timeout,
+            "waitForResponse": true
+        }))])
+        .expect_err("invalid webhook timeout must fail registration");
+
+        assert!(
+            error.to_string().contains("positive finite number"),
+            "{error}"
+        );
+    }
+
+    let error = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "deploy",
+        "responseTimeoutSeconds": 1e100,
+        "waitForResponse": true
+    }))])
+    .expect_err("out-of-range webhook timeout must fail registration");
+    assert!(error.to_string().contains("out of range"), "{error}");
 }
 
 #[test]

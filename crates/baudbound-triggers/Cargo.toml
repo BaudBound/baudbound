@@ -12,6 +12,7 @@ rust-version.workspace = true
 baudbound-actions = { path = "../baudbound-actions" }
 baudbound-runtime = { path = "../baudbound-runtime" }
 notify.workspace = true
+notify-debouncer-full.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
@@ -20,3 +21,12 @@ thiserror.workspace = true
 tracing.workspace = true
 tungstenite.workspace = true
 urlencoding.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+	"Win32_Foundation",
+	"Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

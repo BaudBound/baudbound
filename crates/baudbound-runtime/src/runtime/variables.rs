@@ -8,10 +8,23 @@ pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(
         || name.starts_with("manifest_")
         || name.ends_with(".$length")
         || name.ends_with(".$count")
+        || name.ends_with(".$type")
+        || name.ends_with(".$is_empty")
     {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!("{name} is read-only or reserved"),
+        });
+    }
+
+    let mut bytes = name.bytes();
+    let valid = bytes.next().is_some_and(is_identifier_start) && bytes.all(is_identifier_continue);
+    if !valid {
+        return Err(RuntimeError::VariableOperation {
+            node_id: node.id.clone(),
+            message: format!(
+                "invalid variable name {name:?}; names must start with a letter or underscore and contain only letters, numbers, or underscores"
+            ),
         });
     }
     Ok(())
@@ -23,9 +36,7 @@ pub(crate) fn coerce_variable_value(
     value_type: &str,
 ) -> Result<Value, RuntimeError> {
     match value_type {
-        "string" | "file_content" | "file_path" | "datetime" | "duration" => {
-            Ok(Value::String(value_to_string(&value)))
-        }
+        "string" | "file_content" | "file_path" => Ok(Value::String(value_to_string(&value))),
         "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" => {
             number_from_value(Some(&value))
                 .and_then(Number::from_f64)
@@ -44,20 +55,10 @@ pub(crate) fn coerce_variable_value(
                 message: format!("expected boolean, found {}", value_kind(&other)),
             }),
         },
-        "object" | "http_response" | "http_headers" => match value {
-            Value::Object(_) => Ok(value),
-            other => Err(RuntimeError::VariableOperation {
-                node_id: node.id.clone(),
-                message: format!("expected object, found {}", value_kind(&other)),
-            }),
-        },
-        "list" => match value {
-            Value::Array(_) => Ok(value),
-            other => Err(RuntimeError::VariableOperation {
-                node_id: node.id.clone(),
-                message: format!("expected list, found {}", value_kind(&other)),
-            }),
-        },
+        "object" | "http_response" | "http_headers" | "datetime" | "duration" => {
+            coerce_json_container(node, value, true)
+        }
+        "list" => coerce_json_container(node, value, false),
         "keyboard_key" => Ok(Value::String(value_to_string(&value))),
         _ => Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
@@ -72,43 +73,115 @@ pub(crate) fn set_object_field(
     field_path: &str,
     value: Value,
 ) -> Result<(), RuntimeError> {
-    let segments = field_path
-        .split('.')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-    if segments.is_empty() {
-        return Err(RuntimeError::VariableOperation {
+    let segments =
+        parse_object_path(field_path).map_err(|message| RuntimeError::VariableOperation {
             node_id: node.id.clone(),
-            message: "fieldPath must contain at least one segment".to_owned(),
-        });
-    }
-
-    let mut current = target;
-    for segment in &segments[..segments.len() - 1] {
-        if !current.is_object() {
-            *current = Value::Object(Map::new());
-        }
-        current = current
-            .as_object_mut()
-            .expect("current value was just converted to object")
-            .entry((*segment).to_owned())
-            .or_insert_with(|| Value::Object(Map::new()));
-    }
-
-    if !current.is_object() {
-        *current = Value::Object(Map::new());
-    }
-    current
-        .as_object_mut()
-        .expect("current value was just converted to object")
-        .insert(
-            segments
-                .last()
-                .expect("segments is known to be non-empty")
-                .to_string(),
-            value,
-        );
+            message,
+        })?;
+    set_path_value(target, &segments, value);
     Ok(())
+}
+
+#[derive(Debug)]
+enum ObjectPathSegment {
+    Field(String),
+    Index(usize),
+}
+
+fn parse_object_path(path: &str) -> Result<Vec<ObjectPathSegment>, String> {
+    let path = path.trim();
+    let bytes = path.as_bytes();
+    let mut segments = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if !is_identifier_start(bytes[index]) {
+            return Err(format!("invalid object field path {path:?}"));
+        }
+        let start = index;
+        index += 1;
+        while index < bytes.len() && is_identifier_continue(bytes[index]) {
+            index += 1;
+        }
+        segments.push(ObjectPathSegment::Field(path[start..index].to_owned()));
+
+        while index < bytes.len() && bytes[index] == b'[' {
+            index += 1;
+            let number_start = index;
+            while index < bytes.len() && bytes[index].is_ascii_digit() {
+                index += 1;
+            }
+            if number_start == index || index >= bytes.len() || bytes[index] != b']' {
+                return Err(format!("invalid object field path {path:?}"));
+            }
+            if bytes[number_start] == b'0' && index - number_start > 1 {
+                return Err(format!("invalid object field path {path:?}"));
+            }
+            let array_index = path[number_start..index]
+                .parse::<usize>()
+                .map_err(|_| format!("invalid object field path {path:?}"))?;
+            segments.push(ObjectPathSegment::Index(array_index));
+            index += 1;
+        }
+
+        if index == bytes.len() {
+            break;
+        }
+        if bytes[index] != b'.' {
+            return Err(format!("invalid object field path {path:?}"));
+        }
+        index += 1;
+        if index == bytes.len() {
+            return Err(format!("invalid object field path {path:?}"));
+        }
+    }
+
+    if segments.is_empty() {
+        Err("object field path is required".to_owned())
+    } else {
+        Ok(segments)
+    }
+}
+
+fn set_path_value(target: &mut Value, segments: &[ObjectPathSegment], value: Value) {
+    let Some((segment, remaining)) = segments.split_first() else {
+        *target = value;
+        return;
+    };
+
+    match segment {
+        ObjectPathSegment::Field(field) => {
+            if !target.is_object() {
+                *target = Value::Object(Map::new());
+            }
+            let child = target
+                .as_object_mut()
+                .expect("target was converted to an object")
+                .entry(field.clone())
+                .or_insert(Value::Null);
+            set_path_value(child, remaining, value);
+        }
+        ObjectPathSegment::Index(index) => {
+            if !target.is_array() {
+                *target = Value::Array(Vec::new());
+            }
+            let items = target
+                .as_array_mut()
+                .expect("target was converted to an array");
+            if items.len() <= *index {
+                items.resize(*index + 1, Value::Null);
+            }
+            set_path_value(&mut items[*index], remaining, value);
+        }
+    }
+}
+
+fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_identifier_continue(byte: u8) -> bool {
+    is_identifier_start(byte) || byte.is_ascii_digit()
 }
 
 pub(crate) fn refresh_derived_variable_metadata(
@@ -117,24 +190,35 @@ pub(crate) fn refresh_derived_variable_metadata(
 ) {
     let length_key = format!("{name}.$length");
     let count_key = format!("{name}.$count");
+    let type_key = format!("{name}.$type");
+    let empty_key = format!("{name}.$is_empty");
     variables.remove(&length_key);
     variables.remove(&count_key);
+    variables.remove(&type_key);
+    variables.remove(&empty_key);
 
-    let derived = variables.get(name).and_then(|value| match value {
-        Value::String(value) => Some((Some(value.len()), None)),
-        Value::Array(values) => Some((Some(values.len()), Some(values.len()))),
-        Value::Object(fields) => Some((Some(fields.len()), Some(fields.len()))),
-        _ => None,
-    });
+    let Some(value) = variables.get(name) else {
+        return;
+    };
+    let length = match value {
+        Value::String(value) => value.encode_utf16().count(),
+        Value::Array(values) => values.len(),
+        Value::Object(fields) => fields.len(),
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+    };
+    let is_empty = match value {
+        Value::Null => true,
+        Value::String(value) => value.is_empty(),
+        Value::Array(values) => values.is_empty(),
+        Value::Object(fields) => fields.is_empty(),
+        Value::Bool(_) | Value::Number(_) => false,
+    };
+    let value_type = value_kind(value).to_owned();
 
-    if let Some((length, count)) = derived {
-        if let Some(length) = length {
-            variables.insert(length_key, Value::Number(length.into()));
-        }
-        if let Some(count) = count {
-            variables.insert(count_key, Value::Number(count.into()));
-        }
-    }
+    variables.insert(length_key, Value::Number(length.into()));
+    variables.insert(count_key, Value::Number(length.into()));
+    variables.insert(type_key, Value::String(value_type));
+    variables.insert(empty_key, Value::Bool(is_empty));
 }
 
 pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
@@ -143,18 +227,67 @@ pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
             Value::Number(0.into())
         }
         "boolean" => Value::Bool(false),
-        "object" | "http_response" | "http_headers" => Value::Object(Map::new()),
+        "object" | "http_headers" => Value::Object(Map::new()),
+        "http_response" => serde_json::json!({
+            "type": "http_response",
+            "status": 0,
+            "headers": {},
+            "body": ""
+        }),
+        "datetime" => serde_json::json!({
+            "type": "datetime",
+            "value": "1970-01-01T00:00:00.000Z"
+        }),
+        "duration" => serde_json::json!({
+            "type": "duration",
+            "unit": "seconds",
+            "value": 0
+        }),
         "list" => Value::Array(Vec::new()),
         _ => Value::String(String::new()),
     }
 }
 
+fn coerce_json_container(
+    node: &RuntimeNode,
+    value: Value,
+    expect_object: bool,
+) -> Result<Value, RuntimeError> {
+    let value = match value {
+        Value::String(text) => {
+            serde_json::from_str(text.trim()).map_err(|source| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("expected valid JSON: {source}"),
+            })?
+        }
+        value => value,
+    };
+    let valid = if expect_object {
+        value.is_object()
+    } else {
+        value.is_array()
+    };
+    if valid {
+        Ok(value)
+    } else {
+        Err(RuntimeError::VariableOperation {
+            node_id: node.id.clone(),
+            message: format!(
+                "expected {}, found {}",
+                if expect_object { "object" } else { "list" },
+                value_kind(&value)
+            ),
+        })
+    }
+}
+
 pub(crate) fn number_from_value(value: Option<&Value>) -> Option<f64> {
-    match value {
+    let value = match value {
         Some(Value::Number(number)) => number.as_f64(),
         Some(Value::String(value)) => value.parse::<f64>().ok(),
         _ => None,
-    }
+    }?;
+    value.is_finite().then_some(value)
 }
 
 pub(crate) fn number_value(node: &RuntimeNode, value: f64) -> Result<Value, RuntimeError> {

@@ -10,27 +10,27 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_core::RunnerCore;
-use baudbound_storage::{FilesystemScriptStore, ServiceControlCommand};
+use baudbound_storage::SqliteRunnerStore;
 
 use super::{
-    control::{
-        consume_service_control_request, install_shutdown_handler, spawn_hotkey_stdin_reader,
-    },
     dispatch::{
         dispatch_due_schedules, dispatch_hotkey_stdin_events, dispatch_startup_events,
-        dispatch_trigger_event, dispatch_trigger_events,
+        queue_trigger_event, queue_trigger_events, record_trigger_completions,
     },
+    executor::TriggerExecutor,
     heartbeat::ServeStatusTracker,
+    hotkey_stdin::spawn_hotkey_stdin_reader,
     idle::{print_idle_service_explanation, should_exit_idle_service},
+    ipc::{ServiceControlCommand, ServiceControlServer},
     options::ServeOptions,
+    shutdown::install_shutdown_handler,
     summary::print_service_summary,
     triggers::{load_trigger_services, reload_trigger_services_if_changed},
-    webhooks::handle_webhook_request,
 };
 
 pub fn serve_triggers(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: ServeOptions,
 ) -> Result<()> {
     serve_triggers_with_control(core, store, options, ServeRuntimeControl::cli()?)
@@ -38,7 +38,6 @@ pub fn serve_triggers(
 
 pub struct ServeRuntimeControl {
     shutdown_requested: Arc<AtomicBool>,
-    consume_service_control_requests: bool,
     stop_label: &'static str,
 }
 
@@ -46,7 +45,6 @@ impl ServeRuntimeControl {
     fn cli() -> Result<Self> {
         Ok(Self {
             shutdown_requested: install_shutdown_handler()?,
-            consume_service_control_requests: true,
             stop_label: "Shutdown requested",
         })
     }
@@ -54,7 +52,6 @@ impl ServeRuntimeControl {
     pub fn desktop(shutdown_requested: Arc<AtomicBool>) -> Self {
         Self {
             shutdown_requested,
-            consume_service_control_requests: false,
             stop_label: "Desktop background runner stop requested",
         }
     }
@@ -62,19 +59,23 @@ impl ServeRuntimeControl {
 
 pub fn serve_triggers_with_control(
     core: &RunnerCore,
-    store: &FilesystemScriptStore,
+    store: &SqliteRunnerStore,
     options: ServeOptions,
     control: ServeRuntimeControl,
 ) -> Result<()> {
-    const MAX_IDLE_SLEEP: Duration = Duration::from_secs(1);
+    const MAX_IDLE_SLEEP: Duration = Duration::from_millis(250);
 
-    let (trigger_sender, trigger_receiver) = mpsc::channel();
+    const TRIGGER_CHANNEL_CAPACITY: usize = 1024;
+    let (trigger_sender, trigger_receiver) = mpsc::sync_channel(TRIGGER_CHANNEL_CAPACITY);
     let (hotkey_sender, hotkey_receiver) = mpsc::channel();
     if options.hotkey_stdin_enabled {
         spawn_hotkey_stdin_reader(hotkey_sender);
     }
-    let mut status = ServeStatusTracker::start();
-    let mut services = load_trigger_services(core, store, &options, &trigger_sender, None)?;
+    let service_control = ServiceControlServer::bind()?;
+    let mut trigger_executor = TriggerExecutor::new(core, store, "listener")
+        .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;
+    let mut status = ServeStatusTracker::start(service_control.descriptor().clone());
+    let mut services = load_trigger_services(core, store, &options, &trigger_sender)?;
     let mut dispatched_any_event =
         dispatch_startup_events(core, store, &mut services.startup, &mut status);
     status.write_running(store, &options, &services)?;
@@ -101,9 +102,7 @@ pub fn serve_triggers_with_control(
             "s"
         }
     );
-    if control.consume_service_control_requests {
-        println!("Press Ctrl+C to stop.");
-    }
+    println!("Press Ctrl+C to stop.");
 
     let mut next_reload_check = Instant::now() + options.reload_check_interval;
     loop {
@@ -116,12 +115,10 @@ pub fn serve_triggers_with_control(
             return Ok(());
         }
 
-        let service_control = if control.consume_service_control_requests {
-            consume_service_control_request(store)?
-        } else {
-            None
-        };
-        if matches!(service_control, Some(ServiceControlCommand::Stop)) {
+        let service_control_command = service_control
+            .poll_command()
+            .context("runner control IPC failed")?;
+        if matches!(service_control_command, Some(ServiceControlCommand::Stop)) {
             println!("Service stop requested. Stopping trigger listener services.");
             status.write_stopped(store, &options, &services)?;
             return Ok(());
@@ -131,7 +128,7 @@ pub fn serve_triggers_with_control(
             .consume_trigger_reload_request()
             .context("failed to read trigger reload signal")?;
         let control_reload_requested =
-            matches!(service_control, Some(ServiceControlCommand::Reload));
+            matches!(service_control_command, Some(ServiceControlCommand::Reload));
         if control_reload_requested || reload_requested || Instant::now() >= next_reload_check {
             let (reloaded_services, did_reload) = reload_trigger_services_if_changed(
                 core,
@@ -164,6 +161,11 @@ pub fn serve_triggers_with_control(
         }
         status.write_heartbeat_if_due(store, &options, &services)?;
 
+        if let Some(host) = services.webhook_host.as_mut() {
+            dispatched_any_event |= host.poll(&mut status);
+        }
+        dispatched_any_event |= record_trigger_completions(&trigger_executor, &mut status);
+
         dispatched_any_event |=
             dispatch_due_schedules(core, store, &mut services.schedules, &mut status);
         dispatched_any_event |= dispatch_hotkey_stdin_events(
@@ -173,34 +175,32 @@ pub fn serve_triggers_with_control(
             &hotkey_receiver,
             &mut status,
         );
-        dispatched_any_event |=
-            dispatch_trigger_events(core, store, &trigger_receiver, &mut status);
+        queue_trigger_events(&trigger_receiver, &mut trigger_executor, &mut status);
 
         if options.once && dispatched_any_event {
             status.write_stopped(store, &options, &services)?;
             return Ok(());
         }
 
-        let wait_duration = services
+        let mut wait_duration = services
             .schedules
             .time_until_next_due(Instant::now())
             .unwrap_or(MAX_IDLE_SLEEP)
             .min(MAX_IDLE_SLEEP)
             .min(next_reload_check.saturating_duration_since(Instant::now()))
             .min(status.time_until_next_heartbeat());
+        if let Some(webhook_poll_interval) = services
+            .webhook_host
+            .as_ref()
+            .and_then(|host| host.response_poll_interval())
+        {
+            wait_duration = wait_duration.min(webhook_poll_interval);
+        }
 
-        if let Some(host) = &services.webhook_host {
+        if let Some(host) = &mut services.webhook_host {
             match host.server.recv_timeout(wait_duration) {
                 Ok(Some(request)) => {
-                    dispatched_any_event = true;
-                    handle_webhook_request(
-                        core,
-                        store,
-                        &host.service,
-                        request,
-                        options.max_webhook_body_bytes,
-                        &mut status,
-                    )?;
+                    host.accept_request(request, options.max_webhook_body_bytes);
                 }
                 Ok(None) => {}
                 Err(error) => return Err(anyhow!("webhook listener failed: {error}")),
@@ -212,10 +212,8 @@ pub fn serve_triggers_with_control(
         {
             match trigger_receiver.recv_timeout(wait_duration) {
                 Ok(event) => {
-                    dispatched_any_event = true;
-                    dispatch_trigger_event(core, store, event, &mut status);
-                    dispatched_any_event |=
-                        dispatch_trigger_events(core, store, &trigger_receiver, &mut status);
+                    queue_trigger_event(&mut trigger_executor, event, &mut status);
+                    queue_trigger_events(&trigger_receiver, &mut trigger_executor, &mut status);
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {

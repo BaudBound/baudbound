@@ -268,7 +268,7 @@ export function App() {
               runAction={runAction}
             />
           ) : activeTab === "security" ? (
-            <SecurityView dashboard={dashboard} />
+            <SecurityView busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
           ) : activeTab === "triggers" ? (
             <TriggersView
               busyActions={busyActions}

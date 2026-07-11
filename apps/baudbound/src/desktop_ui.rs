@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
-use baudbound_storage::{FilesystemScriptStore, ScriptStore, StoredRunRecord};
+use baudbound_storage::{ScriptStore, SqliteRunnerStore, StoredRunRecord};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
 use serde_json::Value;
@@ -29,7 +29,7 @@ use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
 pub fn run_desktop_ui(
     config_path: PathBuf,
     core: RunnerCore,
-    store: FilesystemScriptStore,
+    store: SqliteRunnerStore,
     runner_config: RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
 ) -> Result<()> {
@@ -71,6 +71,8 @@ pub fn run_desktop_ui(
             save_runner_config,
             save_runner_config_model,
             scan_serial_ports,
+            set_script_secret,
+            remove_script_secret,
             select_package_file,
             set_script_enabled,
             start_background_runner,
@@ -87,7 +89,7 @@ pub(super) struct DesktopUiState {
     config_path: PathBuf,
     runner_config: Mutex<RunnerConfig>,
     core: Mutex<RunnerCore>,
-    store: FilesystemScriptStore,
+    store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Mutex<()>,
 }
@@ -161,7 +163,7 @@ fn update_script_package(
 #[tauri::command]
 fn request_trigger_reload(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
     run_locked_action(&state, || {
-        state.store.request_trigger_reload()?;
+        request_running_service_reload(&state.store)?;
         Ok("Requested trigger reload.".to_owned())
     })
 }
@@ -222,6 +224,41 @@ fn set_script_enabled(
 }
 
 #[tauri::command]
+fn set_script_secret(
+    reference: String,
+    name: String,
+    value: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        current_core(&state)?.set_installed_secret_from_text(
+            &state.store,
+            &reference,
+            &name,
+            &value,
+        )?;
+        Ok(format!("Configured {name} for {reference}."))
+    })
+}
+
+#[tauri::command]
+fn remove_script_secret(
+    reference: String,
+    name: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        let removed =
+            current_core(&state)?.remove_installed_secret(&state.store, &reference, &name)?;
+        Ok(if removed {
+            format!("Removed {name} from {reference}.")
+        } else {
+            format!("{name} was not configured for {reference}.")
+        })
+    })
+}
+
+#[tauri::command]
 fn read_runner_config(state: State<'_, DesktopUiState>) -> Result<RunnerConfigPayload, String> {
     read_runner_config_payload(&state).map_err(|error| error.to_string())
 }
@@ -259,7 +296,7 @@ pub(super) fn reload_background_runner_message(state: &DesktopUiState) -> Result
     if !state.background_runner.snapshot()?.running {
         return Ok("Desktop background runner is not running.".to_owned());
     }
-    state.store.request_trigger_reload()?;
+    request_running_service_reload(&state.store)?;
     Ok("Requested desktop background runner reload.".to_owned())
 }
 
@@ -290,23 +327,48 @@ pub(super) fn run_locked_message(
 fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
     sync_runtime_config_from_disk(state)?;
     let runner = current_core(state)?.status(&state.store)?;
+    let core = current_core(state)?;
+    let secret_statuses = runner
+        .scripts
+        .iter()
+        .filter_map(|script| {
+            core.list_installed_secrets(&state.store, &script.installed.id)
+                .ok()
+                .map(|secrets| (script.installed.id.clone(), secrets))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     let recent_runs = state.store.list_run_records(None, Some(50))?;
     let desktop_background = state.background_runner.snapshot()?;
     let serial_devices = serial_device_payloads(&current_runner_config(state)?);
     let service_status = state.store.read_service_status()?;
     let service_health = service_health_document(service_status.as_ref());
+    let mut public_service_status = service_status;
+    if let Some(status) = public_service_status.as_mut() {
+        crate::service::redact_service_control(status);
+    }
     let native_doctor_checks = desktop_doctor_checks();
     Ok(DashboardPayload {
         desktop_background,
         native_doctor_checks,
         recent_runs,
         runner,
+        secret_statuses,
         serial_devices,
         service_health,
-        service_status,
+        service_status: public_service_status,
         config_path: state.config_path.display().to_string(),
         storage_root: state.store.root().display().to_string(),
     })
+}
+
+fn request_running_service_reload(store: &SqliteRunnerStore) -> Result<()> {
+    let status = store
+        .read_service_status()?
+        .ok_or_else(|| anyhow!("runner service is not running"))?;
+    if status.get("state").and_then(Value::as_str) != Some("running") {
+        return Err(anyhow!("runner service is not running"));
+    }
+    crate::service::request_service_control(&status, crate::service::ServiceControlCommand::Reload)
 }
 
 #[derive(Serialize)]
@@ -316,6 +378,7 @@ struct DashboardPayload {
     native_doctor_checks: Vec<DoctorCheck>,
     recent_runs: Vec<StoredRunRecord>,
     runner: baudbound_core::RunnerStatus,
+    secret_statuses: std::collections::BTreeMap<String, Vec<baudbound_core::InstalledSecretStatus>>,
     serial_devices: Vec<SerialDevicePayload>,
     service_health: Value,
     service_status: Option<Value>,
@@ -604,6 +667,7 @@ fn desktop_background_options(
         ServeOverrides {
             hotkey_stdin: false,
             max_webhook_body_bytes: None,
+            max_websocket_connections: None,
             max_websocket_message_bytes: None,
             reload_interval_seconds: None,
             webhook_bind: None,

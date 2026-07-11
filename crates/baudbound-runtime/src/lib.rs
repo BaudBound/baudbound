@@ -12,6 +12,9 @@ use runtime::{
     resolve_template_value, set_object_field, validate_variable_name, value_kind, value_to_string,
     values_equal_for_condition,
 };
+pub use runtime::{
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use thiserror::Error;
@@ -113,6 +116,42 @@ impl RuntimeActionHandler for UnsupportedActionHandler {
     }
 }
 
+pub struct RuntimeExecutionResources<'a> {
+    package_path: Option<PathBuf>,
+    action_handler: &'a dyn RuntimeActionHandler,
+    state_store: Option<&'a dyn RuntimeStateStore>,
+    secrets: &'a [RuntimeSecretDeclaration],
+}
+
+impl<'a> RuntimeExecutionResources<'a> {
+    #[must_use]
+    pub fn new(action_handler: &'a dyn RuntimeActionHandler) -> Self {
+        Self {
+            package_path: None,
+            action_handler,
+            state_store: None,
+            secrets: &[],
+        }
+    }
+
+    #[must_use]
+    pub fn with_package_path(mut self, package_path: PathBuf) -> Self {
+        self.package_path = Some(package_path);
+        self
+    }
+
+    #[must_use]
+    pub fn with_state(
+        mut self,
+        state_store: &'a dyn RuntimeStateStore,
+        secrets: &'a [RuntimeSecretDeclaration],
+    ) -> Self {
+        self.state_store = Some(state_store);
+        self.secrets = secrets;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RuntimeNode {
     pub id: String,
@@ -150,6 +189,10 @@ pub enum RuntimeError {
     },
     #[error("runtime variable operation failed for node {node_id}: {message}")]
     VariableOperation { node_id: String, message: String },
+    #[error("runtime state failed: {0}")]
+    State(String),
+    #[error("runtime execution failed: {0}")]
+    Redacted(String),
     #[error("runtime was cancelled")]
     Cancelled,
 }
@@ -172,16 +215,19 @@ pub fn execute_manual_program_with_actions_and_package_path(
     package_path: Option<PathBuf>,
     action_handler: &dyn RuntimeActionHandler,
 ) -> Result<RunReport, RuntimeError> {
+    let mut resources = RuntimeExecutionResources::new(action_handler);
+    resources.package_path = package_path;
+    execute_manual_program_with_state(program, script_id, resources)
+}
+
+pub fn execute_manual_program_with_state(
+    program: &Value,
+    script_id: &str,
+    resources: RuntimeExecutionResources<'_>,
+) -> Result<RunReport, RuntimeError> {
     let graph = RuntimeGraph::from_program_value(program)?;
     let trigger_node_id = graph.manual_trigger()?.id.clone();
-    execute_graph_from_trigger(
-        graph,
-        script_id,
-        &trigger_node_id,
-        package_path,
-        Value::Null,
-        action_handler,
-    )
+    execute_graph_from_trigger(graph, script_id, &trigger_node_id, Value::Null, resources)
 }
 
 pub fn execute_trigger_program_with_actions(
@@ -209,14 +255,31 @@ pub fn execute_trigger_program_with_actions_and_package_path(
     trigger_payload: Value,
     action_handler: &dyn RuntimeActionHandler,
 ) -> Result<RunReport, RuntimeError> {
+    let mut resources = RuntimeExecutionResources::new(action_handler);
+    resources.package_path = package_path;
+    execute_trigger_program_with_state(
+        program,
+        script_id,
+        trigger_node_id,
+        trigger_payload,
+        resources,
+    )
+}
+
+pub fn execute_trigger_program_with_state(
+    program: &Value,
+    script_id: &str,
+    trigger_node_id: &str,
+    trigger_payload: Value,
+    resources: RuntimeExecutionResources<'_>,
+) -> Result<RunReport, RuntimeError> {
     let graph = RuntimeGraph::from_program_value(program)?;
     execute_graph_from_trigger(
         graph,
         script_id,
         trigger_node_id,
-        package_path,
         trigger_payload,
-        action_handler,
+        resources,
     )
 }
 
@@ -224,9 +287,8 @@ fn execute_graph_from_trigger(
     graph: RuntimeGraph,
     script_id: &str,
     trigger_node_id: &str,
-    package_path: Option<PathBuf>,
     trigger_payload: Value,
-    action_handler: &dyn RuntimeActionHandler,
+    resources: RuntimeExecutionResources<'_>,
 ) -> Result<RunReport, RuntimeError> {
     let trigger = graph.trigger(trigger_node_id)?;
     let identity = RunIdentity {
@@ -237,11 +299,19 @@ fn execute_graph_from_trigger(
     let mut executor = RuntimeExecutor::new(
         graph,
         identity,
-        package_path,
+        resources.package_path,
         trigger_payload,
-        action_handler,
-    );
-    executor.run_from_trigger()
+        resources.action_handler,
+        resources.state_store,
+        resources.secrets,
+    )?;
+    match executor.run_from_trigger() {
+        Ok(report) => Ok(executor.redact_report(report)),
+        Err(error) if executor.has_secrets() => Err(RuntimeError::Redacted(
+            executor.redact_text(&error.to_string()),
+        )),
+        Err(error) => Err(error),
+    }
 }
 
 struct RuntimeExecutor<'a> {
@@ -249,6 +319,15 @@ struct RuntimeExecutor<'a> {
     context: RuntimeContext,
     logs: Vec<RuntimeLogEntry>,
     action_handler: &'a dyn RuntimeActionHandler,
+    state_store: Option<&'a dyn RuntimeStateStore>,
+    secret_names: Vec<String>,
+    secret_values: Vec<Value>,
+}
+
+struct InitialRuntimeState {
+    secret_names: Vec<String>,
+    secret_values: Vec<Value>,
+    variables: BTreeMap<String, Value>,
 }
 
 impl<'a> RuntimeExecutor<'a> {
@@ -258,18 +337,24 @@ impl<'a> RuntimeExecutor<'a> {
         package_path: Option<PathBuf>,
         trigger_payload: Value,
         action_handler: &'a dyn RuntimeActionHandler,
-    ) -> Self {
-        Self {
+        state_store: Option<&'a dyn RuntimeStateStore>,
+        secrets: &[RuntimeSecretDeclaration],
+    ) -> Result<Self, RuntimeError> {
+        let initial_state = load_initial_state(&graph, &identity.script_id, state_store, secrets)?;
+        Ok(Self {
             graph,
             context: RuntimeContext {
                 identity,
                 package_path,
                 trigger_payload,
-                variables: BTreeMap::new(),
+                variables: initial_state.variables,
             },
             logs: Vec::new(),
             action_handler,
-        }
+            state_store,
+            secret_names: initial_state.secret_names,
+            secret_values: initial_state.secret_values,
+        })
     }
 
     fn run_from_trigger(&mut self) -> Result<RunReport, RuntimeError> {
@@ -612,25 +697,127 @@ impl<'a> RuntimeExecutor<'a> {
     fn execute_variable_operation(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
         let name = required_config_string(node, "name")?;
         validate_variable_name(node, &name)?;
+        if self.secret_names.iter().any(|secret| secret == &name) {
+            return Err(RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("secret {name:?} is read-only"),
+            });
+        }
 
         let operation =
             config_string(&node.config, "operation").unwrap_or_else(|| "set".to_owned());
         let value_type =
             config_string(&node.config, "valueType").unwrap_or_else(|| "string".to_owned());
+        let scope = match required_config_string(node, "scope")?.as_str() {
+            "runtime" => None,
+            "persistent" => Some(RuntimeVariableScope::Persistent),
+            "global" => Some(RuntimeVariableScope::Global),
+            invalid => {
+                return Err(RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: format!("unsupported variable scope {invalid}"),
+                });
+            }
+        };
 
-        match operation.as_str() {
+        if let Some(scope) = scope {
+            self.execute_stored_variable_operation(node, scope, &name, &operation, &value_type)?;
+        } else {
+            let current = self.context.variables.get(&name).cloned();
+            let value = self.calculate_variable_operation_value(
+                node,
+                &name,
+                &operation,
+                &value_type,
+                current,
+            )?;
+            self.set_variable(name.clone(), value);
+        }
+
+        self.push_runtime_log(
+            "debug",
+            format!("Variable operation {operation} completed."),
+            Some(node.id.clone()),
+        );
+        Ok(())
+    }
+
+    fn execute_stored_variable_operation(
+        &mut self,
+        node: &RuntimeNode,
+        scope: RuntimeVariableScope,
+        name: &str,
+        operation: &str,
+        value_type: &str,
+    ) -> Result<(), RuntimeError> {
+        const MAX_COMPARE_AND_SET_ATTEMPTS: usize = 32;
+        let store = self.state_store.ok_or_else(|| {
+            RuntimeError::State(
+                "stored variable operation requires a runner state store".to_owned(),
+            )
+        })?;
+
+        for _ in 0..MAX_COMPARE_AND_SET_ATTEMPTS {
+            let stored = store
+                .load_variable(scope, &self.context.identity.script_id, name)
+                .map_err(RuntimeError::State)?;
+            let expected_version = stored.as_ref().map(|variable| variable.version);
+            let current = stored.map(|variable| variable.value);
+            match &current {
+                Some(value) => self.set_variable(name.to_owned(), value.clone()),
+                None => {
+                    self.context.variables.remove(name);
+                    refresh_derived_variable_metadata(&mut self.context.variables, name);
+                }
+            }
+            let next = self
+                .calculate_variable_operation_value(node, name, operation, value_type, current)?;
+            if store
+                .compare_and_set_variable(
+                    scope,
+                    &self.context.identity.script_id,
+                    name,
+                    expected_version,
+                    &next,
+                )
+                .map_err(RuntimeError::State)?
+            {
+                self.set_variable(name.to_owned(), next);
+                return Ok(());
+            }
+        }
+
+        Err(RuntimeError::State(format!(
+            "variable {name:?} changed too frequently to update safely"
+        )))
+    }
+
+    fn calculate_variable_operation_value(
+        &self,
+        node: &RuntimeNode,
+        name: &str,
+        operation: &str,
+        value_type: &str,
+        current: Option<Value>,
+    ) -> Result<Value, RuntimeError> {
+        match operation {
             "set" => {
-                let raw_value = node.config.get("value").cloned().unwrap_or(Value::Null);
-                let value = coerce_variable_value(node, raw_value, &value_type)?;
-                self.set_variable(name, value);
+                let raw_value = self.resolve_variable_input(node.config.get("value"));
+                coerce_variable_value(node, raw_value, value_type)
             }
             "increment" => {
-                let increment = number_from_value(node.config.get("value")).unwrap_or(1.0);
-                let current = number_from_value(self.context.variables.get(&name)).unwrap_or(0.0);
-                self.set_variable(name, number_value(node, current + increment)?);
+                let increment_value = self.resolve_variable_input(node.config.get("value"));
+                let increment = number_from_value(Some(&increment_value)).ok_or_else(|| {
+                    RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: "increment value must resolve to a finite number".to_owned(),
+                    }
+                })?;
+                let current = number_from_value(current.as_ref()).unwrap_or(0.0);
+                number_value(node, current + increment)
             }
             "append_list" => {
-                let mut list = match self.context.variables.remove(&name) {
+                let mut list = match current {
                     Some(Value::Array(values)) => values,
                     Some(other) => {
                         return Err(RuntimeError::VariableOperation {
@@ -643,38 +830,40 @@ impl<'a> RuntimeExecutor<'a> {
                     }
                     None => Vec::new(),
                 };
-                list.push(node.config.get("value").cloned().unwrap_or(Value::Null));
-                self.set_variable(name, Value::Array(list));
+                list.push(self.resolve_json_compatible_input(node.config.get("value"))?);
+                Ok(Value::Array(list))
             }
             "set_object_field" => {
                 let field_path = required_config_string(node, "fieldPath")?;
-                let raw_value = node.config.get("value").cloned().unwrap_or(Value::Null);
-                let value = coerce_variable_value(node, raw_value, &value_type)?;
-                let current = self
-                    .context
-                    .variables
-                    .entry(name.clone())
-                    .or_insert_with(|| Value::Object(Map::new()));
-                set_object_field(node, current, &field_path, value)?;
-                refresh_derived_variable_metadata(&mut self.context.variables, &name);
+                let value = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let mut current = current.unwrap_or_else(|| Value::Object(Map::new()));
+                set_object_field(node, &mut current, &field_path, value)?;
+                Ok(current)
             }
-            "clear" => {
-                self.set_variable(name, empty_value_for_type(&value_type));
-            }
-            _ => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable operation {operation}"),
-                });
-            }
+            "clear" => Ok(empty_value_for_type(value_type)),
+            _ => Err(RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("unsupported variable operation {operation}"),
+            }),
         }
+    }
 
-        self.push_runtime_log(
-            "debug",
-            format!("Variable operation {operation} completed."),
-            Some(node.id.clone()),
-        );
-        Ok(())
+    fn resolve_variable_input(&self, value: Option<&Value>) -> Value {
+        match value.cloned().unwrap_or(Value::Null) {
+            Value::String(template) => resolve_template_value(&template, &self.context.variables),
+            value => value,
+        }
+    }
+
+    fn resolve_json_compatible_input(&self, value: Option<&Value>) -> Result<Value, RuntimeError> {
+        let resolved = self.resolve_variable_input(value);
+        match resolved {
+            Value::String(text) => match serde_json::from_str(text.trim()) {
+                Ok(value) => Ok(value),
+                Err(_) => Ok(Value::String(text)),
+            },
+            value => Ok(value),
+        }
     }
 
     fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
@@ -861,25 +1050,19 @@ impl<'a> RuntimeExecutor<'a> {
             return Ok(items);
         }
 
-        if let Value::Object(fields) = value {
-            return Ok(fields.into_values().collect());
-        }
-
-        let text = value_to_string(&value);
-        if text.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-
-        if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(text.trim()) {
+        if let Value::String(text) = &value
+            && let Ok(Value::Array(items)) = serde_json::from_str::<Value>(text.trim())
+        {
             return Ok(items);
         }
 
-        Ok(text
-            .split([',', '\n', '\r'])
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(|item| Value::String(item.to_owned()))
-            .collect())
+        Err(RuntimeError::ControlFlow {
+            node_id: node.id.clone(),
+            message: format!(
+                "for-each items must resolve to a list, found {}",
+                value_kind(&value)
+            ),
+        })
     }
 
     fn default_success_handle(&self, node: &RuntimeNode) -> Option<String> {
@@ -890,6 +1073,60 @@ impl<'a> RuntimeExecutor<'a> {
     fn set_variable(&mut self, name: String, value: Value) {
         self.context.variables.insert(name.clone(), value);
         refresh_derived_variable_metadata(&mut self.context.variables, &name);
+    }
+
+    fn has_secrets(&self) -> bool {
+        !self.secret_values.is_empty()
+    }
+
+    fn redact_report(&self, mut report: RunReport) -> RunReport {
+        for name in &self.secret_names {
+            report.variables.remove(name);
+            for suffix in [".$length", ".$count", ".$type", ".$is_empty"] {
+                report.variables.remove(&format!("{name}{suffix}"));
+            }
+        }
+        for value in report.variables.values_mut() {
+            self.redact_value(value);
+        }
+        for log in &mut report.logs {
+            log.message = self.redact_text(&log.message);
+        }
+        report
+    }
+
+    fn redact_value(&self, value: &mut Value) {
+        if self.secret_values.iter().any(|secret| secret == value) {
+            *value = Value::String("[REDACTED]".to_owned());
+            return;
+        }
+        match value {
+            Value::String(text) => *text = self.redact_text(text),
+            Value::Array(values) => {
+                for value in values {
+                    self.redact_value(value);
+                }
+            }
+            Value::Object(values) => {
+                for value in values.values_mut() {
+                    self.redact_value(value);
+                }
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+        }
+    }
+
+    fn redact_text(&self, text: &str) -> String {
+        self.secret_values
+            .iter()
+            .fold(text.to_owned(), |redacted, value| {
+                let sensitive = value_to_string(value);
+                if sensitive.is_empty() {
+                    redacted
+                } else {
+                    redacted.replace(&sensitive, "[REDACTED]")
+                }
+            })
     }
 
     fn push_runtime_log(
@@ -912,6 +1149,133 @@ fn create_run_id(script_id: &str, trigger_node_id: &str) -> String {
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
     format!("{script_id}:{trigger_node_id}:{timestamp}")
+}
+
+fn load_initial_state(
+    graph: &RuntimeGraph,
+    script_id: &str,
+    state_store: Option<&dyn RuntimeStateStore>,
+    secrets: &[RuntimeSecretDeclaration],
+) -> Result<InitialRuntimeState, RuntimeError> {
+    let mut variables = BTreeMap::new();
+    let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
+    let mut declared_scopes = BTreeMap::<String, String>::new();
+
+    for node in graph
+        .nodes()
+        .filter(|node| node.action_type == "runtime.set_variable")
+    {
+        let name = required_config_string(node, "name")?;
+        validate_variable_name(node, &name)?;
+        let scope_name = required_config_string(node, "scope")?;
+        let scope = match scope_name.as_str() {
+            "runtime" => None,
+            "persistent" => Some(RuntimeVariableScope::Persistent),
+            "global" => Some(RuntimeVariableScope::Global),
+            invalid => {
+                return Err(RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: format!("unsupported variable scope {invalid}"),
+                });
+            }
+        };
+        if let Some(existing) = declared_scopes.insert(name.clone(), scope_name.clone())
+            && existing != scope_name
+        {
+            return Err(RuntimeError::InvalidGraph(format!(
+                "variable {name:?} is declared with conflicting scopes {existing:?} and {scope_name:?}"
+            )));
+        }
+        if let Some(scope) = scope {
+            declarations.insert(name.clone(), scope);
+        }
+    }
+
+    let secret_names = secrets
+        .iter()
+        .map(|secret| secret.name.clone())
+        .collect::<Vec<_>>();
+    let unique_secret_names = secret_names
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    if unique_secret_names.len() != secret_names.len() {
+        return Err(RuntimeError::InvalidGraph(
+            "manifest contains duplicate secret declarations".to_owned(),
+        ));
+    }
+    if let Some(collision) = secret_names
+        .iter()
+        .find(|name| declared_scopes.contains_key(name.as_str()))
+    {
+        return Err(RuntimeError::InvalidGraph(format!(
+            "secret {collision:?} conflicts with a writable variable"
+        )));
+    }
+
+    if (!declarations.is_empty() || !secrets.is_empty()) && state_store.is_none() {
+        return Err(RuntimeError::State(
+            "persistent, global, and secret variables require a runner state store".to_owned(),
+        ));
+    }
+    let mut secret_values = Vec::new();
+    if let Some(store) = state_store {
+        for (name, scope) in declarations {
+            if let Some(stored) = store
+                .load_variable(scope, script_id, &name)
+                .map_err(RuntimeError::State)?
+            {
+                variables.insert(name.clone(), stored.value);
+                refresh_derived_variable_metadata(&mut variables, &name);
+            }
+        }
+        for secret in secrets {
+            match store
+                .read_secret(script_id, &secret.name)
+                .map_err(RuntimeError::State)?
+            {
+                Some(value) => {
+                    validate_secret_value(secret, &value)?;
+                    variables.insert(secret.name.clone(), value.clone());
+                    secret_values.push(value);
+                }
+                None if secret.required => {
+                    return Err(RuntimeError::State(format!(
+                        "required secret {:?} is not configured",
+                        secret.name
+                    )));
+                }
+                None => {}
+            }
+        }
+    }
+
+    Ok(InitialRuntimeState {
+        secret_names,
+        secret_values,
+        variables,
+    })
+}
+
+fn validate_secret_value(
+    declaration: &RuntimeSecretDeclaration,
+    value: &Value,
+) -> Result<(), RuntimeError> {
+    let valid = match declaration.value_type.as_str() {
+        "string" | "file_path" => value.is_string(),
+        "number" => value.is_number(),
+        "boolean" => value.is_boolean(),
+        "list" => value.is_array(),
+        "object" | "http_response" | "datetime" | "duration" => value.is_object(),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(RuntimeError::State(format!(
+            "secret {:?} does not match declared type {}",
+            declaration.name, declaration.value_type
+        )))
+    }
 }
 
 #[cfg(test)]

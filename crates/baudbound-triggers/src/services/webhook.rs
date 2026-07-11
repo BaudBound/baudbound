@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use baudbound_runtime::RunReport;
 use serde_json::{Value, json};
@@ -12,6 +15,7 @@ use crate::{
 pub struct WebhookDispatch {
     pub event: TriggerEvent,
     pub fallback_response: WebhookResponse,
+    pub response_timeout: Duration,
     pub wait_for_response: bool,
 }
 
@@ -81,6 +85,7 @@ impl WebhookService {
                     script_id: route.registration.script_id.clone(),
                 },
                 fallback_response: route.fallback_response.clone(),
+                response_timeout: route.response_timeout,
                 wait_for_response: route.wait_for_response,
             })
     }
@@ -106,6 +111,7 @@ struct WebhookRoute {
     method: String,
     path: String,
     registration: TriggerRegistration,
+    response_timeout: Duration,
     wait_for_response: bool,
 }
 
@@ -136,6 +142,7 @@ impl WebhookRoute {
                 format!("unsupported webhook method {method:?}"),
             ));
         }
+        let response_timeout = response_timeout(&registration)?;
 
         Ok(Self {
             fallback_response: WebhookResponse {
@@ -149,9 +156,39 @@ impl WebhookRoute {
             method,
             path: format!("/events/{hook_name}"),
             wait_for_response: config_bool(&registration.config, "waitForResponse"),
+            response_timeout,
             registration,
         })
     }
+}
+
+fn response_timeout(registration: &TriggerRegistration) -> Result<Duration, TriggerError> {
+    let value = registration.config.get("responseTimeoutSeconds");
+    let seconds = match value {
+        None => 30.0,
+        Some(Value::Number(value)) => value.as_f64().unwrap_or(f64::NAN),
+        Some(Value::String(value)) => value.trim().parse::<f64>().unwrap_or(f64::NAN),
+        Some(_) => f64::NAN,
+    };
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return Err(TriggerError::Failed(
+            registration.node_id.clone(),
+            "webhook responseTimeoutSeconds must be a positive finite number".to_owned(),
+        ));
+    }
+    let duration = Duration::try_from_secs_f64(seconds).map_err(|source| {
+        TriggerError::Failed(
+            registration.node_id.clone(),
+            format!("webhook responseTimeoutSeconds is out of range: {source}"),
+        )
+    })?;
+    if Instant::now().checked_add(duration).is_none() {
+        return Err(TriggerError::Failed(
+            registration.node_id.clone(),
+            "webhook responseTimeoutSeconds exceeds the supported deadline range".to_owned(),
+        ));
+    }
+    Ok(duration)
 }
 
 fn webhook_payload(

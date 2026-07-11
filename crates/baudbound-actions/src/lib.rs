@@ -140,6 +140,22 @@ pub trait DesktopActionAdapter: Send + Sync {
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn process_status_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "process window-title queries")
+    }
+
+    fn kill_process_by_window_title(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "process window-title termination")
+    }
 }
 
 #[derive(Debug, Default)]
@@ -265,12 +281,26 @@ where
             "action.mouse.move" => self.adapter.mouse_move(request, context),
             "action.notification" => self.adapter.notification(request, context),
             "action.pixel.get" => self.adapter.pixel_get(request, context),
+            "action.process.kill" if uses_window_title_match(request) => {
+                self.adapter.kill_process_by_window_title(request, context)
+            }
+            "action.process.status" if uses_window_title_match(request) => self
+                .adapter
+                .process_status_by_window_title(request, context),
             "action.sound.play" => self.adapter.sound_play(request, context),
             "action.window.active" => self.adapter.active_window(request, context),
             "action.window.focus" => self.adapter.window_focus(request, context),
             _ => self.headless.execute_action(request, context),
         }
     }
+}
+
+fn uses_window_title_match(request: &RuntimeActionRequest) -> bool {
+    request
+        .config
+        .get("matchMode")
+        .and_then(Value::as_str)
+        .is_some_and(|mode| mode.trim() == "window_title")
 }
 
 impl HeadlessActionHandler {
