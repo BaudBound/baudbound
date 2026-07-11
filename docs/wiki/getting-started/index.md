@@ -1,98 +1,137 @@
 ---
 title: Getting Started
-description: Create, verify, export, install, and run a BaudBound automation.
+description: Build, simulate, export, approve, and run a first BaudBound workflow.
 tags: [getting-started]
 ---
 # Getting Started
 
+This guide builds a safe first workflow that writes `Hello from BaudBound` to the runner log. It uses a **Manual** trigger and a **Log** action, works on every supported target runtime, and does not modify files or control the desktop.
+
 ## Before you begin
 
-You need a current web browser, access to the [BaudBound editor](https://editor.baudbound.app/), and a supported Windows or Linux machine on which to install the runner. No account is required to build a project in the public editor.
+You need:
 
-This guide uses `automation` as an example installed script name. Replace it with the name printed by the import command or shown in the desktop Scripts view.
+- a current web browser;
+- access to the [public BaudBound editor](https://editor.baudbound.app/); and
+- a Windows or Linux machine on which you can install the runner.
 
-## 1. Build a workflow
+You do not need an account. Install the runner by following [Installation and Updates](../runner/installation.md), then return here. The runner creates its configuration and storage automatically on first launch.
 
-Open the [public editor](https://editor.baudbound.app/). Add a trigger, connect actions or control-flow nodes, and configure each node in the inspector. A workflow begins at a trigger and follows directed edges through the graph.
+## 1. Create the project
 
-Set the project name, author, version requirements, and target runtime before export. Target runtimes determine which nodes the editor permits and which runner can execute the package.
+1. Open the [BaudBound editor](https://editor.baudbound.app/).
+2. Open **Project settings** from the top bar.
+3. Set **Name** to `Hello BaudBound`.
+4. Keep **Target runtime** set to **Generic Desktop**.
+5. Save the settings.
 
-## 2. Verify and simulate
+The project name identifies the workflow in the editor and becomes the default package name. The target runtime limits the project to nodes that the intended runner can support.
 
-Open the Simulation tab and activate a trigger. The editor verifies the graph before execution. Fix blocking graph, configuration, variable, target-runtime, and secret-declaration errors. Simulation runs locally in the editor and substitutes simulated platform behavior where native access is unavailable.
+## 2. Add and connect the nodes
 
-Read [Editor simulation](../editor/simulation.md) before testing workflows with secrets or machine-specific actions.
+1. Find **Manual** in the Triggers section of the node library and add it to the canvas.
+2. Find **Log** in the Actions section and add it to the canvas.
+3. Drag a connection from the Manual output handle to the Log input handle.
+4. Select the Log node.
+5. Set **Log level** to **Info**.
+6. Replace **Message** with `Hello from BaudBound`.
 
-## 3. Export the package
-
-Export the project as a `.bbs` package. The package contains the manifest, executable graph, editor metadata, asset files, and integrity metadata. Keep the package intact; editing an installed package invalidates its hash and approval state.
-
-## 4. Install the runner
-
-Follow [Runner installation](../runner/installation.md), then open the desktop application. The first launch creates the configuration and runner storage automatically.
-
-## 5. Import and approve
-
-The simplest desktop workflow is:
-
-1. Open **Scripts**.
-2. Choose **Import package** and select the exported `.bbs` file.
-3. Open the imported script's approval review.
-4. Read the target runtime, risk level, requested capabilities, nodes, and required secrets.
-5. Choose **Approve** only when the requested access matches the workflow you intended to build.
-
-The equivalent CLI workflow is shown below. Replace the example user and filename with the actual downloaded package path.
-
-### CLI workflow {.tabset}
-
-#### Windows
-
-```powershell
-baudbound script import "C:\Users\Alice\Downloads\automation.bbs"
-baudbound script list
-baudbound script inspect automation
-baudbound script approve automation
-```
-
-#### Linux
+The canvas should contain one path:
 
 ```text
-baudbound script import ~/Downloads/automation.bbs
+Manual -> Log
+```
+
+The Log action writes to BaudBound's run log. It does not print into an unrelated terminal or create a text file.
+
+## 3. Verify and simulate
+
+1. Open the **Simulation** tab in the right inspector.
+2. Find the Manual trigger and choose its trigger button.
+3. Wait for verification and simulation to finish.
+4. Open the **Simulation** output tab if it is not already visible.
+
+A successful run shows a verification result with no blocking failures and a log entry containing:
+
+```text
+Hello from BaudBound
+```
+
+If verification fails, do not export yet. Confirm that both nodes are connected and the Log message is not empty. [Verification and Simulation](../editor/simulation.md) explains the full result categories.
+
+## 4. Export the package
+
+1. Choose **Export** in the top bar.
+2. Review the package summary and verification results.
+3. Continue only when export has no blocking failures.
+4. Download the package.
+
+Your browser downloads a file ending in `.bbs`. The exact filename is shown by the browser. Keep the file intact: changing files inside a package invalidates its integrity data.
+
+## 5. Import and inspect
+
+### Desktop application
+
+1. Open BaudBound.
+2. Open **Scripts**.
+3. Choose **Import package** and select the `.bbs` file.
+4. Find the new script in the list.
+5. Open its approval review and confirm that the package contains a Manual trigger and Log action with low risk.
+
+The script row shows the installed name and identity. Use that displayed name for later CLI commands; do not assume it is the same as the downloaded filename.
+
+### Command line
+
+Open PowerShell on Windows or a terminal on Linux. Replace `PACKAGE` with the actual path to the downloaded `.bbs` file.
+
+```text
+baudbound script import "PACKAGE"
 baudbound script list
-baudbound script inspect automation
-baudbound script approve automation
 ```
 
-### What approval means
+The import command prints the installed script name and ID. In the remaining examples, replace `SCRIPT` with either value.
 
-Approval applies to the exact imported package and its requested capabilities. Updating package content requires a new review.
+Inspect the package before approving it:
 
-## 6. Run or serve
-
-Run a manual trigger:
-
-```powershell
-baudbound script run automation
+```text
+baudbound script inspect SCRIPT
 ```
 
-Keep listener-based triggers active:
+## 6. Approve and run
 
-```powershell
-baudbound serve
+Approval accepts the exact imported package hash and its declared access. An updated package must be reviewed again.
+
+In the desktop application, choose **Approve** from the approval review, then choose **Run** on the script row.
+
+The equivalent CLI commands are:
+
+```text
+baudbound script approve SCRIPT
+baudbound script run SCRIPT
 ```
 
-`serve` stays in the foreground and continues running until it is stopped. It is needed only for schedules and other triggers that wait for an event. A desktop user can instead start the background runner from the **Service** view. A headless Linux user should follow [Linux Background Service](../self-hosting/linux-background-service.md).
+Open **Runs** or **Logs** in the desktop application, or run:
 
-Continue with [Script Management](../runner/script-management.md) and [Service and Triggers](../runner/service-triggers.md).
+```text
+baudbound script logs --script SCRIPT --limit 5
+```
 
-## Key terms
+The latest successful run should contain `Hello from BaudBound`.
 
-**Project** is the editable graph and project settings in the editor. **Nodes** are triggers, control-flow operations, or actions; edges define their execution order and branches.
+## Stop and investigate when
 
-**Trigger** starts a **run**, which is one execution with its own result, logs, and variable snapshots. Manual triggers start on demand. Schedules, webhooks, serial input, hotkeys, and file watchers require a running background service.
+Do not approve or run the package when:
 
-**Variables** are named runtime values referenced with `{{variable_name}}`. **Secrets** are sensitive values declared by a package but supplied by the runner operator; they are never exported from the editor.
+- editor verification reports a blocking failure;
+- import reports an integrity, schema, or compatibility error;
+- the approval review contains nodes, permissions, capabilities, or risk you did not expect; or
+- the package came from someone you do not trust and you have not reviewed its behavior.
 
-A **package** is the exported `.bbs` file. Its **target runtime** describes the required operating system and whether desktop interaction is needed. **Capabilities** describe requested access such as filesystem writes, process execution, network access, desktop input, or serial I/O.
+Start with [Runs, Logs, and Troubleshooting](../runner/runs-logs-troubleshooting.md) if the expected result does not appear.
 
-An **approval** accepts one exact package revision and its capabilities. Updating package content invalidates that approval.
+## Next steps
+
+- Follow [Tutorials](../tutorials/index.md) for schedules, webhooks, serial devices, file watching, and branches.
+- Read [Visual Editor](../editor/index.md) for everyday editing workflows.
+- Learn how data moves through a workflow in [Variables and Data](../editor/variables.md).
+- Manage imported revisions with [Script Management](../runner/script-management.md).

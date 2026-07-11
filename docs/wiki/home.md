@@ -1,25 +1,56 @@
 ---
 title: BaudBound Documentation
-description: Complete documentation for the BaudBound visual automation editor and runner.
+description: Learn how to build, verify, and run local automations with BaudBound.
 tags: [overview]
 ---
 # BaudBound
 
-BaudBound is a visual automation platform for building workflows as connected nodes and running them on Windows or Linux. The browser-based editor produces portable `.bbs` packages; the native runner validates, approves, schedules, and executes them.
+BaudBound is a visual automation platform for Windows and Linux. You build a workflow by connecting nodes in the browser-based editor, export it as a `.bbs` package, and run it on your own machine with the native BaudBound runner.
 
-Start with [Getting Started](getting-started/index.md) to build, test, export, approve, and run a workflow. Use the navigation to find editor, runner, security, self-hosting, and contributor reference material.
+BaudBound can automate tasks such as reacting to a schedule or file change, receiving a local webhook, communicating with a serial device, transforming data, calling an HTTP API, managing files and processes, and controlling supported desktop applications. Available actions depend on the selected target runtime and operating system.
 
-## How it works
+## Choose where to start
 
-1. Build a workflow from triggers, control flow, and actions in the visual editor.
-2. Verify and simulate its branches before exporting a `.bbs` package.
-3. Import the package into a runner, review its requested access, and approve that exact revision.
-4. Run it manually or keep listener-based triggers active through the background service.
+| I want to... | Start here |
+| --- | --- |
+| Build and run my first workflow | [Getting Started](getting-started/index.md) |
+| Learn with complete examples | [Tutorials](tutorials/index.md) |
+| Understand BaudBound terminology | [Concepts and Glossary](concepts.md) |
+| Learn the visual editor | [Visual Editor](editor/index.md) |
+| Install or update the runner | [Installation and Updates](runner/installation.md) |
+| Keep triggers running on a desktop | [Background Service and Triggers](runner/service-triggers.md) |
+| Run BaudBound on a headless Linux machine | [Linux Background Service](self-hosting/linux-background-service.md) |
+| Host the editor or schema service | [Self-Hosting Guide](self-hosting/index.md) |
+| Contribute to BaudBound | [Developer Overview](developers/index.md) |
 
-## Local execution with explicit trust
+## How a workflow reaches the runner
 
-The editor never receives the runner machine's production secrets or performs trusted native actions. Packages describe intended behavior and requested capabilities; the runner independently validates those declarations before execution.
+1. **Build:** Add triggers, actions, and control-flow nodes in the editor.
+2. **Verify:** Let the editor check graph structure, node configuration, variables, permissions, and target compatibility.
+3. **Simulate:** Test the workflow with controlled input before it can affect a real machine.
+4. **Export:** Download a portable `.bbs` package containing the graph, metadata, assets, schemas, and integrity data.
+5. **Review:** Import the package into the runner and inspect its requested capabilities and risk.
+6. **Approve and run:** Approve that exact package revision, then run it manually or activate its listener-based triggers.
 
-Workflows can respond to schedules, webhooks, WebSockets, files, processes, hotkeys, startup, and serial devices. Actions cover data transformation, network requests, files, processes, desktop interaction, and connected devices where the selected target runtime supports them.
+The editor describes what a workflow should do. The runner independently validates that description and performs approved native actions locally. Editor simulation is useful for testing, but it is not a substitute for runner validation or approval.
 
-Package integrity, per-revision approval, encrypted runner secrets, target-runtime checks, and runner policy keep local automation reviewable instead of treating an exported package as automatically trusted.
+## Local execution and explicit trust
+
+The public editor does not need an account and does not execute production actions on the runner machine. Secrets are declared in the project but configured on the runner, so secret values do not need to be included in exported packages.
+
+Every imported revision is checked for package integrity, schema validity, target-runtime compatibility, permissions, and capabilities. Approval applies to one exact package hash. Updating the package requires another review.
+
+Read [Security Model](security/index.md) before approving workflows obtained from another person or exposing a listener to a network.
+
+## Supported platforms
+
+BaudBound supports Windows and Linux. Some nodes require a desktop session, and some native actions are available only on a narrower platform set. The editor prevents known-incompatible nodes for the selected [target runtime](editor/target-runtimes.md), and the runner checks compatibility again before execution.
+
+## What BaudBound does not provide
+
+- BaudBound is not a hosted cloud execution service. Workflows run on a runner you control.
+- The public editor does not require or manage user accounts.
+- A `.bbs` package is not trusted merely because it was created by the BaudBound editor.
+- Unsupported operating systems and unsupported native actions are not silently emulated by the production runner.
+
+Ready to try it? Continue with [Getting Started](getting-started/index.md).
