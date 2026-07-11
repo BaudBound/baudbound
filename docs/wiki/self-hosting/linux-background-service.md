@@ -175,13 +175,15 @@ Complete exactly one tab. Do not enable more than one BaudBound service for the 
 
 ### systemd
 
-systemd supports services owned and managed by an ordinary user. Create the user-unit directory:
+The system service is managed by an administrator, but the BaudBound process runs under your normal account. Record your account, group, and home-directory values:
 
 ```text
-mkdir -p "$HOME/.config/systemd/user"
+id -un
+id -gn
+printf '%s\n' "$HOME"
 ```
 
-Create `~/.config/systemd/user/baudbound.service` with this content:
+Create `/etc/systemd/system/baudbound.service`, replacing every `YOUR_USER`, `YOUR_GROUP`, and `/home/YOUR_USER` value with the output from those commands:
 
 ```ini
 [Unit]
@@ -191,43 +193,39 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h
-Environment=BAUDBOUND_HOME=%h/.local/share/BaudBound/runner
-EnvironmentFile=-%h/.config/baudbound/runner.env
-ExecStart=%h/.local/opt/baudbound/BaudBound.AppImage serve
+User=YOUR_USER
+Group=YOUR_GROUP
+WorkingDirectory=/home/YOUR_USER
+Environment=BAUDBOUND_HOME=/home/YOUR_USER/.local/share/BaudBound/runner
+EnvironmentFile=-/home/YOUR_USER/.config/baudbound/runner.env
+ExecStart=/home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage serve
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 ```
 
-The `BAUDBOUND_HOME` line above uses BaudBound's standard Linux path. If `dirname "$(baudbound config path)"` printed a different path, replace the value after `BAUDBOUND_HOME=` with that absolute path before continuing.
+The `BAUDBOUND_HOME` line uses BaudBound's standard Linux path. If `dirname "$(baudbound config path)"` printed a different path, replace the value after `BAUDBOUND_HOME=` with that absolute path before continuing.
 
 Load and start it:
 
 ```text
-systemctl --user daemon-reload
-systemctl --user enable --now baudbound.service
-systemctl --user status baudbound.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now baudbound.service
+sudo systemctl status baudbound.service
 ```
 
 The status should report `active (running)`. Follow live logs with:
 
 ```text
-journalctl --user -u baudbound.service -f
+sudo journalctl -u baudbound.service -f
 ```
 
 Press `Ctrl+C` to stop following logs without stopping BaudBound.
 
-A user service normally stops when the user signs out. To keep it running after logout and start it during boot, enable lingering once:
-
-```text
-sudo loginctl enable-linger "$USER"
-```
-
-This command changes login management for only the current account. The service itself still runs without root privileges. The unit behavior is described by the official [systemd user-service documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
+The `sudo systemctl` commands manage the system-wide unit. `User=YOUR_USER` and `Group=YOUR_GROUP` ensure that the BaudBound process itself does not run as `root`. The service starts during boot and continues after you sign out. The unit behavior is described by the official [systemd service documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
 
 ### OpenRC
 
@@ -334,10 +332,10 @@ Use only the commands for the configured service manager:
 
 | Task | systemd | OpenRC | runit |
 | --- | --- | --- | --- |
-| Status | `systemctl --user status baudbound` | `sudo rc-service baudbound status` | `sudo sv status baudbound` |
-| Restart | `systemctl --user restart baudbound` | `sudo rc-service baudbound restart` | `sudo sv restart baudbound` |
-| Stop | `systemctl --user stop baudbound` | `sudo rc-service baudbound stop` | `sudo sv down baudbound` |
-| Start | `systemctl --user start baudbound` | `sudo rc-service baudbound start` | `sudo sv up baudbound` |
+| Status | `sudo systemctl status baudbound` | `sudo rc-service baudbound status` | `sudo sv status baudbound` |
+| Restart | `sudo systemctl restart baudbound` | `sudo rc-service baudbound restart` | `sudo sv restart baudbound` |
+| Stop | `sudo systemctl stop baudbound` | `sudo rc-service baudbound stop` | `sudo sv down baudbound` |
+| Start | `sudo systemctl start baudbound` | `sudo rc-service baudbound start` | `sudo sv up baudbound` |
 
 ## Updating the headless runner
 
@@ -346,7 +344,7 @@ Stop the service before replacing the AppImage. Run only the matching command:
 **systemd**
 
 ```text
-systemctl --user stop baudbound.service
+sudo systemctl stop baudbound.service
 ```
 
 **OpenRC**
@@ -419,15 +417,9 @@ Choose only the configured service manager:
 **systemd**
 
 ```text
-systemctl --user disable --now baudbound.service
-rm "$HOME/.config/systemd/user/baudbound.service"
-systemctl --user daemon-reload
-```
-
-If lingering was enabled only for BaudBound and no other user service needs it, disable it:
-
-```text
-sudo loginctl disable-linger "$USER"
+sudo systemctl disable --now baudbound.service
+sudo rm /etc/systemd/system/baudbound.service
+sudo systemctl daemon-reload
 ```
 
 **OpenRC**
