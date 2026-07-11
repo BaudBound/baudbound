@@ -1,11 +1,11 @@
 ---
 title: Linux Background Service
 description: Run BaudBound continuously under systemd, OpenRC, or runit.
-tags: [deployment, runner, service, linux]
+tags: [self-hosting, runner, service, linux]
 ---
 # Linux Background Service
 
-Run `baudbound serve` under the service manager provided by the distribution. systemd is the normal choice on Debian, Ubuntu, Fedora, Arch, and their common derivatives. Alpine and Gentoo use OpenRC by default, while Void Linux uses runit.
+Run `baudbound serve` under the service manager provided by the distribution. The installation preparation below covers Debian, Ubuntu, Fedora, and Arch. Service definitions are provided for systemd, OpenRC, and runit.
 
 All variants below use:
 
@@ -98,14 +98,6 @@ sudo -u baudbound env BAUDBOUND_HOME=/var/lib/baudbound /opt/baudbound/BaudBound
 ```
 
 The downloaded filename can differ between releases. The destination remains `/opt/baudbound/BaudBound.AppImage`; replace it atomically with the newer AppImage during a manual update.
-
-On Alpine, install FUSE and use its native account tools before running the shared installation commands:
-
-```text
-sudo apk add fuse
-sudo addgroup -S baudbound
-sudo adduser -S -D -H -h /var/lib/baudbound -s /sbin/nologin -G baudbound baudbound
-```
 
 Edit `/var/lib/baudbound/config.toml`, then keep it writable by `baudbound` when automatic serial-port rebinding is enabled. Add the account to the distribution's serial-device group, commonly `dialout` or `uucp`, when scripts use serial ports.
 
