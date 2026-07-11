@@ -91,10 +91,7 @@ impl ProcessStartedEngine {
 
 fn process_matches_spec(process: &ProcessSnapshot, spec: &ProcessStartedSpec) -> bool {
     match spec.match_mode {
-        ProcessMatchMode::ProcessName => process
-            .process_name
-            .to_string_lossy()
-            .eq_ignore_ascii_case(spec.target.trim()),
+        ProcessMatchMode::ProcessName => process_matches_name(process, &spec.target),
         ProcessMatchMode::ExecutablePath => process
             .executable_path
             .as_ref()
@@ -102,6 +99,19 @@ fn process_matches_spec(process: &ProcessSnapshot, spec: &ProcessStartedSpec) ->
             .is_some_and(|path| path == normalize_path(&spec.target)),
         ProcessMatchMode::WindowTitle => false,
     }
+}
+
+fn process_matches_name(process: &ProcessSnapshot, target: &str) -> bool {
+    let target = target.trim();
+    process
+        .process_name
+        .to_string_lossy()
+        .eq_ignore_ascii_case(target)
+        || process
+            .executable_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(target))
 }
 
 fn normalize_path(path: &str) -> String {

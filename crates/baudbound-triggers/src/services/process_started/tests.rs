@@ -44,6 +44,24 @@ fn detects_each_process_identity_once_and_handles_pid_reuse() {
 }
 
 #[test]
+fn process_name_matching_uses_executable_name_when_system_name_is_truncated() {
+    let executable_name = "baudbound-process-helper";
+    let specs = collect_specs([registration("n-process", "process_name", executable_name)])
+        .expect("spec should parse");
+    let mut engine = ProcessStartedEngine::new(specs, &BTreeMap::new());
+    let running = snapshots([snapshot(
+        20,
+        200,
+        "baudbound-proces",
+        &format!("/tmp/{executable_name}"),
+    )]);
+
+    let events = poll(&mut engine, &running);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].node_id, "n-process");
+}
+
+#[test]
 fn reconfigure_preserves_unchanged_window_candidates_and_baselines_changed_specs() {
     let original = specs([
         spec("n-window", ProcessMatchMode::WindowTitle, "Ready"),
