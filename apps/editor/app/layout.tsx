@@ -4,7 +4,14 @@ import type { Metadata, Viewport } from "next";
 const appName = "BaudBound Editor";
 const appDescription =
 	"Create local automation workflows visually and export them as portable BaudBound .bbs packages.";
-const appUrl = process.env.NEXT_PUBLIC_EDITOR_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://editor.baudbound.app";
+
+export const dynamic = "force-dynamic";
+
+const appUrl =
+	process.env.EDITOR_URL ??
+	process.env.NEXT_PUBLIC_EDITOR_URL ??
+	process.env.NEXT_PUBLIC_SITE_URL ??
+	"https://editor.baudbound.app";
 
 export const metadata: Metadata = {
 	metadataBase: new URL(appUrl),
