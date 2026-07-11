@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process::{Child, Command},
     sync::mpsc::{self, Receiver},
@@ -137,7 +138,20 @@ fn service_reconfiguration_reuses_the_worker_and_stops_promptly() {
         return;
     }
 
-    let executable = std::env::current_exe().expect("test executable should resolve");
+    let source_executable = std::env::current_exe().expect("test executable should resolve");
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should exist");
+    let helper_name = source_executable.extension().map_or_else(
+        || format!("baudbound-process-helper-{}", std::process::id()),
+        |extension| {
+            format!(
+                "baudbound-process-helper-{}.{}",
+                std::process::id(),
+                extension.to_string_lossy()
+            )
+        },
+    );
+    let executable = temporary_directory.path().join(helper_name);
+    fs::copy(&source_executable, &executable).expect("test helper should be copied");
     let process_name = executable
         .file_name()
         .expect("test executable should have a name")
