@@ -30,10 +30,19 @@ sudo apt update
 apt-cache policy libfuse2t64 libfuse2
 ```
 
-Compare the `Candidate` lines in the output. Install the package that has an available version rather than `(none)`:
+Compare the `Candidate` lines in the output. Install the package that has an available version rather than `(none)`.
 
-- Ubuntu 24.04 and newer normally provide `libfuse2t64`: `sudo apt install -y libfuse2t64`
-- Debian and older Ubuntu releases normally provide `libfuse2`: `sudo apt install -y libfuse2`
+Ubuntu 24.04 and newer normally provide `libfuse2t64`:
+
+```text
+sudo apt install -y libfuse2t64
+```
+
+Debian and older Ubuntu releases normally provide `libfuse2`:
+
+```text
+sudo apt install -y libfuse2
+```
 
 Install only the package available for the current distribution. If both candidates are `(none)`, verify that the standard distribution repositories are enabled before continuing.
 
