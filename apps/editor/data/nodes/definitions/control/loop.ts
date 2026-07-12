@@ -1,6 +1,6 @@
 import { Clock } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { loopPorts, validateLoopBodyDoesNotReturn } from "../shared";
+import { validateLoopBodyDoesNotReturn } from "../shared";
 import { staticPositiveNumberConfig } from "../validators";
 
 export const loopNode = defineNode({
@@ -14,7 +14,7 @@ export const loopNode = defineNode({
 	icon: Clock,
 	kind: "control",
 	label: "Loop",
-	ports: loopPorts,
+	portPolicy: { kind: "fixed", inputs: ["input"], outputs: ["done", "loop"] },
 	risk: "low",
 	validateConfig: (config) => [staticPositiveNumberConfig(config, "count", "loop repeat count")].filter(Boolean),
 	validateGraph: ({ context, node }) => validateLoopBodyDoesNotReturn(node.id, context.edges, "loop"),

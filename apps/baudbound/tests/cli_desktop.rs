@@ -613,7 +613,19 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
                             "runtime_outputs": []
                         }
                     ],
-                    "program": {"type": "block", "steps": [], "edges": []}
+                    "program": {
+                        "type": "block",
+                        "execution_model": "directed_graph",
+                        "runtime_context": {
+                            "expression_reference": "{{node-id.data_name}}",
+                            "template_reference": "{{node-id.data_name}}",
+                            "variables": [],
+                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "node_outputs": []
+                        },
+                        "steps": [],
+                        "edges": []
+                    }
                 }
             }"#,
         ),
@@ -685,7 +697,19 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
                             "runtime_outputs": []
                         }
                     ],
-                    "program": {"type": "block", "steps": [], "edges": []}
+                    "program": {
+                        "type": "block",
+                        "execution_model": "directed_graph",
+                        "runtime_context": {
+                            "expression_reference": "{{node-id.data_name}}",
+                            "template_reference": "{{node-id.data_name}}",
+                            "variables": [],
+                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "node_outputs": []
+                        },
+                        "steps": [],
+                        "edges": []
+                    }
                 }
             }"#,
         ),

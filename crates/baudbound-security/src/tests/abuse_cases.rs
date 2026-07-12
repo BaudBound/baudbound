@@ -1,7 +1,9 @@
 use crate::{
-    PermissionValidationError, RiskLevel, RunnerPolicy, permission_for_action_type,
-    validate_program_permissions,
+    PermissionValidationError, RiskLevel, RunnerPolicy, calculate_program_permissions,
+    permission_for_action_type, validate_program_permissions,
 };
+
+use serde_json::json;
 
 use super::program_with_steps;
 
@@ -87,4 +89,84 @@ fn process_kill_and_shell_permissions_keep_their_high_risk_classification() {
         permission_for_action_type("action.shell").expect("shell command permission should exist");
     assert_eq!(shell.name, "run_shell_command");
     assert_eq!(shell.risk, RiskLevel::Dangerous);
+}
+
+#[test]
+fn absolute_read_paths_cannot_use_the_limited_file_permission() {
+    let mut program = program_with_steps(&["action.file.read"]);
+    program["entry"]["program"]["steps"][0]["config"] =
+        json!({"path": "C:\\Users\\user\\.ssh\\id_ed25519"});
+
+    let error = validate_program_permissions(
+        &program,
+        &["file_read".to_owned()],
+        RiskLevel::Medium,
+        &RunnerPolicy::permissive(),
+    )
+    .expect_err("an absolute sensitive path must require the dangerous permission");
+
+    assert!(matches!(
+        error,
+        PermissionValidationError::MissingPermission(ref permission)
+            if permission == "read_sensitive_file"
+    ));
+}
+
+#[test]
+fn runtime_write_paths_require_unbounded_write_permission() {
+    let mut program = program_with_steps(&["action.file.write"]);
+    program["entry"]["program"]["steps"][0]["config"] =
+        json!({"path": "{{trigger.body.destination}}"});
+
+    let report = calculate_program_permissions(&program)
+        .expect("runtime-derived write path should produce a permission report");
+
+    assert_eq!(report.calculated_risk, RiskLevel::Dangerous);
+    assert_eq!(
+        report.required_permissions,
+        [crate::PermissionGrant {
+            name: "write_any_file".to_owned(),
+            risk: RiskLevel::Dangerous,
+        }]
+    );
+}
+
+#[test]
+fn repeated_file_actions_evaluate_every_node_configuration() {
+    let mut program = program_with_steps(&["action.file.read", "action.file.read"]);
+    program["entry"]["program"]["steps"][0]["config"] = json!({"path": "./input.txt"});
+    program["entry"]["program"]["steps"][1]["config"] = json!({"path": "/etc/shadow"});
+
+    let report = calculate_program_permissions(&program)
+        .expect("every file action instance should be evaluated");
+    let names = report
+        .required_permissions
+        .iter()
+        .map(|permission| permission.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, ["file_read", "read_sensitive_file"]);
+    assert_eq!(report.calculated_risk, RiskLevel::Dangerous);
+}
+
+#[test]
+fn transfer_actions_keep_base_and_path_specific_permissions() {
+    let mut program = program_with_steps(&["action.file.copy"]);
+    program["entry"]["program"]["steps"][0]["config"] = json!({
+        "sourcePath": "/etc/hosts",
+        "destinationPath": "{{trigger.body.destination}}"
+    });
+
+    let report = calculate_program_permissions(&program)
+        .expect("copy paths should derive independent source and destination permissions");
+    let names = report
+        .required_permissions
+        .iter()
+        .map(|permission| permission.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        ["file_copy", "read_sensitive_file", "write_any_file"]
+    );
 }

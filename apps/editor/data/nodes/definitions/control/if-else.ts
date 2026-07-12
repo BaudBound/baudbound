@@ -1,5 +1,5 @@
 import { GitBranch } from "lucide-react";
-import { defaultInputPort, defineNode } from "../../node-definition";
+import { defineNode } from "../../node-definition";
 import { createConditionRow } from "../rows";
 import { validateConditionRowsConfig } from "../shared";
 
@@ -13,13 +13,7 @@ export const ifElseNode = defineNode({
 	icon: GitBranch,
 	kind: "control",
 	label: "If / Else",
-	ports: () => ({
-		inputs: [defaultInputPort],
-		outputs: [
-			{ id: "true", label: "true" },
-			{ id: "false", label: "false" },
-		],
-	}),
+	portPolicy: { kind: "fixed", inputs: ["input"], outputs: ["true", "false"] },
 	risk: "low",
 	validateConfig: (config) => validateConditionRowsConfig(config, "if/else"),
 });

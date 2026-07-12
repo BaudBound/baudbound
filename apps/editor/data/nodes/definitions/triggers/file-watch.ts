@@ -1,6 +1,5 @@
 import { FileText } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 import { requiredStaticConfig } from "../validators";
 
 export const fileWatchTriggerNode = defineNode({
@@ -22,7 +21,6 @@ export const fileWatchTriggerNode = defineNode({
 	icon: FileText,
 	kind: "trigger",
 	label: "File Watch",
-	ports: triggerPorts,
 	risk: "low",
 	runtimeOutputs: [
 		{

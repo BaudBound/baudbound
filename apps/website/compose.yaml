@@ -7,3 +7,9 @@ services:
       - "3001:3000"
     environment:
       NODE_ENV: production
+      # Self-hosted Umami analytics (https://umami.is). Uses recorder.js instead of
+      # script.js so session replay + heatmap data is captured (must also be enabled
+      # per-site under Replays & Heatmaps in the Umami dashboard). Leave both unset
+      # to disable analytics entirely.
+      UMAMI_SRC: https://analytics.nat.gg/recorder.js
+      UMAMI_WEBSITE_ID: "" # TODO: set to this site's website ID from the Umami dashboard

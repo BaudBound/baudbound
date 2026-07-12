@@ -25,18 +25,18 @@ const STEPS = [
 
 export function HowItWorks() {
 	return (
-		<section className="px-6 pb-24 md:px-16 md:pb-32">
+		<section className="px-5.5 pb-16 sm:px-16 sm:pb-32.5">
 			<SectionHeading
 				eyebrow="HOW IT WORKS"
 				title="Build once, run with explicit trust"
-				className="mb-14 text-center md:mb-16"
+				className="mb-7 text-center sm:mb-16"
 			/>
 
-			<div className="relative grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-7">
-				<div className="absolute top-[19px] right-[60px] left-[60px] hidden h-px bg-border lg:block" />
+			<div className="relative flex flex-col gap-8 sm:flex-row sm:gap-7">
+				<div className="absolute top-4.75 right-15 left-15 hidden h-px bg-border sm:block" />
 
 				{STEPS.map((step) => (
-					<div key={step.number} className="relative flex flex-col gap-4">
+					<div key={step.number} className="relative flex flex-1 flex-col gap-4">
 						<div className="flex size-9.5 items-center justify-center rounded-full border border-white/15 bg-background font-mono text-sm font-bold text-brand">
 							{step.number}
 						</div>

@@ -41,6 +41,15 @@ export type NodePorts = {
 	outputs: NodePort[];
 };
 
+export type NodePortPolicy =
+	| { inputs: string[]; kind: "fixed"; outputs: string[] }
+	| { configKey: string; kind: "switch-cases"; outputPrefix: string };
+
+export type NodePermissionPathRule = {
+	access: "read" | "write";
+	configKey: string;
+};
+
 export type NodeSimulationApi = {
 	clampNumber: (value: number, min: number, max: number) => number;
 	createError: (
@@ -114,9 +123,10 @@ export type NodeDefinition = {
 	kind: NodeKind;
 	label: string;
 	permission?: PermissionSummary;
+	permissionPathRules?: readonly NodePermissionPathRule[];
+	portPolicy?: NodePortPolicy;
 	deriveCapabilities?: (config: Record<string, JsonValue>) => CapabilitySummary["name"][];
 	derivePermissions?: (config: Record<string, JsonValue>) => PermissionSummary[];
-	ports?: (config?: Record<string, JsonValue>) => NodePorts;
 	risk: RiskLevel;
 	runtimeOutputs?: RuntimeDataOutput[];
 	runnerType?: string;

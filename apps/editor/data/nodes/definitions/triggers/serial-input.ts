@@ -1,7 +1,6 @@
 import { Usb } from "lucide-react";
 import { normalizeSerialDeviceId } from "@/data/project/serial";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 import { configString, requiredConfig } from "../validators";
 
 export const serialInputTriggerNode = defineNode({
@@ -16,7 +15,6 @@ export const serialInputTriggerNode = defineNode({
 	icon: Usb,
 	kind: "trigger",
 	label: "Serial Input",
-	ports: triggerPorts,
 	permission: { name: "serial_input", risk: "high" },
 	risk: "high",
 	runtimeOutputs: [

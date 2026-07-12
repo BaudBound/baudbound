@@ -827,7 +827,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
                     "minimum_runner_version": "0.1.0"
                 }}"#
     );
-    let program = format!(
+    let program = complete_test_program_contract(&format!(
         r#"{{
                     "entry": {{
                         "trigger": {{
@@ -856,7 +856,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
                         "program": {{"type": "block", "steps": [], "edges": []}}
                     }}
                 }}"#
-    );
+    ));
     let capabilities = capabilities_json(&program, "Generic Desktop");
 
     for (path, content) in [
@@ -913,8 +913,8 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
                             "runtime_outputs": []
                         }}
                     ],
-                    "program": {{
-                        "type": "block",
+                "program": {{
+                    "type": "block",
                         "steps": [
                             {{
                                 "id": "n-sub",
@@ -972,7 +972,8 @@ fn create_cancellable_test_package() -> Vec<u8> {
                 "steps": [{
                     "id": "n-delay",
                     "action_type": "action.delay",
-                    "type": "delay",
+                    "type": "action",
+                    "action": "delay",
                     "config": {"amount": 30, "unit": "seconds"},
                     "runtime_outputs": []
                 }],
@@ -1092,11 +1093,18 @@ fn create_target_runtime_test_package(
     target_runtime: &str,
     action_type: &str,
 ) -> Vec<u8> {
+    let (action, config) = match action_type {
+        "action.notification" => ("show_notification", r#"{"title":"Test","message":"Test"}"#),
+        "action.pixel.get" => ("get_pixel_color", r#"{"x":0,"y":0}"#),
+        "action.text.format" => ("format_text", r#"{"operation":"uppercase","input":"test"}"#),
+        unsupported => panic!("missing schema-complete target-runtime fixture for {unsupported}"),
+    };
     create_target_runtime_test_package_with_action_config(
         script_id,
         target_runtime,
         action_type,
-        "{}",
+        action,
+        config,
     )
 }
 
@@ -1104,6 +1112,7 @@ fn create_target_runtime_test_package_with_action_config(
     script_id: &str,
     target_runtime: &str,
     action_type: &str,
+    action: &str,
     action_config: &str,
 ) -> Vec<u8> {
     let manifest = format!(
@@ -1143,6 +1152,7 @@ fn create_target_runtime_test_package_with_action_config(
                                 "id": "n-native",
                                 "action_type": "{action_type}",
                                 "type": "action",
+                                "action": "{action}",
                                 "config": {action_config},
                                 "runtime_outputs": []
                             }}
@@ -1217,6 +1227,13 @@ fn create_test_package<const N: usize>(files: [(&str, &str); N]) -> Vec<u8> {
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
 
     for (path, content) in files {
+        let normalized_program;
+        let content = if path == "program.json" {
+            normalized_program = complete_test_program_contract(content);
+            normalized_program.as_str()
+        } else {
+            content
+        };
         writer
             .start_file(path, options)
             .expect("test zip file should start");
@@ -1229,6 +1246,31 @@ fn create_test_package<const N: usize>(files: [(&str, &str); N]) -> Vec<u8> {
         .finish()
         .expect("test zip should finish")
         .into_inner()
+}
+
+fn complete_test_program_contract(program: &str) -> String {
+    let mut program = serde_json::from_str::<Value>(program).expect("test program should be JSON");
+    let block = program
+        .get_mut("entry")
+        .and_then(|entry| entry.get_mut("program"))
+        .and_then(Value::as_object_mut)
+        .expect("test program should contain entry.program");
+    block
+        .entry("execution_model")
+        .or_insert_with(|| json!("directed_graph"));
+    block.entry("runtime_context").or_insert_with(|| {
+        json!({
+            "expression_reference": "{{node-id.data_name}}",
+            "template_reference": "{{node-id.data_name}}",
+            "variables": [],
+            "built_in_variables": {
+                "syntax": "{{variable_name}}",
+                "variables": []
+            },
+            "node_outputs": []
+        })
+    });
+    serde_json::to_string(&program).expect("completed test program should serialize")
 }
 
 fn capabilities_json(program: &str, target_runtime: &str) -> String {

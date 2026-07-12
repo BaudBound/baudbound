@@ -17,7 +17,7 @@ const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
 	{
 		icon: Cable,
 		title: "Serial devices",
-		description: "Talk to serial hardware directly — read, write, and route the data.",
+		description: "Talk to serial hardware directly: read, write, and route the data.",
 	},
 	{
 		icon: Globe,
@@ -38,14 +38,14 @@ const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
 
 export function FeatureGrid() {
 	return (
-		<section className="px-6 pb-24 md:px-16 md:pb-32">
+		<section className="px-5.5 pb-16 sm:px-16 sm:pb-32.5">
 			<SectionHeading
 				eyebrow="WHAT YOU CAN AUTOMATE"
 				title="Nodes for real machines, not just APIs"
-				className="mb-13 text-center md:mb-14"
+				className="mb-7 text-center sm:mb-14"
 			/>
 
-			<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3 sm:gap-6">
 				{FEATURES.map(({ icon: Icon, title, description }) => (
 					<Card
 						key={title}

@@ -1,7 +1,6 @@
 import { AppWindow } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { processMatchModeOptions } from "../options";
-import { triggerPorts } from "../shared";
 import { requiredConfig, windowsDesktopOnlyConfigValue } from "../validators";
 
 export const processStartedTriggerNode = defineNode({
@@ -22,7 +21,6 @@ export const processStartedTriggerNode = defineNode({
 	icon: AppWindow,
 	kind: "trigger",
 	label: "App / Process Started",
-	ports: triggerPorts,
 	risk: "medium",
 	runtimeOutputs: [
 		{

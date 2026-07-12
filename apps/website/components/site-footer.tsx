@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 import { Separator } from "@/components/ui/separator";
 
@@ -28,8 +29,8 @@ const FOOTER_COLUMNS = [
 
 export function SiteFooter() {
 	return (
-		<footer className="px-6 pt-16 pb-10 md:px-16 md:pt-[72px] md:pb-11">
-			<div className="grid grid-cols-1 gap-10 pb-11 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr] lg:gap-10">
+		<footer className="px-5.5 pt-11 pb-7 sm:px-16 sm:pt-18 sm:pb-11">
+			<div className="grid grid-cols-1 gap-7 pb-8 sm:grid-cols-[1.4fr_1fr_1fr_1fr] sm:gap-10 sm:pb-12">
 				<div>
 					<div className="mb-3.5 flex items-center gap-2.5">
 						<Image src="/logo-notext.svg" alt="" width={26} height={26} className="size-6.5" />
@@ -66,7 +67,13 @@ export function SiteFooter() {
 			<Separator />
 
 			<div className="flex flex-col gap-2 pt-7 text-[13px] text-muted-foreground/70 sm:flex-row sm:justify-between">
-				<div>&copy; 2026 NATroutter</div>
+				<div className="flex flex-wrap gap-x-2">
+					<span>&copy; 2026 NATroutter</span>
+					<span aria-hidden>&middot;</span>
+					<Link href="/privacy" className="transition-colors hover:text-foreground">
+						Privacy Policy
+					</Link>
+				</div>
 				<div>Source available &middot; Windows &amp; Linux</div>
 			</div>
 		</footer>

@@ -21,14 +21,14 @@ const POINTS: { shape: "square" | "circle" | "diamond"; title: string; descripti
 
 export function TrustSection() {
 	return (
-		<section className="border-y border-border bg-[#0f1113] bg-[radial-gradient(900px_380px_at_50%_0%,rgba(230,45,62,0.1),transparent_65%)] bg-no-repeat px-6 py-20 md:px-16 md:py-24">
+		<section className="border-y border-border bg-[#0f1113] bg-[radial-gradient(900px_380px_at_50%_0%,rgba(230,45,62,0.1),transparent_65%)] bg-no-repeat px-5.5 py-14 sm:px-16 sm:py-25">
 			<SectionHeading
 				eyebrow="LOCAL BY DESIGN"
 				title="Nothing runs until you approve it"
-				className="mb-14 text-center"
+				className="mb-7 text-center sm:mb-14"
 			/>
 
-			<div className="mx-auto grid max-w-5xl grid-cols-1 gap-10 sm:grid-cols-3">
+			<div className="mx-auto grid max-w-5xl grid-cols-1 gap-7 sm:grid-cols-3 sm:gap-10">
 				{POINTS.map(({ shape, title, description }) => (
 					<div key={title}>
 						<div

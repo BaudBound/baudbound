@@ -2,7 +2,10 @@
 
 mod capabilities;
 
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::OnceLock,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -86,6 +89,36 @@ pub enum PermissionValidationError {
     PolicyBlocked { permission: String, reason: String },
     #[error("program.json has invalid shape: {0}")]
     InvalidProgram(String),
+    #[error("embedded node permission contract is invalid: {0}")]
+    InvalidContract(String),
+}
+
+const PERMISSION_CONTRACT_VERSION: u32 = 1;
+const PERMISSION_CONTRACT_JSON: &str = include_str!("../contracts/node-permissions.json");
+
+#[derive(Debug, Deserialize)]
+struct NodePermissionContract {
+    nodes: BTreeMap<String, NodePermissionDefinition>,
+    version: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodePermissionDefinition {
+    permission: Option<PermissionGrant>,
+    path_rules: Vec<PathPermissionRule>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PathPermissionRule {
+    access: PathAccess,
+    config_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PathAccess {
+    Read,
+    Write,
 }
 
 #[derive(Debug, Error)]
@@ -175,23 +208,46 @@ pub fn calculate_program_permissions_with_secrets(
     let mut permissions = Vec::<PermissionGrant>::new();
     let mut seen_permissions = BTreeSet::<String>::new();
 
-    for action_type in
-        executable_action_types(program).map_err(PermissionValidationError::InvalidProgram)?
+    let contract = permission_contract()?;
+    for (action_type, config) in
+        executable_nodes(program).map_err(PermissionValidationError::InvalidProgram)?
     {
         if action_type == "runtime.set_variable" {
             continue;
         }
-        let Some(permission) = permission_for_action_type(&action_type) else {
-            if !is_known_permissionless_action_type(&action_type) {
-                return Err(PermissionValidationError::UnsupportedActionType(
-                    action_type,
-                ));
-            }
-            continue;
-        };
+        let definition = contract
+            .nodes
+            .get(&action_type)
+            .ok_or_else(|| PermissionValidationError::UnsupportedActionType(action_type.clone()))?;
 
-        if seen_permissions.insert(permission.name.clone()) {
-            permissions.push(permission);
+        let replaces_base_permission = definition.path_rules.iter().any(|rule| {
+            matches!(
+                (
+                    &rule.access,
+                    definition
+                        .permission
+                        .as_ref()
+                        .map(|value| value.name.as_str())
+                ),
+                (PathAccess::Read, Some("file_read"))
+                    | (PathAccess::Write, Some("file_write_limited"))
+            )
+        });
+        if let Some(permission) = &definition.permission
+            && !replaces_base_permission
+        {
+            insert_permission(&mut permissions, &mut seen_permissions, permission.clone());
+        }
+        for rule in &definition.path_rules {
+            let path = config
+                .get(&rule.config_key)
+                .map(config_value_string)
+                .unwrap_or_default();
+            insert_permission(
+                &mut permissions,
+                &mut seen_permissions,
+                permission_for_path(&rule.access, &path),
+            );
         }
     }
 
@@ -239,65 +295,165 @@ pub fn calculate_program_permissions_with_secrets(
 }
 
 pub fn permission_for_action_type(action_type: &str) -> Option<PermissionGrant> {
-    let (name, risk) = match action_type {
-        "action.application.open" => ("open_application", RiskLevel::Medium),
-        "action.beep" => ("beep", RiskLevel::Low),
-        "action.calculate" => ("calculate", RiskLevel::Low),
-        "action.clipboard" => ("write_clipboard", RiskLevel::Medium),
-        "action.delay" => ("delay", RiskLevel::Low),
-        "action.file.copy" => ("file_copy", RiskLevel::Medium),
-        "action.file.delete" => ("delete_file", RiskLevel::Dangerous),
-        "action.file.download" => ("download_file", RiskLevel::Medium),
-        "action.file.move" => ("file_move", RiskLevel::Medium),
-        "action.file.read" => ("file_read", RiskLevel::Medium),
-        "action.file.write" => ("file_write_limited", RiskLevel::High),
-        "action.http" => ("http_request", RiskLevel::Medium),
-        "action.keyboard" | "action.keyboard.type_text" => ("keyboard_control", RiskLevel::High),
-        "action.log" => ("log", RiskLevel::Low),
-        "action.message_box" => ("show_message_box", RiskLevel::Medium),
-        "action.mouse" | "action.mouse.move" => ("mouse_control", RiskLevel::High),
-        "action.notification" => ("show_notification", RiskLevel::Medium),
-        "action.pixel.get" => ("screen_pixel_read", RiskLevel::Medium),
-        "action.process.kill" => ("process_kill", RiskLevel::High),
-        "action.process.run" => ("run_process", RiskLevel::High),
-        "action.process.status" => ("process_query", RiskLevel::Medium),
-        "action.script.run" => ("sub_script_run", RiskLevel::High),
-        "action.serial.write" => ("serial_write", RiskLevel::Medium),
-        "action.shell" => ("run_shell_command", RiskLevel::Dangerous),
-        "action.sound.play" => ("play_sound", RiskLevel::Medium),
-        "action.text.format" => ("text_transform", RiskLevel::Low),
-        "action.webhook_response" => ("webhook_response", RiskLevel::Low),
-        "action.websocket.write" => ("websocket_write", RiskLevel::Medium),
-        "action.window.active" => ("window_query", RiskLevel::Medium),
-        "action.window.focus" => ("window_focus", RiskLevel::High),
-        "runtime.set_variable" => ("set_local_variable", RiskLevel::Low),
-        "trigger.serial_input" => ("serial_input", RiskLevel::High),
-        "trigger.startup" => ("startup_trigger", RiskLevel::High),
-        "trigger.webhook" => ("webhook_public_bind", RiskLevel::High),
-        "trigger.websocket" => ("websocket_public_bind", RiskLevel::High),
-        _ => return None,
-    };
-
-    Some(PermissionGrant {
-        name: name.to_owned(),
-        risk,
-    })
+    permission_contract()
+        .ok()?
+        .nodes
+        .get(action_type)?
+        .permission
+        .clone()
 }
 
-fn is_known_permissionless_action_type(action_type: &str) -> bool {
-    matches!(
-        action_type,
-        "control.for_each"
-            | "control.if"
-            | "control.loop"
-            | "control.switch"
-            | "control.while"
-            | "trigger.file_watch"
-            | "trigger.hotkey"
-            | "trigger.manual"
-            | "trigger.process_started"
-            | "trigger.schedule"
-    )
+fn permission_contract() -> Result<&'static NodePermissionContract, PermissionValidationError> {
+    static CONTRACT: OnceLock<Result<NodePermissionContract, String>> = OnceLock::new();
+    match CONTRACT.get_or_init(parse_permission_contract) {
+        Ok(contract) => Ok(contract),
+        Err(message) => Err(PermissionValidationError::InvalidContract(message.clone())),
+    }
+}
+
+fn parse_permission_contract() -> Result<NodePermissionContract, String> {
+    let contract = serde_json::from_str::<NodePermissionContract>(PERMISSION_CONTRACT_JSON)
+        .map_err(|source| source.to_string())?;
+    if contract.version != PERMISSION_CONTRACT_VERSION {
+        return Err(format!(
+            "unsupported version {}; expected {PERMISSION_CONTRACT_VERSION}",
+            contract.version
+        ));
+    }
+    if contract.nodes.is_empty() {
+        return Err("node mapping is empty".to_owned());
+    }
+    for (action_type, definition) in &contract.nodes {
+        if action_type.trim().is_empty() {
+            return Err("node action type cannot be empty".to_owned());
+        }
+        if let Some(permission) = &definition.permission
+            && permission.name.trim().is_empty()
+        {
+            return Err(format!("node {action_type:?} has an empty permission name"));
+        }
+        for rule in &definition.path_rules {
+            if rule.config_key.trim().is_empty() {
+                return Err(format!("node {action_type:?} has an empty path config key"));
+            }
+        }
+    }
+    Ok(contract)
+}
+
+fn insert_permission(
+    permissions: &mut Vec<PermissionGrant>,
+    seen_permissions: &mut BTreeSet<String>,
+    permission: PermissionGrant,
+) {
+    if seen_permissions.insert(permission.name.clone()) {
+        permissions.push(permission);
+    }
+}
+
+fn permission_for_path(access: &PathAccess, path: &str) -> PermissionGrant {
+    let unbounded = is_unbounded_path(path);
+    let (name, risk) = match (access, unbounded) {
+        (PathAccess::Read, false) => ("file_read", RiskLevel::Medium),
+        (PathAccess::Read, true) => ("read_sensitive_file", RiskLevel::Dangerous),
+        (PathAccess::Write, false) => ("file_write_limited", RiskLevel::High),
+        (PathAccess::Write, true) => ("write_any_file", RiskLevel::Dangerous),
+    };
+    PermissionGrant {
+        name: name.to_owned(),
+        risk,
+    }
+}
+
+fn is_unbounded_path(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.contains("{{") && trimmed.contains("}}") {
+        return true;
+    }
+
+    let mut normalized = trimmed.replace('\\', "/").to_lowercase();
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+    let bytes = normalized.as_bytes();
+    let absolute = normalized.starts_with('/')
+        || normalized.starts_with("~/")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_lowercase()
+            && bytes[1] == b':'
+            && bytes[2] == b'/');
+    absolute
+        || [
+            "/.aws/",
+            "/.azure/",
+            "/.config/",
+            "/.docker/",
+            "/.gnupg/",
+            "/.kube/",
+            "/.ssh/",
+            "/etc/",
+            "/root/",
+            "/var/lib/",
+            "/windows/system32/",
+            "/windows/syswow64/",
+            "/programdata/",
+            "/appdata/local/",
+            "/appdata/roaming/",
+        ]
+        .iter()
+        .any(|marker| normalized.contains(marker))
+}
+
+fn config_value_string(value: &Value) -> String {
+    match value {
+        Value::String(value) => value.clone(),
+        Value::Number(value) => value.to_string(),
+        Value::Bool(value) => value.to_string(),
+        _ => String::new(),
+    }
+}
+
+type ExecutableNode<'a> = (String, &'a serde_json::Map<String, Value>);
+
+fn executable_nodes(program: &Value) -> Result<Vec<ExecutableNode<'_>>, String> {
+    let entry = program
+        .get("entry")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "missing entry".to_owned())?;
+    let mut nodes = Vec::new();
+
+    if let Some(trigger) = entry.get("trigger") {
+        nodes.push(executable_node(trigger)?);
+    }
+    if let Some(triggers) = entry.get("triggers").and_then(Value::as_array) {
+        for trigger in triggers {
+            nodes.push(executable_node(trigger)?);
+        }
+    }
+    let steps = entry
+        .get("program")
+        .and_then(|program| program.get("steps"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing entry.program.steps".to_owned())?;
+    for step in steps {
+        nodes.push(executable_node(step)?);
+    }
+    Ok(nodes)
+}
+
+fn executable_node(node: &Value) -> Result<(String, &serde_json::Map<String, Value>), String> {
+    let action_type = node
+        .get("action_type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "node is missing string action_type".to_owned())?;
+    let config = node
+        .get("config")
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("node {action_type} is missing object config"))?;
+    Ok((action_type.to_owned(), config))
 }
 
 fn enforce_runner_policy(

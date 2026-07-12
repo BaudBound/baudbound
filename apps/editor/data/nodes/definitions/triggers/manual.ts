@@ -1,6 +1,5 @@
 import { Play } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 
 export const manualTriggerNode = defineNode({
 	actionType: "trigger.manual",
@@ -10,7 +9,6 @@ export const manualTriggerNode = defineNode({
 	icon: Play,
 	kind: "trigger",
 	label: "Manual",
-	ports: triggerPorts,
 	risk: "low",
 	runnerType: "manual",
 });

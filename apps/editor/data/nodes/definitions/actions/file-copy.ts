@@ -1,11 +1,4 @@
 import { Copy } from "lucide-react";
-import {
-	createReadFilePermission,
-	createWriteFilePermission,
-	fileReadPermission,
-	fileWriteLimitedPermission,
-} from "@/data/project/file-permissions";
-import type { JsonValue } from "@/lib/types";
 import { defineNode } from "../../node-definition";
 import { fileOverwriteOptions } from "../options";
 import { fallible, fileTransferRuntimeOutputs } from "../runtime-outputs";
@@ -28,9 +21,9 @@ export const copyFileNode = defineNode({
 	kind: "action",
 	label: "Copy File",
 	permission: { name: "file_copy", risk: "medium" },
-	derivePermissions: (config) => [
-		{ name: "file_copy", risk: "medium" },
-		...extraFilePermissions(config.sourcePath, config.destinationPath),
+	permissionPathRules: [
+		{ access: "read", configKey: "sourcePath" },
+		{ access: "write", configKey: "destinationPath" },
 	],
 	risk: "medium",
 	runtimeOutputs: fallible(fileTransferRuntimeOutputs("copied")),
@@ -56,13 +49,3 @@ export const copyFileNode = defineNode({
 		],
 	},
 });
-
-function extraFilePermissions(sourcePath: JsonValue | undefined, destinationPath: JsonValue | undefined) {
-	const readPermission = createReadFilePermission(sourcePath);
-	const writePermission = createWriteFilePermission(destinationPath);
-
-	return [
-		...(readPermission.name === fileReadPermission.name ? [] : [readPermission]),
-		...(writePermission.name === fileWriteLimitedPermission.name ? [] : [writePermission]),
-	];
-}

@@ -1,17 +1,6 @@
 import type { JsonValue } from "@/lib/types";
-import { defaultInputPort, triggerOutputPort } from "../node-definition";
 import { comparisonOperatorOptions } from "./options";
 import { isConditionRow } from "./rows";
-
-export const triggerPorts = () => ({ inputs: [], outputs: [triggerOutputPort] });
-
-export const loopPorts = () => ({
-	inputs: [defaultInputPort],
-	outputs: [
-		{ id: "done", label: "done" },
-		{ id: "loop", label: "loop" },
-	],
-});
 
 export function validateLoopBodyDoesNotReturn(
 	controlNodeId: string,

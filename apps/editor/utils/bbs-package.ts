@@ -8,6 +8,7 @@ import {
 	validateAssetFileContent,
 	validatePackageAssetEntries,
 } from "@/data/project/assets";
+import { packageLimits, validatePackageEntryLimits } from "@/data/project/package-limits";
 import { targetRuntimes } from "@/data/project/runtimes";
 import type {
 	ActionType,
@@ -116,6 +117,20 @@ export async function exportBbsPackage(params: {
 	if (contractErrors.length > 0) {
 		throw new Error(`Export package contract failed: ${contractErrors.join(" ")}`);
 	}
+	const metadata = [manifestJson, programJson, editorJson, permissionsJson, capabilitiesJson].map(
+		(value) => new TextEncoder().encode(JSON.stringify(value, null, 2)).byteLength,
+	);
+	if (metadata.some((size) => size > packageLimits.max_metadata_bytes)) {
+		throw new Error(`Export metadata exceeds the maximum of ${packageLimits.max_metadata_bytes} bytes per file.`);
+	}
+	const packageSize =
+		metadata.reduce((total, size) => total + size, 0) + params.assets.reduce((total, asset) => total + asset.size, 0);
+	if (
+		packageSize > packageLimits.max_total_uncompressed_bytes ||
+		params.assets.length + 6 > packageLimits.max_entry_count
+	) {
+		throw new Error("Export package exceeds the package size or entry-count limits.");
+	}
 
 	zip.file("manifest.json", JSON.stringify(manifestJson, null, 2));
 	zip.file("program.json", JSON.stringify(programJson, null, 2));
@@ -141,12 +156,14 @@ export async function exportBbsPackage(params: {
 
 export async function inspectBbsPackage(file: File) {
 	const zip = await JSZip.loadAsync(file);
+	assertZipWithinPackageLimits(zip);
 	const names = Object.keys(zip.files).filter((name) => !zip.files[name]?.dir);
 	return names.sort();
 }
 
 export async function verifyBbsPackage(file: File) {
 	const zip = await JSZip.loadAsync(file);
+	assertZipWithinPackageLimits(zip);
 	const fileNames = Object.keys(zip.files)
 		.filter((name) => !zip.files[name]?.dir)
 		.sort();
@@ -180,6 +197,7 @@ export async function verifyBbsPackage(file: File) {
 
 export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> {
 	const zip = await JSZip.loadAsync(file);
+	assertZipWithinPackageLimits(zip);
 	const fileNames = Object.keys(zip.files)
 		.filter((name) => !zip.files[name]?.dir)
 		.sort();
@@ -774,12 +792,35 @@ function getPackageAssetZipEntries(zip: JSZip) {
 function getZipEntryUncompressedSize(entry: JSZip.JSZipObject) {
 	const zipEntry = entry as JSZip.JSZipObject & {
 		_data?: {
+			compressedSize?: unknown;
 			uncompressedSize?: unknown;
 		};
 	};
 	const size = zipEntry._data?.uncompressedSize;
 
 	return typeof size === "number" && Number.isFinite(size) && size >= 0 ? size : undefined;
+}
+
+function assertZipWithinPackageLimits(zip: JSZip) {
+	const entries = Object.values(zip.files).map((entry) => {
+		const data = (
+			entry as JSZip.JSZipObject & {
+				_data?: { compressedSize?: unknown; uncompressedSize?: unknown };
+			}
+		)._data;
+		return {
+			compressedSize:
+				typeof data?.compressedSize === "number" && Number.isFinite(data.compressedSize)
+					? data.compressedSize
+					: undefined,
+			path: entry.name,
+			size: entry.dir ? 0 : getZipEntryUncompressedSize(entry),
+		};
+	});
+	const errors = validatePackageEntryLimits(entries);
+	if (errors.length > 0) {
+		throw new Error(errors.join(" "));
+	}
 }
 
 function assetFileNameFromPath(packagePath: string) {

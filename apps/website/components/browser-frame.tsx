@@ -33,7 +33,7 @@ export function BrowserFrame({
 	return (
 		<div
 			className={cn(
-				"w-full max-w-150 overflow-hidden rounded-[10px] border border-border bg-[#1c2126] shadow-[0_24px_70px_rgba(0,0,0,0.35)]",
+				"w-full max-w-150 overflow-hidden rounded-[10px] border border-border bg-[#1c2126] shadow-[0_12px_32px_rgba(0,0,0,0.35)] sm:shadow-[0_24px_70px_rgba(0,0,0,0.35)]",
 				className,
 			)}
 		>
@@ -52,7 +52,7 @@ export function BrowserFrame({
 					render={
 						<button
 							type="button"
-							className="relative block h-90 w-full cursor-zoom-in overflow-hidden"
+							className="relative block h-50 w-full cursor-zoom-in overflow-hidden sm:h-90"
 							aria-label={`View larger screenshot: ${alt}`}
 						/>
 					}

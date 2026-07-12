@@ -4,8 +4,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(appRoot, "..", "..");
@@ -17,6 +15,14 @@ const runnerCapabilityContractPath = join(
 	"contracts",
 	"node-capabilities.json",
 );
+const runnerPermissionContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-security",
+	"contracts",
+	"node-permissions.json",
+);
+const runnerPortContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-ports.json");
 
 test("schemas are valid JSON", () => {
 	for (const filePath of readJsonFiles(schemasRoot)) {
@@ -44,6 +50,41 @@ test("generated runner capability contract covers every editor node", () => {
 		assert.ok(capabilities.length > 0, `${actionType} must require at least one capability`);
 		assert.equal(new Set(capabilities).size, capabilities.length, `${actionType} capabilities must be unique`);
 	}
+});
+
+test("generated runner permission contract covers every editor node", () => {
+	const contract = JSON.parse(read(runnerPermissionContractPath));
+	const actionTypes = extractDefinitionActionTypes(readDefinitions()).sort();
+
+	assert.equal(contract.version, 1);
+	assert.deepEqual(Object.keys(contract.nodes).sort(), actionTypes);
+	assert.deepEqual(contract.nodes["action.file.read"].path_rules, [{ access: "read", config_key: "path" }]);
+	assert.deepEqual(contract.nodes["action.file.copy"].path_rules, [
+		{ access: "read", config_key: "sourcePath" },
+		{ access: "write", config_key: "destinationPath" },
+	]);
+	assert.equal(contract.nodes["trigger.manual"].permission, null);
+});
+
+test("generated runner port contract covers every editor node", () => {
+	const contract = JSON.parse(read(runnerPortContractPath));
+	const actionTypes = extractDefinitionActionTypes(readDefinitions()).sort();
+
+	assert.equal(contract.version, 1);
+	assert.deepEqual(Object.keys(contract.nodes).sort(), actionTypes);
+	assert.deepEqual(contract.nodes["trigger.manual"], { kind: "fixed", inputs: [], outputs: ["out"] });
+	assert.deepEqual(contract.nodes["action.log"], { kind: "fixed", inputs: ["input"], outputs: ["out"] });
+	assert.deepEqual(contract.nodes["action.http"], {
+		kind: "fixed",
+		inputs: ["input"],
+		outputs: ["success", "failed"],
+	});
+	assert.deepEqual(contract.nodes["control.switch"], {
+		kind: "switch_cases",
+		config_key: "cases",
+		input: "input",
+		output_prefix: "case-",
+	});
 });
 
 test("program schema uses public per-node schema references", () => {
@@ -531,19 +572,27 @@ test("file permissions are derived from node config paths", () => {
 	assert.match(filePolicySource, /read_sensitive_file/);
 	assert.match(filePolicySource, /write_any_file/);
 	assert.match(filePolicySource, /pathUsesRuntimeData/);
-	assert.match(readFileSource, /derivePermissions: \(config\) => \[createReadFilePermission\(config\.path\)\]/);
-	assert.match(writeFileSource, /derivePermissions: \(config\) => \[createWriteFilePermission\(config\.path\)\]/);
-	assert.match(copyFileSource, /extraFilePermissions\(config\.sourcePath, config\.destinationPath\)/);
+	assert.match(readFileSource, /permissionPathRules: \[\{ access: "read", configKey: "path" \}\]/);
+	assert.match(writeFileSource, /permissionPathRules: \[\{ access: "write", configKey: "path" \}\]/);
+	assert.match(copyFileSource, /\{ access: "read", configKey: "sourcePath" \}/);
+	assert.match(copyFileSource, /\{ access: "write", configKey: "destinationPath" \}/);
 });
 
-test("asset validation has no fixed package size or count cap", () => {
+test("editor and runner share bounded package ingestion limits", () => {
 	const assetsSource = read(join(appRoot, "data", "project", "assets.ts"));
-	const assetEditorSource = read(join(appRoot, "components", "modals", "asset-editor-modal.tsx"));
+	const limitsSource = read(join(appRoot, "data", "project", "package-limits.ts"));
 	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
+	const runnerLimitsSource = read(join(repoRoot, "crates", "baudbound-script", "src", "package", "limits.rs"));
+	const limits = JSON.parse(read(join(schemasRoot, "package-limits.json")));
 
-	assert.equal(/MAX_ASSET_(COUNT|SIZE|TOTAL)/.test(assetsSource), false);
-	assert.equal(/MAX_ASSET_(COUNT|SIZE|TOTAL)/.test(packageSource), false);
-	assert.match(assetEditorSource, /No fixed editor cap/);
+	assert.equal(limits.version, 1);
+	assert.ok(limits.max_entry_count > 0);
+	assert.ok(limits.max_asset_bytes > 0);
+	assert.ok(limits.max_total_uncompressed_bytes >= limits.max_asset_bytes);
+	assert.match(limitsSource, /schemas\/package-limits\.json/);
+	assert.match(assetsSource, /packageLimits\.max_asset_bytes/);
+	assert.match(packageSource, /assertZipWithinPackageLimits/);
+	assert.match(runnerLimitsSource, /schemas\/package-limits\.json/);
 });
 
 test("package asset validation requires zip assets and manifest assets to match exactly", () => {
@@ -595,17 +644,6 @@ test("loop control bodies do not require return edges", () => {
 	assert.match(inspectorSource, /do not connect it\s+back to the loop input/);
 	assert.match(helpSource, /body branch should end naturally/);
 });
-
-function createSchemaValidator() {
-	const ajv = new Ajv2020({ allErrors: true, strict: false });
-	addFormats(ajv);
-
-	for (const filePath of readJsonFiles(schemasRoot)) {
-		ajv.addSchema(JSON.parse(read(filePath)));
-	}
-
-	return ajv;
-}
 
 function readDefinitions() {
 	return readAll(join(appRoot, "data", "nodes", "definitions"));

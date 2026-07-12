@@ -1,6 +1,5 @@
 import { Power } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 
 export const startupTriggerNode = defineNode({
 	actionType: "trigger.startup",
@@ -10,7 +9,6 @@ export const startupTriggerNode = defineNode({
 	icon: Power,
 	kind: "trigger",
 	label: "Startup",
-	ports: triggerPorts,
 	permission: { name: "startup_trigger", risk: "high" },
 	risk: "high",
 	runtimeOutputs: [

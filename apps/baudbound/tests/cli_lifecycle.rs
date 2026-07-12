@@ -671,6 +671,14 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
                 ],
                 "program": {{
                     "type": "block",
+                    "execution_model": "directed_graph",
+                    "runtime_context": {{
+                        "expression_reference": "{{{{node-id.data_name}}}}",
+                        "template_reference": "{{{{node-id.data_name}}}}",
+                        "variables": [],
+                        "built_in_variables": {{"syntax": "{{{{variable_name}}}}", "variables": []}},
+                        "node_outputs": []
+                    }},
                     "steps": [
                         {{
                             "id": "n-log",
@@ -759,6 +767,14 @@ fn create_schedule_package() -> Vec<u8> {
                     ],
                     "program": {
                         "type": "block",
+                        "execution_model": "directed_graph",
+                        "runtime_context": {
+                            "expression_reference": "{{node-id.data_name}}",
+                            "template_reference": "{{node-id.data_name}}",
+                            "variables": [],
+                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "node_outputs": []
+                        },
                         "steps": [
                             {
                                 "id": "n-log",

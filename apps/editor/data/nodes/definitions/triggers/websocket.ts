@@ -1,6 +1,5 @@
 import { Radio } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 import { configString, requiredConfig } from "../validators";
 
 export const websocketTriggerNode = defineNode({
@@ -20,7 +19,6 @@ export const websocketTriggerNode = defineNode({
 	icon: Radio,
 	kind: "trigger",
 	label: "WebSocket",
-	ports: triggerPorts,
 	permission: { name: "websocket_public_bind", risk: "high" },
 	risk: "high",
 	runtimeOutputs: [

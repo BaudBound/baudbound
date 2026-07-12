@@ -1,6 +1,5 @@
 import { Keyboard } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { triggerPorts } from "../shared";
 
 export const hotkeyTriggerNode = defineNode({
 	actionType: "trigger.hotkey",
@@ -13,7 +12,6 @@ export const hotkeyTriggerNode = defineNode({
 	icon: Keyboard,
 	kind: "trigger",
 	label: "Hotkey",
-	ports: triggerPorts,
 	risk: "medium",
 	runtimeOutputs: [
 		{

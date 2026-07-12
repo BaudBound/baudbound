@@ -15,6 +15,14 @@ const runnerCapabilityContractPath = join(
 	"contracts",
 	"node-capabilities.json",
 );
+const runnerPermissionContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-security",
+	"contracts",
+	"node-permissions.json",
+);
+const runnerPortContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-ports.json");
 const publicSchemaRoot = "https://schemas.baudbound.app";
 const programSchemaUrl = `${publicSchemaRoot}/program.schema.json`;
 const jsonValueRef = `${programSchemaUrl}#/$defs/jsonValue`;
@@ -31,10 +39,14 @@ const generatedProgramSchema = createProgramSchema(
 	JSON.parse(readFileSync(join(schemasRoot, "program.schema.json"), "utf8")),
 );
 const generatedRunnerCapabilityContract = createRunnerCapabilityContract();
+const generatedRunnerPermissionContract = createRunnerPermissionContract();
+const generatedRunnerPortContract = createRunnerPortContract();
 
 if (checkMode) {
 	assertGeneratedFile(join(schemasRoot, "program.schema.json"), generatedProgramSchema);
 	assertGeneratedFile(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
+	assertGeneratedFile(runnerPermissionContractPath, generatedRunnerPermissionContract);
+	assertGeneratedFile(runnerPortContractPath, generatedRunnerPortContract);
 	for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 		assertGeneratedFile(join(nodeSchemasRoot, fileName), schema);
 	}
@@ -57,6 +69,9 @@ for (const fileName of readdirSync(nodeSchemasRoot)) {
 writeJson(join(schemasRoot, "program.schema.json"), generatedProgramSchema);
 mkdirSync(dirname(runnerCapabilityContractPath), { recursive: true });
 writeJson(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
+writeJson(runnerPermissionContractPath, generatedRunnerPermissionContract);
+mkdirSync(dirname(runnerPortContractPath), { recursive: true });
+writeJson(runnerPortContractPath, generatedRunnerPortContract);
 for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 	writeJson(join(nodeSchemasRoot, fileName), schema);
 }
@@ -66,6 +81,41 @@ function createRunnerCapabilityContract() {
 		version: 1,
 		nodes: Object.fromEntries(definitions.map((definition) => [definition.actionType, definition.capabilities])),
 	};
+}
+
+function createRunnerPermissionContract() {
+	return {
+		version: 1,
+		nodes: Object.fromEntries(
+			definitions.map((definition) => [
+				definition.actionType,
+				{
+					permission: definition.permission,
+					path_rules: definition.permissionPathRules,
+				},
+			]),
+		),
+	};
+}
+
+function createRunnerPortContract() {
+	return {
+		version: 1,
+		nodes: Object.fromEntries(definitions.map((definition) => [definition.actionType, resolvePortPolicy(definition)])),
+	};
+}
+
+function resolvePortPolicy(definition) {
+	if (definition.portPolicy) {
+		return definition.portPolicy;
+	}
+	if (definition.kind === "trigger") {
+		return { kind: "fixed", inputs: [], outputs: ["out"] };
+	}
+	if (definition.fallible) {
+		return { kind: "fixed", inputs: ["input"], outputs: ["success", "failed"] };
+	}
+	return { kind: "fixed", inputs: ["input"], outputs: ["out"] };
 }
 
 function createProgramSchema(programSchema) {
@@ -247,6 +297,13 @@ function readDefinitionObject(object, filePath) {
 	const capabilities = readCapabilities(getPropertyInitializer(object, "capabilities"), actionType);
 	const configFields = readConfigFields(getPropertyInitializer(object, "configFields"), actionType);
 	const defaultConfigKeys = readDefaultConfigKeys(getPropertyInitializer(object, "defaultConfig"));
+	const fallible = getOptionalBooleanProperty(object, "fallible") === true;
+	const permission = readPermission(getPropertyInitializer(object, "permission"), actionType);
+	const permissionPathRules = readPermissionPathRules(
+		getPropertyInitializer(object, "permissionPathRules"),
+		actionType,
+	);
+	const portPolicy = readPortPolicy(getPropertyInitializer(object, "portPolicy"), actionType);
 
 	return {
 		actionType,
@@ -254,11 +311,88 @@ function readDefinitionObject(object, filePath) {
 		configFields,
 		controlType,
 		defaultConfigKeys,
+		fallible,
 		kind,
 		label,
+		permission,
+		permissionPathRules,
+		portPolicy,
 		runnerType,
 		source: relative(appRoot, filePath).split(sep).join("/"),
 	};
+}
+
+function readPortPolicy(initializer, actionType) {
+	if (!initializer) {
+		return null;
+	}
+	if (!ts.isObjectLiteralExpression(initializer)) {
+		throw new Error(`${actionType} portPolicy must be an object literal.`);
+	}
+	const kind = getRequiredStringProperty(initializer, "kind", actionType);
+	if (kind === "fixed") {
+		return {
+			kind,
+			inputs: readRequiredStringArrayProperty(initializer, "inputs", actionType),
+			outputs: readRequiredStringArrayProperty(initializer, "outputs", actionType),
+		};
+	}
+	if (kind === "switch-cases") {
+		return {
+			kind: "switch_cases",
+			config_key: getRequiredStringProperty(initializer, "configKey", actionType),
+			input: "input",
+			output_prefix: getRequiredStringProperty(initializer, "outputPrefix", actionType),
+		};
+	}
+	throw new Error(`${actionType} portPolicy kind ${kind} is unsupported.`);
+}
+
+function readRequiredStringArrayProperty(object, name, actionType) {
+	const initializer = getPropertyInitializer(object, name);
+	if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
+		throw new Error(`${actionType} portPolicy ${name} must be a string array literal.`);
+	}
+	const values = readStringArrayValues(initializer);
+	if (values.length !== initializer.elements.length) {
+		throw new Error(`${actionType} portPolicy ${name} must contain only strings.`);
+	}
+	return values;
+}
+
+function readPermission(initializer, actionType) {
+	if (!initializer) {
+		return null;
+	}
+	if (!ts.isObjectLiteralExpression(initializer)) {
+		throw new Error(`${actionType} permission must be an object literal.`);
+	}
+	return {
+		name: getRequiredStringProperty(initializer, "name", actionType),
+		risk: getRequiredStringProperty(initializer, "risk", actionType),
+	};
+}
+
+function readPermissionPathRules(initializer, actionType) {
+	if (!initializer) {
+		return [];
+	}
+	if (!ts.isArrayLiteralExpression(initializer)) {
+		throw new Error(`${actionType} permissionPathRules must be an array literal.`);
+	}
+	return initializer.elements.map((element) => {
+		if (!ts.isObjectLiteralExpression(element)) {
+			throw new Error(`${actionType} permissionPathRules entries must be object literals.`);
+		}
+		const access = getRequiredStringProperty(element, "access", actionType);
+		if (access !== "read" && access !== "write") {
+			throw new Error(`${actionType} permission path access must be read or write.`);
+		}
+		return {
+			access,
+			config_key: getRequiredStringProperty(element, "configKey", actionType),
+		};
+	});
 }
 
 function readCapabilities(initializer, actionType) {

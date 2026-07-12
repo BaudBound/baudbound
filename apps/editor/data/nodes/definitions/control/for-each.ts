@@ -1,7 +1,7 @@
 import { Repeat2 } from "lucide-react";
 import { validateVariableName } from "@/data/project/variables";
 import { defineNode } from "../../node-definition";
-import { loopPorts, validateLoopBodyDoesNotReturn } from "../shared";
+import { validateLoopBodyDoesNotReturn } from "../shared";
 import { requiredConfig } from "../validators";
 
 export const forEachNode = defineNode({
@@ -19,7 +19,7 @@ export const forEachNode = defineNode({
 	icon: Repeat2,
 	kind: "control",
 	label: "For Each",
-	ports: loopPorts,
+	portPolicy: { kind: "fixed", inputs: ["input"], outputs: ["done", "loop"] },
 	risk: "low",
 	runtimeOutputs: [
 		{

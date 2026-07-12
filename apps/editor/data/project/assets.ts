@@ -1,4 +1,5 @@
 import type { AssetKind, AssetManifestEntry, EditorAsset } from "@/lib/types";
+import { packageLimits } from "./package-limits";
 
 export const ASSET_PACKAGE_DIR = "assets";
 
@@ -55,6 +56,10 @@ export async function createEditorAssets(files: File[], existingAssets: EditorAs
 	const reservedPaths = new Set(existingAssets.map((asset) => asset.packagePath.toLowerCase()));
 
 	for (const file of files) {
+		if (file.size > packageLimits.max_asset_bytes) {
+			rejected.push(`${file.name}: file exceeds the maximum asset size of ${packageLimits.max_asset_bytes} bytes.`);
+			continue;
+		}
 		const extension = getExtension(file.name);
 		const rule = extension ? getAssetRuleByExtension(extension) : undefined;
 
@@ -108,8 +113,13 @@ export function validateEditorAssets(assets: EditorAsset[]): AssetValidationResu
 	const errors: string[] = [];
 	const warnings: string[] = [];
 	const paths = new Set<string>();
+	let totalSize = 0;
 
 	for (const asset of assets) {
+		totalSize += asset.size;
+		if (asset.size > packageLimits.max_asset_bytes) {
+			errors.push(`${asset.name}: asset exceeds the maximum size of ${packageLimits.max_asset_bytes} bytes.`);
+		}
 		const pathError = validateAssetPackagePath(asset.packagePath);
 		if (pathError) {
 			errors.push(`${asset.name}: ${pathError}`);
@@ -128,6 +138,12 @@ export function validateEditorAssets(assets: EditorAsset[]): AssetValidationResu
 		} else if (rule.kind !== asset.kind) {
 			errors.push(`${asset.name}: asset kind ${asset.kind} does not match ${asset.mediaType}.`);
 		}
+	}
+	if (assets.length + 6 > packageLimits.max_entry_count) {
+		errors.push(`Package would exceed the maximum of ${packageLimits.max_entry_count} entries.`);
+	}
+	if (totalSize > packageLimits.max_total_uncompressed_bytes) {
+		errors.push(`Assets exceed the package maximum of ${packageLimits.max_total_uncompressed_bytes} bytes.`);
 	}
 
 	return { errors, warnings };

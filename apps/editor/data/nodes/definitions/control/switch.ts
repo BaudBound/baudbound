@@ -1,6 +1,6 @@
 import { Hash } from "lucide-react";
-import { defaultInputPort, defineNode } from "../../node-definition";
-import { createSwitchCaseRow, createSwitchOutputPorts, getSwitchCaseRowsFromValue } from "../rows";
+import { defineNode } from "../../node-definition";
+import { createSwitchCaseRow } from "../rows";
 
 export const switchNode = defineNode({
 	actionType: "control.switch",
@@ -12,9 +12,6 @@ export const switchNode = defineNode({
 	icon: Hash,
 	kind: "control",
 	label: "Switch",
-	ports: (config) => ({
-		inputs: [defaultInputPort],
-		outputs: createSwitchOutputPorts(getSwitchCaseRowsFromValue(config?.cases)),
-	}),
+	portPolicy: { kind: "switch-cases", configKey: "cases", outputPrefix: "case-" },
 	risk: "low",
 });

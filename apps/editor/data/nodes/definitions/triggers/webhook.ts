@@ -2,7 +2,6 @@ import { Globe } from "lucide-react";
 import type { JsonValue } from "@/lib/types";
 import { defineNode } from "../../node-definition";
 import { httpMethodOptions } from "../options";
-import { triggerPorts } from "../shared";
 import { configString, requiredConfig, staticPositiveNumberConfig } from "../validators";
 
 export const webhookTriggerNode = defineNode({
@@ -43,7 +42,6 @@ export const webhookTriggerNode = defineNode({
 	icon: Globe,
 	kind: "trigger",
 	label: "Webhook",
-	ports: triggerPorts,
 	permission: { name: "webhook_public_bind", risk: "high" },
 	risk: "high",
 	runtimeOutputs: [

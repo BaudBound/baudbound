@@ -11,6 +11,14 @@ use zip::ZipArchive;
 
 use crate::{Capabilities, EditorMetadata, Manifest, Permissions, Program};
 
+mod graph;
+mod limits;
+mod schema;
+
+use graph::validate_program_graph;
+use limits::package_limits;
+use schema::validate_program_schema;
+
 const REQUIRED_PACKAGE_FILES: &[&str] = &[
     "manifest.json",
     "program.json",
@@ -26,6 +34,7 @@ const ALLOWED_ASSET_EXTENSIONS: &[&str] = &[
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageEntry {
+    pub compressed_size: u64,
     pub path: String,
     pub size: u64,
 }
@@ -85,6 +94,14 @@ pub enum PackageLoadError {
     },
     #[error("package validation failed: {0}")]
     Validation(String),
+    #[error("embedded program schema contract is invalid: {0}")]
+    SchemaContract(String),
+    #[error("program.json does not match the runner schema: {0}")]
+    ProgramSchema(String),
+    #[error("embedded node port contract is invalid: {0}")]
+    PortContract(String),
+    #[error("program.json graph is invalid: {0}")]
+    ProgramGraph(String),
     #[error("asset {0:?} is not declared in manifest.json")]
     AssetNotFound(String),
     #[error("failed to read asset {path}: {source}")]
@@ -143,11 +160,12 @@ pub fn read_package_asset_reader<R: Read + Seek>(
         .by_name(&manifest_asset.path)
         .map_err(PackageLoadError::Zip)?;
     let mut bytes = Vec::with_capacity(file.size().try_into().unwrap_or_default());
-    file.read_to_end(&mut bytes)
-        .map_err(|source| PackageLoadError::AssetRead {
+    read_bounded(&mut file, &mut bytes, package_limits().max_asset_bytes).map_err(|source| {
+        PackageLoadError::AssetRead {
             path: manifest_asset.path.clone(),
             source,
-        })?;
+        }
+    })?;
 
     Ok(PackageAsset {
         bytes,
@@ -165,6 +183,8 @@ pub fn load_script_package_reader<R: Read + Seek>(
 
     let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
     let program = read_json_file::<Program, _>(&mut archive, "program.json")?;
+    validate_program_schema(&program)?;
+    validate_program_graph(&program)?;
     let permissions = read_json_file::<Permissions, _>(&mut archive, "permissions.json")?;
     let capabilities = read_json_file::<Capabilities, _>(&mut archive, "capabilities.json")?;
     let editor = read_optional_json_file::<EditorMetadata, _>(&mut archive, "editor.json")?;
@@ -185,7 +205,17 @@ pub fn load_script_package_reader<R: Read + Seek>(
 fn collect_package_entries<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
 ) -> Result<Vec<PackageEntry>, PackageLoadError> {
+    let limits = package_limits();
+    if archive.len() > limits.max_entry_count {
+        return Err(PackageLoadError::Validation(format!(
+            "package contains {} entries; maximum is {}",
+            archive.len(),
+            limits.max_entry_count
+        )));
+    }
+
     let mut entries = Vec::with_capacity(archive.len());
+    let mut total_uncompressed = 0_u64;
 
     for index in 0..archive.len() {
         let file = archive.by_index(index)?;
@@ -193,7 +223,40 @@ fn collect_package_entries<R: Read + Seek>(
             continue;
         }
 
+        let size_limit = if file.name().starts_with(&format!("{ASSET_PACKAGE_DIR}/")) {
+            limits.max_asset_bytes
+        } else {
+            limits.max_metadata_bytes
+        };
+        if file.size() > size_limit {
+            return Err(PackageLoadError::Validation(format!(
+                "{} is {} bytes; maximum is {size_limit} bytes",
+                file.name(),
+                file.size()
+            )));
+        }
+        total_uncompressed = total_uncompressed.checked_add(file.size()).ok_or_else(|| {
+            PackageLoadError::Validation("package uncompressed size overflowed".to_owned())
+        })?;
+        if total_uncompressed > limits.max_total_uncompressed_bytes {
+            return Err(PackageLoadError::Validation(format!(
+                "package uncompressed size exceeds {} bytes",
+                limits.max_total_uncompressed_bytes
+            )));
+        }
+        if file.size() >= limits.expansion_ratio_minimum_bytes
+            && (file.compressed_size() == 0
+                || file.size() / file.compressed_size() > limits.max_expansion_ratio)
+        {
+            return Err(PackageLoadError::Validation(format!(
+                "{} exceeds the maximum archive expansion ratio of {}:1",
+                file.name(),
+                limits.max_expansion_ratio
+            )));
+        }
+
         entries.push(PackageEntry {
+            compressed_size: file.compressed_size(),
             path: file.name().to_owned(),
             size: file.size(),
         });
@@ -389,9 +452,13 @@ fn read_json_file<T: DeserializeOwned, R: Read + Seek>(
     file_name: &'static str,
 ) -> Result<T, PackageLoadError> {
     let mut file = archive.by_name(file_name)?;
-    let mut content = String::new();
-    file.read_to_string(&mut content)
+    let mut bytes = Vec::with_capacity(file.size().try_into().unwrap_or_default());
+    read_bounded(&mut file, &mut bytes, package_limits().max_metadata_bytes)
         .map_err(|source| PackageLoadError::Read { file_name, source })?;
+    let content = String::from_utf8(bytes).map_err(|source| PackageLoadError::Read {
+        file_name,
+        source: std::io::Error::new(std::io::ErrorKind::InvalidData, source),
+    })?;
     serde_json::from_str(strip_utf8_bom(&content))
         .map_err(|source| PackageLoadError::Json { file_name, source })
 }
@@ -402,9 +469,13 @@ fn read_optional_json_file<T: DeserializeOwned, R: Read + Seek>(
 ) -> Result<Option<T>, PackageLoadError> {
     match archive.by_name(file_name) {
         Ok(mut file) => {
-            let mut content = String::new();
-            file.read_to_string(&mut content)
+            let mut bytes = Vec::with_capacity(file.size().try_into().unwrap_or_default());
+            read_bounded(&mut file, &mut bytes, package_limits().max_metadata_bytes)
                 .map_err(|source| PackageLoadError::Read { file_name, source })?;
+            let content = String::from_utf8(bytes).map_err(|source| PackageLoadError::Read {
+                file_name,
+                source: std::io::Error::new(std::io::ErrorKind::InvalidData, source),
+            })?;
             serde_json::from_str(strip_utf8_bom(&content))
                 .map(Some)
                 .map_err(|source| PackageLoadError::Json { file_name, source })
@@ -412,6 +483,21 @@ fn read_optional_json_file<T: DeserializeOwned, R: Read + Seek>(
         Err(zip::result::ZipError::FileNotFound) => Ok(None),
         Err(error) => Err(error.into()),
     }
+}
+
+fn read_bounded(
+    reader: &mut impl Read,
+    output: &mut Vec<u8>,
+    maximum_bytes: u64,
+) -> Result<(), std::io::Error> {
+    reader.take(maximum_bytes + 1).read_to_end(output)?;
+    if output.len() as u64 > maximum_bytes {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("content exceeds the maximum of {maximum_bytes} bytes"),
+        ));
+    }
+    Ok(())
 }
 
 fn is_root_package_file(path: &str) -> bool {
@@ -588,6 +674,72 @@ mod tests {
         assert!(matches!(error, PackageLoadError::AssetNotFound(_)));
     }
 
+    #[test]
+    fn rejects_archives_with_too_many_entries_before_parsing() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        for index in 0..=package_limits().max_entry_count {
+            writer
+                .start_file(format!("entry-{index}.txt"), options)
+                .expect("test zip entry should start");
+        }
+        let bytes = writer
+            .finish()
+            .expect("test zip should finish")
+            .into_inner();
+
+        let error = load_script_package_reader(Cursor::new(bytes))
+            .expect_err("entry-count overflow must be rejected");
+        assert!(error.to_string().contains("maximum is 1024"), "{error}");
+    }
+
+    #[test]
+    fn rejects_oversized_metadata_before_allocating_it() {
+        let oversized = vec![b' '; package_limits().max_metadata_bytes as usize + 1];
+        let bytes =
+            create_single_file_archive("manifest.json", &oversized, CompressionMethod::Stored);
+
+        let error = load_script_package_reader(Cursor::new(bytes))
+            .expect_err("oversized metadata must be rejected");
+        assert!(error.to_string().contains("manifest.json is"), "{error}");
+        assert!(error.to_string().contains("maximum is 8388608"), "{error}");
+    }
+
+    #[test]
+    fn rejects_high_expansion_archive_entries() {
+        let repeated = vec![0_u8; package_limits().expansion_ratio_minimum_bytes as usize];
+        let bytes = create_single_file_archive(
+            "assets/repeated.txt",
+            &repeated,
+            CompressionMethod::Deflated,
+        );
+
+        let error = load_script_package_reader(Cursor::new(bytes))
+            .expect_err("high-expansion archive entry must be rejected");
+        assert!(error.to_string().contains("expansion ratio"), "{error}");
+    }
+
+    fn create_single_file_archive(
+        path: &str,
+        content: &[u8],
+        compression: CompressionMethod,
+    ) -> Vec<u8> {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                path,
+                SimpleFileOptions::default().compression_method(compression),
+            )
+            .expect("test zip file should start");
+        writer
+            .write_all(content)
+            .expect("test zip content should write");
+        writer
+            .finish()
+            .expect("test zip should finish")
+            .into_inner()
+    }
+
     fn create_test_package(extra_files: &[(&str, &str)]) -> Vec<u8> {
         create_test_package_with_manifest(
             r#"{
@@ -613,9 +765,30 @@ mod tests {
                 "program.json",
                 r#"{
 					"entry": {
-						"trigger": {"id": "n-1"},
+						"trigger": {
+							"id": "n-1",
+							"action_type": "trigger.manual",
+							"type": "manual",
+							"config": {},
+							"runtime_outputs": []
+						},
 						"triggers": [],
-						"program": {"type": "block", "steps": [], "edges": []}
+						"program": {
+							"type": "block",
+							"execution_model": "directed_graph",
+							"runtime_context": {
+								"expression_reference": "{{node-id.data_name}}",
+								"template_reference": "{{node-id.data_name}}",
+								"variables": [],
+								"built_in_variables": {
+									"syntax": "{{variable_name}}",
+									"variables": []
+								},
+								"node_outputs": []
+							},
+							"steps": [],
+							"edges": []
+						}
 					}
 				}"#,
             ),
@@ -692,9 +865,30 @@ mod tests {
                 "program.json",
                 r#"{
                     "entry": {
-                        "trigger": {"id": "n-1"},
+                        "trigger": {
+                            "id": "n-1",
+                            "action_type": "trigger.manual",
+                            "type": "manual",
+                            "config": {},
+                            "runtime_outputs": []
+                        },
                         "triggers": [],
-                        "program": {"type": "block", "steps": [], "edges": []}
+                        "program": {
+                            "type": "block",
+                            "execution_model": "directed_graph",
+                            "runtime_context": {
+                                "expression_reference": "{{node-id.data_name}}",
+                                "template_reference": "{{node-id.data_name}}",
+                                "variables": [],
+                                "built_in_variables": {
+                                    "syntax": "{{variable_name}}",
+                                    "variables": []
+                                },
+                                "node_outputs": []
+                            },
+                            "steps": [],
+                            "edges": []
+                        }
                     }
                 }"#
                 .to_owned(),

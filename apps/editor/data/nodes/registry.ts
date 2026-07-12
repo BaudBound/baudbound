@@ -11,6 +11,7 @@ import {
 	Terminal,
 	Zap,
 } from "lucide-react";
+import { createReadFilePermission, createWriteFilePermission } from "@/data/project/file-permissions";
 import type {
 	ActionType,
 	EditorAsset,
@@ -61,6 +62,7 @@ import { ifElseNode } from "./definitions/control/if-else";
 import { loopNode } from "./definitions/control/loop";
 import { switchNode } from "./definitions/control/switch";
 import { whileNode } from "./definitions/control/while";
+import { createSwitchOutputPorts, getSwitchCaseRowsFromValue } from "./definitions/rows";
 import { fileWatchTriggerNode } from "./definitions/triggers/file-watch";
 import { hotkeyTriggerNode } from "./definitions/triggers/hotkey";
 import { manualTriggerNode } from "./definitions/triggers/manual";
@@ -426,8 +428,17 @@ export function getNodeConfigFields(actionType: ActionType) {
 
 export function getNodePorts(actionType: ActionType, config?: Record<string, JsonValue>) {
 	const definition = getNodeDefinition(actionType);
-	if (definition?.ports) {
-		return definition.ports(config);
+	if (definition?.portPolicy?.kind === "fixed") {
+		return {
+			inputs: definition.portPolicy.inputs.map((id) => ({ id, label: id })),
+			outputs: definition.portPolicy.outputs.map((id) => ({ id, label: id })),
+		};
+	}
+	if (definition?.portPolicy?.kind === "switch-cases") {
+		return {
+			inputs: [defaultInputPort],
+			outputs: createSwitchOutputPorts(getSwitchCaseRowsFromValue(config?.[definition.portPolicy.configKey])),
+		};
 	}
 
 	if (actionType.startsWith("trigger.")) {
@@ -469,7 +480,26 @@ export function getNodePermissions(actionType: ActionType, config: Record<string
 		return [];
 	}
 
-	return definition.derivePermissions?.(config) ?? (definition.permission ? [definition.permission] : []);
+	if (definition.derivePermissions) {
+		return definition.derivePermissions(config);
+	}
+
+	const pathRules = definition.permissionPathRules ?? [];
+	const replacesBasePermission = pathRules.some(
+		(rule) =>
+			(rule.access === "read" && definition.permission?.name === "file_read") ||
+			(rule.access === "write" && definition.permission?.name === "file_write_limited"),
+	);
+	const permissions = definition.permission && !replacesBasePermission ? [definition.permission] : [];
+	for (const rule of pathRules) {
+		permissions.push(
+			rule.access === "read"
+				? createReadFilePermission(config[rule.configKey])
+				: createWriteFilePermission(config[rule.configKey]),
+		);
+	}
+
+	return [...new Map(permissions.map((permission) => [permission.name, permission])).values()];
 }
 
 export function getRunnerTriggerType(actionType: TriggerActionType) {
