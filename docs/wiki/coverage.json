@@ -38,6 +38,7 @@
     "tools/development.ps1", "tools/runner-release.ps1", "tools/wiki-publisher/package.json",
     ".github/workflows/editor-docker.yml", ".github/workflows/runner-ci.yml",
     ".github/workflows/runner-release.yml", ".github/workflows/schemas-docker.yml",
+    ".github/workflows/get-docker.yml", "deploy/get/Dockerfile",
     ".github/workflows/wiki-publish.yml"
   ],
   "nodes": {

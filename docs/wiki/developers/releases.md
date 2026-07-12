@@ -33,6 +33,28 @@ It can check versions and prerequisites, run verification, create the tag, inspe
 
 The draft prevents a partially uploaded release from becoming the automatic update target.
 
+## Installer entry points
+
+The public commands at `https://get.baudbound.app/linux` and `https://get.baudbound.app/windows` are static scripts served by the `baudbound-get` container. The scripts request the latest published GitHub release, require exactly one matching platform installer, and verify the asset against GitHub's SHA-256 release digest before installation.
+
+Linux release metadata is parsed with `jq`. The script stops with dependency installation instructions when `jq` is unavailable. Windows uses PowerShell's structured `Invoke-RestMethod` response and `Get-FileHash`.
+
+Changes under `deploy/get` run Linux, Windows, shell lint, and container endpoint tests in `.github/workflows/get-docker.yml`. A successful non-pull-request build publishes:
+
+```text
+ghcr.io/natroutter/baudbound-get:latest
+```
+
+The production server can use `deploy/get/compose.yaml` as its deployment baseline. It binds the container to `127.0.0.1:8086`, so the public hostname must terminate HTTPS at a reverse proxy and forward to that loopback address. Verify all three endpoints after deployment:
+
+```bash
+curl --fail https://get.baudbound.app/healthz
+curl --fail https://get.baudbound.app/linux
+curl --fail https://get.baudbound.app/windows
+```
+
+The scripts deliberately use `Cache-Control: no-store` behavior so updates become available without stale proxy copies. Keep caching disabled for these endpoints.
+
 ## Protected settings
 
 | Setting | Purpose |

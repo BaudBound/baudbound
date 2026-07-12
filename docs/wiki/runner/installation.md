@@ -11,7 +11,35 @@ BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is 
 
 Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
-## Platform installation {.tabset}
+## Quick install or update {.tabset}
+
+These commands install BaudBound when it is missing and update it when an older version is installed. The downloaded release file is checked against the SHA-256 digest published by GitHub before it is opened or installed.
+
+### Windows
+
+Open PowerShell and run:
+
+```powershell
+irm https://get.baudbound.app/windows | iex
+```
+
+The script downloads the current Windows installer from the official BaudBound GitHub release and verifies it before opening the normal setup window. Quit BaudBound before running the command when you are updating an existing installation.
+
+### Linux
+
+Open a terminal and run:
+
+```bash
+curl -fsSL https://get.baudbound.app/linux | sh
+```
+
+The Linux script requires `curl`, `jq`, and `sha256sum`. If `jq` is missing, the script stops and prints the command needed to install it on Debian, Ubuntu, Fedora, or Arch Linux. It installs the AppImage at `~/.local/opt/baudbound/BaudBound.AppImage` and creates the command `~/.local/bin/baudbound`.
+
+Quit the desktop application or stop `baudbound serve` before updating. The script refuses to replace an AppImage that is still running.
+
+Use the manual instructions below when you prefer to download and place release files yourself.
+
+## Manual platform installation {.tabset}
 
 ### Windows
 
