@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from "next";
 const appName = "BaudBound Editor";
 const appDescription =
 	"Create local automation workflows visually and export them as portable BaudBound .bbs packages.";
+const brandColor = "#e62d3e";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,8 @@ export const metadata: Metadata = {
 	authors: [{ name: "NATroutter" }],
 	creator: "NATroutter",
 	publisher: "NATroutter",
+	category: "technology",
+	referrer: "origin-when-cross-origin",
 	alternates: {
 		canonical: "/",
 	},
@@ -46,20 +49,22 @@ export const metadata: Metadata = {
 			{ url: "/icon_x256.ico", sizes: "256x256", type: "image/x-icon" },
 		],
 		shortcut: [{ url: "/icon_x32.ico" }],
+		apple: [{ url: "/logo-notext.png", sizes: "800x800", type: "image/png" }],
 	},
 	openGraph: {
 		type: "website",
+		locale: "en_US",
 		url: "/",
 		siteName: "BaudBound",
 		title: appName,
 		description: appDescription,
 		images: [
 			{
-				url: "/logo.svg",
+				url: "/logo.png",
 				width: 800,
 				height: 800,
 				alt: "BaudBound logo",
-				type: "image/svg+xml",
+				type: "image/png",
 			},
 		],
 	},
@@ -67,17 +72,28 @@ export const metadata: Metadata = {
 		card: "summary",
 		title: appName,
 		description: appDescription,
-		images: ["/logo.svg"],
+		images: [{ url: "/logo.png", alt: "BaudBound logo" }],
 	},
 	robots: {
 		index: true,
 		follow: true,
+		googleBot: {
+			index: true,
+			follow: true,
+			"max-image-preview": "large",
+			"max-snippet": -1,
+		},
+	},
+	other: {
+		"msapplication-TileColor": brandColor,
 	},
 };
 
 export const viewport: Viewport = {
 	width: "device-width",
 	initialScale: 1,
+	colorScheme: "dark",
+	themeColor: brandColor,
 };
 
 export default function RootLayout({

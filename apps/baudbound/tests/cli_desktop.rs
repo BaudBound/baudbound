@@ -465,7 +465,16 @@ fn desktop_cli_serves_hotkey_stdin_once() {
         &runner_home,
         ["serve", "--dry-run", "--json", "--hotkey-stdin"],
     ));
-    assert_eq!(preflight["active_service_count"], 1);
+    assert_eq!(preflight["active_service_count"], 2);
+    assert!(
+        preflight["services"]
+            .as_array()
+            .expect("serve services should be an array")
+            .iter()
+            .any(|service| service["name"] == "hotkey"
+                && service["active"] == true
+                && service["registrations"] == 1)
+    );
     assert!(
         preflight["services"]
             .as_array()
@@ -491,7 +500,7 @@ fn desktop_cli_serves_hotkey_stdin_once() {
 
     let status = command_json(run_desktop(&runner_home, ["status", "--json"]));
     assert_eq!(status["service"]["state"], "stopped");
-    assert_eq!(status["service"]["active_service_count"], 1);
+    assert_eq!(status["service"]["active_service_count"], 2);
 
     let run_logs = command_json(run_desktop(
         &runner_home,
@@ -719,7 +728,7 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["trigger.hotkey", "trigger.manual"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["trigger.hotkey", "trigger.manual"], "target_runtime": "Windows Desktop"}"#,
         ),
     ] {
         writer

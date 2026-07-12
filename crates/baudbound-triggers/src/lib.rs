@@ -14,10 +14,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 pub use services::{
-    FileWatchService, HotkeyService, ProcessStartedService, ScheduleService, SerialDeviceConfig,
-    SerialInputService, SerialReaderStatus, StartupService, WebSocketConnectionRegistry,
-    WebSocketService, WebSocketServiceConfig, WebhookDispatch, WebhookRequest, WebhookResponse,
-    WebhookService,
+    FileWatchService, HotkeyService, NativeHotkeyService, ProcessStartedService, ScheduleService,
+    SerialDeviceConfig, SerialInputService, SerialReaderStatus, StartupService,
+    WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig, WebhookDispatch,
+    WebhookRequest, WebhookResponse, WebhookService,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]

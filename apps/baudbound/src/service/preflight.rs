@@ -127,6 +127,12 @@ fn serve_preflight_rows(
             format!("{} configured device(s)", options.serial_devices.len()),
         ),
         serve_preflight_row(
+            "hotkey",
+            cfg!(windows),
+            count_trigger_registrations(registrations, "trigger.hotkey"),
+            "native Windows global hotkeys".to_owned(),
+        ),
+        serve_preflight_row(
             "hotkey_stdin",
             options.hotkey_stdin_enabled,
             count_trigger_registrations(registrations, "trigger.hotkey"),

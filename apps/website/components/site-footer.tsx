@@ -39,7 +39,7 @@ export function SiteFooter() {
 							<span className="text-brand">Bound</span>
 						</span>
 					</div>
-					<p className="max-w-[280px] text-sm leading-relaxed text-muted-foreground/70">
+					<p className="max-w-70 text-sm leading-relaxed text-muted-foreground/70">
 						A visual automation platform for Windows and Linux. Build in the browser, run locally.
 					</p>
 				</div>

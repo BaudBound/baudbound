@@ -58,7 +58,7 @@ pub fn handle_hotkey_command(
         HotkeyCommand::Listen { stdin, json } => {
             if !stdin {
                 anyhow::bail!(
-                    "hotkey listen currently requires --stdin. Native OS hotkey hooks will use the same dispatch pipeline once wired."
+                    "hotkey listen requires --stdin for injected test events. On Windows Desktop, the background runner registers configured hotkeys natively."
                 );
             }
 

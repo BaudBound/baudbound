@@ -2,12 +2,12 @@ import { InstallCommand } from "@/components/install-command";
 
 export function Hero() {
 	return (
-		<section className="flex flex-col items-center gap-4.5 px-5.5 pt-13 pb-15 text-center sm:gap-6.5 sm:px-16 sm:pt-[110px] sm:pb-24">
+		<section className="flex flex-col items-center gap-4.5 px-5.5 pt-13 pb-15 text-center sm:gap-6.5 sm:px-16 sm:pt-27.5 sm:pb-24">
 			<div className="bb-fade-up font-mono text-[13px] font-bold tracking-[0.14em] text-brand">
 				LOCAL-FIRST AUTOMATION
 			</div>
 
-			<h1 className="bb-fade-up max-w-full text-[32px] leading-[1.2] font-extrabold tracking-tight text-balance sm:max-w-[820px] sm:text-[62px] sm:leading-[1.1] [animation-delay:0.08s]">
+			<h1 className="bb-fade-up max-w-full text-[32px] leading-[1.2] font-extrabold tracking-tight text-balance sm:max-w-205 sm:text-[62px] sm:leading-[1.1] [animation-delay:0.08s]">
 				Automate your machine, visually.
 			</h1>
 

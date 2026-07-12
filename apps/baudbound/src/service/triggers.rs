@@ -8,8 +8,8 @@ use baudbound_core::{RunnerCore, TriggerEvent, TriggerRegistration};
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{
-    FileWatchService, HotkeyService, ProcessStartedService, ScheduleService, SerialInputService,
-    StartupService, WebSocketService, WebSocketServiceConfig,
+    FileWatchService, HotkeyService, NativeHotkeyService, ProcessStartedService, ScheduleService,
+    SerialInputService, StartupService, WebSocketService, WebSocketServiceConfig,
 };
 
 use super::{
@@ -20,6 +20,7 @@ use super::{
 pub(super) struct TriggerServices {
     pub(super) file_watch_service: FileWatchService,
     pub(super) hotkey_service: HotkeyService,
+    pub(super) native_hotkey_service: NativeHotkeyService,
     pub(super) process_started_service: ProcessStartedService,
     registrations_fingerprint: String,
     pub(super) schedules: ScheduleService,
@@ -90,6 +91,7 @@ impl TriggerServices {
         self.schedules.is_empty()
             && self.file_watch_service.is_empty()
             && self.hotkey_service.is_empty()
+            && self.native_hotkey_service.is_empty()
             && self.process_started_service.is_empty()
             && self.serial_input_service.is_empty()
             && self.startup.is_empty()
@@ -135,6 +137,10 @@ pub(super) fn reload_trigger_services_if_changed(
     drop(std::mem::replace(
         &mut current.file_watch_service,
         FileWatchService::empty(),
+    ));
+    drop(std::mem::replace(
+        &mut current.native_hotkey_service,
+        NativeHotkeyService::empty(),
     ));
     let reusable = ReusableTriggerServices::take_from(&mut current, options);
     let mut services = build_trigger_services(
@@ -217,6 +223,9 @@ fn build_trigger_services(
     } else {
         HotkeyService::empty()
     };
+    let native_hotkey_service =
+        NativeHotkeyService::start(registrations.clone(), trigger_sender.clone())
+            .context("failed to register native hotkey triggers")?;
     let websocket_service = if options.websockets_enabled {
         WebSocketService::start_or_reconfigure(
             registrations.clone(),
@@ -247,6 +256,7 @@ fn build_trigger_services(
     Ok(TriggerServices {
         file_watch_service,
         hotkey_service,
+        native_hotkey_service,
         process_started_service,
         registrations_fingerprint: registration_set.fingerprint,
         schedules,

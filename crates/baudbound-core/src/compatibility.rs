@@ -175,6 +175,7 @@ pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.pixel.get",
     "action.window.active",
     "action.window.focus",
+    "trigger.hotkey",
 ];
 
 pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
@@ -187,7 +188,6 @@ pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.mouse.move",
     "action.notification",
     "action.sound.play",
-    "trigger.hotkey",
 ];
 
 #[derive(Debug, Clone, Copy)]

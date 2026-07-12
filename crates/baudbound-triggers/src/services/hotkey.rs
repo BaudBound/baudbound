@@ -7,6 +7,16 @@ use crate::{
     unix_timestamp_millis,
 };
 
+#[cfg(windows)]
+mod native;
+#[cfg(not(windows))]
+mod native_unsupported;
+
+#[cfg(windows)]
+pub use native::NativeHotkeyService;
+#[cfg(not(windows))]
+pub use native_unsupported::NativeHotkeyService;
+
 #[derive(Debug, Clone)]
 pub struct HotkeyService {
     bindings: BTreeMap<String, Vec<TriggerRegistration>>,
@@ -162,6 +172,11 @@ fn normalize_hotkey(input: &str) -> Result<String, String> {
 
     let primary_key =
         primary_key.ok_or_else(|| format!("hotkey {input:?} must include a primary key"))?;
+    if !is_supported_primary_key(&primary_key) {
+        return Err(format!(
+            "hotkey key {primary_key:?} is not supported; use A-Z, 0-9, F1-F24, or a supported navigation key"
+        ));
+    }
     let mut parts = Vec::new();
     if ctrl {
         parts.push("Ctrl".to_owned());
@@ -178,6 +193,39 @@ fn normalize_hotkey(input: &str) -> Result<String, String> {
     parts.push(primary_key);
 
     Ok(parts.join("+"))
+}
+
+fn is_supported_primary_key(key: &str) -> bool {
+    if key.len() == 1 {
+        let byte = key.as_bytes()[0];
+        return byte.is_ascii_uppercase() || byte.is_ascii_digit();
+    }
+
+    if let Some(number) = key
+        .strip_prefix('F')
+        .and_then(|value| value.parse::<u8>().ok())
+    {
+        return (1..=24).contains(&number);
+    }
+
+    matches!(
+        key,
+        "Escape"
+            | "Enter"
+            | "Space"
+            | "Tab"
+            | "Backspace"
+            | "Delete"
+            | "Insert"
+            | "Home"
+            | "End"
+            | "PageUp"
+            | "PageDown"
+            | "ArrowUp"
+            | "ArrowDown"
+            | "ArrowLeft"
+            | "ArrowRight"
+    )
 }
 
 fn normalized_hotkey_token(input: &str) -> String {

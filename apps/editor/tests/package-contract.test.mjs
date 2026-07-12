@@ -408,7 +408,7 @@ test("node definitions include production metadata required by package analysis"
 test("native Windows-only desktop nodes declare target runtime compatibility", () => {
 	const definitionsSource = readDefinitions();
 
-	for (const actionType of ["action.pixel.get", "action.window.active", "action.window.focus"]) {
+	for (const actionType of ["action.pixel.get", "action.window.active", "action.window.focus", "trigger.hotkey"]) {
 		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
 		assert.match(
 			definitionBlock,

@@ -33,7 +33,10 @@ pub(super) fn print_idle_service_explanation(options: &ServeOptions) {
         println!("Process started triggers are disabled in runner config.");
     }
     if options.hotkey_stdin_enabled {
-        println!("No enabled hotkey triggers found.");
+        println!("No enabled stdin hotkey triggers found.");
+    }
+    if cfg!(windows) {
+        println!("No enabled native hotkey triggers found.");
     }
     if !options.webhooks_enabled {
         println!("Webhook listener is disabled. Enable it in config or pass --webhooks.");

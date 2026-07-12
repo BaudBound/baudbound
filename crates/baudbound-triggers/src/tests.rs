@@ -213,6 +213,16 @@ fn rejects_hotkey_runtime_templates() {
 }
 
 #[test]
+fn rejects_hotkey_keys_without_native_windows_mapping() {
+    let registration = hotkey_registration(json!({"key": "Ctrl+MediaPlay"}));
+
+    let error = HotkeySpec::from_registration(&registration)
+        .expect_err("unsupported native key should fail");
+
+    assert!(error.to_string().contains("not supported"));
+}
+
+#[test]
 fn validates_file_watch_path_without_runtime_templates() {
     let registration = file_watch_registration(json!({"path": "{{dynamic_path}}"}));
 

@@ -49,6 +49,12 @@ pub(super) fn print_service_summary(services: &TriggerServices, store: &SqliteRu
             plural(services.hotkey_service.len()),
         );
     }
+    print_count(
+        !services.native_hotkey_service.is_empty(),
+        services.native_hotkey_service.len(),
+        "native hotkey trigger",
+        None,
+    );
 }
 
 fn print_count(should_print: bool, count: usize, label: &str, store: Option<&SqliteRunnerStore>) {

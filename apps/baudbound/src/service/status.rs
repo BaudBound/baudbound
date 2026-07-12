@@ -107,6 +107,14 @@ fn serve_status_services(
             }),
         ),
         serve_status_service(
+            "hotkey",
+            cfg!(windows),
+            services.native_hotkey_service.len(),
+            "native Windows global hotkeys".to_owned(),
+            services.native_hotkey_service.diagnostics(),
+            serde_json::json!({}),
+        ),
+        serve_status_service(
             "hotkey_stdin",
             options.hotkey_stdin_enabled,
             services.hotkey_service.len(),
