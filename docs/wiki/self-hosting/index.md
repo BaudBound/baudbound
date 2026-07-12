@@ -70,28 +70,7 @@ docker compose logs editor
 
 `EDITOR_URL` controls canonical and social metadata in the published container. Pin a release or `sha-*` image tag instead of `latest` when updates must be promoted manually.
 
-### Reverse proxy
-
-Create a DNS record that points the chosen hostname to the server. Configure the HTTPS virtual host to proxy requests to `http://127.0.0.1:3000`. A minimal Nginx location block is:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
-
-This block belongs inside the Nginx `server` block for the HTTPS hostname; it is not a complete Nginx configuration. Configure a valid TLS certificate before sharing the URL. Do not indefinitely cache HTML responses; hashed Next.js assets can use normal immutable caching.
-
-Open the public HTTPS URL in a browser and create a small test project. Once that works, update the editor from `/opt/baudbound-editor` with:
-
-```text
-docker compose pull
-docker compose up -d
-```
+After the local check succeeds, continue to [Reverse proxy](#reverse-proxy). If you also want to host the public schemas, configure that container first so both hostnames can be added to the proxy together.
 
 ## Schema host
 
@@ -129,17 +108,282 @@ The final command should print `ok`. Point the schema hostname's HTTPS reverse p
 
 Schema documents are served as `application/schema+json` with `X-Content-Type-Options: nosniff`. The container uses a five-minute revalidation cache so clients can cache briefly without hiding schema updates indefinitely. Unknown paths return `404` and directory listing is disabled.
 
-## Caddy reverse-proxy example
+## Reverse proxy {.tabset}
 
-The following is a partial Caddyfile example for the editor. Replace `editor.example.com` and configure the schema hostname separately with port `8085`:
+Complete one tab only. Every example uses these placeholder hostnames:
 
-```text
-editor.example.com {
-    reverse_proxy 127.0.0.1:3000
+- `editor.example.com` for the editor at port `3000`;
+- `schemas.example.com` for the schema host at port `8085` on the server or port `80` inside its container.
+
+Replace both names with real DNS names. Create their DNS records before requesting certificates, and make sure inbound TCP ports `80` and `443` reach the reverse proxy. Keep the Compose port bindings on `127.0.0.1`; they are useful for local health checks and should not be exposed publicly.
+
+If you are hosting only one service, configure only its hostname. Do not point both hostnames to the same upstream port.
+{.is-info}
+
+### Nginx
+
+These instructions assume Nginx runs directly on the server. Create a site configuration using the location used by your distribution, such as `/etc/nginx/conf.d/baudbound.conf` or `/etc/nginx/sites-available/baudbound.conf`.
+
+Start with HTTP virtual hosts so Nginx can load the configuration before certificates exist:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name editor.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name schemas.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8085;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
-Caddy can obtain TLS certificates automatically when public DNS points to the server and ports 80/443 reach Caddy. This block does not define firewall, account, backup, or global logging policy.
+Replace both hostnames and remove the server block for a service you are not hosting. The `map` block preserves WebSocket upgrades without forcing every request to use an upgrade connection.
+
+On Debian and Ubuntu, enable a file created under `sites-available` by linking it into `sites-enabled`:
+
+```text
+sudo ln -s /etc/nginx/sites-available/baudbound.conf /etc/nginx/sites-enabled/baudbound.conf
+```
+
+Do not run that command when the configuration is already loaded from `conf.d` or already linked. Test before reloading:
+
+```text
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The test must succeed. Confirm both HTTP hostnames reach their intended services before requesting certificates.
+
+Install Certbot and its Nginx integration by selecting the server's Linux distribution in the official [Certbot Nginx instructions](https://certbot.eff.org/instructions?ws=nginx). Then request certificates and configure HTTP-to-HTTPS redirects:
+
+```text
+sudo certbot --nginx --redirect -d editor.example.com -d schemas.example.com
+```
+
+Remove the `-d` argument for a service you are not hosting. Certbot should report that it installed the certificate successfully. Test Nginx and certificate renewal:
+
+```text
+sudo nginx -t
+sudo certbot renew --dry-run
+```
+
+Both commands must succeed. Nginx documents `proxy_pass`, forwarded headers, and WebSocket handling in its official [`ngx_http_proxy_module` reference](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
+
+### Nginx Proxy Manager
+
+Nginx Proxy Manager commonly runs in Docker. Its container cannot reach the server's `127.0.0.1` ports directly. Put Nginx Proxy Manager and the BaudBound containers on one private Docker network instead.
+
+Create the shared network once:
+
+```text
+docker network create proxy
+```
+
+Add the external network to the Nginx Proxy Manager Compose file and attach its application service to it:
+
+```yaml
+services:
+  app:
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+```
+
+The service may have a different name in your existing Compose file. Add `networks: [proxy]` to the service that runs Nginx Proxy Manager; do not create a second `app` service.
+
+Add the same network to `/opt/baudbound-editor/compose.yaml`:
+
+```yaml
+services:
+  editor:
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+```
+
+If the schema host is installed, add it to `/opt/baudbound-schemas/compose.yaml`:
+
+```yaml
+services:
+  schemas:
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+```
+
+Recreate all edited Compose projects so Docker attaches the existing containers to the network:
+
+```text
+docker compose up -d
+```
+
+Run that command once from each edited Compose directory.
+
+In Nginx Proxy Manager, open **Hosts > Proxy Hosts** and create the editor host:
+
+| Field | Value |
+| --- | --- |
+| Domain Names | `editor.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `baudbound-editor` |
+| Forward Port | `3000` |
+| Websockets Support | Enabled |
+
+Open the **SSL** tab, request a new Let's Encrypt certificate, enable **Force SSL**, accept the Let's Encrypt terms, and save the host.
+
+Create a second proxy host for schemas when it is installed:
+
+| Field | Value |
+| --- | --- |
+| Domain Names | `schemas.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `baudbound-schemas` |
+| Forward Port | `80` |
+
+Request its certificate and enable **Force SSL** as well. Leave the **Advanced** field empty unless another documented requirement applies. The project describes Proxy Hosts and Let's Encrypt support in the official [Nginx Proxy Manager guide](https://nginxproxymanager.com/guide/).
+
+### Caddy
+
+These instructions assume Caddy runs directly on the server. Open `/etc/caddy/Caddyfile` and add:
+
+```caddyfile
+editor.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+
+schemas.example.com {
+    reverse_proxy 127.0.0.1:8085
+}
+```
+
+Remove the block for a service you are not hosting. Caddy obtains and renews public TLS certificates automatically when DNS is correct and ports `80` and `443` reach it. Its reverse proxy also supplies the standard forwarded headers without manual header rules.
+
+Validate and reload the configuration:
+
+```text
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The validation must succeed before reloading. See Caddy's official [`reverse_proxy` documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) for its upstream, header, and WebSocket behavior.
+
+If Caddy itself runs in Docker, do not use these loopback upstreams. Attach Caddy and the BaudBound containers to a shared Docker network as described in the Nginx Proxy Manager tab, then use `baudbound-editor:3000` and `baudbound-schemas:80` as the upstreams.
+
+### Traefik
+
+This example uses Traefik's Docker provider. It assumes Traefik already has:
+
+- an HTTPS entrypoint named `websecure`;
+- an ACME certificate resolver named `letsencrypt`;
+- the Docker provider enabled with containers hidden by default; and
+- access to a shared external Docker network named `proxy`.
+
+If your entrypoint, resolver, or network has a different name, update every matching label below. Create the network once when it does not already exist:
+
+```text
+docker network create proxy
+```
+
+Attach the Traefik service itself to that network. Then update `/opt/baudbound-editor/compose.yaml` with the network and labels:
+
+```yaml
+services:
+  editor:
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.baudbound-editor.rule=Host(`editor.example.com`)"
+      - "traefik.http.routers.baudbound-editor.entrypoints=websecure"
+      - "traefik.http.routers.baudbound-editor.tls=true"
+      - "traefik.http.routers.baudbound-editor.tls.certresolver=letsencrypt"
+      - "traefik.http.services.baudbound-editor.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    external: true
+```
+
+When the schema host is installed, update `/opt/baudbound-schemas/compose.yaml`:
+
+```yaml
+services:
+  schemas:
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.baudbound-schemas.rule=Host(`schemas.example.com`)"
+      - "traefik.http.routers.baudbound-schemas.entrypoints=websecure"
+      - "traefik.http.routers.baudbound-schemas.tls=true"
+      - "traefik.http.routers.baudbound-schemas.tls.certresolver=letsencrypt"
+      - "traefik.http.services.baudbound-schemas.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true
+```
+
+Recreate both edited projects:
+
+```text
+cd /opt/baudbound-editor
+docker compose up -d
+cd /opt/baudbound-schemas
+docker compose up -d
+```
+
+Skip the schema commands when that service is not installed. Inspect Traefik's logs and dashboard to confirm that both routers have certificates and healthy services. Traefik's official Docker documentation explains that labels define routing and that the load-balancer port label selects the container port: [Docker provider](https://doc.traefik.io/traefik/reference/install-configuration/providers/docker/) and [Docker routing](https://doc.traefik.io/traefik/reference/routing-configuration/other-providers/docker/).
+
+After completing any proxy tab, verify both the local upstream and public HTTPS URL:
+
+```text
+curl --fail http://127.0.0.1:3000/
+curl --fail https://editor.example.com/
+curl --fail http://127.0.0.1:8085/healthz
+curl --fail https://schemas.example.com/healthz
+```
+
+Run only the checks for installed services. Open the public editor in a browser, create a small test project, and export it. The schema health endpoint should print `ok`. Do not indefinitely cache editor HTML; hashed static assets can use their normal immutable cache headers.
 
 ## Operate, update, and roll back
 

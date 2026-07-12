@@ -1,9 +1,14 @@
 {
   "approvedExternalHosts": [
+    "caddyserver.com",
+    "certbot.eff.org",
+    "doc.traefik.io",
     "docs.appimage.org",
     "docs.voidlinux.org",
     "editor.baudbound.app",
     "github.com",
+    "nginx.org",
+    "nginxproxymanager.com",
     "packages.fedoraproject.org",
     "packages.gentoo.org",
     "raw.githubusercontent.com",
