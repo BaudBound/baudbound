@@ -9,34 +9,10 @@ function Get-ReleaseDownloadDirectory {
     return Join-Path ([IO.Path]::GetTempPath()) "baudbound-$script:Tag-$timestamp"
 }
 
-function Assert-ReleaseManifest {
+function Assert-ReleaseArtifacts {
     param([Parameter(Mandatory)][string]$Directory)
-    $manifestPath = Join-Path $Directory "latest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw "The draft release does not contain latest.json."
-    }
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-    if ($manifest.version -ne $Version) {
-        throw "latest.json version '$($manifest.version)' does not match '$Version'."
-    }
-    $platforms = @($manifest.platforms.PSObject.Properties)
-    if ($platforms.Count -lt 2) {
-        throw "latest.json must contain Windows and Linux updater platforms."
-    }
-    foreach ($platform in $platforms) {
-        if (-not $platform.Value.url -or -not $platform.Value.signature) {
-            throw "Updater platform '$($platform.Name)' is missing its URL or signature."
-        }
-        $uri = $null
-        $validUri = [Uri]::TryCreate([string]$platform.Value.url, [UriKind]::Absolute, [ref]$uri)
-        if (-not $validUri -or $uri.Scheme -ne "https") {
-            throw "Updater platform '$($platform.Name)' does not use an absolute HTTPS URL."
-        }
-    }
-    $platformNames = $platforms.Name
-    if (-not ($platformNames -match "windows") -or -not ($platformNames -match "linux")) {
-        throw "latest.json requires Windows and Linux entries. Found: $($platformNames -join ', ')."
-    }
+    $validator = Join-Path $script:RepositoryRoot "apps/baudbound/scripts/verify-release-assets.mjs"
+    Invoke-External "node" @($validator, $Directory, $script:Tag, "NATroutter/BaudBound")
 }
 
 function Inspect-DraftRelease {
@@ -65,12 +41,7 @@ function Inspect-DraftRelease {
 
     Write-Step "Downloading draft artifacts to $directory"
     Invoke-External "gh" @("release", "download", $script:Tag, "--dir", $directory)
-    foreach ($pattern in @("*.exe", "*.exe.sig", "*.AppImage", "*.AppImage.sig", "latest.json")) {
-        if (-not (Get-ChildItem -LiteralPath $directory -Filter $pattern -File)) {
-            throw "The draft release is missing an artifact matching '$pattern'."
-        }
-    }
-    Assert-ReleaseManifest -Directory $directory
+    Assert-ReleaseArtifacts -Directory $directory
 
     Write-Host "`nDraft metadata and updater artifacts passed structural validation." -ForegroundColor Green
     Get-ChildItem -LiteralPath $directory -File | Sort-Object Name | Format-Table Name, Length

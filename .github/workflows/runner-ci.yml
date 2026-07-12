@@ -12,8 +12,11 @@ on:
       - "crates/**"
       - "schemas/**"
       - "deny.toml"
+      - "tools/runner-release.ps1"
+      - "tools/lib/**"
       - ".github/dependabot.yml"
       - ".github/workflows/runner-ci.yml"
+      - ".github/workflows/runner-release.yml"
   push:
     branches:
       - master
@@ -25,8 +28,11 @@ on:
       - "crates/**"
       - "schemas/**"
       - "deny.toml"
+      - "tools/runner-release.ps1"
+      - "tools/lib/**"
       - ".github/dependabot.yml"
       - ".github/workflows/runner-ci.yml"
+      - ".github/workflows/runner-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -184,3 +190,6 @@ jobs:
 
       - name: Build desktop UI
         run: pnpm --dir apps/baudbound/ui build
+
+      - name: Test release artifact contracts
+        run: node --test apps/baudbound/scripts/*.test.mjs

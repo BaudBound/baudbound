@@ -67,6 +67,9 @@ jobs:
       - name: Verify release version
         run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
+      - name: Test release artifact contracts
+        run: node --test apps/baudbound/scripts/*.test.mjs
+
       - name: Check RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe
         with:
@@ -167,3 +170,39 @@ jobs:
           updaterJsonPreferNsis: true
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
+
+  verify-release:
+    name: Verify draft release
+    needs: package
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Verify draft metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" \
+            --json isDraft,isPrerelease \
+            --jq 'if (.isDraft == true and .isPrerelease == false) then empty else error("release must be a non-prerelease draft") end'
+
+      - name: Download draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/baudbound-release"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/baudbound-release"
+
+      - name: Verify updater manifest and artifacts
+        run: >-
+          node apps/baudbound/scripts/verify-release-assets.mjs
+          "$RUNNER_TEMP/baudbound-release"
+          "$GITHUB_REF_NAME"
+          "NATroutter/BaudBound"
