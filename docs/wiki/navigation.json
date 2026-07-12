@@ -34,9 +34,9 @@
     { "id": "security", "kind": "link", "label": "Security Model", "icon": "mdi-shield-check", "path": "security" },
     { "id": "security-approvals", "kind": "link", "label": "Approvals, Capabilities, and Risk", "icon": "mdi-shield-key", "path": "security/approvals-capabilities" },
 
-    { "id": "section-deployment", "kind": "header", "label": "Self-Hosting" },
-    { "id": "deployment", "kind": "link", "label": "Self-Hosting Guide", "icon": "mdi-server-network", "path": "self-hosting" },
-    { "id": "deployment-linux-service", "kind": "link", "label": "Linux Background Service", "icon": "mdi-linux", "path": "self-hosting/linux-background-service" },
+    { "id": "section-self-hosting", "kind": "header", "label": "Self-Hosting" },
+    { "id": "self-hosting", "kind": "link", "label": "Self-Hosting Guide", "icon": "mdi-server-network", "path": "self-hosting" },
+    { "id": "self-hosting-linux-service", "kind": "link", "label": "Linux Background Service", "icon": "mdi-linux", "path": "self-hosting/linux-background-service" },
 
     { "id": "section-developers", "kind": "header", "label": "Developers" },
     { "id": "developers", "kind": "link", "label": "Developer Overview", "icon": "mdi-code-braces", "path": "developers" },
