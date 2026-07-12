@@ -75,7 +75,7 @@ baudbound inspect PATH_TO_PACKAGE
 baudbound inspect PATH_TO_PACKAGE --json
 ```
 
-`validate` checks whether the package can be loaded and accepted by the runner. `inspect` prints package metadata and archive entries. To inspect an installed script instead, use `baudbound script inspect`.
+`baudbound validate` checks whether the package can be loaded and accepted by the runner. `baudbound inspect` prints package metadata and archive entries. To inspect an installed script instead, use `baudbound script inspect`.
 
 ## Script commands
 
@@ -85,28 +85,22 @@ An installed script can normally be identified by its manifest ID or installed n
 
 | Command | Behavior |
 | --- | --- |
-| `script import PACKAGE` | Validates and installs a new `.bbs` package. |
-| `script update PACKAGE` | Replaces the installed package with a new package carrying the same manifest ID. |
-| `script list [--json]` | Lists installed scripts. |
-| `script status [--json]` | Shows health across installed scripts, including loadability and approval state. |
-| `script inspect SCRIPT [--json]` | Shows one installed script's manifest, nodes, access declarations, integrity, and state. |
-| `script enable SCRIPT` | Allows the background service to register the script's listeners. |
-| `script disable SCRIPT` | Stops background registration without removing the package. |
-| `script remove SCRIPT` | Removes the installed script. |
-
-Use the full command prefix, for example:
-
-```text
-baudbound script inspect my-automation --json
-```
+| `baudbound script import PACKAGE` | Validates and installs a new `.bbs` package. |
+| `baudbound script update PACKAGE` | Replaces the installed package with a new package carrying the same manifest ID. |
+| `baudbound script list [--json]` | Lists installed scripts. |
+| `baudbound script status [--json]` | Shows health across installed scripts, including loadability and approval state. |
+| `baudbound script inspect SCRIPT [--json]` | Shows one installed script's manifest, nodes, access declarations, integrity, and state. |
+| `baudbound script enable SCRIPT` | Allows the background service to register the script's listeners. |
+| `baudbound script disable SCRIPT` | Stops background registration without removing the package. |
+| `baudbound script remove SCRIPT` | Removes the installed script. |
 
 ### Approval
 
 | Command | Behavior |
 | --- | --- |
-| `script approval SCRIPT [--json]` | Shows whether approval matches the installed package revision. |
-| `script approve SCRIPT` | Approves the current package hash and declared access. |
-| `script revoke-approval SCRIPT` | Removes the current approval. |
+| `baudbound script approval SCRIPT [--json]` | Shows whether approval matches the installed package revision. |
+| `baudbound script approve SCRIPT` | Approves the current package hash and declared access. |
+| `baudbound script revoke-approval SCRIPT` | Removes the current approval. |
 
 Updating package content invalidates its previous approval.
 
@@ -118,7 +112,7 @@ baudbound script run SCRIPT [--trigger TRIGGER] [--payload-json JSON]
 baudbound script dispatch-trigger SCRIPT TRIGGER [--payload-json JSON]
 ```
 
-`script triggers` lists registered triggers for all installed scripts or one selected script. `script run` uses the script's manual trigger unless `--trigger` selects another trigger node ID. `dispatch-trigger` always requires the trigger node ID.
+`baudbound script triggers` lists registered triggers for all installed scripts or one selected script. `baudbound script run` uses the script's manual trigger unless `--trigger` selects another trigger node ID. `baudbound script dispatch-trigger` always requires the trigger node ID.
 
 `--payload-json` must contain valid JSON. Its value is exposed as trigger output data for the run. Shell quoting rules apply; in PowerShell, a payload can be passed as:
 
@@ -140,7 +134,7 @@ Without filters, this prints the 20 most recent stored runs. `--script` selects 
 baudbound serve [OPTIONS]
 ```
 
-Without overrides, `serve` uses `config.toml`, loads enabled and approved scripts, and remains active for listener-based triggers.
+Without overrides, `baudbound serve` uses `config.toml`, loads enabled and approved scripts, and remains active for listener-based triggers.
 
 | Option | Behavior |
 | --- | --- |
@@ -166,9 +160,9 @@ Command-line overrides apply to that service process only and do not rewrite `co
 
 | Command | Behavior |
 | --- | --- |
-| `hotkey list [--json]` | Lists enabled hotkey trigger expressions. |
-| `hotkey dispatch KEY [--json]` | Dispatches one expression, such as `Ctrl+Alt+B`, to matching enabled scripts. |
-| `hotkey listen --stdin [--json]` | Reads newline-delimited expressions from standard input and dispatches each one. |
+| `baudbound hotkey list [--json]` | Lists enabled hotkey trigger expressions. |
+| `baudbound hotkey dispatch KEY [--json]` | Dispatches one expression, such as `Ctrl+Alt+B`, to matching enabled scripts. |
+| `baudbound hotkey listen --stdin [--json]` | Reads newline-delimited expressions from standard input and dispatches each one. |
 
 The CLI `listen` command currently requires `--stdin`; it does not install a native operating-system hotkey hook. With `--json`, it prints one JSON object per input event.
 
@@ -176,10 +170,10 @@ The CLI `listen` command currently requires `--stdin`; it does not install a nat
 
 | Command | Behavior |
 | --- | --- |
-| `secret generate-key` | Prints a new `BAUDBOUND_SECRET_KEY` assignment for headless secret encryption. |
-| `secret list SCRIPT [--json]` | Lists declared secret names, types, requirements, and configured state without values. |
-| `secret set SCRIPT NAME` | Prompts securely for a declared secret value. |
-| `secret remove SCRIPT NAME` | Removes the configured value. |
+| `baudbound secret generate-key` | Prints a new `BAUDBOUND_SECRET_KEY` assignment for headless secret encryption. |
+| `baudbound secret list SCRIPT [--json]` | Lists declared secret names, types, requirements, and configured state without values. |
+| `baudbound secret set SCRIPT NAME` | Prompts securely for a declared secret value. |
+| `baudbound secret remove SCRIPT NAME` | Removes the configured value. |
 
 Treat generated keys as credentials and do not store them in source control or command history. See [Secrets](secrets.md) for desktop and headless storage.
 
@@ -189,4 +183,4 @@ Treat generated keys as credentials and do not store them in source control or c
 
 Validation, configuration, storage, policy, approval, secret, and execution failures also return non-zero. Use `baudbound COMMAND --help` to confirm syntax for the installed runner version.
 
-Use [Script Management](script-management.md) for lifecycle procedures, [Background Service and Triggers](service-triggers.md) for `serve`, [Secrets](secrets.md) for key handling, and [Runs, Logs, and Troubleshooting](runs-logs-troubleshooting.md) when syntax is accepted but an operation is rejected.
+Use [Script Management](script-management.md) for lifecycle procedures, [Background Service and Triggers](service-triggers.md) for `baudbound serve`, [Secrets](secrets.md) for key handling, and [Runs, Logs, and Troubleshooting](runs-logs-troubleshooting.md) when syntax is accepted but an operation is rejected.

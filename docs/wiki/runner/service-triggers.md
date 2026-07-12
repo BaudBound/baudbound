@@ -90,7 +90,7 @@ Applications can produce several OS events for one save. Workflows should be ide
 - **Payload:** captured `key`.
 - **Failure:** invalid expression, conflicting/unsupported combination, absent desktop session, or native hook unavailable.
 
-The CLI `hotkey dispatch` and `hotkey listen --stdin` commands exercise the same trigger-dispatch path for testing; stdin is not a permanent OS hotkey provider.
+The CLI `baudbound hotkey dispatch` and `baudbound hotkey listen --stdin` commands exercise the same trigger-dispatch path for testing; stdin is not a permanent OS hotkey provider.
 
 ## Serial Input
 

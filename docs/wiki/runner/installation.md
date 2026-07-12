@@ -81,7 +81,7 @@ AppImages are portable executables and are not installed through the system pack
 
 ## First launch
 
-The first launch creates the runner home and a default `config.toml` automatically. You do not need to run `config init` for a normal desktop installation.
+The first launch creates the runner home and a default `config.toml` automatically. You do not need to run `baudbound config init` for a normal desktop installation.
 
 Open **Doctor** in the desktop navigation. A successful check confirms that the configuration and runner storage are accessible and shows which native actions the current machine supports.
 

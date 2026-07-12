@@ -7,7 +7,7 @@ tags: [runner, scripts, getting-started]
 
 The desktop Scripts view and `baudbound script` commands operate on the same installed scripts.
 
-In the commands below, `SCRIPT` means either the script name shown by `script list` or its manifest ID. `PACKAGE` means the path to an exported `.bbs` file. Do not type these placeholders literally.
+In the commands below, `SCRIPT` means either the script name shown by `baudbound script list` or its manifest ID. `PACKAGE` means the path to an exported `.bbs` file. Do not type these placeholders literally.
 
 For normal desktop use, open **Scripts** to perform these operations without entering commands. Use the CLI examples when operating a headless runner or diagnosing a problem.
 
@@ -47,7 +47,7 @@ Import validates the archive, manifest, executable graph, node configuration, in
 
 The runner stages validation before durable installation. Rejection leaves existing script records, package files, approvals, variables, secrets, and registrations unchanged.
 
-Display names are not guaranteed unique. The manifest ID is stable and unambiguous. When a name matches more than one installed script, use the ID printed by `script list` or inspection rather than guessing.
+Display names are not guaranteed unique. The manifest ID is stable and unambiguous. When a name matches more than one installed script, use the ID printed by `baudbound script list` or inspection rather than guessing.
 
 **Verified** means package content matches its integrity information. **Not verified** means the package lacks valid integrity proof or its bytes no longer match. Re-export an unverified package from the current editor instead of modifying its archive.
 
@@ -92,7 +92,7 @@ baudbound serve
 
 Enablement does not bypass validation or approval. A disabled script remains installed and inspectable but its schedule, webhook, serial, file, process, startup, WebSocket, and hotkey listeners are not loaded by the background runner.
 
-The foreground `serve` command is mainly for headless operation and testing. Desktop users can start the desktop-owned background runner from **Service** instead.
+The foreground `baudbound serve` command is mainly for headless operation and testing. Desktop users can start the desktop-owned background runner from **Service** instead.
 
 ## Update or remove
 
@@ -125,14 +125,14 @@ Removal deletes the installed package copy and script row. Database foreign-key 
 
 | CLI task | Scripts view |
 | --- | --- |
-| `script import PACKAGE` | **Import package** |
-| `script list` / `inspect` | Script row and expandable details |
-| `script approve` | Approval review dialog |
-| `script enable` / `disable` | Row action menu |
-| `script run` | **Run** button |
-| `script update PACKAGE` | **Update package** action |
-| `script revoke-approval` | Revoke approval action |
-| `script remove` | Remove action and confirmation dialog |
+| `baudbound script import PACKAGE` | **Import package** |
+| `baudbound script list` / `baudbound script inspect SCRIPT` | Script row and expandable details |
+| `baudbound script approve SCRIPT` | Approval review dialog |
+| `baudbound script enable SCRIPT` / `baudbound script disable SCRIPT` | Row action menu |
+| `baudbound script run SCRIPT` | **Run** button |
+| `baudbound script update PACKAGE` | **Update package** action |
+| `baudbound script revoke-approval SCRIPT` | Revoke approval action |
+| `baudbound script remove SCRIPT` | Remove action and confirmation dialog |
 
 ## Recovery links
 

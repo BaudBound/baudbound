@@ -53,8 +53,8 @@ Use `--json` only on commands that document it when collecting structured diagno
 | Symptom | First check | Then inspect |
 | --- | --- | --- |
 | Import rejected | `baudbound validate PACKAGE` | Package format, target, version, graph, declarations |
-| Script needs attention | Scripts or `script status` | Hash, approval, secrets, compatibility, enablement |
-| Manual run rejected | `script inspect` | Manual trigger, approval, policy, target, secrets |
+| Script needs attention | Scripts or `baudbound script status` | Hash, approval, secrets, compatibility, enablement |
+| Manual run rejected | `baudbound script inspect` | Manual trigger, approval, policy, target, secrets |
 | No automatic event | Triggers and Service | Script enabled, registration, family toggle, OS prerequisite |
 | Run failed at a node | Runs and Logs | Node config, resolved variables, native error, failure branch |
 | Serial disconnected | Devices | Port access, protocol, USB identity, ambiguity |
@@ -79,9 +79,9 @@ Review and approve the new revision after the status reports a valid package has
 
 ### Script will not run
 
-Read every problem reported by `script inspect`. A run requires a valid installed package, compatible target, current approval, allowed policy, all required secrets, and a usable trigger. A direct manual run also needs a Manual Trigger unless `--trigger TRIGGER` explicitly selects another valid trigger node.
+Read every problem reported by `baudbound script inspect`. A run requires a valid installed package, compatible target, current approval, allowed policy, all required secrets, and a usable trigger. A direct manual run also needs a Manual Trigger unless `--trigger TRIGGER` explicitly selects another valid trigger node.
 
-Enablement controls long-lived trigger registration. It is not required for a direct `script run`, but it is required for schedules, listeners, watchers, startup registration, and serial readers.
+Enablement controls long-lived trigger registration. It is not required for a direct `baudbound script run`, but it is required for schedules, listeners, watchers, startup registration, and serial readers.
 
 ### Approval became stale
 
@@ -92,7 +92,7 @@ An update changed the package hash. Inspect the new access declarations and grap
 Confirm all of these:
 
 1. the script is enabled, valid, compatible, approved, and secret-ready;
-2. its trigger appears in **Triggers** or `script triggers SCRIPT`;
+2. its trigger appears in **Triggers** or `baudbound script triggers SCRIPT`;
 3. the trigger family is enabled in `config.toml`;
 4. one runner service owns the runner home and listener port;
 5. the watched path, process, serial device, hotkey session, or network route exists; and
@@ -122,7 +122,7 @@ Check system time, HTTPS access to the GitHub release endpoint, availability of 
 
 ## Collect a useful support report
 
-Include the runner version, operating system, target runtime, command or UI action, script ID/name, run ID, trigger/node ID, and exact redacted error. Include relevant `doctor --json`, `status --json`, or `script inspect --json` output only after removing usernames, private paths, network tokens, serial numbers, and other sensitive values.
+Include the runner version, operating system, target runtime, command or UI action, script ID/name, run ID, trigger/node ID, and exact redacted error. Include relevant `baudbound doctor --json`, `baudbound status --json`, or `baudbound script inspect SCRIPT --json` output only after removing usernames, private paths, network tokens, serial numbers, and other sensitive values.
 
 Do not attach `.bbs` packages, `runner.db`, `config.toml`, environment files, or secret keys to a public report unless you have inspected and intentionally sanitized them.
 

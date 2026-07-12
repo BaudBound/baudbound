@@ -56,7 +56,7 @@ Clap owns command syntax and typed options. Tauri commands use serializable requ
 
 ## Concurrency and lifecycle
 
-Long-lived services must support cancellation, bounded work, graceful listener shutdown, and deterministic resource ownership. One runner home can be accessed by independent CLI processes through SQLite, while the active `serve` process receives live reload/control signals through authenticated loopback IPC. Tauri is the desktop UI bridge, not the service transport for headless clients.
+Long-lived services must support cancellation, bounded work, graceful listener shutdown, and deterministic resource ownership. One runner home can be accessed by independent CLI processes through SQLite, while the active `baudbound serve` process receives live reload/control signals through authenticated loopback IPC. Tauri is the desktop UI bridge, not the service transport for headless clients.
 
 Avoid holding database transactions across native calls or network waits. Trigger registration reload should replace changed registrations without duplicating active listeners. Errors in one script or registration must not terminate unrelated services.
 

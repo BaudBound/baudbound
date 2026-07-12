@@ -40,7 +40,7 @@ Print a complete current template:
 baudbound config print
 ```
 
-Edit the path from `config path` under the account that runs BaudBound. Restart the background service after changes. `config init` exists for explicit provisioning, but normal startup already initializes a missing file.
+Edit the path from `baudbound config path` under the account that runs BaudBound. Restart the background service after changes. `baudbound config init` exists for explicit provisioning, but normal startup already initializes a missing file.
 
 ## Runner settings
 

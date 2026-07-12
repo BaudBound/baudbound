@@ -136,7 +136,7 @@ baudbound script approve SCRIPT
 baudbound script enable SCRIPT
 ```
 
-Replace `SCRIPT` with the script name or ID shown by `script list`. The same commands continue to work after the background service is enabled.
+Replace `SCRIPT` with the script name or ID shown by `baudbound script list`. The same commands continue to work after the background service is enabled.
 
 ### Optional secret key
 
@@ -156,7 +156,7 @@ touch "$HOME/.config/baudbound/runner.env"
 chmod 0600 "$HOME/.config/baudbound/runner.env"
 ```
 
-Paste the complete `BAUDBOUND_SECRET_KEY=...` assignment printed by `secret generate-key` into `~/.config/baudbound/runner.env`. The service definitions below load this file when it exists.
+Paste the complete `BAUDBOUND_SECRET_KEY=...` assignment printed by `baudbound secret generate-key` into `~/.config/baudbound/runner.env`. The service definitions below load this file when it exists.
 
 Commands that read or change encrypted secrets must receive the same key. Load it into the current terminal before running those commands:
 
