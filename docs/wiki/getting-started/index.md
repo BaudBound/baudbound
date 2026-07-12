@@ -68,7 +68,21 @@ If verification fails, do not export yet. Confirm that both nodes are connected 
 
 Your browser downloads a file ending in `.bbs`. The exact filename is shown by the browser. Keep the file intact: the runner records a hash of the imported package, and later file changes invalidate that installed revision.
 
-## 5. Import and inspect
+## 5. Install or open BaudBound
+
+The next steps use the BaudBound runner. If it is not installed yet, follow [Installation and Updates](../runner/installation.md), then return to this step.
+
+On Windows, open **BaudBound** from the Start menu and confirm that the Dashboard appears.
+
+On Linux, open a terminal and confirm the runner is available:
+
+```text
+baudbound --version
+```
+
+The command should print the installed version. Run `baudbound` to open the desktop application.
+
+## 6. Import and inspect
 
 ### Desktop application
 
@@ -97,7 +111,7 @@ Inspect the package before approving it:
 baudbound script inspect SCRIPT
 ```
 
-## 6. Approve and run
+## 7. Approve and run
 
 Approval accepts the exact imported package hash and its declared access. An updated package must be reviewed again.
 
