@@ -29,7 +29,7 @@ keyring.workspace = true
 notify-rust = "4.11.7"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 rpassword.workspace = true
-rodio = "0.17.3"
+rodio = "0.22.2"
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
