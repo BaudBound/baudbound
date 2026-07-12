@@ -11,7 +11,7 @@ BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is 
 
 Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
-## Quick install or update {.tabset}
+## Recommended automatic install or update {.tabset}
 
 These commands install BaudBound when it is missing and update it when an older version is installed. The downloaded release file is checked against the SHA-256 digest published by GitHub before it is opened or installed.
 
@@ -39,7 +39,11 @@ Quit the desktop application or stop `baudbound serve` before updating. The scri
 
 Use the manual instructions below when you prefer to download and place release files yourself.
 
-## Manual platform installation {.tabset}
+---
+
+## Manual installation alternative {.tabset}
+
+Use this section when you do not want to run the hosted installation script. These steps download and install the same official GitHub release files manually.
 
 ### Windows
 
