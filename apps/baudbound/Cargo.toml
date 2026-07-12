@@ -57,7 +57,7 @@ tempfile.workspace = true
 zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-enigo = "0.2.1"
+enigo = "0.6.1"
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
