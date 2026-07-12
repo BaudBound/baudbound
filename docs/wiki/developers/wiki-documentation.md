@@ -5,7 +5,7 @@ tags: [developers, documentation, wiki]
 ---
 # Wiki Documentation
 
-The repository is the source of truth for the public BaudBound wiki. Contributors edit Markdown under `docs/wiki/`; the publisher validates it, converts repository links to Wiki.js paths, reconciles managed pages, and updates the static navigation.
+The repository is the source of truth for the public BaudBound wiki. Contributors edit Markdown under `docs/wiki/`. The publisher validates it, converts repository links to Wiki.js paths, reconciles managed pages, and updates the static navigation.
 
 Do not make an important documentation fix only in the Wiki.js editor. A later repository publication will replace managed page content with the committed source.
 
@@ -15,14 +15,14 @@ Assume the reader has never used BaudBound and may not know the operating-system
 
 Every procedure must state:
 
-1. what the procedure accomplishes;
-2. when the reader needs it and when they do not;
-3. prerequisites and supported platforms;
-4. where commands are run;
-5. which placeholders must be replaced;
-6. how to choose between alternatives;
-7. the expected successful result;
-8. what to inspect when a step fails; and
+1. What the procedure accomplishes.
+2. When the reader needs it and when they do not.
+3. Prerequisites and supported platforms.
+4. Where commands are run.
+5. Which placeholders must be replaced.
+6. How to choose between alternatives.
+7. The expected successful result.
+8. What to inspect when a step fails.
 9. the next relevant page.
 
 Use short sentences and one action per numbered step. Put commands in fenced code blocks. Prefer familiar file commands such as `mkdir`, `cp`, `mv`, `chmod`, and `chown` in beginner procedures. Do not hide decisions inside shell conditionals merely to shorten instructions.
@@ -79,7 +79,7 @@ Write internal links to repository Markdown files:
 
 The publisher verifies the target page and rewrites it to the managed Wiki.js path. Root-relative Wiki.js links are also accepted when they point to a managed page, but source-relative Markdown links are easier to review during file moves.
 
-External web links must use HTTPS; `mailto:` and `tel:` are accepted only for normal links, not images. Link to primary documentation for platform behavior, formats, and dependencies. Do not use a search-results page as a source.
+External web links must use HTTPS. `mailto:` and `tel:` are accepted only for normal links, not images. Link to primary documentation for platform behavior, formats, and dependencies. Do not use a search results page as a source.
 
 The publisher currently verifies that external links have valid syntax, but it does not guarantee that every remote server is reachable. Review important external links manually.
 
@@ -103,7 +103,9 @@ Windows instructions.
 Linux instructions.
 ```
 
-Do not use tabs when readers need to compare both values at once; use a table instead.
+Do not use tabs when readers need to compare both values at once. Use a table instead.
+
+Write in short, direct sentences. Do not join list items with semicolons. Avoid dash asides when a separate sentence is clearer. Keep punctuation required by commands, code, paths, and configuration exactly as written.
 
 ### Callouts
 
@@ -153,10 +155,10 @@ Each item has a stable kebab-case ID. Link items also require a label, managed p
 
 The publisher rejects:
 
-- duplicate navigation IDs;
-- missing or duplicate page links;
-- unknown item fields;
-- invalid icons or item kinds; and
+- Duplicate navigation IDs.
+- Missing or duplicate page links.
+- Unknown item fields.
+- Invalid icons or item kinds.
 - managed pages omitted from navigation.
 
 Changing an ID can cause unnecessary Wiki.js navigation replacement. Keep the existing ID when only a label or target title changes.
@@ -165,7 +167,7 @@ Changing an ID can cause unnecessary Wiki.js navigation replacement. Keep the ex
 
 The publisher adds `baudbound-docs` and `managed-by-git` tags. It updates or deletes only pages under that ownership contract.
 
-A matching unmanaged Wiki.js page is not overwritten unless explicit adoption is enabled for a reviewed run. Managed-page deletion has a safety limit; a larger reconciliation requires an explicit mass-delete option. The publisher reads remote navigation during preflight and updates page content before reconciling the static tree.
+A matching unmanaged Wiki.js page is not overwritten unless explicit adoption is enabled for a reviewed run. Managed page deletion has a safety limit. A larger reconciliation requires an explicit mass delete option. The publisher reads remote navigation during preflight and updates page content before reconciling the static tree.
 
 Dry-run publication calculates page and navigation changes without mutating Wiki.js. Use it when adopting pages, changing many paths, or reviewing a potentially destructive reconciliation.
 

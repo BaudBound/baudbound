@@ -11,11 +11,11 @@ This section is for operators who want to run the browser editor or public JSON 
 
 You need:
 
-- a server with Docker Engine and the Docker Compose plugin;
-- permission to create DNS records for the public hostname;
-- an HTTPS reverse proxy such as Nginx, Caddy, or Traefik; and
-- `curl` for local health checks; and
-- enough familiarity with the server to inspect container logs and firewall rules.
+- A server with Docker Engine and the Docker Compose plugin.
+- Permission to create DNS records for the public hostname.
+- An HTTPS reverse proxy such as Nginx, Caddy, or Traefik.
+- `curl` for local health checks.
+- Access to container logs and firewall settings on the server.
 
 The examples bind containers to `127.0.0.1`, so they are reachable only by software on the same server. The reverse proxy is responsible for public HTTPS access. Do not expose the container ports directly to the internet.
 
@@ -112,10 +112,10 @@ Schema documents are served as `application/schema+json` with `X-Content-Type-Op
 
 Complete one tab only. Every example uses these placeholder hostnames:
 
-- `editor.example.com` for the editor at port `3000`;
+- `editor.example.com` for the editor at port `3000`.
 - `schemas.example.com` for the schema host at port `8085` on the server or port `80` inside its container.
 
-Replace both names with real DNS names. Create their DNS records before requesting certificates, and make sure inbound TCP ports `80` and `443` reach the reverse proxy. Keep the Compose port bindings on `127.0.0.1`; they are useful for local health checks and should not be exposed publicly.
+Replace both names with real DNS names. Create their DNS records before requesting certificates. Make sure inbound TCP ports `80` and `443` reach the reverse proxy. Keep the Compose port bindings on `127.0.0.1`. They are useful for local health checks and should not be exposed publicly.
 
 If you are hosting only one service, configure only its hostname. Do not point both hostnames to the same upstream port.
 {.is-info}
@@ -220,7 +220,7 @@ networks:
     external: true
 ```
 
-The service may have a different name in your existing Compose file. Add `networks: [proxy]` to the service that runs Nginx Proxy Manager; do not create a second `app` service.
+The service may have a different name in your existing Compose file. Add `networks: [proxy]` to the service that runs Nginx Proxy Manager. Do not create a second `app` service.
 
 Add the same network to `/opt/baudbound-editor/compose.yaml`:
 
@@ -310,10 +310,10 @@ If Caddy itself runs in Docker, do not use these loopback upstreams. Attach Cadd
 
 This example uses Traefik's Docker provider. It assumes Traefik already has:
 
-- an HTTPS entrypoint named `websecure`;
-- an ACME certificate resolver named `letsencrypt`;
-- the Docker provider enabled with containers hidden by default; and
-- access to a shared external Docker network named `proxy`.
+- An HTTPS entrypoint named `websecure`.
+- An ACME certificate resolver named `letsencrypt`.
+- The Docker provider with containers hidden by default.
+- Access to a shared external Docker network named `proxy`.
 
 If your entrypoint, resolver, or network has a different name, update every matching label below. Create the network once when it does not already exist:
 
@@ -383,7 +383,7 @@ curl --fail http://127.0.0.1:8085/healthz
 curl --fail https://schemas.example.com/healthz
 ```
 
-Run only the checks for installed services. Open the public editor in a browser, create a small test project, and export it. The schema health endpoint should print `ok`. Do not indefinitely cache editor HTML; hashed static assets can use their normal immutable cache headers.
+Run only the checks for installed services. Open the public editor in a browser, create a small test project, and export it. The schema health endpoint should print `ok`. Do not indefinitely cache editor HTML. Hashed static assets can use their normal immutable cache headers.
 
 ## Operate, update, and roll back
 
@@ -413,7 +413,7 @@ Removal stops the selected container and removes its Compose-created network. Ru
 docker compose down
 ```
 
-After confirming the container is gone, remove the reverse-proxy host and DNS record. Deleting `/opt/baudbound-editor` or `/opt/baudbound-schemas` removes local Compose configuration; it does not delete editor projects stored in users' browsers. Do not use `docker compose down -v` as a habit when other revised deployments may add persistent volumes later.
+After confirming the container is gone, remove the reverse proxy host and DNS record. Deleting `/opt/baudbound-editor` or `/opt/baudbound-schemas` removes local Compose configuration. It does not delete editor projects stored in users' browsers. Do not use `docker compose down -v` as a habit because future deployments may add persistent volumes.
 
 ## Public verification checklist
 
@@ -425,4 +425,4 @@ After confirming the container is gone, remove the reverse-proxy host and DNS re
 - HTML is not cached indefinitely, and schema cache headers match the intended update policy.
 - Logs contain no private package data or proxy authorization credentials.
 
-To run scripts continuously on a headless Linux host, follow the dedicated [Linux Background Service](linux-background-service.md) guide.
+Running the runner continuously is separate from self-hosting these web services. See [Linux Background Service](../runner/linux-background-service.md).

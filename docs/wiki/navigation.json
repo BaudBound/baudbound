@@ -24,6 +24,7 @@
     { "id": "runner-cli", "kind": "link", "label": "CLI Reference", "icon": "mdi-console", "path": "runner/cli-reference" },
     { "id": "runner-config", "kind": "link", "label": "Configuration and Devices", "icon": "mdi-cog", "path": "runner/configuration" },
     { "id": "runner-service", "kind": "link", "label": "Service and Triggers", "icon": "mdi-server", "path": "runner/service-triggers" },
+    { "id": "runner-linux-service", "kind": "link", "label": "Linux Background Service", "icon": "mdi-linux", "path": "runner/linux-background-service" },
     { "id": "runner-network", "kind": "link", "label": "Webhooks and Network Access", "icon": "mdi-web", "path": "runner/network-listeners" },
     { "id": "runner-secrets", "kind": "link", "label": "Secrets", "icon": "mdi-key", "path": "runner/secrets" },
     { "id": "runner-storage", "kind": "link", "label": "Runs, Logs, and Troubleshooting", "icon": "mdi-history", "path": "runner/runs-logs-troubleshooting" },
@@ -36,7 +37,6 @@
 
     { "id": "section-self-hosting", "kind": "header", "label": "Self-Hosting" },
     { "id": "self-hosting", "kind": "link", "label": "Self-Hosting Guide", "icon": "mdi-server-network", "path": "self-hosting" },
-    { "id": "self-hosting-linux-service", "kind": "link", "label": "Linux Background Service", "icon": "mdi-linux", "path": "self-hosting/linux-background-service" },
 
     { "id": "section-developers", "kind": "header", "label": "Developers" },
     { "id": "developers", "kind": "link", "label": "Developer Overview", "icon": "mdi-code-braces", "path": "developers" },

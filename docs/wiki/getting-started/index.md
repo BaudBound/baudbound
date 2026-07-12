@@ -11,9 +11,9 @@ This guide builds a safe first workflow that writes `Hello from BaudBound` to th
 
 You need:
 
-- a current web browser;
-- access to the [public BaudBound editor](https://editor.baudbound.app/); and
-- a Windows or Linux machine on which you can install the runner.
+- A current web browser.
+- Access to the [public BaudBound editor](https://editor.baudbound.app/).
+- A Windows or Linux machine where you can install the runner.
 
 You do not need an account. Install the runner by following [Installation and Updates](../runner/installation.md), then return here. The runner creates its configuration and storage automatically on first launch.
 
@@ -78,7 +78,7 @@ Your browser downloads a file ending in `.bbs`. The exact filename is shown by t
 4. Find the new script in the list.
 5. Open its approval review and confirm that the package contains a Manual trigger and Log action with low risk.
 
-The script row shows the installed name and identity. Use that displayed name for later CLI commands; do not assume it is the same as the downloaded filename.
+The script row shows the installed name and identity. Use that displayed name for later CLI commands. It may differ from the downloaded filename.
 
 ### Command line
 
@@ -122,10 +122,10 @@ The latest successful run should contain `Hello from BaudBound`.
 
 Do not approve or run the package when:
 
-- editor verification reports a blocking failure;
-- import reports an integrity, schema, or compatibility error;
-- the approval review contains nodes, permissions, capabilities, or risk you did not expect; or
-- the package came from someone you do not trust and you have not reviewed its behavior.
+- Editor verification reports a blocking failure.
+- Import reports an integrity, schema, or compatibility error.
+- The approval review contains nodes, permissions, capabilities, or risk you did not expect.
+- The package came from someone you do not trust and you have not reviewed its behavior.
 
 Start with [Runs, Logs, and Troubleshooting](../runner/runs-logs-troubleshooting.md) if the expected result does not appear.
 

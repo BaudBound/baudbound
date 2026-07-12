@@ -66,7 +66,7 @@ The status badge and timestamp distinguish `running`, `stopping`, `failed`, and 
 
 Closing the window hides it to the system tray; it does not quit the application. Left-click the tray icon to restore the window. The tray menu can show the window, start, stop, or reload the background runner, or **Quit BaudBound**. Quit stops the background runner before exiting.
 
-The background runner does not become an operating-system service. It exists only while the BaudBound desktop process remains running. Headless machines should use [Linux Background Service](../self-hosting/linux-background-service.md).
+The background runner does not become an operating-system service. It exists only while the BaudBound desktop process remains running. Headless machines should use [Linux Background Service](linux-background-service.md).
 
 ## Security
 <!-- desktop-tab:security -->

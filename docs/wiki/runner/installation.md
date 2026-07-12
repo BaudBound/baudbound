@@ -72,12 +72,69 @@ baudbound
 
 The final command should open the Dashboard.
 
-If the AppImage reports a FUSE error, install the FUSE 2 compatibility package for the distribution. The [Linux Background Service](../self-hosting/linux-background-service.md) guide lists the correct package for Debian, Ubuntu, Fedora, and Arch.
+If the AppImage reports a FUSE error, use the matching distribution tab in [Linux FUSE packages](#linux-fuse-packages). If `baudbound --version` works, no additional FUSE package is needed.
 
 BaudBound does not currently publish `.deb` or `.rpm` packages. Compatibility depends on the host architecture, graphics session, and system libraries, so verify the AppImage on the intended machine before relying on it.
 
-AppImages are portable executables and are not installed through the system package database. For a persistent headless installation with distro-specific prerequisites, follow [Linux Background Service](../self-hosting/linux-background-service.md).
+AppImages are portable executables and are not installed through the system package database. To run BaudBound continuously without the desktop application, follow [Linux Background Service](linux-background-service.md).
 {.is-info}
+
+## Linux FUSE packages {.tabset}
+
+Use this section only when the AppImage reports a FUSE error.
+
+### Debian and Ubuntu
+
+Update package metadata, then check which FUSE 2 runtime is available:
+
+```text
+sudo apt update
+apt-cache policy libfuse2t64 libfuse2
+```
+
+Install the package whose `Candidate` line shows a version instead of `(none)`. Ubuntu 24.04 and newer normally use:
+
+```text
+sudo apt install -y libfuse2t64
+```
+
+Debian and older Ubuntu releases normally use:
+
+```text
+sudo apt install -y libfuse2
+```
+
+Install only one. If neither package has a candidate, confirm that the standard distribution repositories are enabled.
+
+### Fedora
+
+```text
+sudo dnf install -y fuse-libs
+```
+
+### Arch Linux
+
+Perform a full system upgrade while installing FUSE 2 because Arch does not support partial upgrades:
+
+```text
+sudo pacman -Syu --needed fuse2
+```
+
+### Gentoo
+
+```text
+sudo emerge --ask sys-fs/fuse:0
+```
+
+### Void Linux
+
+The AppImage supports Void's 64-bit glibc edition, not its musl edition:
+
+```text
+sudo xbps-install -S fuse
+```
+
+These package names follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) and the distributions' package documentation.
 
 ## First launch
 
@@ -105,7 +162,7 @@ This is the recommended update method for desktop users. No terminal commands ar
 4. Choose **Restart and install**.
 5. After BaudBound opens again, confirm the new version in the application.
 
-On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root`. When the AppImage is also running as a headless service, stop that service and follow the [headless update procedure](../self-hosting/linux-background-service.md#updating-the-headless-runner) instead of updating through the desktop dialog.
+On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root`. A headless service must be stopped before replacing the AppImage manually.
 
 ### Manual Linux fallback
 
@@ -116,7 +173,9 @@ Use these steps only when the update dialog cannot complete the update.
 - **Desktop application:** Open **Service** and stop the desktop background runner. Then open the tray menu and choose **Quit**. Closing only the window is not enough because BaudBound normally remains in the tray.
 - **One-time CLI command:** Wait for the command to finish before updating.
 - **`baudbound serve` in a terminal:** Press `Ctrl+C` in that terminal and wait for the process to exit.
-- **Service-manager installation:** Do not use this desktop/CLI fallback. Follow [Updating the headless runner](../self-hosting/linux-background-service.md#updating-the-headless-runner) so systemd, OpenRC, or runit is stopped and restarted correctly.
+- **systemd service:** Run `sudo systemctl stop baudbound` and confirm `sudo systemctl status baudbound` reports it as inactive.
+- **OpenRC service:** Run `sudo rc-service baudbound stop` and confirm `sudo rc-service baudbound status` reports it as stopped.
+- **runit service:** Run `sudo sv down baudbound` and confirm `sudo sv status baudbound` reports it as down.
 
 2. Open a terminal and confirm that no BaudBound process remains:
 
@@ -174,13 +233,22 @@ cp "$HOME/Downloads/BaudBound.AppImage" "$HOME/.local/opt/baudbound/BaudBound.Ap
 chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 ```
 
-6. Verify the installed version, then launch BaudBound:
+6. Verify the installed version:
 
 ```text
 baudbound --version
-baudbound
 ```
 
-The `baudbound` symlink does not change because it still points to the stable installed path. Manual replacement does not use Tauri's automatic signature-verification flow, so download only from the official GitHub Releases page. Headless operators should use the separate procedure in [Linux Background Service](../self-hosting/linux-background-service.md).
+The command must print the intended new version. The `baudbound` symlink does not change because it still points to the stable installed path.
+
+7. Start BaudBound the same way it was running before the update:
+
+- **Desktop application:** Run `baudbound`.
+- **Foreground service:** Run `baudbound serve`.
+- **systemd service:** Run `sudo systemctl start baudbound` and check `sudo systemctl status baudbound`.
+- **OpenRC service:** Run `sudo rc-service baudbound start` and check `sudo rc-service baudbound status`.
+- **runit service:** Run `sudo sv up baudbound` and check `sudo sv status baudbound`.
+
+Manual replacement does not use Tauri's automatic signature-verification flow, so download only from the official GitHub Releases page. See [Linux Background Service](linux-background-service.md) for service setup and control commands.
 
 Continue with [Script Management](script-management.md).

@@ -24,7 +24,7 @@
     "runner/service-triggers", "runner/network-listeners", "runner/secrets",
     "runner/runs-logs-troubleshooting", "runner/storage-backups", "runner/cli-reference",
     "security", "security/approvals-capabilities", "package-format", "self-hosting",
-    "self-hosting/linux-background-service", "developers", "developers/setup",
+    "runner/linux-background-service", "developers", "developers/setup",
     "developers/architecture", "developers/editor", "developers/runner",
     "developers/testing-ci", "developers/releases", "developers/wiki-documentation"
   ],

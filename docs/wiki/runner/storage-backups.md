@@ -50,7 +50,7 @@ Stop every BaudBound process that uses the runner home before copying it. This c
 
 For the desktop application, stop the background runner and choose **Quit BaudBound** from the tray menu. Confirm that the process has exited.
 
-For a headless service, use the service manager's stop command and verify that status is inactive. See [Linux Background Service](../self-hosting/linux-background-service.md).
+For a headless service, use the service manager's stop command and verify that status is inactive. See [Linux Background Service](linux-background-service.md).
 
 ### 2. Copy the complete directory {.tabset}
 

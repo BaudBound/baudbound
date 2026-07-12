@@ -52,7 +52,7 @@ Use [Desktop App Guide](desktop-app.md) for every tab and control.
 
 `baudbound serve` stays in the foreground and handles signals and authenticated local control requests. On a server, the operator supplies a service-manager definition and environment rather than asking the desktop UI to manage an external service.
 
-Follow [Linux Background Service](../self-hosting/linux-background-service.md) for systemd, OpenRC, and runit examples.
+Follow [Linux Background Service](linux-background-service.md) for systemd, OpenRC, and runit examples.
 
 ## Continue by task
 
