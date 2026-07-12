@@ -13,8 +13,8 @@ BaudBound can accept HTTP webhook requests and WebSocket messages while a backgr
 | --- | --- |
 | **Bind address** | Local interface on which the runner accepts connections |
 | **Port** | TCP port owned by the listener process |
-| `127.0.0.1` | IPv4 loopback; reachable only from the same machine |
-| `0.0.0.0` | Every IPv4 interface; potentially reachable from a LAN or wider network |
+| `127.0.0.1` | IPv4 loopback. Reachable only from the same machine. |
+| `0.0.0.0` | Every IPv4 interface. Potentially reachable from a LAN or wider network. |
 | **Reverse proxy** | Separate server that receives client traffic and forwards approved requests to the runner |
 
 Defaults are intentionally local:
@@ -59,7 +59,7 @@ The trigger output includes:
 | `json` | Parsed JSON object when the body is valid JSON |
 | `response` | Immediate or waiting response state |
 
-Requests larger than `max_body_bytes` are rejected before workflow execution. Invalid JSON does not remove the raw `body`; it leaves parsed JSON unavailable or empty according to runtime handling.
+Requests larger than `max_body_bytes` are rejected before workflow execution. Invalid JSON does not remove the raw `body`. It leaves parsed JSON unavailable or empty according to runtime handling.
 
 ### Immediate response
 
@@ -129,34 +129,184 @@ Type a text message and press Enter. Confirm that one run appears with the same 
 
 Do not install a test dependency on a production server solely to prove the listener. A controlled workstation can test through the intended proxy path instead.
 
-## Reverse proxy pattern
+## Reverse proxy {.tabset}
 
-A reverse proxy can terminate TLS and restrict requests before forwarding them to a loopback listener. It is not authentication by itself.
+Use two public hostnames so webhook and WebSocket paths cannot collide:
 
-This Nginx fragment is intentionally partial and belongs inside an already secured virtual host:
+- `hooks.example.com` forwards to `127.0.0.1:43891`.
+- `socket.example.com` forwards to `127.0.0.1:43892`.
+
+Replace both names with real DNS names. Complete one proxy tab. TLS does not authenticate callers, so add the access control, source restrictions, and rate limits required by your deployment.
+
+### Nginx
+
+This example assumes Nginx runs directly on the runner machine. Add each block to its secured HTTPS virtual host.
+
+Webhook host:
 
 ```nginx
-location /events/ {
+location / {
     proxy_pass http://127.0.0.1:43891;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     client_max_body_size 1m;
 }
 ```
 
-For WebSockets, the proxy must also forward HTTP upgrade headers and use HTTP/1.1. Keep the runner on loopback unless direct LAN binding is an intentional and reviewed design.
+WebSocket host:
 
-Before external exposure, decide:
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:43892;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
 
-- how clients authenticate;
-- which routes and methods are allowed;
-- where TLS certificates terminate;
-- which source networks the firewall permits;
-- request and connection rate limits;
-- body and message limits;
-- timeout behavior; and
-- which logs can contain untrusted request data.
+Test and reload Nginx:
+
+```text
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The test must succeed. See Nginx's official [`ngx_http_proxy_module` reference](https://nginx.org/en/docs/http/ngx_http_proxy_module.html) for proxy and WebSocket behavior.
+
+### Nginx Proxy Manager
+
+Nginx Proxy Manager normally runs in Docker. A container cannot reach the host runner through `127.0.0.1`.
+
+Find the Docker host gateway:
+
+```text
+docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'
+```
+
+The command should print one private IP address, commonly `172.17.0.1`. Set both runner bind addresses to that exact value in `config.toml`, then restart BaudBound. Do not use `0.0.0.0` for this setup.
+
+Add this mapping to the Nginx Proxy Manager application service in its Compose file:
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+Recreate Nginx Proxy Manager with `docker compose up -d`. Create two entries under **Hosts > Proxy Hosts**.
+
+Webhook host:
+
+| Field | Value |
+| --- | --- |
+| Domain Names | `hooks.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `host.docker.internal` |
+| Forward Port | `43891` |
+
+WebSocket host:
+
+| Field | Value |
+| --- | --- |
+| Domain Names | `socket.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | `host.docker.internal` |
+| Forward Port | `43892` |
+| Websockets Support | Enabled |
+
+For both hosts, request a certificate in the **SSL** tab and enable **Force SSL**. The Docker mapping is documented in [Docker Compose networking](https://docs.docker.com/compose/how-tos/networking/). Proxy Host and certificate setup are documented in the [Nginx Proxy Manager guide](https://nginxproxymanager.com/guide/).
+
+### Caddy
+
+This example assumes Caddy runs directly on the runner machine. Add both sites to `/etc/caddy/Caddyfile`:
+
+```caddyfile
+hooks.example.com {
+    reverse_proxy 127.0.0.1:43891
+}
+
+socket.example.com {
+    reverse_proxy 127.0.0.1:43892
+}
+```
+
+Caddy handles WebSocket upgrades and standard forwarded headers automatically. Validate and reload the configuration:
+
+```text
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The validation must succeed. See Caddy's official [`reverse_proxy` documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
+If Caddy runs in Docker, use the Docker host gateway preparation from the Nginx Proxy Manager tab. Replace both `127.0.0.1` upstreams with `host.docker.internal`.
+
+### Traefik
+
+This example uses Traefik's file provider. It assumes an HTTPS entrypoint named `websecure` and an ACME certificate resolver named `letsencrypt`.
+
+When Traefik runs in Docker, add this mapping to its Compose service and recreate the container:
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+Follow the Nginx Proxy Manager tab to find the Docker host gateway. Set both runner bind addresses to that private IP and restart BaudBound.
+
+Create a dynamic configuration file in the directory watched by Traefik's file provider:
+
+```yaml
+http:
+  routers:
+    baudbound-hooks:
+      rule: "Host(`hooks.example.com`)"
+      entryPoints:
+        - websecure
+      service: baudbound-hooks
+      tls:
+        certResolver: letsencrypt
+    baudbound-socket:
+      rule: "Host(`socket.example.com`)"
+      entryPoints:
+        - websecure
+      service: baudbound-socket
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    baudbound-hooks:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:43891"
+    baudbound-socket:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:43892"
+```
+
+Traefik watches the file and supports WebSocket forwarding without a separate upgrade middleware. If Traefik runs directly on the host, replace `host.docker.internal` with `127.0.0.1` and keep the runner listeners on loopback. See Traefik's official [file provider documentation](https://doc.traefik.io/traefik/reference/dynamic-configuration/file/).
+
+After completing a proxy tab, test the public routes:
+
+```text
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"message":"hello"}' \
+  https://hooks.example.com/events/tutorial
+npx wscat --connect wss://socket.example.com/events/messages
+```
+
+Use the method and path configured by the actual trigger. Confirm the related run and connection in BaudBound.
+
+Before exposing either listener, decide how clients authenticate. Restrict source networks with the firewall or proxy. Set request and connection rate limits. Review body, message, and timeout limits. Keep untrusted request data out of sensitive logs.
 
 ## Failure guide
 
