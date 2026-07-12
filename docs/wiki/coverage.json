@@ -18,7 +18,7 @@
     "www.freedesktop.org"
   ],
   "requiredPages": [
-    "home", "getting-started", "tutorials", "concepts", "editor",
+    "home", "getting-started", "tutorials", "concepts", "licensing", "editor",
     "editor/projects-assets-export", "editor/node-reference", "editor/variables",
     "editor/simulation", "editor/target-runtimes", "runner", "runner/installation",
     "runner/desktop-app", "runner/script-management", "runner/configuration",

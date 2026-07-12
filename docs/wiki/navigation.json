@@ -7,6 +7,7 @@
     { "id": "getting-started", "kind": "link", "label": "Getting Started", "icon": "mdi-rocket", "path": "getting-started" },
     { "id": "tutorials", "kind": "link", "label": "Tutorials", "icon": "mdi-school", "path": "tutorials" },
     { "id": "concepts", "kind": "link", "label": "Concepts and Glossary", "icon": "mdi-book-alphabet", "path": "concepts" },
+    { "id": "licensing", "kind": "link", "label": "Licensing and Attribution", "icon": "mdi-license", "path": "licensing" },
 
     { "id": "section-editor", "kind": "header", "label": "Editor" },
     { "id": "editor", "kind": "link", "label": "Visual Editor", "icon": "mdi-pencil", "path": "editor" },

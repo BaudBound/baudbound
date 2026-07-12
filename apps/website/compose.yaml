@@ -1,0 +1,9 @@
+services:
+  website:
+    image: ghcr.io/natroutter/baudbound-website:latest
+    container_name: baudbound-website
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production

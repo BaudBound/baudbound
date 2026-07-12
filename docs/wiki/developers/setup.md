@@ -104,6 +104,8 @@ The first runner command creates a default `config.toml` and SQLite database in 
 
 Start from current `master` and keep changes scoped to one coherent behavior. Read the owning modules and tests before choosing an abstraction. Preserve unrelated changes in a dirty worktree.
 
+By intentionally submitting a contribution, you agree to license it under the license that applies to the part of the repository you changed. Code contributions use the PolyForm Noncommercial License 1.0.0. Documentation and non-code creative contributions use CC BY-NC-SA 4.0. You must have the right to submit the work and must identify third-party material and its license. See [Licensing and Attribution](../licensing.md) for the complete scope.
+
 Do not add placeholders, ignored configuration, shell-based native-action shortcuts, duplicated sources of truth, or platform support without an implementation. Treat package parsing, secrets, approvals, filesystem changes, network listeners, and process control as security-sensitive.
 
 Update public documentation whenever user behavior, operations, contracts, configuration, or contribution workflow changes.

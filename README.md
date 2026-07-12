@@ -7,7 +7,7 @@
   ![Editor](https://img.shields.io/badge/Editor-Next.js-111827?style=for-the-badge&logo=nextdotjs&logoColor=white)
   ![Runner](https://img.shields.io/badge/Runner-Rust-b7410e?style=for-the-badge&logo=rust&logoColor=white)
   ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey?style=for-the-badge)
-  ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+  [![License](https://img.shields.io/badge/Code-PolyForm%20Noncommercial-blue?style=for-the-badge)](LICENSE.md)
 </div>
 
 ## Overview
@@ -69,8 +69,14 @@ Read the [developer documentation](https://wiki.baudbound.app/developers) before
 
 ## Documentation Policy
 
-Detailed documentation belongs in `docs/wiki`. The only standalone Markdown outside that tree is this repository entry point and `docs/runner-release.md`, which is an internal release runbook. The publisher reconciles page content and the static navigation declared in `docs/wiki/navigation.json`.
+Detailed documentation belongs in `docs/wiki`. The only standalone Markdown outside that tree is this repository entry point, the root legal notices, and `docs/runner-release.md`, which is an internal release runbook. The publisher reconciles page content and the static navigation declared in `docs/wiki/navigation.json`.
 
 ## License
 
-BaudBound is licensed under the MIT License.
+BaudBound is source available and accepts community contributions.
+
+- Software is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+- Original documentation and non-code creative content are licensed under [CC BY-NC-SA 4.0](CONTENT-LICENSE.md).
+- The BaudBound name and logos are reserved under the [brand notice](TRADEMARKS.md).
+
+These licenses permit noncommercial use subject to their terms. They do not grant permission to use BaudBound commercially. Third-party components remain subject to their own licenses.

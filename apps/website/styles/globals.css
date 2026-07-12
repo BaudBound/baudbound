@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+:root {
+	--background: #0b0d0f;
+	--foreground: #f4f2ee;
+
+	--card: #14171a;
+	--card-foreground: #f4f2ee;
+
+	--popover: #14171a;
+	--popover-foreground: #f4f2ee;
+
+	--primary: #f4f2ee;
+	--primary-foreground: #0b0d0f;
+
+	--secondary: #1c2126;
+	--secondary-foreground: #f4f2ee;
+
+	--muted: #14171a;
+	--muted-foreground: #98a1a8;
+
+	--accent: #1c2126;
+	--accent-foreground: #f4f2ee;
+
+	--destructive: #e62d3e;
+	--destructive-foreground: #ffffff;
+
+	--border: rgba(255, 255, 255, 0.08);
+	--input: rgba(255, 255, 255, 0.08);
+	--ring: #e62d3e;
+
+	--brand: #e62d3e;
+	--brand-foreground: #ffffff;
+
+	--radius: 0.625rem;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--color-brand: var(--brand);
+	--color-brand-foreground: var(--brand-foreground);
+
+	--font-sans: var(--font-inter);
+	--font-heading: var(--font-inter);
+	--font-mono: var(--font-jetbrains-mono);
+}
+
+@layer base {
+	* {
+		border-color: var(--border);
+	}
+
+	body {
+		background:
+			radial-gradient(
+				1100px 480px at 50% -8%,
+				color-mix(in oklch, var(--brand) 16%, transparent),
+				transparent 60%
+			),
+			repeating-linear-gradient(
+				0deg,
+				rgba(255, 255, 255, 0.025) 0 1px,
+				transparent 1px 64px
+			),
+			repeating-linear-gradient(
+				90deg,
+				rgba(255, 255, 255, 0.025) 0 1px,
+				transparent 1px 64px
+			), var(--background);
+		color: var(--foreground);
+		min-height: 100vh;
+	}
+}
+
+@keyframes bb-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(18px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes bb-blink {
+	0%,
+	49% {
+		opacity: 1;
+	}
+	50%,
+	100% {
+		opacity: 0;
+	}
+}
+
+.bb-fade-up {
+	animation: bb-fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.bb-blink {
+	animation: bb-blink 1s steps(1) infinite;
+}
