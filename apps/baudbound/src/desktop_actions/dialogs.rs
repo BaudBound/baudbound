@@ -3,7 +3,9 @@ use baudbound_runtime::{
 };
 use serde_json::{Map, Value};
 
-use super::config::{config_string, failed_error, required_string};
+#[cfg(windows)]
+use super::config::config_string;
+use super::config::{failed_error, required_string};
 
 #[cfg(windows)]
 use std::{
@@ -167,6 +169,7 @@ pub(super) fn message_box_result(value: i32) -> Option<String> {
     }
 }
 
+#[cfg(windows)]
 pub(super) fn normalize_message_box_type(value: &str) -> String {
     match value.trim() {
         "error" | "warning" => value.trim().to_owned(),

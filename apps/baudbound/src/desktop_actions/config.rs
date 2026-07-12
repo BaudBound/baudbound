@@ -14,6 +14,7 @@ pub(super) fn config_string(request: &RuntimeActionRequest, key: &str) -> Option
     request.config.get(key).map(value_to_string)
 }
 
+#[cfg(windows)]
 pub(super) fn required_i32(
     request: &RuntimeActionRequest,
     key: &str,
@@ -40,6 +41,7 @@ pub(super) fn required_u32(
     })
 }
 
+#[cfg(windows)]
 pub(super) fn config_bool(request: &RuntimeActionRequest, key: &str) -> bool {
     match request.config.get(key) {
         Some(Value::Bool(value)) => *value,
