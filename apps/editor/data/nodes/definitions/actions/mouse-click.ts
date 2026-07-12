@@ -22,6 +22,7 @@ export const mouseClickNode = defineNode({
 	permission: { name: "mouse_control", risk: "high" },
 	risk: "high",
 	runnerType: "mouse_click",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	validateConfig: (config) =>
 		[requiredConfig(config, "button", "mouse button"), requiredConfig(config, "clickType", "mouse click type")].filter(
 			Boolean,

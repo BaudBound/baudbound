@@ -1,14 +1,52 @@
+#[cfg(windows)]
+use super::dialogs::message_box_result;
+#[cfg(windows)]
+use super::mouse::{normalize_mouse_button, normalize_mouse_click_type};
 use super::*;
-use super::{
-    config::required_u32,
-    dialogs::message_box_result,
-    mouse::{normalize_mouse_button, normalize_mouse_click_type},
-    screen::pixel_color_map,
-};
-use rfd::MessageDialogResult;
+use super::{audio::beep_config, config::required_u32, screen::pixel_color_map};
 use serde_json::{Map, Number, Value};
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, IDNO, IDOK, IDYES};
 
 #[test]
+fn validates_beep_configuration_without_audio_io() {
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.beep".to_owned(),
+        config: Map::from_iter([
+            ("frequencyHz".to_owned(), Value::String("880.5".to_owned())),
+            ("durationMs".to_owned(), Value::String("250".to_owned())),
+        ]),
+        node_id: "n-beep".to_owned(),
+    };
+
+    assert_eq!(beep_config(&request).unwrap(), (880.5, 250.0));
+    assert_eq!(
+        beep_config(&RuntimeActionRequest {
+            config: Map::new(),
+            ..request.clone()
+        })
+        .unwrap(),
+        (800.0, 200.0)
+    );
+
+    for (key, value) in [
+        ("frequencyHz", "19"),
+        ("frequencyHz", "20001"),
+        ("durationMs", "9"),
+        ("durationMs", "5001"),
+    ] {
+        let error = beep_config(&RuntimeActionRequest {
+            config: Map::from_iter([(key.to_owned(), Value::String(value.to_owned()))]),
+            ..request.clone()
+        })
+        .expect_err("out-of-range beep configuration should fail");
+        assert!(error.to_string().contains("must be between"));
+    }
+}
+
+#[test]
+#[cfg(windows)]
 fn normalizes_mouse_buttons() {
     let request = RuntimeActionRequest {
         action: None,
@@ -30,6 +68,7 @@ fn normalizes_mouse_buttons() {
 }
 
 #[test]
+#[cfg(windows)]
 fn normalizes_mouse_click_types() {
     assert_eq!(normalize_mouse_click_type("double"), "double");
     assert_eq!(normalize_mouse_click_type("triple"), "triple");
@@ -37,15 +76,74 @@ fn normalizes_mouse_click_types() {
 }
 
 #[test]
+#[cfg(windows)]
 fn maps_message_box_results() {
-    assert_eq!(message_box_result(MessageDialogResult::Ok), "ok");
-    assert_eq!(message_box_result(MessageDialogResult::Cancel), "cancel");
-    assert_eq!(message_box_result(MessageDialogResult::Yes), "yes");
-    assert_eq!(message_box_result(MessageDialogResult::No), "no");
-    assert_eq!(
-        message_box_result(MessageDialogResult::Custom("later".to_owned())),
-        "later"
-    );
+    assert_eq!(message_box_result(IDOK).as_deref(), Some("ok"));
+    assert_eq!(message_box_result(IDCANCEL).as_deref(), Some("cancel"));
+    assert_eq!(message_box_result(IDYES).as_deref(), Some("yes"));
+    assert_eq!(message_box_result(IDNO).as_deref(), Some("no"));
+    assert_eq!(message_box_result(-1), None);
+}
+
+#[test]
+#[cfg(windows)]
+fn pre_cancelled_message_box_returns_without_opening_native_ui() {
+    let cancellation = baudbound_runtime::RuntimeCancellationToken::new();
+    cancellation.cancel();
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.message_box".to_owned(),
+        config: Map::from_iter([
+            ("title".to_owned(), Value::String("Test".to_owned())),
+            ("message".to_owned(), Value::String("Test".to_owned())),
+        ]),
+        node_id: "n-message-box".to_owned(),
+    };
+    let context = RuntimeContext {
+        cancellation,
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "trigger-1".to_owned(),
+        },
+        package_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+
+    let error = SystemDesktopActionAdapter
+        .message_box(&request, &context)
+        .expect_err("pre-cancelled message box should not open");
+
+    assert!(matches!(error, RuntimeActionError::Cancelled));
+}
+
+#[test]
+#[cfg(not(windows))]
+fn message_box_is_rejected_without_a_native_cancellable_backend() {
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.message_box".to_owned(),
+        config: Map::new(),
+        node_id: "n-message-box".to_owned(),
+    };
+    let context = RuntimeContext {
+        cancellation: Default::default(),
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "trigger-1".to_owned(),
+        },
+        package_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+
+    let error = SystemDesktopActionAdapter
+        .message_box(&request, &context)
+        .expect_err("message box should be unavailable without a native backend");
+
+    assert!(matches!(error, RuntimeActionError::Unsupported(_)));
 }
 
 #[test]
@@ -97,6 +195,7 @@ fn asset_sound_requires_package_context_before_audio_io() {
         node_id: "n-sound".to_owned(),
     };
     let context = RuntimeContext {
+        cancellation: Default::default(),
         identity: baudbound_runtime::RunIdentity {
             run_id: "run-1".to_owned(),
             script_id: "script-1".to_owned(),
@@ -128,6 +227,7 @@ fn windows_process_title_actions_handle_missing_windows_safely() {
         node_id: "n-process-status".to_owned(),
     };
     let context = RuntimeContext {
+        cancellation: Default::default(),
         identity: baudbound_runtime::RunIdentity {
             run_id: "run-1".to_owned(),
             script_id: "script-1".to_owned(),

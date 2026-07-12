@@ -18,6 +18,7 @@ export const keyboardNode = defineNode({
 	permission: { name: "keyboard_control", risk: "high" },
 	risk: "high",
 	runnerType: "press_key",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	validateConfig: (config) => [requiredConfig(config, "key", "keyboard key")].filter(Boolean),
 	simulation: {
 		describe: ({ api, node }) => [

@@ -1,7 +1,8 @@
 import { Bell } from "lucide-react";
+import type { JsonValue } from "@/lib/types";
 import { defineNode } from "../../node-definition";
 import { actionAudio } from "../shared";
-import { staticPositiveNumberConfig } from "../validators";
+import { configString, hasTemplateReference, staticPositiveNumberConfig } from "../validators";
 
 export const beepNode = defineNode({
 	actionType: "action.beep",
@@ -11,7 +12,8 @@ export const beepNode = defineNode({
 		{ key: "durationMs", label: "Duration ms", type: "number", usesVariables: true },
 	],
 	defaultConfig: () => ({ frequencyHz: "800", durationMs: "200" }),
-	description: "Play the system beeper.",
+	description: "Play a tone through the default audio output.",
+	desktopOnly: true,
 	fallible: true,
 	group: "actions",
 	icon: Bell,
@@ -22,8 +24,8 @@ export const beepNode = defineNode({
 	runnerType: "beep",
 	validateConfig: (config) =>
 		[
-			staticPositiveNumberConfig(config, "frequencyHz", "beep frequency"),
-			staticPositiveNumberConfig(config, "durationMs", "beep duration"),
+			boundedBeepConfig(config, "frequencyHz", "beep frequency", 20, 20_000),
+			boundedBeepConfig(config, "durationMs", "beep duration", 10, 5_000),
 		].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [
@@ -50,3 +52,19 @@ export const beepNode = defineNode({
 		],
 	},
 });
+
+function boundedBeepConfig(
+	config: Record<string, JsonValue>,
+	key: string,
+	label: string,
+	minimum: number,
+	maximum: number,
+) {
+	const positiveError = staticPositiveNumberConfig(config, key, label);
+	const rawValue = configString(config, key);
+	if (positiveError || hasTemplateReference(rawValue)) {
+		return positiveError;
+	}
+	const value = Number(rawValue);
+	return value >= minimum && value <= maximum ? "" : `${label} must be between ${minimum} and ${maximum}.`;
+}

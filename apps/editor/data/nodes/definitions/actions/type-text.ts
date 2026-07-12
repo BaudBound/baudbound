@@ -18,6 +18,7 @@ export const typeTextNode = defineNode({
 	permission: { name: "keyboard_control", risk: "high" },
 	risk: "high",
 	runnerType: "type_text",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	validateConfig: (config) => [requiredConfig(config, "text", "text to type")].filter(Boolean),
 	simulation: {
 		describe: ({ api, context, node }) => [

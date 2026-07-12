@@ -12,7 +12,7 @@ use serde_json::{Map, Number, Value};
 
 pub use actions::SerialDeviceConfig;
 use actions::{
-    SerialDeviceSpec, beep_action, copy_file_action, delete_file_action, desktop_only_action,
+    SerialDeviceSpec, copy_file_action, delete_file_action, desktop_only_action,
     download_file_action, http_request_action, kill_process_action, move_file_action,
     open_application_action, process_status_action, read_file_action, run_process_action,
     serial_port_builder, shell_command_action, text_format_action, validate_usb_identity,
@@ -51,6 +51,7 @@ pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
 ];
 
 pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
+    "action.beep",
     "action.clipboard",
     "action.keyboard",
     "action.keyboard.type_text",
@@ -75,6 +76,12 @@ pub trait WebSocketMessageSink: Send + Sync {
 }
 
 pub trait DesktopActionAdapter: Send + Sync {
+    fn beep(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
     fn clipboard(
         &self,
         request: &RuntimeActionRequest,
@@ -162,6 +169,14 @@ pub trait DesktopActionAdapter: Send + Sync {
 pub struct UnavailableDesktopActionAdapter;
 
 impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
+    fn beep(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "audio tone playback")
+    }
+
     fn clipboard(
         &self,
         request: &RuntimeActionRequest,
@@ -273,6 +288,7 @@ where
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         match request.action_type.as_str() {
+            "action.beep" => self.adapter.beep(request, context),
             "action.clipboard" => self.adapter.clipboard(request, context),
             "action.keyboard" => self.adapter.keyboard(request, context),
             "action.keyboard.type_text" => self.adapter.keyboard_type_text(request, context),
@@ -330,7 +346,7 @@ impl RuntimeActionHandler for HeadlessActionHandler {
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         match request.action_type.as_str() {
-            "action.beep" => beep_action(request),
+            "action.beep" => desktop_only_action(request, "audio tone playback"),
             "action.clipboard" => desktop_only_action(request, "clipboard access"),
             "action.file.copy" => copy_file_action(request),
             "action.file.delete" => delete_file_action(request),
@@ -343,10 +359,10 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.notification" => desktop_only_action(request, "desktop notifications"),
             "action.application.open" => open_application_action(request),
             "action.process.kill" => kill_process_action(request),
-            "action.process.run" => run_process_action(request),
+            "action.process.run" => run_process_action(request, context),
             "action.process.status" => process_status_action(request),
             "action.serial.write" => self.serial_write_action(request),
-            "action.shell" => shell_command_action(request),
+            "action.shell" => shell_command_action(request, context),
             "action.sound.play" => desktop_only_action(request, "audio playback"),
             "action.text.format" => text_format_action(request),
             "action.webhook_response" => webhook_response_action(request, context),
@@ -497,10 +513,6 @@ pub(crate) fn number_from_config(config: &Map<String, Value>, key: &str) -> Opti
         Some(Value::String(value)) => value.trim().parse::<f64>().ok(),
         _ => None,
     }
-}
-
-pub(crate) fn number_json(value: f64) -> Option<Value> {
-    Number::from_f64(value).map(Value::Number)
 }
 
 pub(crate) fn failed<T>(

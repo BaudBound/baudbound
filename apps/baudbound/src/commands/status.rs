@@ -49,7 +49,7 @@ pub fn print_app_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool
         core.supported_target_runtimes().join(", ")
     );
     println!(
-        "Desktop action adapter: clipboard, notifications, message boxes, audio, keyboard, mouse, and window actions."
+        "Desktop action adapter: system native backends (run `baudbound doctor` for availability)."
     );
     println!("Native tray/UI: not started yet");
     print_service_status(public_service_status.as_ref(), Some(&service_health));

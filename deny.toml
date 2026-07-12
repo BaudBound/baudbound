@@ -1,0 +1,9 @@
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+git-fetch-with-cli = true
+ignore = []
+maximum-db-staleness = "P1D"
+unmaintained = "workspace"
+unsound = "workspace"
+unused-ignored-advisory = "deny"
+yanked = "deny"

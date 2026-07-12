@@ -9,7 +9,7 @@ use thiserror::Error;
 
 pub use storage::{
     secrets::SecretCipher,
-    sqlite::{CURRENT_SCHEMA_VERSION, SqliteRunnerStore},
+    sqlite::{CURRENT_SCHEMA_VERSION, RunRetentionPolicy, SqliteRunnerStore},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

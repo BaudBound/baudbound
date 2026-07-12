@@ -15,9 +15,19 @@ pub(super) fn write_serve_status(
     services: &TriggerServices,
     snapshot: ServeStatusSnapshot<'_>,
 ) -> Result<()> {
+    let document = build_serve_status_document(store, options, services, snapshot);
+    write_serve_status_document(store, &document)
+}
+
+pub(super) fn build_serve_status_document(
+    store: &SqliteRunnerStore,
+    options: &ServeOptions,
+    services: &TriggerServices,
+    snapshot: ServeStatusSnapshot<'_>,
+) -> Value {
     let service_rows = serve_status_services(options, services);
     let active_service_count = service_rows.iter().filter(|row| row.active).count();
-    let document = serde_json::json!({
+    serde_json::json!({
         "active_service_count": active_service_count,
         "activity": snapshot.activity,
         "configured_serial_device_count": options.serial_devices.len(),
@@ -45,9 +55,15 @@ pub(super) fn write_serve_status(
         "started_at_unix": snapshot.started_at_unix,
         "state": snapshot.state,
         "storage_root": store.root(),
-    });
+    })
+}
+
+pub(super) fn write_serve_status_document(
+    store: &SqliteRunnerStore,
+    document: &Value,
+) -> Result<()> {
     store
-        .write_service_status(&document)
+        .write_service_status(document)
         .context("failed to write runner service status")
 }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore};
-use baudbound_storage::SqliteRunnerStore;
+use baudbound_storage::{RunRetentionPolicy, SqliteRunnerStore};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use clap::Parser;
 use desktop_actions::SystemDesktopActionAdapter;
@@ -55,6 +55,12 @@ fn main() -> Result<()> {
     };
     let mut store = SqliteRunnerStore::open(paths::default_database_path(&runner_home))
         .context("failed to open runner database")?;
+    store
+        .set_run_retention_policy(RunRetentionPolicy::new(
+            runner_config.runner.run_history_max_records,
+            runner_config.runner.run_history_max_age_days,
+        ))
+        .context("failed to apply run-history retention")?;
     if let Some(secret_cipher) = secret_cipher {
         store = store.with_secret_cipher(secret_cipher);
     }

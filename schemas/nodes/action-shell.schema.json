@@ -49,6 +49,17 @@
 				},
 				"customName": {
 					"type": "string"
+				},
+				"timeoutSeconds": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
 				}
 			}
 		}

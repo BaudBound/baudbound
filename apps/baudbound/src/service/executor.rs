@@ -1,9 +1,9 @@
 use std::{
     sync::{
         Arc, Mutex,
-        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
+        mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel},
     },
-    thread,
+    thread::{self, JoinHandle},
 };
 
 use baudbound_core::{RunReport, RunnerCore, TriggerEvent};
@@ -23,6 +23,7 @@ pub(super) struct TriggerExecutor {
     pending_jobs: usize,
     sender: Option<SyncSender<TriggerJob>>,
     cancellation: RuntimeCancellationToken,
+    workers: Vec<JoinHandle<()>>,
 }
 
 pub(super) struct TriggerCompletion {
@@ -132,20 +133,30 @@ impl TriggerExecutor {
     ) -> Result<Self, String> {
         let (sender, receiver) = sync_channel::<TriggerJob>(queue_capacity.max(1));
         let receiver = Arc::new(Mutex::new(receiver));
-        let (completion_sender, completion_receiver) = sync_channel(queue_capacity.max(1));
+        let (completion_sender, completion_receiver) = channel();
+        let mut workers: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count.max(1));
 
         for worker_index in 0..worker_count.max(1) {
             let receiver = Arc::clone(&receiver);
             let completion_sender = completion_sender.clone();
             let runner = Arc::clone(&runner);
-            thread::Builder::new()
+            let worker = match thread::Builder::new()
                 .name(format!("baudbound-{worker_label}-{worker_index}"))
                 .spawn(move || worker_loop(&receiver, &completion_sender, &runner))
-                .map_err(|source| {
-                    format!(
+            {
+                Ok(worker) => worker,
+                Err(source) => {
+                    cancellation.cancel();
+                    drop(sender);
+                    for worker in workers {
+                        let _ = worker.join();
+                    }
+                    return Err(format!(
                         "failed to spawn {worker_label} execution worker {worker_index}: {source}"
-                    )
-                })?;
+                    ));
+                }
+            };
+            workers.push(worker);
         }
 
         Ok(Self {
@@ -154,20 +165,40 @@ impl TriggerExecutor {
             pending_jobs: 0,
             sender: Some(sender),
             cancellation,
+            workers,
         })
+    }
+
+    pub(super) fn shutdown(&mut self) -> Result<(), String> {
+        self.cancellation.cancel();
+        self.sender.take();
+
+        let mut panicked_workers = 0_usize;
+        for worker in self.workers.drain(..) {
+            if worker.join().is_err() {
+                panicked_workers = panicked_workers.saturating_add(1);
+            }
+        }
+        if panicked_workers > 0 {
+            return Err(format!(
+                "{panicked_workers} trigger execution worker(s) panicked during shutdown"
+            ));
+        }
+        Ok(())
     }
 }
 
 impl Drop for TriggerExecutor {
     fn drop(&mut self) {
-        self.cancellation.cancel();
-        self.sender.take();
+        if let Err(error) = self.shutdown() {
+            tracing::error!(%error, "trigger executor shutdown failed");
+        }
     }
 }
 
 fn worker_loop(
     receiver: &Mutex<Receiver<TriggerJob>>,
-    completion_sender: &SyncSender<TriggerCompletion>,
+    completion_sender: &Sender<TriggerCompletion>,
     runner: &Arc<TriggerRunner>,
 ) {
     loop {

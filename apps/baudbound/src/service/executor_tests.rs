@@ -115,6 +115,46 @@ fn dropping_executor_cancels_its_shared_runtime_token() {
     assert!(cancellation.is_cancelled());
 }
 
+#[test]
+fn shutdown_waits_until_execution_workers_have_exited() {
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
+    let finished = Arc::new(AtomicUsize::new(0));
+    let runner = {
+        let finished = Arc::clone(&finished);
+        let release_receiver = std::sync::Mutex::new(release_receiver);
+        Arc::new(move |event: TriggerEvent| {
+            started_sender
+                .send(())
+                .expect("worker-start signal should send");
+            release_receiver
+                .lock()
+                .expect("release receiver lock should not be poisoned")
+                .recv()
+                .expect("worker release signal should send");
+            finished.fetch_add(1, Ordering::SeqCst);
+            Ok(report_for_event(&event))
+        }) as Arc<TriggerRunner>
+    };
+    let mut executor = TriggerExecutor::with_runner(1, 1, "test", runner)
+        .expect("test trigger executor should start");
+    executor
+        .submit_from(event("running"), "test")
+        .expect("job should queue");
+    started_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("worker should start");
+
+    release_sender
+        .send(())
+        .expect("worker release signal should send");
+    executor.shutdown().expect("executor should stop cleanly");
+
+    assert_eq!(finished.load(Ordering::SeqCst), 1);
+    assert!(executor.workers.is_empty());
+    assert!(executor.sender.is_none());
+}
+
 fn wait_for_completions(executor: &mut TriggerExecutor, count: usize) -> Vec<TriggerCompletion> {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut completions = Vec::new();

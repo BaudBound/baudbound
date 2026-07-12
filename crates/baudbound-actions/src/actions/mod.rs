@@ -16,5 +16,5 @@ pub(crate) use process::{
 };
 pub use serial::SerialDeviceConfig;
 pub(crate) use serial::{SerialDeviceSpec, serial_port_builder, validate_usb_identity};
-pub(crate) use system::{beep_action, desktop_only_action};
+pub(crate) use system::desktop_only_action;
 pub(crate) use text::text_format_action;

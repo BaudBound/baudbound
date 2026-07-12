@@ -67,6 +67,12 @@ jobs:
       - name: Verify release version
         run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
+      - name: Check RustSec advisories
+        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe
+        with:
+          command: check advisories
+          arguments: --all-features --locked --target x86_64-unknown-linux-gnu --target x86_64-pc-windows-msvc
+
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 

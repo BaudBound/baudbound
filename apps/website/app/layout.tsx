@@ -112,15 +112,19 @@ export default function RootLayout({
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-	const umamiSrc = process.env.UMAMI_SRC;
+	const umamiTrackerSrc = process.env.UMAMI_TRACKER_SRC;
+	const umamiRecorderSrc = process.env.UMAMI_RECORDER_SRC;
 	const umamiWebsiteId = process.env.UMAMI_WEBSITE_ID;
 
 	return (
 		<html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
 			<body className="font-sans antialiased">
 				{children}
-				{umamiSrc && umamiWebsiteId && (
-					<Script src={umamiSrc} data-website-id={umamiWebsiteId} strategy="afterInteractive" />
+				{umamiTrackerSrc && umamiWebsiteId && (
+					<Script src={umamiTrackerSrc} data-website-id={umamiWebsiteId} strategy="afterInteractive" />
+				)}
+				{umamiTrackerSrc && umamiWebsiteId && umamiRecorderSrc && umamiRecorderSrc !== umamiTrackerSrc && (
+					<Script src={umamiRecorderSrc} data-website-id={umamiWebsiteId} strategy="afterInteractive" />
 				)}
 			</body>
 		</html>

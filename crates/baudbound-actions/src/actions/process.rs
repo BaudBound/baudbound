@@ -1,13 +1,22 @@
 use std::{
     process::{Command, Stdio},
     thread,
+    time::Duration,
 };
 
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
+use baudbound_runtime::{
+    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+};
 use serde_json::{Map, Number, Value};
 use sysinfo::{Pid, ProcessesToUpdate, Signal, System};
 
 use crate::{config_string, failed, required_string};
+
+mod supervisor;
+
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
+const MIN_COMMAND_TIMEOUT_SECONDS: f64 = 1.0;
+const MAX_COMMAND_TIMEOUT_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 
 pub(crate) fn process_status_action(
     request: &RuntimeActionRequest,
@@ -108,6 +117,7 @@ pub(crate) fn open_application_action(
 
 pub(crate) fn run_process_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let executable = required_string(request, "executable")?;
     let arguments = config_string(&request.config, "arguments").unwrap_or_default();
@@ -116,27 +126,20 @@ pub(crate) fn run_process_action(
 
     let mut command = Command::new(&executable);
     command.args(&parsed_arguments);
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     if !working_directory.trim().is_empty() {
         command.current_dir(&working_directory);
     }
-
-    let child = command
-        .spawn()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed to start process {executable}: {source}"),
-        })?;
-    let process_id = child.id();
-    let output = child
-        .wait_with_output()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed while waiting for process {executable}: {source}"),
-        })?;
+    let timeout = command_timeout(request)?;
+    let output = supervisor::run_command(
+        request,
+        &mut command,
+        &context.cancellation,
+        timeout,
+        &format!("process {executable:?}"),
+    )?;
 
     Ok(process_result(
-        process_id,
+        output.process_id,
         output.status.code(),
         output.stdout,
         output.stderr,
@@ -145,28 +148,50 @@ pub(crate) fn run_process_action(
 
 pub(crate) fn shell_command_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let command = required_string(request, "command")?;
     let mut shell = platform_shell_command(&command);
-    shell.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = shell.spawn().map_err(|source| RuntimeActionError::Failed {
-        action_type: request.action_type.clone(),
-        message: format!("failed to start shell command: {source}"),
-    })?;
-    let process_id = child.id();
-    let output = child
-        .wait_with_output()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed while waiting for shell command: {source}"),
-        })?;
+    let timeout = command_timeout(request)?;
+    let output = supervisor::run_command(
+        request,
+        &mut shell,
+        &context.cancellation,
+        timeout,
+        "shell command",
+    )?;
 
     Ok(process_result(
-        process_id,
+        output.process_id,
         output.status.code(),
         output.stdout,
         output.stderr,
     ))
+}
+
+fn command_timeout(request: &RuntimeActionRequest) -> Result<Duration, RuntimeActionError> {
+    let Some(raw_timeout) = config_string(&request.config, "timeoutSeconds") else {
+        return Ok(DEFAULT_COMMAND_TIMEOUT);
+    };
+    let seconds =
+        raw_timeout
+            .trim()
+            .parse::<f64>()
+            .map_err(|source| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!("invalid timeoutSeconds: {source}"),
+            })?;
+    if !seconds.is_finite()
+        || !(MIN_COMMAND_TIMEOUT_SECONDS..=MAX_COMMAND_TIMEOUT_SECONDS).contains(&seconds)
+    {
+        return failed(
+            request,
+            format!(
+                "timeoutSeconds must be between {MIN_COMMAND_TIMEOUT_SECONDS} and {MAX_COMMAND_TIMEOUT_SECONDS}"
+            ),
+        );
+    }
+    Ok(Duration::from_secs_f64(seconds))
 }
 
 fn process_result(

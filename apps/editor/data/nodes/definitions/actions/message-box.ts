@@ -35,6 +35,7 @@ export const messageBoxNode = defineNode({
 		},
 	],
 	runnerType: "show_message_box",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	validateConfig: (config) =>
 		[
 			requiredConfig(config, "title", "message box title"),

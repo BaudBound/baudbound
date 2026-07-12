@@ -48,6 +48,8 @@ Edit the path from `baudbound config path` under the account that runs BaudBound
 | --- | --- | --- | --- |
 | `runner.name` | optional string; `BaudBound Runner` when blank | Display name in status and UI | No privilege change; reload UI/status |
 | `runner.trigger_reload_seconds` | integer seconds; `2` | Interval for detecting installed-script registration changes | Restart service to change polling interval |
+| `runner.run_history_max_records` | positive integer; `10000` | Maximum number of complete run records retained across all scripts | Lower values prune existing history immediately when the config is applied |
+| `runner.run_history_max_age_days` | positive integer days; `30` | Maximum age of retained runs | Lower values prune expired history immediately when the config is applied |
 | `runner.target_runtimes` | string array; `[]` | Empty uses host defaults; explicit list restricts accepted package targets | Restart; cannot grant unsupported targets |
 
 Supported target strings are `Generic Headless`, `Linux Headless`, `Windows Headless`, `Generic Desktop`, `Windows Desktop`, and `Linux Desktop`. A runner accepts only the host-appropriate subset.
@@ -157,6 +159,8 @@ Add the account running BaudBound only to the group shown by the target system's
 [runner]
 name = "BaudBound Runner"
 trigger_reload_seconds = 2
+run_history_max_records = 10000
+run_history_max_age_days = 30
 target_runtimes = []
 
 [triggers]
@@ -186,6 +190,8 @@ max_connections = 128
 [runner]
 name = "Automation Server"
 trigger_reload_seconds = 2
+run_history_max_records = 10000
+run_history_max_age_days = 30
 target_runtimes = ["Generic Headless", "Linux Headless"]
 
 [triggers]

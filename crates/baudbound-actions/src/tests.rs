@@ -44,6 +44,17 @@ struct FakeDesktopAdapter {
 }
 
 impl DesktopActionAdapter for FakeDesktopAdapter {
+    fn beep(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+        self.record(request);
+        Ok(baudbound_runtime::RuntimeActionResult {
+            output_data: Map::from_iter([("handled".to_owned(), json!("beep"))]),
+        })
+    }
+
     fn clipboard(
         &self,
         request: &RuntimeActionRequest,
@@ -332,18 +343,17 @@ fn deletes_regular_file_only() {
 }
 
 #[test]
-fn emits_beep_result_metadata() {
-    let result = execute(
+fn beep_requires_desktop_audio_adapter() {
+    let error = execute(
         "action.beep",
         json!({
             "frequencyHz": "880",
-            "durationMs": "1"
+            "durationMs": "200"
         }),
     )
-    .expect("beep should succeed");
+    .expect_err("headless beep should fail");
 
-    assert_eq!(result.output_data.get("frequency_hz"), Some(&json!(880.0)));
-    assert_eq!(result.output_data.get("duration_ms"), Some(&json!(1.0)));
+    assert!(error.to_string().contains("desktop runner action adapter"));
 }
 
 #[test]
@@ -503,6 +513,7 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
     let handler = DesktopActionHandler::new(HeadlessActionHandler::default(), adapter);
 
     for (action_type, expected) in [
+        ("action.beep", "beep"),
         ("action.keyboard", "keyboard"),
         ("action.keyboard.type_text", "keyboard_type_text"),
         ("action.mouse", "mouse_click"),
@@ -524,6 +535,7 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
             .expect("fake adapter lock should not be poisoned")
             .as_slice(),
         &[
+            "action.beep".to_owned(),
             "action.keyboard".to_owned(),
             "action.keyboard.type_text".to_owned(),
             "action.mouse".to_owned(),
@@ -875,6 +887,33 @@ fn execute_with_trigger_payload(
     execute_with_handler(&handler, action_type, config, trigger_payload)
 }
 
+fn execute_with_cancellation(
+    action_type: &str,
+    config: Value,
+    cancellation: baudbound_runtime::RuntimeCancellationToken,
+) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+    let handler = HeadlessActionHandler::default();
+    let context = RuntimeContext {
+        cancellation,
+        identity: RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "trigger-1".to_owned(),
+        },
+        package_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: action_type.to_owned(),
+        config: config.as_object().cloned().unwrap_or_default(),
+        node_id: "node-1".to_owned(),
+    };
+
+    handler.execute_action(&request, &context)
+}
+
 fn execute_with_handler(
     handler: &dyn RuntimeActionHandler,
     action_type: &str,
@@ -882,6 +921,7 @@ fn execute_with_handler(
     trigger_payload: Value,
 ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
     let context = RuntimeContext {
+        cancellation: Default::default(),
         identity: RunIdentity {
             run_id: "run-1".to_owned(),
             script_id: "script-1".to_owned(),

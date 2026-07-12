@@ -24,11 +24,10 @@ baudbound-storage = { path = "../../crates/baudbound-storage" }
 baudbound-triggers = { path = "../../crates/baudbound-triggers" }
 clap.workspace = true
 ctrlc.workspace = true
-enigo = "0.2.1"
 getrandom.workspace = true
 keyring.workspace = true
 notify-rust = "4.11.7"
-rfd = "0.15.4"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 rpassword.workspace = true
 rodio = "0.17.3"
 serde.workspace = true
@@ -53,8 +52,12 @@ windows-sys = { version = "0.61.2", features = [
 [dev-dependencies]
 rusqlite.workspace = true
 serde_json.workspace = true
+tauri = { version = "2.11.5", features = ["test"] }
 tempfile.workspace = true
 zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+enigo = "0.2.1"
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }

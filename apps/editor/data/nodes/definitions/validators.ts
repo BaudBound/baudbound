@@ -80,6 +80,24 @@ export function staticPositiveNumberConfig(config: Record<string, JsonValue>, ke
 	return Number.isFinite(numberValue) && numberValue > 0 ? "" : `${label} must be greater than zero.`;
 }
 
+export function staticOptionalNumberRangeConfig(
+	config: Record<string, JsonValue>,
+	key: string,
+	label: string,
+	minimum: number,
+	maximum: number,
+) {
+	const value = configString(config, key).trim();
+	if (!value || hasTemplateReference(value)) {
+		return "";
+	}
+
+	const numberValue = Number(value);
+	return Number.isFinite(numberValue) && numberValue >= minimum && numberValue <= maximum
+		? ""
+		: `${label} must be between ${minimum} and ${maximum}.`;
+}
+
 export function staticPositiveDurationConfig(
 	config: Record<string, JsonValue>,
 	valueKey: string,

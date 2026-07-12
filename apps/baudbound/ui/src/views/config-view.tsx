@@ -261,6 +261,28 @@ function SimpleConfigEditor({
             }
             value={config.runner.trigger_reload_seconds}
           />
+          <NumberField
+            label="Maximum stored runs"
+            min={1}
+            onChange={(run_history_max_records) =>
+              onChange({
+                ...config,
+                runner: { ...config.runner, run_history_max_records },
+              })
+            }
+            value={config.runner.run_history_max_records}
+          />
+          <NumberField
+            label="Run history age in days"
+            min={1}
+            onChange={(run_history_max_age_days) =>
+              onChange({
+                ...config,
+                runner: { ...config.runner, run_history_max_age_days },
+              })
+            }
+            value={config.runner.run_history_max_age_days}
+          />
           <TargetRuntimeField
             className="md:col-span-2"
             onChange={(target_runtimes) =>

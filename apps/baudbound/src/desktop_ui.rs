@@ -26,6 +26,33 @@ mod lifecycle;
 
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
 
+macro_rules! desktop_command_handler {
+    () => {
+        tauri::generate_handler![
+            approve_script,
+            dashboard_state,
+            import_script_package,
+            prepare_for_update,
+            remove_script,
+            revoke_script_approval,
+            reload_background_runner,
+            request_trigger_reload,
+            read_runner_config,
+            run_script,
+            save_runner_config,
+            save_runner_config_model,
+            scan_serial_ports,
+            set_script_secret,
+            remove_script_secret,
+            select_package_file,
+            set_script_enabled,
+            start_background_runner,
+            stop_background_runner,
+            update_script_package,
+        ]
+    };
+}
+
 pub fn run_desktop_ui(
     config_path: PathBuf,
     core: RunnerCore,
@@ -61,28 +88,7 @@ pub fn run_desktop_ui(
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            approve_script,
-            dashboard_state,
-            import_script_package,
-            prepare_for_update,
-            remove_script,
-            revoke_script_approval,
-            reload_background_runner,
-            request_trigger_reload,
-            read_runner_config,
-            run_script,
-            save_runner_config,
-            save_runner_config_model,
-            scan_serial_ports,
-            set_script_secret,
-            remove_script_secret,
-            select_package_file,
-            set_script_enabled,
-            start_background_runner,
-            stop_background_runner,
-            update_script_package,
-        ])
+        .invoke_handler(desktop_command_handler!())
         .run(tauri::generate_context!())
         .map_err(|source| anyhow!("desktop UI failed: {source}"))
 }
@@ -552,6 +558,12 @@ impl From<RunnerConfig> for SerializableRunnerConfig {
 }
 
 fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -> Result<()> {
+    state
+        .store
+        .set_run_retention_policy(baudbound_storage::RunRetentionPolicy::new(
+            runner_config.runner.run_history_max_records,
+            runner_config.runner.run_history_max_age_days,
+        ))?;
     let next_core = build_runner_core(&runner_config, Arc::clone(&state.websocket_registry));
     let next_background_options = desktop_background_options(
         &runner_config,
@@ -719,3 +731,6 @@ fn desktop_background_options(
         crate::service::RunnerConfigSerialPortRebindSink::new(config_path),
     ) as Arc<dyn SerialPortRebindSink>)
 }
+
+#[cfg(test)]
+mod tests;

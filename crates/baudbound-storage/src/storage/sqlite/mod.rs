@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -17,6 +17,7 @@ use crate::{
 
 mod conversions;
 mod rows;
+mod run_retention;
 mod schema;
 mod scoped_variables;
 mod secrets;
@@ -25,6 +26,8 @@ use conversions::{
     bool_to_sqlite, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite, usize_to_sqlite,
 };
 use rows::{resolve_script, row_to_approval, row_to_installed_script, row_to_run_record};
+pub use run_retention::RunRetentionPolicy;
+use run_retention::{append_run_record_with_retention, prune_run_records};
 use schema::{configure_connection, migrate, query_schema_version};
 
 pub use schema::CURRENT_SCHEMA_VERSION;
@@ -34,6 +37,7 @@ pub struct SqliteRunnerStore {
     path: PathBuf,
     root: PathBuf,
     connection: Arc<Mutex<Connection>>,
+    run_retention: Arc<RwLock<RunRetentionPolicy>>,
     secret_cipher: Option<SecretCipher>,
 }
 
@@ -67,6 +71,7 @@ impl SqliteRunnerStore {
             path,
             root,
             connection: Arc::new(Mutex::new(connection)),
+            run_retention: Arc::new(RwLock::new(RunRetentionPolicy::default())),
             secret_cipher: None,
         })
     }
@@ -95,6 +100,21 @@ impl SqliteRunnerStore {
     pub fn schema_version(&self) -> Result<i64, StorageError> {
         let connection = self.connection()?;
         query_schema_version(&connection, &self.path)
+    }
+
+    pub fn set_run_retention_policy(
+        &self,
+        policy: RunRetentionPolicy,
+    ) -> Result<usize, StorageError> {
+        policy.validate()?;
+        let mut current_policy = self
+            .run_retention
+            .write()
+            .map_err(|_| StorageError::Operation("run retention lock is poisoned".to_owned()))?;
+        let mut connection = self.connection()?;
+        let deleted = prune_run_records(&mut connection, &self.path, policy)?;
+        *current_policy = policy;
+        Ok(deleted)
     }
 
     pub fn write_service_status(&self, status: &serde_json::Value) -> Result<(), StorageError> {
@@ -409,36 +429,19 @@ impl ScriptStore for SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
-        let connection = self.connection()?;
-        connection
-            .execute(
-                r#"
-                INSERT INTO run_records (
-                    run_id,
-                    script_id,
-                    status,
-                    trigger_node_id,
-                    completed_at_unix,
-                    logs_json,
-                    variables_json
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                "#,
-                params![
-                    record.run_id,
-                    record.script_id,
-                    record.status,
-                    record.trigger_node_id,
-                    u64_to_sqlite(record.completed_at_unix)?,
-                    logs_json,
-                    variables_json,
-                ],
-            )
-            .map_err(|source| StorageError::Sqlite {
-                path: self.path.clone(),
-                source,
-            })?;
-        Ok(())
+        let policy = *self
+            .run_retention
+            .read()
+            .map_err(|_| StorageError::Operation("run retention lock is poisoned".to_owned()))?;
+        let mut connection = self.connection()?;
+        append_run_record_with_retention(
+            &mut connection,
+            &self.path,
+            &record,
+            &logs_json,
+            &variables_json,
+            policy,
+        )
     }
 
     fn approve_script(

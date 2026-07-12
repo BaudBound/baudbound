@@ -2,13 +2,22 @@ import { Terminal } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
-import { requiredConfig } from "../validators";
+import { requiredConfig, staticOptionalNumberRangeConfig } from "../validators";
 
 export const shellCommandNode = defineNode({
 	actionType: "action.shell",
 	capabilities: actionProcess,
-	configFields: [{ key: "command", label: "Command", type: "textarea", usesVariables: true }],
-	defaultConfig: () => ({ command: "echo blocked-by-default" }),
+	configFields: [
+		{ key: "command", label: "Command", type: "textarea", usesVariables: true },
+		{
+			key: "timeoutSeconds",
+			label: "Timeout seconds",
+			type: "number",
+			usesVariables: true,
+			required: false,
+		},
+	],
+	defaultConfig: () => ({ command: "echo blocked-by-default", timeoutSeconds: "300" }),
 	description: "Run a shell command.",
 	fallible: true,
 	group: "actions",
@@ -28,7 +37,11 @@ export const shellCommandNode = defineNode({
 		{ name: "stderr", type: "string", description: "Captured standard error.", example: "n-mr3zyt6f-20.stderr" },
 	]),
 	runnerType: "run_shell_command",
-	validateConfig: (config) => [requiredConfig(config, "command", "shell command")].filter(Boolean),
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "command", "shell command"),
+			staticOptionalNumberRangeConfig(config, "timeoutSeconds", "shell timeout", 1, 86_400),
+		].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: { exit_code: 0, stdout: "Simulated shell output", stderr: "" } }),
 		describe: ({ api, context, node }) => [

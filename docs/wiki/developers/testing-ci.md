@@ -22,6 +22,27 @@ The workspace includes unit and integration tests for package parsing, security 
 
 Windows and Linux CI both run the workspace. Platform-gated tests prove only the implementation compiled for that runner; they do not make unsupported native behavior portable.
 
+### Rust dependency advisories
+
+Install the exact scanner version used by CI:
+
+```text
+cargo install cargo-deny --version 0.19.8 --locked
+```
+
+Audit both supported release targets:
+
+```text
+cargo deny --all-features --locked --target x86_64-pc-windows-msvc check advisories
+cargo deny --all-features --locked --target x86_64-unknown-linux-gnu check advisories
+```
+
+`deny.toml` owns advisory policy. Vulnerabilities and yanked versions fail the build. Direct workspace dependencies with unsoundness advisories fail as well. Do not add an ignored advisory without a written impact analysis, an owner, and a removal condition.
+
+Runner CI repeats this check on pull requests, pushes, manual runs, and a daily schedule. The release workflow repeats it before packaging. The action is pinned to a complete commit SHA and evaluates the committed `Cargo.lock`.
+
+Dependabot opens weekly Cargo and GitHub Actions update pull requests from `.github/dependabot.yml`. Repository maintainers must also keep **Dependency graph**, **Dependabot alerts**, and **Dependabot security updates** enabled under GitHub **Settings > Code security**. The repository configuration file schedules updates but cannot enable those repository-level switches.
+
 ## Editor
 
 Install dependencies once:
@@ -70,8 +91,8 @@ Publisher tests cover metadata, links, assets, navigation, GraphQL safety, owner
 
 | Workflow | Purpose |
 | --- | --- |
-| **Runner CI** | Windows/Linux Rust workspace, editor contract, and desktop UI gates |
-| **Runner Release** | Full quality gate, version verification, signed Windows/Linux packages, updater metadata, and draft release |
+| **Runner CI** | Windows/Linux Rust workspace, editor contract, desktop UI gates, and scheduled RustSec advisory checks |
+| **Runner Release** | Full quality and advisory gates, version verification, signed Windows/Linux packages, updater metadata, and draft release |
 | **Editor Docker** | Build and publish the editor container image |
 | **Schemas Docker** | Verify generated schemas and build the schema-host image |
 | **Wiki Documentation** | Validate and reconcile repository pages and static navigation with Wiki.js |

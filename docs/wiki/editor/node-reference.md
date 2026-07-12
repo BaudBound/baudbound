@@ -202,7 +202,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### MessageBox
 
-- **Action type:** `action.message_box`; capability `action.message_box`; permission `show_message_box`; medium risk; Desktop only; fallible.
+- **Action type:** `action.message_box`; capability `action.message_box`; permission `show_message_box`; medium risk; Windows Desktop only; fallible.
 - **Configuration:** type info/warning/error; title; message; buttons OK, OK/Cancel, Yes/No, or Yes/No/Cancel.
 - **Output:** selected button plus success/failure data.
 - **Simulation:** modal inside the editor; Stop aborts a waiting selection.

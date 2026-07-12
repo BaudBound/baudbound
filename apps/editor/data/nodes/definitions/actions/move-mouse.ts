@@ -22,6 +22,7 @@ export const moveMouseNode = defineNode({
 	permission: { name: "mouse_control", risk: "high" },
 	risk: "high",
 	runnerType: "move_mouse",
+	supportedTargetRuntimes: ["Windows Desktop"],
 	validateConfig: (config) => {
 		const relative = configString(config, "relative") === "true" || config.relative === true;
 		return [

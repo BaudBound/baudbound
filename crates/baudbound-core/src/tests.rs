@@ -555,6 +555,7 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
             name: Some("Headless Test Runner".to_owned()),
             target_runtimes: vec!["Generic Headless".to_owned()],
             trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
+            ..RunnerSettings::default()
         },
         ..RunnerConfig::default()
     };

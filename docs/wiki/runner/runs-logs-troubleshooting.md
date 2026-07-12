@@ -22,6 +22,22 @@ Every terminal run record contains:
 
 Secret plaintext is not intended to appear in logs or stored snapshots. If it does, stop using the affected script, preserve a redacted reproduction, rotate the value, and report a security issue.
 
+## Run-history retention
+
+BaudBound bounds run history by both count and age. The default keeps at most 10,000 runs and removes records older than 30 days. Each run record contains its logs and final variable snapshot, so those historical details are removed together.
+
+Configure the limits under `[runner]`:
+
+```toml
+[runner]
+run_history_max_records = 10000
+run_history_max_age_days = 30
+```
+
+Both values must be greater than zero. The runner applies both limits, so a record is removed when it exceeds either one. Lowering a limit prunes existing history as soon as the new configuration is applied. New runs are inserted and old runs are pruned in one SQLite transaction.
+
+Retention never deletes installed scripts, approvals, persistent variables, global variables, or encrypted secrets. Increase the limits before an investigation when you need a longer history window.
+
 ## Inspect in the desktop app
 
 1. Open **Scripts** and expand the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.

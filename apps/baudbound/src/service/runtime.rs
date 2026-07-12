@@ -87,7 +87,14 @@ pub fn serve_triggers_with_control(
     if services.is_idle() {
         print_idle_service_explanation(&options);
         if should_exit_idle_service(&options) {
-            status.write_stopped(store, &options, &services)?;
+            stop_runtime(
+                store,
+                &options,
+                &mut services,
+                &mut trigger_executor,
+                &cancellation,
+                &status,
+            )?;
             return Ok(());
         }
     }
@@ -111,12 +118,18 @@ pub fn serve_triggers_with_control(
     let mut next_reload_check = Instant::now() + options.reload_check_interval;
     loop {
         if control.shutdown_requested.load(Ordering::SeqCst) {
-            cancellation.cancel();
             println!(
                 "{}. Stopping trigger listener services.",
                 control.stop_label
             );
-            status.write_stopped(store, &options, &services)?;
+            stop_runtime(
+                store,
+                &options,
+                &mut services,
+                &mut trigger_executor,
+                &cancellation,
+                &status,
+            )?;
             return Ok(());
         }
 
@@ -124,9 +137,15 @@ pub fn serve_triggers_with_control(
             .poll_command()
             .context("runner control IPC failed")?;
         if matches!(service_control_command, Some(ServiceControlCommand::Stop)) {
-            cancellation.cancel();
             println!("Service stop requested. Stopping trigger listener services.");
-            status.write_stopped(store, &options, &services)?;
+            stop_runtime(
+                store,
+                &options,
+                &mut services,
+                &mut trigger_executor,
+                &cancellation,
+                &status,
+            )?;
             return Ok(());
         }
 
@@ -192,7 +211,14 @@ pub fn serve_triggers_with_control(
             && !trigger_executor.has_pending()
             && !webhook_execution_pending
         {
-            status.write_stopped(store, &options, &services)?;
+            stop_runtime(
+                store,
+                &options,
+                &mut services,
+                &mut trigger_executor,
+                &cancellation,
+                &status,
+            )?;
             return Ok(());
         }
 
@@ -238,4 +264,21 @@ pub fn serve_triggers_with_control(
             thread::sleep(wait_duration);
         }
     }
+}
+
+fn stop_runtime(
+    store: &SqliteRunnerStore,
+    options: &ServeOptions,
+    services: &mut super::triggers::TriggerServices,
+    trigger_executor: &mut TriggerExecutor,
+    cancellation: &RuntimeCancellationToken,
+    status: &ServeStatusTracker,
+) -> Result<()> {
+    let stopped_status = status.prepare_stopped(store, options, services);
+    cancellation.cancel();
+    services.shutdown(options);
+    trigger_executor
+        .shutdown()
+        .map_err(|error| anyhow!("failed to stop trigger execution workers: {error}"))?;
+    status.write_prepared_stopped(store, &stopped_status)
 }

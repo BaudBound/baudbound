@@ -283,7 +283,7 @@ test("editor node action types are covered by runner support owners", () => {
 	const definitionsSource = readDefinitions();
 	const actionCrateSource = read(join(repoRoot, "crates", "baudbound-actions", "src", "lib.rs"));
 	const coreSource = read(join(repoRoot, "crates", "baudbound-core", "src", "lib.rs"));
-	const runtimeSource = read(join(repoRoot, "crates", "baudbound-runtime", "src", "lib.rs"));
+	const runtimeSource = read(join(repoRoot, "crates", "baudbound-runtime", "src", "execution", "contracts.rs"));
 	const triggerSource = read(join(repoRoot, "crates", "baudbound-triggers", "src", "lib.rs"));
 	const editorActionTypes = extractDefinitionActionTypes(definitionsSource);
 	const editorExecutableActionTypes = editorActionTypes
@@ -408,7 +408,17 @@ test("node definitions include production metadata required by package analysis"
 test("native Windows-only desktop nodes declare target runtime compatibility", () => {
 	const definitionsSource = readDefinitions();
 
-	for (const actionType of ["action.pixel.get", "action.window.active", "action.window.focus", "trigger.hotkey"]) {
+	for (const actionType of [
+		"action.keyboard",
+		"action.keyboard.type_text",
+		"action.message_box",
+		"action.mouse",
+		"action.mouse.move",
+		"action.pixel.get",
+		"action.window.active",
+		"action.window.focus",
+		"trigger.hotkey",
+	]) {
 		const definitionBlock = getDefinitionBlock(definitionsSource, actionType);
 		assert.match(
 			definitionBlock,

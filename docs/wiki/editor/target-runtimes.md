@@ -58,7 +58,7 @@ These nodes require a Desktop target:
 - Open Application;
 - Clipboard;
 - Keyboard and Type Text;
-- MessageBox and Show Notification;
+- Show Notification;
 - Mouse Click and Move Mouse; and
 - Play Sound.
 
@@ -68,6 +68,7 @@ The editor checks `desktopOnly` from node definitions, and the runner independen
 
 These nodes support only Windows Desktop:
 
+- MessageBox;
 - Get Active Window;
 - Window Focus; and
 - Get Pixel Color.

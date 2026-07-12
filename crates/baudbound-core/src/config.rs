@@ -15,6 +15,8 @@ pub const DEFAULT_WEBSOCKET_PORT: u16 = 43892;
 pub const DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_WEBSOCKET_MAX_CONNECTIONS: usize = 128;
 pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
+pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
+pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -71,6 +73,18 @@ impl RunnerConfig {
     }
 
     fn validate(&self, path: &Path) -> Result<(), RunnerConfigError> {
+        if self.runner.run_history_max_records == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "runner.run_history_max_records must be greater than zero".to_owned(),
+            });
+        }
+        if self.runner.run_history_max_age_days == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "runner.run_history_max_age_days must be greater than zero".to_owned(),
+            });
+        }
         if self.websockets.max_connections == 0 {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
@@ -149,6 +163,8 @@ impl RunnerConfig {
 [runner]
 name = "BaudBound Runner"
 trigger_reload_seconds = 2
+run_history_max_records = 10000
+run_history_max_age_days = 30
 # Empty or omitted target_runtimes means this runner supports this operating system's default headless and desktop targets.
 # For headless service deployments, set this explicitly, for example:
 # target_runtimes = ["Generic Headless", "Linux Headless"]
@@ -249,6 +265,8 @@ impl Default for SerialDeviceSettings {
 #[serde(default)]
 pub struct RunnerSettings {
     pub name: Option<String>,
+    pub run_history_max_age_days: u64,
+    pub run_history_max_records: usize,
     pub target_runtimes: Vec<String>,
     pub trigger_reload_seconds: u64,
 }
@@ -257,6 +275,8 @@ impl Default for RunnerSettings {
     fn default() -> Self {
         Self {
             name: None,
+            run_history_max_age_days: DEFAULT_RUN_HISTORY_MAX_AGE_DAYS,
+            run_history_max_records: DEFAULT_RUN_HISTORY_MAX_RECORDS,
             target_runtimes: Vec::new(),
             trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
         }
@@ -374,6 +394,14 @@ mod tests {
             config.runner.trigger_reload_seconds,
             DEFAULT_TRIGGER_RELOAD_SECONDS
         );
+        assert_eq!(
+            config.runner.run_history_max_records,
+            DEFAULT_RUN_HISTORY_MAX_RECORDS
+        );
+        assert_eq!(
+            config.runner.run_history_max_age_days,
+            DEFAULT_RUN_HISTORY_MAX_AGE_DAYS
+        );
         assert!(config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
         assert!(config.triggers.serial_enabled);
@@ -412,6 +440,8 @@ mod tests {
                 [runner]
                 name = "Server Runner"
                 trigger_reload_seconds = 5
+                run_history_max_records = 2500
+                run_history_max_age_days = 14
                 target_runtimes = ["Generic Headless", "Linux Headless"]
 
                 [triggers]
@@ -455,6 +485,8 @@ mod tests {
 
         assert_eq!(config.runner_name(), "Server Runner");
         assert_eq!(config.runner.trigger_reload_seconds, 5);
+        assert_eq!(config.runner.run_history_max_records, 2500);
+        assert_eq!(config.runner.run_history_max_age_days, 14);
         assert_eq!(
             config.runner.target_runtimes,
             ["Generic Headless", "Linux Headless"]
@@ -483,6 +515,18 @@ mod tests {
         assert!(device.auto_rebind_port);
         assert_eq!(device.vendor_id.as_deref(), Some("1A86"));
         assert_eq!(device.serial_number.as_deref(), Some("ABC123"));
+    }
+
+    #[test]
+    fn rejects_zero_run_history_retention_limits() {
+        for contents in [
+            "[runner]\nrun_history_max_records = 0",
+            "[runner]\nrun_history_max_age_days = 0",
+        ] {
+            let error = RunnerConfig::from_toml(contents, "runner.toml")
+                .expect_err("run history retention must stay bounded");
+            assert!(error.to_string().contains("must be greater than zero"));
+        }
     }
 
     #[test]

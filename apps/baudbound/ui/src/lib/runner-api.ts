@@ -240,6 +240,8 @@ export type RunnerConfig = {
 
 export type RunnerSettings = {
   name: string | null;
+  run_history_max_age_days: number;
+  run_history_max_records: number;
   target_runtimes: string[];
   trigger_reload_seconds: number;
 };

@@ -2,7 +2,7 @@ import { Code } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
-import { requiredConfig } from "../validators";
+import { requiredConfig, staticOptionalNumberRangeConfig } from "../validators";
 
 export const runProcessNode = defineNode({
 	actionType: "action.process.run",
@@ -11,8 +11,15 @@ export const runProcessNode = defineNode({
 		{ key: "executable", label: "Executable", type: "text", usesVariables: true },
 		{ key: "arguments", label: "Arguments", type: "textarea", usesVariables: true },
 		{ key: "workingDirectory", label: "Working directory", type: "text", usesVariables: true },
+		{
+			key: "timeoutSeconds",
+			label: "Timeout seconds",
+			type: "number",
+			usesVariables: true,
+			required: false,
+		},
 	],
-	defaultConfig: () => ({ executable: "ffmpeg", arguments: "-version", workingDirectory: "" }),
+	defaultConfig: () => ({ executable: "ffmpeg", arguments: "-version", workingDirectory: "", timeoutSeconds: "300" }),
 	description: "Start an executable with arguments.",
 	fallible: true,
 	group: "actions",
@@ -30,7 +37,11 @@ export const runProcessNode = defineNode({
 		},
 	]),
 	runnerType: "run_process",
-	validateConfig: (config) => [requiredConfig(config, "executable", "process executable")].filter(Boolean),
+	validateConfig: (config) =>
+		[
+			requiredConfig(config, "executable", "process executable"),
+			staticOptionalNumberRangeConfig(config, "timeoutSeconds", "process timeout", 1, 86_400),
+		].filter(Boolean),
 	simulation: {
 		createOutput: () => ({ failed: false, outputData: { process_id: 4242 } }),
 		describe: ({ api, context, node }) => [

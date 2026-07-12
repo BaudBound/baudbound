@@ -1,6 +1,12 @@
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
+use baudbound_runtime::{RuntimeActionError, RuntimeCancellationToken};
 use serde_json::{Value, json};
 
-use super::execute;
+use super::{execute, execute_with_cancellation};
 use crate::actions::process::parse_command_arguments;
 
 #[test]
@@ -166,6 +172,65 @@ fn shell_command_captures_nonzero_exit_stdout_and_stderr() {
     assert!(output(&result, "stderr").contains("stderr-value"));
 }
 
+#[test]
+fn shell_command_timeout_terminates_the_process_group_promptly() {
+    let started = Instant::now();
+    let error = execute(
+        "action.shell",
+        json!({"command": long_running_shell_command(), "timeoutSeconds": 1}),
+    )
+    .expect_err("a command exceeding its deadline must fail");
+
+    assert!(error.to_string().contains("exceeded its timeout"));
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn shell_command_cancellation_terminates_the_process_group_promptly() {
+    let cancellation = RuntimeCancellationToken::new();
+    let cancellation_signal = cancellation.clone();
+    let canceller = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(100));
+        cancellation_signal.cancel();
+    });
+    let started = Instant::now();
+    let error = execute_with_cancellation(
+        "action.shell",
+        json!({"command": long_running_shell_command(), "timeoutSeconds": 30}),
+        cancellation,
+    )
+    .expect_err("a cancelled command must fail as cancelled");
+    canceller.join().expect("cancellation thread should finish");
+
+    assert!(matches!(error, RuntimeActionError::Cancelled));
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn shell_command_drains_stdout_and_stderr_without_pipe_deadlock() {
+    let result = execute(
+        "action.shell",
+        json!({"command": high_output_shell_command(), "timeoutSeconds": 10}),
+    )
+    .expect("concurrent stdout and stderr output should be drained");
+
+    assert_eq!(result.output_data.get("success"), Some(&json!(true)));
+    assert!(output(&result, "stdout").contains("stdout-value"));
+    assert!(output(&result, "stderr").contains("stderr-value"));
+}
+
+#[test]
+fn process_and_shell_reject_invalid_timeouts() {
+    for timeout in [json!(0), json!(86_401), json!("not-a-number")] {
+        let error = execute(
+            "action.shell",
+            json!({"command": successful_shell_command(), "timeoutSeconds": timeout}),
+        )
+        .expect_err("invalid timeout must be rejected before starting the command");
+        assert!(error.to_string().contains("timeoutSeconds"));
+    }
+}
+
 fn request(action_type: &str) -> baudbound_runtime::RuntimeActionRequest {
     baudbound_runtime::RuntimeActionRequest {
         action: None,
@@ -214,6 +279,36 @@ fn successful_process_command() -> (&'static str, &'static str) {
 #[cfg(windows)]
 fn failing_shell_command() -> &'static str {
     "echo stdout-value & echo stderr-value 1>&2 & exit /B 7"
+}
+
+#[cfg(windows)]
+fn long_running_shell_command() -> &'static str {
+    "ping 127.0.0.1 -n 30 >nul"
+}
+
+#[cfg(not(windows))]
+fn long_running_shell_command() -> &'static str {
+    "sleep 30"
+}
+
+#[cfg(windows)]
+fn high_output_shell_command() -> &'static str {
+    "for /L %i in (1,1,20000) do @(echo stdout-value-%i& echo stderr-value-%i 1>&2)"
+}
+
+#[cfg(not(windows))]
+fn high_output_shell_command() -> &'static str {
+    "i=0; while [ $i -lt 20000 ]; do printf 'stdout-value-%s\\n' \"$i\"; printf 'stderr-value-%s\\n' \"$i\" >&2; i=$((i + 1)); done"
+}
+
+#[cfg(windows)]
+fn successful_shell_command() -> &'static str {
+    "exit /B 0"
+}
+
+#[cfg(not(windows))]
+fn successful_shell_command() -> &'static str {
+    "true"
 }
 
 #[cfg(not(windows))]

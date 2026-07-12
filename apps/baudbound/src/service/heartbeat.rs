@@ -3,12 +3,16 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use baudbound_core::{RunReport, TriggerEvent};
 use baudbound_storage::SqliteRunnerStore;
+use serde_json::Value;
 
 use super::{
     activity::ServiceActivity,
     ipc::ServiceControlDescriptor,
     options::ServeOptions,
-    status::{ServeStatusSnapshot, write_serve_status},
+    status::{
+        ServeStatusSnapshot, build_serve_status_document, write_serve_status,
+        write_serve_status_document,
+    },
     triggers::TriggerServices,
 };
 use crate::paths::current_unix_timestamp;
@@ -57,13 +61,13 @@ impl ServeStatusTracker {
         Ok(())
     }
 
-    pub(super) fn write_stopped(
+    pub(super) fn prepare_stopped(
         &self,
         store: &SqliteRunnerStore,
         options: &ServeOptions,
         services: &TriggerServices,
-    ) -> Result<()> {
-        write_serve_status(
+    ) -> Value {
+        build_serve_status_document(
             store,
             options,
             services,
@@ -75,6 +79,14 @@ impl ServeStatusTracker {
                 state: "stopped",
             },
         )
+    }
+
+    pub(super) fn write_prepared_stopped(
+        &self,
+        store: &SqliteRunnerStore,
+        document: &Value,
+    ) -> Result<()> {
+        write_serve_status_document(store, document)
     }
 
     pub(super) fn mark_reloaded(&mut self) {

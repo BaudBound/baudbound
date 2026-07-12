@@ -1,9 +1,20 @@
 use std::env;
 
 use anyhow::Result;
-use baudbound_core::WINDOWS_DESKTOP_ONLY_ACTIONS;
 use serde::Serialize;
 use serde_json::json;
+
+const INPUT_ACTION_TYPES: &[&str] = &[
+    "action.keyboard",
+    "action.keyboard.type_text",
+    "action.mouse",
+    "action.mouse.move",
+];
+const SCREEN_WINDOW_ACTION_TYPES: &[&str] = &[
+    "action.pixel.get",
+    "action.window.active",
+    "action.window.focus",
+];
 
 #[derive(Clone, Copy, Serialize)]
 pub struct DoctorCheck {
@@ -96,24 +107,23 @@ pub fn desktop_doctor_checks() -> Vec<DoctorCheck> {
         DoctorCheck::new(
             true,
             "Audio playback",
-            &["action.sound.play"],
-            "Uses rodio and the system audio backend. Requires an available output device.",
+            &["action.beep", "action.sound.play"],
+            "Uses rodio and the system audio backend for generated tones and audio files. Requires an available output device.",
         ),
         DoctorCheck::new(
-            true,
+            cfg!(windows),
             "Keyboard and mouse automation",
-            &[
-                "action.keyboard",
-                "action.keyboard.type_text",
-                "action.mouse",
-                "action.mouse.move",
-            ],
-            "Uses enigo native input APIs. The OS may require accessibility/input permissions.",
+            INPUT_ACTION_TYPES,
+            if cfg!(windows) {
+                "Uses native Windows input APIs through enigo. The OS may require accessibility/input permissions."
+            } else {
+                "Keyboard and mouse automation is restricted to Windows Desktop because the previous Linux backend supported X11 but not Wayland."
+            },
         ),
         DoctorCheck::new(
             cfg!(windows),
             "Screen pixel and window APIs",
-            WINDOWS_DESKTOP_ONLY_ACTIONS,
+            SCREEN_WINDOW_ACTION_TYPES,
             if cfg!(windows) {
                 "Get Pixel Color, Get Active Window, and Window Focus use native Win32 APIs."
             } else {
@@ -121,4 +131,27 @@ pub fn desktop_doctor_checks() -> Vec<DoctorCheck> {
             },
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_platform_accurate_input_and_window_groups() {
+        let checks = desktop_doctor_checks();
+        let input = checks
+            .iter()
+            .find(|check| check.label == "Keyboard and mouse automation")
+            .expect("input diagnostic should exist");
+        assert_eq!(input.available, cfg!(windows));
+        assert_eq!(input.action_types, INPUT_ACTION_TYPES);
+
+        let screen = checks
+            .iter()
+            .find(|check| check.label == "Screen pixel and window APIs")
+            .expect("screen diagnostic should exist");
+        assert_eq!(screen.action_types, SCREEN_WINDOW_ACTION_TYPES);
+        assert!(!screen.action_types.contains(&"trigger.hotkey"));
+    }
 }

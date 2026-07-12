@@ -98,6 +98,33 @@ impl TriggerServices {
             && self.webhook_host.is_none()
             && self.websocket_service.is_empty()
     }
+
+    pub(super) fn shutdown(&mut self, options: &ServeOptions) {
+        self.webhook_host.take();
+        drop(std::mem::replace(
+            &mut self.native_hotkey_service,
+            NativeHotkeyService::empty(),
+        ));
+        drop(std::mem::replace(
+            &mut self.websocket_service,
+            WebSocketService::empty(Arc::clone(&options.websocket_registry)),
+        ));
+        drop(std::mem::replace(
+            &mut self.serial_input_service,
+            SerialInputService::empty(),
+        ));
+        drop(std::mem::replace(
+            &mut self.process_started_service,
+            ProcessStartedService::empty(),
+        ));
+        drop(std::mem::replace(
+            &mut self.file_watch_service,
+            FileWatchService::empty(),
+        ));
+        self.hotkey_service = HotkeyService::empty();
+        self.schedules = ScheduleService::empty();
+        self.startup = StartupService::empty();
+    }
 }
 
 pub(super) fn load_trigger_services(

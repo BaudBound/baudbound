@@ -172,6 +172,11 @@ fn action_support(action_type: &str) -> Option<ActionSupport> {
 }
 
 pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
+    "action.keyboard",
+    "action.keyboard.type_text",
+    "action.message_box",
+    "action.mouse",
+    "action.mouse.move",
     "action.pixel.get",
     "action.window.active",
     "action.window.focus",
@@ -180,12 +185,8 @@ pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
 
 pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.application.open",
+    "action.beep",
     "action.clipboard",
-    "action.keyboard",
-    "action.keyboard.type_text",
-    "action.message_box",
-    "action.mouse",
-    "action.mouse.move",
     "action.notification",
     "action.sound.play",
 ];
@@ -332,16 +333,18 @@ mod tests {
 
     #[test]
     fn rejects_desktop_actions_on_headless_targets() {
-        let package = package_with_target_and_step("Generic Headless", "action.notification");
+        for action_type in ["action.beep", "action.notification"] {
+            let package = package_with_target_and_step("Generic Headless", action_type);
 
-        let error =
-            validate_package_target_runtime(&package).expect_err("headless target should reject");
+            let error = validate_package_target_runtime(&package)
+                .expect_err("headless target should reject desktop action");
 
-        assert!(
-            error
-                .to_string()
-                .contains("requires a desktop target runtime")
-        );
+            assert!(
+                error
+                    .to_string()
+                    .contains("requires a desktop target runtime")
+            );
+        }
     }
 
     #[test]
@@ -360,6 +363,25 @@ mod tests {
 
         validate_package_target_runtime(&package)
             .expect("Windows Desktop should support native Win32 window actions");
+    }
+
+    #[test]
+    fn native_input_actions_require_windows_desktop() {
+        for action_type in [
+            "action.keyboard",
+            "action.keyboard.type_text",
+            "action.mouse",
+            "action.mouse.move",
+        ] {
+            let linux_package = package_with_target_and_step("Linux Desktop", action_type);
+            let error = validate_package_target_runtime(&linux_package)
+                .expect_err("X11-only input must not be advertised for Linux Desktop");
+            assert!(error.to_string().contains("requires Windows Desktop"));
+
+            let windows_package = package_with_target_and_step("Windows Desktop", action_type);
+            validate_package_target_runtime(&windows_package)
+                .expect("Windows Desktop should support native input actions");
+        }
     }
 
     #[test]

@@ -358,14 +358,15 @@ fn appends_orders_and_filters_run_records() {
     let store = open_store(&temporary_directory);
     import_test_script(&store, &temporary_directory);
 
+    let now = current_test_timestamp();
     store
-        .append_run_record(test_run_record("run-1", "script-1", 10))
+        .append_run_record(test_run_record("run-1", "script-1", now - 20))
         .expect("first run should append");
     store
-        .append_run_record(test_run_record("run-2", "script-2", 20))
+        .append_run_record(test_run_record("run-2", "script-2", now - 10))
         .expect("second run should append");
     store
-        .append_run_record(test_run_record("run-3", "script-1", 30))
+        .append_run_record(test_run_record("run-3", "script-1", now))
         .expect("third run should append");
 
     let all_records = store
@@ -390,6 +391,94 @@ fn appends_orders_and_filters_run_records() {
     );
 }
 
+#[test]
+fn run_retention_prunes_count_and_age_without_touching_live_variables() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Persistent,
+            "script-1",
+            "counter",
+            None,
+            &serde_json::json!(7),
+        )
+        .expect("persistent variable should write");
+    store
+        .set_run_retention_policy(RunRetentionPolicy::new(2, 30))
+        .expect("retention policy should apply");
+
+    let now = current_test_timestamp();
+    for (run_id, age) in [("run-1", 3), ("run-2", 2), ("run-3", 1)] {
+        store
+            .append_run_record(test_run_record(run_id, "script-1", now - age))
+            .expect("run should append");
+    }
+    assert_eq!(
+        store
+            .list_run_records(None, None)
+            .expect("runs should list")
+            .into_iter()
+            .map(|record| record.run_id)
+            .collect::<Vec<_>>(),
+        ["run-3", "run-2"]
+    );
+
+    let deleted = store
+        .set_run_retention_policy(RunRetentionPolicy::new(1, 30))
+        .expect("reduced retention policy should prune immediately");
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        store
+            .list_run_records(None, None)
+            .expect("runs should list")
+            .into_iter()
+            .map(|record| record.run_id)
+            .collect::<Vec<_>>(),
+        ["run-3"]
+    );
+    assert_eq!(
+        store
+            .load_variable(StoredVariableScope::Persistent, "script-1", "counter")
+            .expect("persistent variable should load")
+            .expect("persistent variable should remain")
+            .value,
+        serde_json::json!(7)
+    );
+
+    store
+        .set_run_retention_policy(RunRetentionPolicy::new(100, 1))
+        .expect("age policy should apply");
+    store
+        .append_run_record(test_run_record(
+            "expired-run",
+            "script-1",
+            now.saturating_sub(2 * 24 * 60 * 60),
+        ))
+        .expect("expired run insert and prune should be atomic");
+    assert!(
+        store
+            .list_run_records(None, None)
+            .expect("runs should list")
+            .iter()
+            .all(|record| record.run_id != "expired-run")
+    );
+}
+
+#[test]
+fn run_retention_rejects_unbounded_zero_limits() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+
+    for policy in [
+        RunRetentionPolicy::new(0, 30),
+        RunRetentionPolicy::new(100, 0),
+    ] {
+        assert!(store.set_run_retention_policy(policy).is_err());
+    }
+}
+
 fn test_run_record(run_id: &str, script_id: &str, completed_at_unix: u64) -> StoredRunRecord {
     StoredRunRecord {
         completed_at_unix,
@@ -404,4 +493,11 @@ fn test_run_record(run_id: &str, script_id: &str, completed_at_unix: u64) -> Sto
         trigger_node_id: "n-trigger".to_owned(),
         variables: BTreeMap::new(),
     }
+}
+
+fn current_test_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should follow Unix epoch")
+        .as_secs()
 }

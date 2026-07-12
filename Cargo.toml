@@ -21,6 +21,7 @@ version = "2.0.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+command-group = "5.0.1"
 base64 = "0.22.1"
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
 clap = { version = "4.5.50", features = ["derive"] }
