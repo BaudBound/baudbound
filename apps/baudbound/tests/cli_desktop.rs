@@ -2,10 +2,15 @@ use std::{
     fs,
     io::{Cursor, Write},
     path::Path,
-    process::{Command, Output, Stdio},
+    process::{Command, Output},
 };
 
-use serde_json::{Value, json};
+#[cfg(windows)]
+use std::process::Stdio;
+
+use serde_json::Value;
+#[cfg(windows)]
+use serde_json::json;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 #[test]
@@ -345,6 +350,7 @@ fn desktop_cli_supports_script_group_aliases() {
     ));
 }
 
+#[cfg(windows)]
 #[test]
 fn desktop_cli_dispatches_hotkey_triggers() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -392,6 +398,7 @@ fn desktop_cli_dispatches_hotkey_triggers() {
     assert_eq!(run_logs[0]["trigger_node_id"], "n-hotkey");
 }
 
+#[cfg(windows)]
 #[test]
 fn desktop_cli_listens_for_stdin_hotkey_triggers() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -441,6 +448,7 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
     assert_eq!(run_logs[0]["trigger_node_id"], "n-hotkey");
 }
 
+#[cfg(windows)]
 #[test]
 fn desktop_cli_serves_hotkey_stdin_once() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -522,6 +530,7 @@ fn run_desktop<const N: usize>(runner_home: &Path, args: [&str; N]) -> Output {
         .expect("baudbound command should run")
 }
 
+#[cfg(windows)]
 fn run_desktop_with_stdin<const N: usize>(
     runner_home: &Path,
     args: [&str; N],
@@ -661,6 +670,7 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
         .into_inner()
 }
 
+#[cfg(windows)]
 fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
