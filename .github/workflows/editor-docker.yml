@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/editor/**"
+      - "schemas/package-limits.json"
       - ".github/workflows/editor-docker.yml"
   push:
     branches:
@@ -13,6 +14,7 @@ on:
       - "v*"
     paths:
       - "apps/editor/**"
+      - "schemas/package-limits.json"
       - ".github/workflows/editor-docker.yml"
   workflow_dispatch:
 
@@ -21,7 +23,7 @@ permissions:
   packages: write
 
 env:
-  BUILD_CONTEXT: apps/editor
+  BUILD_CONTEXT: .
   DOCKERFILE: apps/editor/Dockerfile
 
 jobs:
