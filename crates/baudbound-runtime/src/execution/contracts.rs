@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use crate::{RuntimeCancellationToken, RuntimeSecretDeclaration, RuntimeStateStore};
+use crate::{
+    RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeSecretDeclaration, RuntimeStateStore,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -111,6 +113,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) action_handler: &'a dyn RuntimeActionHandler,
     pub(super) cancellation: RuntimeCancellationToken,
     pub(super) state_store: Option<&'a dyn RuntimeStateStore>,
+    pub(super) default_variables: &'a [RuntimeDefaultVariable],
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
 }
 
@@ -122,6 +125,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             action_handler,
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
+            default_variables: &[],
             secrets: &[],
         }
     }
@@ -148,6 +152,15 @@ impl<'a> RuntimeExecutionResources<'a> {
         self.secrets = secrets;
         self
     }
+
+    #[must_use]
+    pub fn with_default_variables(
+        mut self,
+        default_variables: &'a [RuntimeDefaultVariable],
+    ) -> Self {
+        self.default_variables = default_variables;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -164,6 +177,7 @@ pub struct RuntimeNode {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RuntimeEdge {
+    pub execution_order: u32,
     pub source: String,
     pub source_handle: String,
     pub target: String,

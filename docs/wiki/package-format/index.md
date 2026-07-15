@@ -46,6 +46,20 @@ An update must keep the same `id`. A display name is not a stable update key and
 
 The program contains the executable graph. Each node has a unique ID, action type, and action-specific config. Edges connect named execution ports, and the entry identifies the trigger that starts the graph. The per-node config rules come from the generated node schemas and runner semantic validation.
 
+Every edge contains these execution fields:
+
+| Field | Meaning |
+| --- | --- |
+| `source` | ID of the node whose output starts the connection |
+| `source_handle` | Named output on the source node |
+| `target` | ID of the destination node |
+| `target_handle` | Named input on the destination node |
+| `execution_order` | Zero-based position among edges with the same `source` and `source_handle` |
+
+For each source output, `execution_order` values must be unique and consecutive from `0`. A single connection uses `0`. Three connections use `0`, `1`, and `2`. The editor displays those positions as 1, 2, and 3 for users. The simulator and runner execute the destinations sequentially in that order.
+
+Missing, duplicate, negative, or gapped orders are invalid. A node cannot connect an output to one of its own inputs. The runner enforces these rules independently during package validation and again when constructing the runtime graph.
+
 Canvas coordinates and comment presentation are not executable concerns and belong in `editor.json`.
 
 ### Access documents

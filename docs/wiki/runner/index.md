@@ -35,8 +35,11 @@ See [Storage, Backups, and Recovery](storage-backups.md) for exact paths and bac
 4. The operator reviews and approves the exact installed hash.
 5. Required secret values and runtime policy are checked before a run.
 6. A trigger payload enters the graph runtime.
-7. Supported native adapters perform side effects.
-8. Redacted logs, variables, status, and result are stored as a run record.
+7. Each selected output follows its connections sequentially in the explicit package execution order.
+8. Supported native adapters perform side effects.
+9. Redacted logs, variables, status, and result are stored as a run record.
+
+Fan-out connections are not parallel work. The runtime completes the first destination branch before starting the next destination from the same output. This matches editor simulation. Node IDs and canvas positions do not decide the order.
 
 Changing installed package bytes or importing an updated revision makes approval invalid or stale.
 

@@ -15,7 +15,8 @@ pub(crate) use config::{config_string, required_config_string};
 pub(crate) use control::{RuntimeConditionRow, RuntimeFrame, RuntimeSwitchCaseRow};
 pub(crate) use graph::RuntimeGraph;
 pub use state::{
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
+    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeSecretDeclaration,
+    RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
 };
 pub(crate) use templates::{render_template, resolve_config_map, resolve_template_value};
 pub(crate) use variables::{

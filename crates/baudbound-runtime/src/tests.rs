@@ -65,8 +65,8 @@ fn executes_manual_log_and_variable_operation() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"},
-                            {"source": "n-var", "source_handle": "out", "target": "n-log", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"},
+                            {"execution_order": 0, "source": "n-var", "source_handle": "out", "target": "n-log", "target_handle": "input"}
                         ]
                     }
                 }
@@ -85,6 +85,52 @@ fn executes_manual_log_and_variable_operation() {
             .iter()
             .any(|log| log.message == "foo=bar length=3")
     );
+}
+
+#[test]
+fn executes_fan_out_branches_sequentially_in_explicit_order() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        log_node("n-alpha", "second"),
+                        log_node("n-zulu", "first")
+                    ],
+                    "edges": [
+                        {
+                            "execution_order": 1,
+                            "source": "n-trigger",
+                            "source_handle": "out",
+                            "target": "n-alpha",
+                            "target_handle": "input"
+                        },
+                        {
+                            "execution_order": 0,
+                            "source": "n-trigger",
+                            "source_handle": "out",
+                            "target": "n-zulu",
+                            "target_handle": "input"
+                        }
+                    ]
+                }
+            }
+        }),
+        "script-ordered-fan-out",
+    )
+    .expect("ordered fan-out should execute");
+
+    let branch_messages = report
+        .logs
+        .iter()
+        .filter_map(|log| match log.message.as_str() {
+            "first" | "second" => Some(log.message.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(branch_messages, vec!["first", "second"]);
 }
 
 #[test]
@@ -132,7 +178,7 @@ fn accepts_primary_trigger_also_listed_in_triggers() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-trigger", "source_handle": "out", "target": "n-log", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-log", "target_handle": "input"}
                         ]
                     }
                 }
@@ -187,7 +233,7 @@ fn executes_from_selected_trigger_with_payload_outputs() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-webhook", "source_handle": "out", "target": "n-log", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-webhook", "source_handle": "out", "target": "n-log", "target_handle": "input"}
                         ]
                     }
                 }
@@ -240,7 +286,7 @@ fn rejects_starting_from_non_trigger_node() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-trigger", "source_handle": "out", "target": "n-log", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-log", "target_handle": "input"}
                         ]
                     }
                 }
@@ -285,7 +331,7 @@ fn rejects_reserved_variable_writes() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"}
                         ]
                     }
                 }
@@ -327,7 +373,7 @@ fn rejects_derived_variable_writes() {
                             }
                         ],
                         "edges": [
-                            {"source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"}
+                            {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-var", "target_handle": "input"}
                         ]
                     }
                 }
@@ -742,6 +788,7 @@ fn manual_trigger() -> Value {
 
 fn edge(source: &str, source_handle: &str, target: &str) -> Value {
     json!({
+        "execution_order": 0,
         "source": source,
         "source_handle": source_handle,
         "target": target,

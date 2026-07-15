@@ -1,6 +1,13 @@
 "use client";
 
-import { type Edge, useEdgesState, useNodesState, type XYPosition } from "@xyflow/react";
+import {
+	applyEdgeChanges,
+	type Edge,
+	type EdgeChange,
+	useEdgesState,
+	useNodesState,
+	type XYPosition,
+} from "@xyflow/react";
 import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,6 +46,7 @@ import { createSimulationSecretValues, getSecretSimulationProblems } from "@/dat
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
 import type {
 	CommentNodeData,
+	DefaultVariable,
 	EditorAsset,
 	InspectorTab,
 	JsonValue,
@@ -63,12 +71,16 @@ import {
 } from "@/utils/analysis";
 import { exportBbsPackage, importBbsPackage, verifyBbsPackage } from "@/utils/bbs-package";
 import {
-	cloneGraphValue,
 	createEditorVerificationSignature,
+	createGraphFragment,
+	createGraphFragmentCopy,
 	createGraphNodeCopy,
 	DUPLICATE_OFFSET,
+	type GraphFragment,
 	getCenteredScriptNodePosition,
 	hasManualTrigger,
+	normalizeEdgeExecutionOrders,
+	reorderEdgeExecutionGroup,
 } from "@/utils/editor-graph";
 import { truncateLogEntry, truncateSimulationTrace } from "@/utils/editor-log";
 import { hasBrowserTextSelection, isEditableShortcutTarget } from "@/utils/editor-shortcuts";
@@ -89,8 +101,8 @@ import {
 } from "@/utils/verification";
 
 type EditorClipboard = {
-	node: EditorFlowNode;
-	type: "node";
+	fragment: GraphFragment<EditorFlowNode, Edge>;
+	type: "graph";
 };
 
 type VerificationRecord = {
@@ -130,15 +142,10 @@ const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 };
 
 export function EditorPage() {
-	const handleCopyNodeRef = useRef<(nodeId: string) => void>(() => undefined);
-	const handlePasteClipboardRef = useRef<(position: XYPosition) => void>(() => undefined);
-	const clipboardRef = useRef<EditorClipboard | null>(null);
+	const handleCopyGraphRef = useRef<(nodeId?: string) => boolean>(() => false);
 	const importInputRef = useRef<HTMLInputElement>(null);
-	const nodesRef = useRef<EditorFlowNode[]>([]);
-	const selectedNodeIdRef = useRef<string | null>(null);
 	const simulationLifecycleRef = useRef<SimulationLifecycle>({ abortController: null, active: false, runId: 0 });
 	const simulationMessageBoxResolveRef = useRef<((button: string) => void) | null>(null);
-	const viewportCenterRef = useRef<XYPosition | null>(null);
 	const initialNodes = useMemo<EditorFlowNode[]>(() => createInitialEditorNodes() as ScriptFlowNode[], []);
 	const initialEdges = useMemo(() => createInitialEditorEdges(), []);
 	const [projectSettings, setProjectSettings] = useState<ProjectSettings>(DEFAULT_PROJECT_SETTINGS);
@@ -164,6 +171,7 @@ export function EditorPage() {
 	const [exportOpen, setExportOpen] = useState(false);
 	const [clipboard, setClipboard] = useState<EditorClipboard | null>(null);
 	const [assets, setAssets] = useState<EditorAsset[]>([]);
+	const [defaultVariables, setDefaultVariables] = useState<DefaultVariable[]>([]);
 	const [secretDeclarations, setSecretDeclarations] = useState<SecretDeclaration[]>([]);
 	const [simulationSecretValues, setSimulationSecretValues] = useState<Record<string, string>>({});
 	const [edgeStyle, setEdgeStyle] = useState<EditorEdgeStyle>(defaultEditorEdgeStyle);
@@ -190,28 +198,30 @@ export function EditorPage() {
 	);
 	const [logs, setLogs] = useState<LogEntry[]>([]);
 	const [nodes, setNodes, onNodesChange] = useNodesState<EditorFlowNode>(initialNodes);
-	const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges);
+	const [edges, setEdges] = useEdgesState<Edge>(initialEdges);
 	const { sizes, startResize } = useEditorPanelSizes();
 
 	const scriptNodes = useMemo(() => nodes.filter(isScriptFlowNode), [nodes]);
 	const comments = useMemo(() => nodes.filter(isCommentFlowNode).map(toEditorComment), [nodes]);
 
-	nodesRef.current = nodes;
-	selectedNodeIdRef.current = selectedNodeId ?? nodes.find((node) => node.selected)?.id ?? null;
-	clipboardRef.current = clipboard;
-	viewportCenterRef.current = viewportCenter;
-
 	const selectedNode = useMemo(
 		() => scriptNodes.find((node) => node.id === selectedNodeId) ?? null,
 		[scriptNodes, selectedNodeId],
 	);
+	const selectedEdge = useMemo(() => edges.find((edge) => edge.id === selectedEdgeId) ?? null, [edges, selectedEdgeId]);
+	const handleEdgesChange = useCallback(
+		(changes: EdgeChange<Edge>[]) => {
+			setEdges((currentEdges) => normalizeEdgeExecutionOrders(applyEdgeChanges(changes, currentEdges)));
+		},
+		[setEdges],
+	);
 	const permissions = useMemo(
-		() => calculatePermissions(scriptNodes, secretDeclarations),
-		[scriptNodes, secretDeclarations],
+		() => calculatePermissions(scriptNodes, secretDeclarations, defaultVariables),
+		[scriptNodes, secretDeclarations, defaultVariables],
 	);
 	const capabilities = useMemo(
-		() => calculateCapabilities(scriptNodes, secretDeclarations),
-		[scriptNodes, secretDeclarations],
+		() => calculateCapabilities(scriptNodes, secretDeclarations, defaultVariables),
+		[scriptNodes, secretDeclarations, defaultVariables],
 	);
 	const riskLevel = useMemo(() => calculateRiskLevel(permissions), [permissions]);
 	const exportSummary = useMemo(
@@ -225,19 +235,44 @@ export function EditorPage() {
 				edges,
 				nodes: scriptNodes,
 				permissions,
+				defaultVariables,
 				secretDeclarations,
 				scriptName: projectSettings.name,
 				targetRuntime: projectSettings.targetRuntime,
 			}),
-		[assets, edges, scriptNodes, permissions, projectSettings.name, projectSettings.targetRuntime, secretDeclarations],
+		[
+			assets,
+			defaultVariables,
+			edges,
+			scriptNodes,
+			permissions,
+			projectSettings.name,
+			projectSettings.targetRuntime,
+			secretDeclarations,
+		],
 	);
 	const verificationSignature = useMemo(
-		() => createEditorVerificationSignature(projectSettings, scriptNodes, edges, assets, secretDeclarations),
-		[projectSettings, scriptNodes, edges, assets, secretDeclarations],
+		() =>
+			createEditorVerificationSignature(
+				projectSettings,
+				scriptNodes,
+				edges,
+				assets,
+				secretDeclarations,
+				defaultVariables,
+			),
+		[projectSettings, scriptNodes, edges, assets, secretDeclarations, defaultVariables],
 	);
 	const variableEntries = useMemo(
-		() => createVariablePanelEntries(projectSettings, scriptNodes, simulationVariables, secretDeclarations),
-		[projectSettings, scriptNodes, simulationVariables, secretDeclarations],
+		() =>
+			createVariablePanelEntries(
+				projectSettings,
+				scriptNodes,
+				simulationVariables,
+				secretDeclarations,
+				defaultVariables,
+			),
+		[projectSettings, scriptNodes, simulationVariables, secretDeclarations, defaultVariables],
 	);
 	const normalizedProjectSettings = {
 		...projectSettings,
@@ -330,6 +365,7 @@ export function EditorPage() {
 			comments,
 			edgeStyle,
 			secretDeclarations,
+			defaultVariables,
 		});
 	};
 
@@ -452,6 +488,7 @@ export function EditorPage() {
 					edges,
 					overrides: simulationOverrides,
 					projectSettings,
+					defaultVariables,
 					secretValues: createSimulationSecretValues(secretDeclarations, simulationSecretValues),
 					signal: abortController.signal,
 					stepDelayMs: getSimulationStepDelay(simulationSettings.speed),
@@ -480,6 +517,7 @@ export function EditorPage() {
 			edges,
 			handleSimulationStep,
 			projectSettings,
+			defaultVariables,
 			secretDeclarations,
 			scriptNodes,
 			simulationSecretValues,
@@ -636,12 +674,17 @@ export function EditorPage() {
 			}
 
 			const importedPackage = await importBbsPackage(file);
-			const importedPermissions = calculatePermissions(importedPackage.nodes, importedPackage.secretDeclarations);
+			const importedPermissions = calculatePermissions(
+				importedPackage.nodes,
+				importedPackage.secretDeclarations,
+				importedPackage.defaultVariables,
+			);
 			const importedVerificationChecks = createVerificationChecks({
 				assets: importedPackage.assets,
 				edges: importedPackage.edges,
 				nodes: importedPackage.nodes,
 				permissions: importedPermissions,
+				defaultVariables: importedPackage.defaultVariables,
 				secretDeclarations: importedPackage.secretDeclarations,
 				scriptName: importedPackage.projectSettings.name,
 				targetRuntime: importedPackage.projectSettings.targetRuntime,
@@ -653,11 +696,13 @@ export function EditorPage() {
 				importedPackage.edges,
 				importedPackage.assets,
 				importedPackage.secretDeclarations,
+				importedPackage.defaultVariables,
 			);
 
 			abortSimulationLifecycle("imported package loaded");
 			setProjectSettings(importedPackage.projectSettings);
 			setAssets(importedPackage.assets);
+			setDefaultVariables(importedPackage.defaultVariables);
 			setSecretDeclarations(importedPackage.secretDeclarations);
 			setSimulationSecretValues({});
 			setEdgeStyle(importedPackage.edgeStyle);
@@ -937,7 +982,7 @@ export function EditorPage() {
 					setSelectedEdgeId(null);
 				}
 
-				return remainingEdges;
+				return normalizeEdgeExecutionOrders(remainingEdges);
 			});
 		}
 	};
@@ -950,7 +995,7 @@ export function EditorPage() {
 				setSelectedEdgeId(null);
 			}
 
-			return remainingEdges;
+			return normalizeEdgeExecutionOrders(remainingEdges);
 		});
 
 		if (selectedNodeId === nodeId) {
@@ -959,19 +1004,25 @@ export function EditorPage() {
 	};
 
 	const handleDeleteEdge = (edgeId: string) => {
-		setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== edgeId));
+		setEdges((currentEdges) => normalizeEdgeExecutionOrders(currentEdges.filter((edge) => edge.id !== edgeId)));
 		if (selectedEdgeId === edgeId) {
 			setSelectedEdgeId(null);
 		}
 	};
 
-	const handleCopyNode = (nodeId: string) => {
-		const node = nodes.find((currentNode) => currentNode.id === nodeId);
-		if (!node) {
-			return;
+	const handleCopyGraph = (nodeId?: string) => {
+		const selectedNodes = nodes.filter((node) => node.selected);
+		const targetNode = nodeId ? nodes.find((node) => node.id === nodeId) : undefined;
+		const nodesToCopy = targetNode && !targetNode.selected ? [targetNode] : selectedNodes;
+		if (nodesToCopy.length === 0) {
+			return false;
 		}
 
-		setClipboard({ type: "node", node: cloneGraphValue(node) });
+		setClipboard({ type: "graph", fragment: createGraphFragment(nodesToCopy, edges) });
+		return true;
+	};
+	const handleCopyNode = (nodeId: string) => {
+		handleCopyGraph(nodeId);
 	};
 
 	const handleDuplicateNode = (nodeId: string) => {
@@ -998,43 +1049,50 @@ export function EditorPage() {
 		}
 	};
 
-	const handlePasteClipboard = (position: XYPosition) => {
+	const handlePasteClipboard = (centerPosition: XYPosition) => {
 		if (!clipboard) {
 			return;
 		}
 
-		if (
-			isScriptFlowNode(clipboard.node) &&
-			clipboard.node.data.actionType === "trigger.manual" &&
-			hasManualTrigger(scriptNodes)
-		) {
+		const clipboardScriptNodes = clipboard.fragment.nodes.filter(isScriptFlowNode);
+		if (hasManualTrigger(clipboardScriptNodes) && hasManualTrigger(scriptNodes)) {
 			showManualTriggerLimitError();
 			return;
 		}
 
-		const pastedNode = createGraphNodeCopy(clipboard.node, position) as EditorFlowNode;
-		setNodes((currentNodes) => [...currentNodes, pastedNode]);
-		setSelectedNodeId(isScriptFlowNode(pastedNode) ? pastedNode.id : null);
+		const pastedFragment = createGraphFragmentCopy(clipboard.fragment, centerPosition);
+		setNodes((currentNodes) => [
+			...currentNodes.map((node) => ({ ...node, selected: false })),
+			...pastedFragment.nodes,
+		]);
+		setEdges((currentEdges) =>
+			normalizeEdgeExecutionOrders([
+				...currentEdges.map((edge) => ({ ...edge, selected: false })),
+				...pastedFragment.edges,
+			]),
+		);
+		setSelectedNodeId(pastedFragment.nodes.find(isScriptFlowNode)?.id ?? null);
 		setSelectedEdgeId(null);
-		if (isScriptFlowNode(pastedNode)) {
+		if (pastedFragment.nodes.some(isScriptFlowNode)) {
 			setActiveTab("properties");
 		}
 	};
 
-	handleCopyNodeRef.current = handleCopyNode;
-	handlePasteClipboardRef.current = handlePasteClipboard;
+	handleCopyGraphRef.current = handleCopyGraph;
 
 	const handleNodesDelete = (deletedNodes: EditorFlowNode[]) => {
 		const deletedNodeIds = new Set(deletedNodes.filter(isScriptFlowNode).map((node) => node.id));
 		setEdges((currentEdges) =>
-			currentEdges.filter((edge) => {
-				const shouldDelete = deletedNodeIds.has(edge.source) || deletedNodeIds.has(edge.target);
-				if (shouldDelete && edge.id === selectedEdgeId) {
-					setSelectedEdgeId(null);
-				}
+			normalizeEdgeExecutionOrders(
+				currentEdges.filter((edge) => {
+					const shouldDelete = deletedNodeIds.has(edge.source) || deletedNodeIds.has(edge.target);
+					if (shouldDelete && edge.id === selectedEdgeId) {
+						setSelectedEdgeId(null);
+					}
 
-				return !shouldDelete;
-			}),
+					return !shouldDelete;
+				}),
+			),
 		);
 
 		if (selectedNodeId && deletedNodeIds.has(selectedNodeId)) {
@@ -1045,6 +1103,17 @@ export function EditorPage() {
 	const handleEdgesDelete = (deletedEdges: Array<{ id: string }>) => {
 		if (selectedEdgeId && deletedEdges.some((edge) => edge.id === selectedEdgeId)) {
 			setSelectedEdgeId(null);
+		}
+	};
+
+	const handleReorderEdges = (orderedEdgeIds: string[]) => {
+		setEdges((currentEdges) => reorderEdgeExecutionGroup(currentEdges, orderedEdgeIds));
+	};
+
+	const handleSelectEdge = (edgeId: string | null) => {
+		setSelectedEdgeId(edgeId);
+		if (edgeId) {
+			setActiveTab("properties");
 		}
 	};
 
@@ -1060,23 +1129,10 @@ export function EditorPage() {
 					return;
 				}
 
-				const selectedNodeId =
-					selectedNodeIdRef.current ?? nodesRef.current.find((currentNode) => currentNode.selected)?.id ?? null;
-
-				if (selectedNodeId) {
+				if (handleCopyGraphRef.current()) {
 					event.preventDefault();
-					handleCopyNodeRef.current(selectedNodeId);
 				}
 				return;
-			}
-
-			if (key === "v" && clipboardRef.current) {
-				event.preventDefault();
-				handlePasteClipboardRef.current(
-					viewportCenterRef.current
-						? getCenteredClipboardNodePosition(clipboardRef.current.node, viewportCenterRef.current)
-						: { x: 0, y: 0 },
-				);
 			}
 		};
 
@@ -1116,7 +1172,7 @@ export function EditorPage() {
 						edges={edges}
 						selectedEdgeId={selectedEdgeId}
 						onNodesChange={onNodesChange}
-						onEdgesChange={onEdgesChange}
+						onEdgesChange={handleEdgesChange}
 						onEdgesCommit={setEdges}
 						onNodesDelete={handleNodesDelete}
 						onEdgesDelete={handleEdgesDelete}
@@ -1126,7 +1182,7 @@ export function EditorPage() {
 								setActiveTab("properties");
 							}
 						}}
-						onSelectEdge={setSelectedEdgeId}
+						onSelectEdge={handleSelectEdge}
 						canPaste={clipboard !== null}
 						onCopyNode={handleCopyNode}
 						onDeleteNode={handleDeleteNode}
@@ -1142,6 +1198,7 @@ export function EditorPage() {
 						onSpawnDevelopmentNodes={handleSpawnDevelopmentNodes}
 						showDevelopmentNodeSpawner={isDevelopmentGraphEnabled}
 						onViewportCenterChange={setViewportCenter}
+						targetRuntime={projectSettings.targetRuntime}
 					/>
 					<ResizeHandle
 						axis="vertical"
@@ -1156,6 +1213,7 @@ export function EditorPage() {
 						systemLogs={systemLogs}
 						simulationLogs={simulationLogs}
 						variables={variableEntries}
+						defaultVariables={defaultVariables}
 						secretDeclarations={secretDeclarations}
 						simulationSecretValues={simulationSecretValues}
 						height={sizes.bottom}
@@ -1163,6 +1221,7 @@ export function EditorPage() {
 						onFollowChange={handleFollowBottomPanelTab}
 						onTabChange={setBottomPanelTab}
 						onToggle={() => setBottomPanelOpen((open) => !open)}
+						onDefaultVariablesChange={setDefaultVariables}
 						onSecretDeclarationsChange={setSecretDeclarations}
 						onSimulationSecretValueChange={(name, value) =>
 							setSimulationSecretValues((current) => {
@@ -1185,8 +1244,10 @@ export function EditorPage() {
 				<Inspector
 					activeTab={activeTab}
 					assets={assets}
+					edges={edges}
 					nodes={scriptNodes}
 					projectSettings={projectSettings}
+					selectedEdge={selectedEdge}
 					selectedNode={selectedNode}
 					simulationOverrides={simulationOverrides}
 					simulationSettings={simulationSettings}
@@ -1200,7 +1261,10 @@ export function EditorPage() {
 					onTabChange={setActiveTab}
 					onUpdateNodeConfig={handleUpdateNodeConfig}
 					onUpdateSimulationOverride={handleUpdateSimulationOverride}
+					onDeleteEdge={handleDeleteEdge}
 					onDeleteNode={handleDeleteNode}
+					onReorderEdges={handleReorderEdges}
+					onSelectEdge={handleSelectEdge}
 				/>
 			</div>
 
@@ -1250,15 +1314,4 @@ export function EditorPage() {
 
 function isScriptFlowNode(node: EditorFlowNode): node is ScriptFlowNode {
 	return node.type !== "commentNode";
-}
-
-function getCenteredClipboardNodePosition(node: EditorFlowNode, center: XYPosition): XYPosition {
-	if (isCommentFlowNode(node)) {
-		return {
-			x: center.x - node.data.size.width / 2,
-			y: center.y - node.data.size.height / 2,
-		};
-	}
-
-	return getCenteredScriptNodePosition(center);
 }

@@ -13,6 +13,8 @@ Native actions must use Rust crates or operating-system APIs. Do not construct P
 
 Every run path must validate package integrity, compatibility, approval, policy, secrets, and node configuration before side effects. Error messages should identify script, run, and node without leaking secret values.
 
+Runtime graph construction must reject missing, duplicate, negative, or gapped edge execution orders. Fan-out destinations from one source handle execute sequentially by `execution_order`. Do not derive their order from map iteration, node IDs, package array position, or editor coordinates.
+
 ## Application modules
 
 | Module | Responsibility |

@@ -13,6 +13,7 @@ import {
 import { targetRuntimes } from "@/data/project/runtimes";
 import { variableTypes } from "@/data/project/variables";
 import type { ActionType, JsonValue, PermissionSummary, RiskLevel, TargetRuntime } from "@/lib/types";
+import { isSelfConnection } from "@/utils/editor-graph";
 
 export const canonicalCapabilities = [
 	"trigger.manual",
@@ -115,6 +116,7 @@ type PackageJsonFiles = Record<string, unknown>;
 export function validatePackageJsonContracts(jsonFiles: PackageJsonFiles) {
 	return [
 		...validateManifestContract(jsonFiles["manifest.json"]),
+		...validateDefaultVariableProgramContract(jsonFiles["manifest.json"], jsonFiles["program.json"]),
 		...validateProgramContract(jsonFiles["program.json"]),
 		...validatePermissionsContract(
 			jsonFiles["permissions.json"],
@@ -197,8 +199,94 @@ export function validateManifestContract(value: unknown) {
 			}
 		}
 	}
+	if (manifest.variables !== undefined) {
+		if (!Array.isArray(manifest.variables)) {
+			errors.push("manifest.json variables must be an array when present.");
+		} else {
+			const names = new Set<string>();
+			const secretNames = new Set(
+				Array.isArray(manifest.secrets)
+					? manifest.secrets.flatMap((value) => {
+							const secret = asRecord(value);
+							return typeof secret?.name === "string" ? [secret.name] : [];
+						})
+					: [],
+			);
+			for (const value of manifest.variables) {
+				const variable = asRecord(value);
+				if (!variable) {
+					errors.push("manifest.json variable declarations must be objects.");
+					continue;
+				}
+				const name = typeof variable.name === "string" ? variable.name : "";
+				const type = variable.type as (typeof variableTypes)[number];
+				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.startsWith("system_") || name.startsWith("manifest_")) {
+					errors.push(`manifest.json variable name "${name}" is invalid or reserved.`);
+				}
+				if (names.has(name)) errors.push(`manifest.json contains duplicate variable name "${name}".`);
+				if (secretNames.has(name)) errors.push(`manifest.json variable "${name}" conflicts with a secret declaration.`);
+				names.add(name);
+				if (variable.scope !== "runtime" && variable.scope !== "persistent") {
+					errors.push(`manifest.json variable "${name}" has invalid scope "${String(variable.scope)}".`);
+				}
+				if (!variableTypes.includes(type)) {
+					errors.push(`manifest.json variable "${name}" has invalid type "${String(variable.type)}".`);
+				} else if (!defaultValueMatchesType(type, variable.value)) {
+					errors.push(`manifest.json variable "${name}" value does not match type "${type}".`);
+				}
+				if (variable.description !== undefined && typeof variable.description !== "string") {
+					errors.push(`manifest.json variable "${name}" description must be a string.`);
+				}
+			}
+		}
+	}
 
 	return errors;
+}
+
+function validateDefaultVariableProgramContract(manifestValue: unknown, programValue: unknown) {
+	const manifest = asRecord(manifestValue);
+	const program = asRecord(programValue);
+	const entry = asRecord(program?.entry);
+	const block = asRecord(entry?.program);
+	if (!Array.isArray(manifest?.variables) || !Array.isArray(block?.steps)) {
+		return [];
+	}
+
+	const defaults = new Map(
+		manifest.variables.flatMap((value) => {
+			const variable = asRecord(value);
+			return typeof variable?.name === "string" ? [[variable.name, variable] as const] : [];
+		}),
+	);
+	return block.steps.flatMap((value) => {
+		const step = asRecord(value);
+		const config = asRecord(step?.config);
+		if (step?.action_type !== "runtime.set_variable" || typeof config?.name !== "string") return [];
+		const variable = defaults.get(config.name);
+		if (!variable || (variable.scope === config.scope && variable.type === config.valueType)) return [];
+		return [`manifest.json variable "${config.name}" must match its Variable Operation scope and type.`];
+	});
+}
+
+function defaultValueMatchesType(type: (typeof variableTypes)[number], value: unknown) {
+	if (type === "string") return typeof value === "string" && value.trim().length > 0;
+	if (type === "file_path") return typeof value === "string" && value.trim().length > 0;
+	if (type === "number") return typeof value === "number" && Number.isFinite(value);
+	if (type === "boolean") return typeof value === "boolean";
+	if (type === "list") return Array.isArray(value) && value.every(isJsonValue);
+	if (type === "object") return isJsonObject(value);
+	const object = asRecord(value);
+	if (type === "http_response") {
+		return (
+			object?.type === "http_response" &&
+			typeof object.status === "number" &&
+			isJsonObject(object.headers) &&
+			"body" in object
+		);
+	}
+	if (type === "datetime") return object?.type === "datetime" && typeof object.value === "string";
+	return object?.type === "duration" && typeof object.unit === "string" && typeof object.value === "number";
 }
 
 export function validateProgramContract(value: unknown) {
@@ -277,6 +365,7 @@ export function validateProgramGraphContract(value: unknown) {
 	const nodeIds = new Set<string>();
 	const duplicateNodeIds = new Set<string>();
 	const nodesById = new Map<string, { actionType: ActionType; config: Record<string, JsonValue> }>();
+	const executionOrderGroups = new Map<string, number[]>();
 
 	for (const node of nodeRecords) {
 		if (!node || typeof node.id !== "string" || !node.id.trim()) {
@@ -329,9 +418,14 @@ export function validateProgramGraphContract(value: unknown) {
 			errors.push(`${label} references missing target node "${target}".`);
 			continue;
 		}
+		if (isSelfConnection({ source, target })) {
+			errors.push(`${label} cannot connect node "${source}" to itself.`);
+			continue;
+		}
 
 		const sourceHandle = typeof edge.source_handle === "string" ? edge.source_handle : "";
 		const targetHandle = typeof edge.target_handle === "string" ? edge.target_handle : "";
+		const executionOrder = edge.execution_order;
 		const sourcePorts = getNodePorts(sourceNode.actionType, sourceNode.config);
 		const targetPorts = getNodePorts(targetNode.actionType, targetNode.config);
 
@@ -341,10 +435,28 @@ export function validateProgramGraphContract(value: unknown) {
 			errors.push(`${label} uses unknown source_handle "${sourceHandle}" on node "${source}".`);
 		}
 
+		if (typeof executionOrder !== "number" || !Number.isSafeInteger(executionOrder) || executionOrder < 0) {
+			errors.push(`${label} must define a non-negative integer execution_order.`);
+		} else if (sourceHandle) {
+			const groupKey = `${source}\u0000${sourceHandle}`;
+			const group = executionOrderGroups.get(groupKey) ?? [];
+			group.push(executionOrder);
+			executionOrderGroups.set(groupKey, group);
+		}
+
 		if (!targetHandle) {
 			errors.push(`${label} must define target_handle.`);
 		} else if (!targetPorts.inputs.some((port) => port.id === targetHandle)) {
 			errors.push(`${label} uses unknown target_handle "${targetHandle}" on node "${target}".`);
+		}
+	}
+
+	for (const orders of executionOrderGroups.values()) {
+		orders.sort((left, right) => left - right);
+		if (orders.some((order, index) => order !== index)) {
+			errors.push(
+				"Connections from the same source output must use unique consecutive execution_order values starting at 0.",
+			);
 		}
 	}
 
@@ -551,6 +663,16 @@ export function recalculateProgramDeclarations(programValue: unknown, manifestVa
 	if (Array.isArray(manifest?.secrets) && manifest.secrets.length > 0) {
 		capabilities.add("runtime.secrets");
 		permissions.set("read_secret", { name: "read_secret", risk: "high" });
+	}
+	if (Array.isArray(manifest?.variables) && manifest.variables.length > 0) {
+		capabilities.add("runtime.variables");
+		if (manifest.variables.some((value) => asRecord(value)?.scope === "runtime")) {
+			permissions.set("set_local_variable", { name: "set_local_variable", risk: "low" });
+		}
+		if (manifest.variables.some((value) => asRecord(value)?.scope === "persistent")) {
+			capabilities.add("runtime.persistent_storage");
+			permissions.set("set_persistent_variable", { name: "set_persistent_variable", risk: "medium" });
+		}
 	}
 
 	const permissionList = [...permissions.values()].sort(

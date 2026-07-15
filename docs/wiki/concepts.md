@@ -14,7 +14,7 @@ Use this page when a BaudBound term is unfamiliar or when two similar terms seem
 | **Project** | The editable workflow in the visual editor, including its graph, project settings, variables, secret declarations, comments, and assets. |
 | **Graph** | The complete set of executable nodes and the edges connecting them. |
 | **Node** | One trigger, action, or control-flow operation in a graph. Each executable node has a stable ID used by edges, output references, logs, and runner reports. |
-| **Edge** | A directed connection from one node output to another node input. Edges determine execution order and branch routing. |
+| **Edge** | A directed connection from one node output to another node input. Fan-out edges have an explicit numbered order and run sequentially. |
 | **Trigger** | A node that begins a run. A trigger can be manual or can wait for an event such as a schedule, request, file change, hotkey, process, startup, or serial input. |
 | **Action** | A node that performs work, such as logging, transforming data, calling a URL, managing a file, starting a process, or interacting with supported hardware or desktop APIs. |
 | **Control flow** | A node that chooses or repeats execution paths, such as If/Else, Switch, Loop, While, or For Each. |

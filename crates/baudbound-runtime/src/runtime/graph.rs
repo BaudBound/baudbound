@@ -61,7 +61,14 @@ impl RuntimeGraph {
         }
 
         let mut edges_by_source = BTreeMap::<String, Vec<RuntimeEdge>>::new();
+        let mut execution_orders = BTreeMap::<(String, String), Vec<u32>>::new();
         for edge in envelope.entry.program.edges {
+            if edge.source == edge.target {
+                return Err(RuntimeError::InvalidGraph(format!(
+                    "edge cannot connect node {} to itself",
+                    edge.source
+                )));
+            }
             if !nodes.contains_key(&edge.source) {
                 return Err(RuntimeError::InvalidGraph(format!(
                     "edge source {} does not exist",
@@ -74,11 +81,16 @@ impl RuntimeGraph {
                     edge.target
                 )));
             }
+            execution_orders
+                .entry((edge.source.clone(), edge.source_handle.clone()))
+                .or_default()
+                .push(edge.execution_order);
             edges_by_source
                 .entry(edge.source.clone())
                 .or_default()
                 .push(edge);
         }
+        validate_execution_orders(&execution_orders)?;
 
         Ok(Self {
             nodes,
@@ -115,16 +127,18 @@ impl RuntimeGraph {
     }
 
     pub(crate) fn target_node_ids_for_handle(&self, node_id: &str, handle: &str) -> Vec<String> {
-        let mut targets = self
+        let mut matching_edges = self
             .edges_by_source
             .get(node_id)
             .into_iter()
             .flat_map(|edges| edges.iter())
             .filter(|edge| edge.source_handle == handle)
-            .map(|edge| edge.target.clone())
             .collect::<Vec<_>>();
-        targets.sort();
-        targets
+        matching_edges.sort_by_key(|edge| edge.execution_order);
+        matching_edges
+            .into_iter()
+            .map(|edge| edge.target.clone())
+            .collect()
     }
 
     pub(crate) fn first_available_output_handle<'a>(
@@ -157,4 +171,137 @@ fn insert_node(
         ));
     }
     Ok(())
+}
+
+fn validate_execution_orders(
+    execution_orders: &BTreeMap<(String, String), Vec<u32>>,
+) -> Result<(), RuntimeError> {
+    for ((source, source_handle), orders) in execution_orders {
+        let mut sorted_orders = orders.clone();
+        sorted_orders.sort_unstable();
+        if sorted_orders
+            .iter()
+            .enumerate()
+            .any(|(index, order)| usize::try_from(*order).ok() != Some(index))
+        {
+            return Err(RuntimeError::InvalidGraph(format!(
+                "edges from node {source} output {source_handle} must use unique consecutive execution orders starting at 0"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn rejects_self_connections() {
+        let program = json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {}
+                },
+                "program": {
+                    "steps": [{
+                        "id": "n-log",
+                        "action_type": "action.log",
+                        "type": "action",
+                        "action": "log",
+                        "config": {}
+                    }],
+                    "edges": [{
+                        "execution_order": 0,
+                        "source": "n-log",
+                        "source_handle": "out",
+                        "target": "n-log",
+                        "target_handle": "input"
+                    }]
+                }
+            }
+        });
+
+        let error = match RuntimeGraph::from_program_value(&program) {
+            Ok(_) => panic!("self-connection must fail"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("cannot connect node"), "{error}");
+        assert!(error.to_string().contains("to itself"), "{error}");
+    }
+
+    #[test]
+    fn returns_fan_out_targets_in_explicit_execution_order() {
+        let graph = RuntimeGraph::from_program_value(&fan_out_program(json!([
+            edge("n-trigger", "n-zulu", 1),
+            edge("n-trigger", "n-alpha", 0)
+        ])))
+        .expect("ordered fan-out should be valid");
+
+        assert_eq!(
+            graph.target_node_ids_for_handle("n-trigger", "out"),
+            vec!["n-alpha", "n-zulu"]
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_or_gapped_execution_orders() {
+        for (orders, expected) in [([0, 0], "duplicate"), ([0, 2], "gapped")] {
+            let program = fan_out_program(json!([
+                edge("n-trigger", "n-alpha", orders[0]),
+                edge("n-trigger", "n-zulu", orders[1])
+            ]));
+            let error = RuntimeGraph::from_program_value(&program)
+                .err()
+                .unwrap_or_else(|| panic!("{expected} execution orders must fail"));
+            assert!(error.to_string().contains("unique consecutive"), "{error}");
+        }
+    }
+
+    fn edge(source: &str, target: &str, execution_order: u32) -> Value {
+        json!({
+            "execution_order": execution_order,
+            "source": source,
+            "source_handle": "out",
+            "target": target,
+            "target_handle": "input"
+        })
+    }
+
+    fn fan_out_program(edges: Value) -> Value {
+        json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {}
+                },
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-alpha",
+                            "action_type": "action.log",
+                            "type": "action",
+                            "action": "log",
+                            "config": {}
+                        },
+                        {
+                            "id": "n-zulu",
+                            "action_type": "action.log",
+                            "type": "action",
+                            "action": "log",
+                            "config": {}
+                        }
+                    ],
+                    "edges": edges
+                }
+            }
+        })
+    }
 }

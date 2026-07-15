@@ -7,7 +7,10 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::{Capability, executable_action_types, first_duplicate, variable_operation_scopes};
+use crate::{
+    Capability, RuntimeDeclarationRequirements, executable_action_types, first_duplicate,
+    variable_operation_scopes,
+};
 
 const CAPABILITY_CONTRACT_VERSION: u32 = 1;
 const CAPABILITY_CONTRACT_JSON: &str = include_str!("../contracts/node-capabilities.json");
@@ -51,11 +54,26 @@ pub fn validate_program_capabilities_with_secrets(
     declared_capabilities: &[String],
     has_secret_declarations: bool,
 ) -> Result<ProgramCapabilityReport, CapabilityValidationError> {
+    validate_program_capabilities_with_declarations(
+        program,
+        declared_capabilities,
+        RuntimeDeclarationRequirements {
+            has_secret_declarations,
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+}
+
+pub fn validate_program_capabilities_with_declarations(
+    program: &Value,
+    declared_capabilities: &[String],
+    requirements: RuntimeDeclarationRequirements,
+) -> Result<ProgramCapabilityReport, CapabilityValidationError> {
     if let Some(duplicate) = first_duplicate(declared_capabilities) {
         return Err(CapabilityValidationError::DuplicateCapability(duplicate));
     }
 
-    let report = calculate_program_capabilities_with_secrets(program, has_secret_declarations)?;
+    let report = calculate_program_capabilities_with_declarations(program, requirements)?;
     let required = report
         .required_capabilities
         .iter()
@@ -94,6 +112,19 @@ pub fn calculate_program_capabilities_with_secrets(
     program: &Value,
     has_secret_declarations: bool,
 ) -> Result<ProgramCapabilityReport, CapabilityValidationError> {
+    calculate_program_capabilities_with_declarations(
+        program,
+        RuntimeDeclarationRequirements {
+            has_secret_declarations,
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+}
+
+pub fn calculate_program_capabilities_with_declarations(
+    program: &Value,
+    requirements: RuntimeDeclarationRequirements,
+) -> Result<ProgramCapabilityReport, CapabilityValidationError> {
     let contract = capability_contract()?;
     let mut names = BTreeSet::new();
 
@@ -111,10 +142,14 @@ pub fn calculate_program_capabilities_with_secrets(
         .map_err(CapabilityValidationError::InvalidProgram)?
         .iter()
         .any(|scope| scope == "persistent" || scope == "global")
+        || requirements.has_persistent_default_variables
     {
         names.insert("runtime.persistent_storage".to_owned());
     }
-    if has_secret_declarations {
+    if requirements.has_runtime_default_variables || requirements.has_persistent_default_variables {
+        names.insert("runtime.variables".to_owned());
+    }
+    if requirements.has_secret_declarations {
         names.insert("runtime.secrets".to_owned());
     }
 

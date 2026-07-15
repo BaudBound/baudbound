@@ -119,6 +119,29 @@ fn rejects_legacy_writable_secret_scope() {
     assert!(error.to_string().contains("unsupported scope"));
 }
 
+#[test]
+fn derives_permissions_from_manifest_default_variables() {
+    let report = calculate_program_permissions_with_declarations(
+        &program_with_steps(&[]),
+        RuntimeDeclarationRequirements {
+            has_persistent_default_variables: true,
+            has_runtime_default_variables: true,
+            has_secret_declarations: false,
+        },
+    )
+    .expect("default variable permissions should derive from manifest requirements");
+
+    assert_eq!(
+        report
+            .required_permissions
+            .iter()
+            .map(|permission| permission.name.as_str())
+            .collect::<Vec<_>>(),
+        ["set_local_variable", "set_persistent_variable"]
+    );
+    assert_eq!(report.calculated_risk, RiskLevel::Medium);
+}
+
 fn program_with_steps(action_types: &[&str]) -> Value {
     json!({
         "entry": {

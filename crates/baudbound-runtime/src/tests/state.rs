@@ -3,8 +3,9 @@ use std::{collections::BTreeMap, sync::Mutex};
 use serde_json::{Value, json};
 
 use crate::{
-    RuntimeExecutionResources, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
-    UnsupportedActionHandler, VersionedRuntimeVariable, execute_manual_program_with_state,
+    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeExecutionResources,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
+    VersionedRuntimeVariable, execute_manual_program_with_state,
 };
 
 #[derive(Default)]
@@ -114,6 +115,129 @@ fn persists_incremented_values_between_runs() {
 }
 
 #[test]
+fn runtime_default_resets_before_each_run() {
+    let store = TestStateStore::default();
+    let defaults = [default_variable(
+        "counter",
+        RuntimeDefaultVariableScope::Runtime,
+        "number",
+        json!(10),
+    )];
+    let program = variable_program("runtime", "increment", json!(1), "{{counter}}");
+
+    let first = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+    .expect("first run should execute");
+    let second = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+    .expect("second run should execute");
+
+    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(11.0)));
+}
+
+#[test]
+fn persistent_default_initializes_once_then_retains_changes() {
+    let store = TestStateStore::default();
+    let defaults = [default_variable(
+        "counter",
+        RuntimeDefaultVariableScope::Persistent,
+        "number",
+        json!(10),
+    )];
+    let program = variable_program("persistent", "increment", json!(1), "{{counter}}");
+
+    let first = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+    .expect("first run should execute");
+    let second = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+    .expect("second run should execute");
+
+    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(12.0)));
+}
+
+#[test]
+fn rejects_default_that_disagrees_with_variable_operation() {
+    let store = TestStateStore::default();
+    let defaults = [default_variable(
+        "counter",
+        RuntimeDefaultVariableScope::Persistent,
+        "number",
+        json!(10),
+    )];
+    let error = execute_manual_program_with_state(
+        &variable_program("runtime", "increment", json!(1), "done"),
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+    .expect_err("scope mismatch must block execution");
+
+    assert!(
+        error
+            .to_string()
+            .contains("does not match Variable Operation")
+    );
+}
+
+#[test]
+fn rejects_malformed_default_resources_before_execution() {
+    let store = TestStateStore::default();
+    for (variable, expected) in [
+        (
+            default_variable(
+                "counter",
+                RuntimeDefaultVariableScope::Runtime,
+                "number",
+                json!("ten"),
+            ),
+            "value does not match type",
+        ),
+        (
+            default_variable(
+                "system_counter",
+                RuntimeDefaultVariableScope::Runtime,
+                "number",
+                json!(10),
+            ),
+            "invalid or reserved",
+        ),
+        (
+            default_variable(
+                "counter",
+                RuntimeDefaultVariableScope::Runtime,
+                "string",
+                json!(""),
+            ),
+            "value does not match type",
+        ),
+    ] {
+        let defaults = [variable];
+        let error = execute_manual_program_with_state(
+            &variable_program("runtime", "increment", json!(1), "done"),
+            "script-1",
+            state_resources_with_defaults(&store, &[], &defaults),
+        )
+        .expect_err("malformed runtime resources must block execution");
+
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn loads_required_secret_and_redacts_reports() {
     let store = TestStateStore::default();
     store
@@ -177,6 +301,28 @@ fn state_resources<'a>(
     RuntimeExecutionResources::new(&UnsupportedActionHandler).with_state(store, secrets)
 }
 
+fn state_resources_with_defaults<'a>(
+    store: &'a TestStateStore,
+    secrets: &'a [RuntimeSecretDeclaration],
+    defaults: &'a [RuntimeDefaultVariable],
+) -> RuntimeExecutionResources<'a> {
+    state_resources(store, secrets).with_default_variables(defaults)
+}
+
+fn default_variable(
+    name: &str,
+    scope: RuntimeDefaultVariableScope,
+    value_type: &str,
+    value: Value,
+) -> RuntimeDefaultVariable {
+    RuntimeDefaultVariable {
+        name: name.to_owned(),
+        scope,
+        value_type: value_type.to_owned(),
+        value,
+    }
+}
+
 fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -> Value {
     json!({
         "entry": {
@@ -215,8 +361,8 @@ fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -
                     }
                 ],
                 "edges": [
-                    {"source": "n-trigger", "source_handle": "out", "target": "n-variable", "target_handle": "input"},
-                    {"source": "n-variable", "source_handle": "out", "target": "n-log", "target_handle": "input"}
+                    {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-variable", "target_handle": "input"},
+                    {"execution_order": 0, "source": "n-variable", "source_handle": "out", "target": "n-log", "target_handle": "input"}
                 ]
             }
         }

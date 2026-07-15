@@ -198,6 +198,7 @@ fn create_test_package() -> Vec<u8> {
                             "runtime_outputs": []
                         }],
                         "edges": [{
+                            "execution_order": 0,
                             "source": "n-manual",
                             "source_handle": "out",
                             "target": "n-log",

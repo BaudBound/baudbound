@@ -25,7 +25,20 @@ pub struct Manifest {
     #[serde(default)]
     pub assets: Vec<ManifestAsset>,
     #[serde(default)]
+    pub variables: Vec<DefaultVariable>,
+    #[serde(default)]
     pub secrets: Vec<SecretDeclaration>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct DefaultVariable {
+    pub name: String,
+    pub scope: String,
+    #[serde(rename = "type")]
+    pub value_type: String,
+    #[serde(default)]
+    pub description: String,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

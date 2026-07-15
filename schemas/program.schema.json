@@ -734,12 +734,18 @@
 			"type": "object",
 			"additionalProperties": false,
 			"required": [
+				"execution_order",
 				"source",
 				"source_handle",
 				"target",
 				"target_handle"
 			],
 			"properties": {
+				"execution_order": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 4294967295
+				},
 				"source": {
 					"type": "string",
 					"minLength": 1

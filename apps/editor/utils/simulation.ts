@@ -11,6 +11,7 @@ import type {
 	SimulationTraceEntry,
 	SimulationVariableSnapshot,
 } from "@/lib/types";
+import { getEdgeExecutionOrder, getEdgeExecutionOrderErrors } from "@/utils/editor-graph";
 import type {
 	NodeExecutionResult,
 	SimulationContext,
@@ -89,6 +90,7 @@ const nodeSimulationApi: NodeSimulationApi = {
 
 export async function createSimulationRun({
 	assets,
+	defaultVariables = [],
 	edges,
 	nodes,
 	onStep,
@@ -112,6 +114,7 @@ export async function createSimulationRun({
 		overridesByNodeId: new Map(overrides.map((override) => [override.nodeId, override.outcome])),
 		runtimeVariables: {
 			...createSimulationBuiltInVariableValues(projectSettings),
+			...Object.fromEntries(defaultVariables.map((variable) => [variable.name, structuredClone(variable.value)])),
 			...secretValues,
 		},
 		secretNames: new Set(Object.keys(secretValues)),
@@ -122,6 +125,14 @@ export async function createSimulationRun({
 		triggerPayload,
 		webhookResponse: null,
 	};
+	const executionOrderErrors = getEdgeExecutionOrderErrors(edges);
+	if (executionOrderErrors.length > 0) {
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] Invalid connection execution order: ${executionOrderErrors.join(" ")}`,
+		});
+		return { finalVariables: createVariableSnapshot(context), status: "failed" };
+	}
 
 	if (!trigger) {
 		await pushStep(context, {
@@ -456,9 +467,7 @@ async function enqueueFollowFrames(
 
 	const outgoingEdges = (context.edgesBySource.get(node.id) ?? [])
 		.filter((edge) => edge.sourceHandle === handle)
-		.sort(
-			(a, b) => getNodeSortValue(context.nodesById.get(a.target)) - getNodeSortValue(context.nodesById.get(b.target)),
-		);
+		.sort((left, right) => (getEdgeExecutionOrder(left) ?? 0) - (getEdgeExecutionOrder(right) ?? 0));
 
 	if (outgoingEdges.length === 0) {
 		await pushStep(context, {

@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import type {
+	DefaultVariable,
 	EditorAsset,
 	JsonValue,
 	LogEntry,
@@ -20,6 +21,7 @@ export type SimulationRunOptions = {
 	) => Promise<SimulationSideEffectResult[] | undefined> | SimulationSideEffectResult[] | undefined;
 	overrides: SimulationOverride[];
 	projectSettings: ProjectSettings;
+	defaultVariables?: DefaultVariable[];
 	secretValues?: Record<string, JsonValue>;
 	signal?: AbortSignal;
 	stepDelayMs?: number;

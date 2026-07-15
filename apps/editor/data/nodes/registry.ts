@@ -23,6 +23,7 @@ import type {
 	TargetRuntime,
 	TriggerActionType,
 } from "@/lib/types";
+import { createGraphElementId } from "@/utils/graph-element-id";
 import { isDesktopTargetRuntime } from "../project/runtimes";
 import { beepNode } from "./definitions/actions/beep";
 import { calculateNode } from "./definitions/actions/calculate";
@@ -387,15 +388,7 @@ function flattenPaletteGroupItems(group: PaletteGroup): PaletteItem[] {
 export function createNodeFromPaletteItem(
 	item: PaletteItem,
 	index: number,
-	{
-		idPrefix = Date.now().toString(36),
-		baseX = 180,
-		baseY = 120,
-		columns = 4,
-		columnGap = 260,
-		position,
-		rowGap = 130,
-	}: CreateNodeOptions = {},
+	{ idPrefix, baseX = 180, baseY = 120, columns = 4, columnGap = 260, position, rowGap = 130 }: CreateNodeOptions = {},
 ): Node<ScriptNodeData> {
 	const column = index % columns;
 	const row = Math.floor(index / columns);
@@ -403,7 +396,7 @@ export function createNodeFromPaletteItem(
 	const ports = getNodePorts(item.actionType, config);
 
 	return {
-		id: `n-${idPrefix}-${index}`,
+		id: idPrefix ? `n-${idPrefix}-${index}` : createGraphElementId("n"),
 		type: "scriptNode",
 		position: position ?? {
 			x: baseX + column * columnGap,

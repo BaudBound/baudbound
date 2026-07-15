@@ -5,6 +5,7 @@ export function validateSecretDeclaration(
 	declaration: SecretDeclaration,
 	existing: SecretDeclaration[],
 	originalName?: string,
+	reservedVariableNames: ReadonlySet<string> = new Set(),
 ) {
 	const nameError = validateVariableName(declaration.name);
 	if (nameError) {
@@ -12,6 +13,9 @@ export function validateSecretDeclaration(
 	}
 	if (existing.some((secret) => secret.name === declaration.name && secret.name !== originalName)) {
 		return `A secret named "${declaration.name}" already exists.`;
+	}
+	if (reservedVariableNames.has(declaration.name)) {
+		return `A default variable named "${declaration.name}" already exists.`;
 	}
 	return null;
 }

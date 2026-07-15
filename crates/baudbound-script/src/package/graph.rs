@@ -74,6 +74,7 @@ pub(super) fn validate_program_graph(program: &Value) -> Result<(), PackageLoadE
         insert_node(&mut nodes, step)?;
     }
 
+    let mut execution_orders = BTreeMap::<(String, String), Vec<u32>>::new();
     for (index, edge) in block
         .get("edges")
         .and_then(Value::as_array)
@@ -81,9 +82,20 @@ pub(super) fn validate_program_graph(program: &Value) -> Result<(), PackageLoadE
         .flatten()
         .enumerate()
     {
-        validate_edge(index, edge, &nodes, contract)?;
+        let validated_edge = validate_edge(index, edge, &nodes, contract)?;
+        execution_orders
+            .entry((validated_edge.source, validated_edge.source_handle))
+            .or_default()
+            .push(validated_edge.execution_order);
     }
+    validate_execution_orders(&execution_orders)?;
     Ok(())
+}
+
+struct ValidatedEdge {
+    execution_order: u32,
+    source: String,
+    source_handle: String,
 }
 
 fn validate_edge(
@@ -91,11 +103,18 @@ fn validate_edge(
     edge: &Value,
     nodes: &BTreeMap<String, &Value>,
     contract: &NodePortContract,
-) -> Result<(), PackageLoadError> {
+) -> Result<ValidatedEdge, PackageLoadError> {
     let source = edge_string(edge, "source")?;
     let target = edge_string(edge, "target")?;
     let source_handle = edge_string(edge, "source_handle")?;
     let target_handle = edge_string(edge, "target_handle")?;
+    let execution_order = edge_u32(edge, "execution_order")?;
+    if source == target {
+        return Err(PackageLoadError::ProgramGraph(format!(
+            "edge {} cannot connect node {source:?} to itself",
+            index + 1
+        )));
+    }
     let source_node = nodes.get(source).ok_or_else(|| {
         PackageLoadError::ProgramGraph(format!(
             "edge {} references missing source node {source:?}",
@@ -122,6 +141,29 @@ fn validate_edge(
             "edge {} uses unknown target_handle {target_handle:?} on node {target:?}",
             index + 1
         )));
+    }
+    Ok(ValidatedEdge {
+        execution_order,
+        source: source.to_owned(),
+        source_handle: source_handle.to_owned(),
+    })
+}
+
+fn validate_execution_orders(
+    execution_orders: &BTreeMap<(String, String), Vec<u32>>,
+) -> Result<(), PackageLoadError> {
+    for ((source, source_handle), orders) in execution_orders {
+        let mut sorted_orders = orders.clone();
+        sorted_orders.sort_unstable();
+        if sorted_orders
+            .iter()
+            .enumerate()
+            .any(|(index, order)| usize::try_from(*order).ok() != Some(index))
+        {
+            return Err(PackageLoadError::ProgramGraph(format!(
+                "edges from node {source:?} output {source_handle:?} must use unique consecutive execution_order values starting at 0"
+            )));
+        }
     }
     Ok(())
 }
@@ -209,6 +251,17 @@ fn edge_string<'a>(edge: &'a Value, key: &str) -> Result<&'a str, PackageLoadErr
         .ok_or_else(|| PackageLoadError::ProgramGraph(format!("edge {key} is missing")))
 }
 
+fn edge_u32(edge: &Value, key: &str) -> Result<u32, PackageLoadError> {
+    edge.get(key)
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            PackageLoadError::ProgramGraph(format!(
+                "edge {key} must be a non-negative 32-bit integer"
+            ))
+        })
+}
+
 fn port_contract() -> Result<&'static NodePortContract, String> {
     static CONTRACT: OnceLock<Result<NodePortContract, String>> = OnceLock::new();
     match CONTRACT.get_or_init(parse_port_contract) {
@@ -242,7 +295,7 @@ mod tests {
     fn validates_fixed_node_ports() {
         let program = program_with_step(
             json!({"id":"n-log","action_type":"action.log","config":{}}),
-            json!({"source":"n-trigger","source_handle":"out","target":"n-log","target_handle":"input"}),
+            json!({"execution_order":0,"source":"n-trigger","source_handle":"out","target":"n-log","target_handle":"input"}),
         );
         validate_program_graph(&program).expect("known fixed ports should validate");
     }
@@ -256,6 +309,7 @@ mod tests {
             let program = program_with_step(
                 json!({"id":"n-log","action_type":"action.log","config":{}}),
                 json!({
+                    "execution_order":0,
                     "source":"n-trigger",
                     "source_handle":source_handle,
                     "target":"n-log",
@@ -268,6 +322,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_self_connections() {
+        let program = program_with_step(
+            json!({"id":"n-log","action_type":"action.log","config":{}}),
+            json!({"execution_order":0,"source":"n-log","source_handle":"out","target":"n-log","target_handle":"input"}),
+        );
+
+        let error = validate_program_graph(&program).expect_err("self-connection must fail");
+        assert!(error.to_string().contains("cannot connect node"), "{error}");
+        assert!(error.to_string().contains("to itself"), "{error}");
+    }
+
+    #[test]
     fn derives_switch_outputs_from_case_ids() {
         let valid = program_with_step(
             json!({
@@ -275,7 +341,7 @@ mod tests {
                 "action_type":"control.switch",
                 "config":{"cases":[{"id":"ready","name":"Ready","value":"ready"}]}
             }),
-            json!({"source":"n-switch","source_handle":"case-ready","target":"n-log","target_handle":"input"}),
+            json!({"execution_order":0,"source":"n-switch","source_handle":"case-ready","target":"n-log","target_handle":"input"}),
         );
         let mut valid = valid;
         valid["entry"]["program"]["steps"]
@@ -297,7 +363,7 @@ mod tests {
     fn rejects_conflicting_primary_trigger_duplicates() {
         let mut program = program_with_step(
             json!({"id":"n-log","action_type":"action.log","config":{}}),
-            json!({"source":"n-trigger","source_handle":"out","target":"n-log","target_handle":"input"}),
+            json!({"execution_order":0,"source":"n-trigger","source_handle":"out","target":"n-log","target_handle":"input"}),
         );
         program["entry"]["triggers"] = json!([{
             "id":"n-trigger",
@@ -321,5 +387,31 @@ mod tests {
                 "program": {"steps":[step],"edges":[edge]}
             }
         })
+    }
+
+    #[test]
+    fn validates_and_rejects_fan_out_execution_orders() {
+        let mut valid = program_with_step(
+            json!({"id":"n-first","action_type":"action.log","config":{}}),
+            json!({"execution_order":1,"source":"n-trigger","source_handle":"out","target":"n-first","target_handle":"input"}),
+        );
+        valid["entry"]["program"]["steps"]
+            .as_array_mut()
+            .expect("steps array")
+            .push(json!({"id":"n-second","action_type":"action.log","config":{}}));
+        valid["entry"]["program"]["edges"]
+            .as_array_mut()
+            .expect("edges array")
+            .push(json!({"execution_order":0,"source":"n-trigger","source_handle":"out","target":"n-second","target_handle":"input"}));
+        validate_program_graph(&valid).expect("consecutive fan-out order should validate");
+
+        for orders in [[0, 0], [0, 2]] {
+            let mut invalid = valid.clone();
+            invalid["entry"]["program"]["edges"][0]["execution_order"] = json!(orders[0]);
+            invalid["entry"]["program"]["edges"][1]["execution_order"] = json!(orders[1]);
+            let error = validate_program_graph(&invalid)
+                .expect_err("duplicate or gapped execution orders must fail");
+            assert!(error.to_string().contains("unique consecutive"), "{error}");
+        }
     }
 }

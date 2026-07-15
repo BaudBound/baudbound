@@ -6,6 +6,20 @@ pub enum RuntimeVariableScope {
     Global,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeDefaultVariableScope {
+    Runtime,
+    Persistent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeDefaultVariable {
+    pub name: String,
+    pub scope: RuntimeDefaultVariableScope,
+    pub value_type: String,
+    pub value: Value,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct VersionedRuntimeVariable {
     pub value: Value,

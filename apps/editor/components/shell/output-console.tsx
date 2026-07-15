@@ -1,12 +1,13 @@
 import { ChevronDown, Trash2 } from "lucide-react";
 import type { DependencyList, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { DefaultVariableManager } from "@/components/shell/default-variable-manager";
 import { SecretReferenceManager } from "@/components/shell/secret-reference-manager";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { logLevelClassName } from "@/data/editor/output-console";
 import type { EditorVariable } from "@/data/project/variables";
-import type { LogEntry, SecretDeclaration, SimulationTraceEntry } from "@/lib/types";
+import type { DefaultVariable, LogEntry, SecretDeclaration, SimulationTraceEntry } from "@/lib/types";
 
 type OutputConsoleProps = {
 	activeTab: BottomPanelTab;
@@ -16,6 +17,7 @@ type OutputConsoleProps = {
 	systemLogs: LogEntry[];
 	simulationLogs: SimulationTraceEntry[];
 	variables: EditorVariable[];
+	defaultVariables: DefaultVariable[];
 	secretDeclarations: SecretDeclaration[];
 	simulationSecretValues: Record<string, string>;
 	height: number;
@@ -23,6 +25,7 @@ type OutputConsoleProps = {
 	onFollowChange: (tab: ClearableBottomPanelTab, enabled: boolean) => void;
 	onTabChange: (tab: BottomPanelTab) => void;
 	onToggle: () => void;
+	onDefaultVariablesChange: (variables: DefaultVariable[]) => void;
 	onSecretDeclarationsChange: (declarations: SecretDeclaration[]) => void;
 	onSimulationSecretValueChange: (name: string, value: string) => void;
 };
@@ -47,6 +50,7 @@ export function OutputConsole({
 	systemLogs,
 	simulationLogs,
 	variables,
+	defaultVariables,
 	secretDeclarations,
 	simulationSecretValues,
 	height,
@@ -54,6 +58,7 @@ export function OutputConsole({
 	onFollowChange,
 	onTabChange,
 	onToggle,
+	onDefaultVariablesChange,
 	onSecretDeclarationsChange,
 	onSimulationSecretValueChange,
 }: OutputConsoleProps) {
@@ -138,9 +143,11 @@ export function OutputConsole({
 					{activeTab === "variables" && (
 						<VariablesTab
 							variables={variables}
+							defaultVariables={defaultVariables}
 							secretDeclarations={secretDeclarations}
 							simulationSecretValues={simulationSecretValues}
 							onSecretDeclarationsChange={onSecretDeclarationsChange}
+							onDefaultVariablesChange={onDefaultVariablesChange}
 							onSimulationSecretValueChange={onSimulationSecretValueChange}
 						/>
 					)}
@@ -255,15 +262,19 @@ function LogLine({ log }: { log: LogEntry }) {
 
 function VariablesTab({
 	variables,
+	defaultVariables,
 	secretDeclarations,
 	simulationSecretValues,
 	onSecretDeclarationsChange,
+	onDefaultVariablesChange,
 	onSimulationSecretValueChange,
 }: {
 	variables: EditorVariable[];
+	defaultVariables: DefaultVariable[];
 	secretDeclarations: SecretDeclaration[];
 	simulationSecretValues: Record<string, string>;
 	onSecretDeclarationsChange: (declarations: SecretDeclaration[]) => void;
+	onDefaultVariablesChange: (variables: DefaultVariable[]) => void;
 	onSimulationSecretValueChange: (name: string, value: string) => void;
 }) {
 	const [sortUpdatedFirst, setSortUpdatedFirst] = useState(true);
@@ -273,6 +284,10 @@ function VariablesTab({
 	const previousSignaturesRef = useRef<Map<string, string>>(new Map());
 	const updatedOrderRef = useRef<Map<string, number>>(new Map());
 	const updateSequenceRef = useRef(0);
+	const reservedDefaultVariableNames = useMemo(
+		() => new Set(defaultVariables.map((variable) => variable.name)),
+		[defaultVariables],
+	);
 
 	useEffect(() => {
 		const nextSignatures = new Map<string, string>();
@@ -332,12 +347,20 @@ function VariablesTab({
 	return (
 		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
 			<div className="overflow-y-auto select-text" data-selectable-text="true">
-				<SecretReferenceManager
-					declarations={secretDeclarations}
-					simulationValues={simulationSecretValues}
-					onDeclarationsChange={onSecretDeclarationsChange}
-					onSimulationValueChange={onSimulationSecretValueChange}
-				/>
+				<div className="grid min-w-0 divide-y divide-baud-border border-b border-baud-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+					<SecretReferenceManager
+						declarations={secretDeclarations}
+						reservedVariableNames={reservedDefaultVariableNames}
+						simulationValues={simulationSecretValues}
+						onDeclarationsChange={onSecretDeclarationsChange}
+						onSimulationValueChange={onSimulationSecretValueChange}
+					/>
+					<DefaultVariableManager
+						secrets={secretDeclarations}
+						variables={defaultVariables}
+						onChange={onDefaultVariablesChange}
+					/>
+				</div>
 				<div className="px-4 py-3">
 					{displayedVariables.length === 0 ? (
 						<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">

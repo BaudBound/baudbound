@@ -79,6 +79,25 @@ Persistent and global writes are versioned so concurrent runs cannot silently ov
 
 A stored variable is loaded at run start when the script contains a Variable Operation declaration for that name and scope. Do not declare the same variable name with conflicting scopes in one script.
 
+### Default variables
+
+The **Default variables** panel at the top of the editor's **Variables** tab sits beside **Secret references**. It defines typed starting values that are saved in the `.bbs` package. The current variables are displayed below both declaration panels.
+
+Every default variable must have an explicit value. String and file path defaults cannot be blank, while values such as `false`, `0`, `[]`, and `{}` are valid explicit defaults. The value editor supports multiple lines, line numbers, Tab indentation, and structured JSON for types such as lists and objects. This makes the variable available from the beginning of a run, even when no earlier node has assigned it.
+
+Choose one of these scopes:
+
+| Scope | Start-of-run behavior |
+| --- | --- |
+| `runtime` | Every run starts from the saved package value. Changes made by Variable Operation nodes last only for that run. |
+| `persistent` | The runner saves the package value only when that script has no stored value. Later runs use the stored value, including changes made by Variable Operation nodes. |
+
+A Variable Operation node can change a default variable by using the same name, type, and scope. Export verification rejects a mismatch so the editor and runner cannot interpret one name in two different ways.
+
+Updating a script package does not replace an existing persistent value. The new default applies only when no value has been stored for that script. Removing and importing the script again creates a new persistent state lifecycle.
+
+Default values are ordinary package data. Anyone who receives the package can read them. Use a [secret declaration](../runner/secrets.md) for passwords, access tokens, private keys, and other sensitive values.
+
 ### Node outputs
 
 Actions and triggers expose read-only runtime data using the node ID and output name:

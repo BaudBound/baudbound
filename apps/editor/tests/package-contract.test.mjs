@@ -201,6 +201,12 @@ test("editor schema and package contract support editor-only metadata", () => {
 		false,
 		"comments must not be program nodes",
 	);
+	assert.ok(programSchema.$defs.edge.required.includes("execution_order"));
+	assert.deepEqual(programSchema.$defs.edge.properties.execution_order, {
+		type: "integer",
+		minimum: 0,
+		maximum: 4294967295,
+	});
 });
 
 test("editor edge style metadata is mapped to valid React Flow edge types", () => {
@@ -209,8 +215,12 @@ test("editor edge style metadata is mapped to valid React Flow edge types", () =
 	const editorPageSource = read(join(appRoot, "app", "editor-page.tsx"));
 
 	assert.match(flowCanvasDataSource, /edgeStyle === "bezier" \? "default" : edgeStyle/);
+	assert.match(flowCanvasDataSource, /editorEdgeZIndex = 10/);
+	assert.match(flowCanvasDataSource, /zIndex: editorEdgeZIndex/);
 	assert.match(flowCanvasSource, /type: toReactFlowEdgeType\(edgeStyle\)/);
-	assert.match(flowCanvasSource, /addEdge\(\{ \.\.\.connection, id: edgeId, type: toReactFlowEdgeType\(edgeStyle\) \}/);
+	assert.match(flowCanvasSource, /withEdgeExecutionOrder/);
+	assert.match(flowCanvasSource, /getNextEdgeExecutionOrder/);
+	assert.match(flowCanvasSource, /addEdge\(edge, current\)/);
 	assert.match(editorPageSource, /type: toReactFlowEdgeType\(nextEdgeStyle\)/);
 	assert.match(editorPageSource, /type: toReactFlowEdgeType\(importedPackage\.edgeStyle\)/);
 });
@@ -560,7 +570,12 @@ test("package contract validates graph structure and import rejects malformed ed
 	assert.match(contractSource, /entry\.triggers must contain at least one trigger/);
 	assert.match(contractSource, /references missing source node/);
 	assert.match(contractSource, /unknown source_handle/);
+	assert.match(contractSource, /cannot connect node .* to itself/);
+	assert.match(contractSource, /must define a non-negative integer execution_order/);
+	assert.match(contractSource, /unique consecutive execution_order values starting at 0/);
 	assert.match(packageSource, /Program edge .* references an unknown source or target node/);
+	assert.match(packageSource, /Program edge .* cannot connect node .* to itself/);
+	assert.match(packageSource, /must define a non-negative integer execution_order/);
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected string/);
 	assert.match(registrySource, /isValidNumberConfigValue/);
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected boolean/);
@@ -717,6 +732,30 @@ test("secret declarations are package metadata while simulation values remain se
 	assert.match(simulationSource, /redactSecretText/);
 	assert.match(simulationSource, /redactSnapshotValue/);
 	assert.match(simulationSource, /\[REDACTED\]/);
+});
+
+test("default variables are typed package metadata and runner execution state", () => {
+	const manifestSchema = JSON.parse(read(join(schemasRoot, "manifest.schema.json")));
+	const defaultVariableSource = read(join(appRoot, "data", "project", "default-variables.ts"));
+	const editorPage = read(join(appRoot, "app", "editor-page.tsx"));
+	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
+	const simulationSource = read(join(appRoot, "utils", "simulation.ts"));
+	const runtimeDefaultSource = read(
+		join(repoRoot, "crates", "baudbound-runtime", "src", "execution", "default_variables.rs"),
+	);
+	const stringDefaultSchema = manifestSchema.properties.variables.items.oneOf.find(
+		(option) => option.properties.type.const === "string",
+	);
+
+	assert.ok(manifestSchema.properties.variables, "manifest must declare default variables");
+	assert.deepEqual(manifestSchema.properties.variables.items.properties.scope.enum, ["runtime", "persistent"]);
+	assert.equal(stringDefaultSchema.properties.value.pattern, "\\S");
+	assert.match(defaultVariableSource, /Default value is required/);
+	assert.match(editorPage, /defaultVariables/);
+	assert.match(packageSource, /variables:\s*params\.defaultVariables\.map/);
+	assert.match(simulationSource, /defaultVariables\.map/);
+	assert.match(runtimeDefaultSource, /load_or_initialize_persistent_default/);
+	assert.match(runtimeDefaultSource, /compare_and_set_variable/);
 });
 
 function extractRustConstStringArray(source, constName) {

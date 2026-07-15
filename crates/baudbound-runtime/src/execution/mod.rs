@@ -6,6 +6,7 @@ mod action_dispatch;
 mod api;
 mod branching;
 mod contracts;
+mod default_variables;
 mod frames;
 mod initial_state;
 mod redaction;
@@ -37,6 +38,7 @@ impl<'a> RuntimeExecutor<'a> {
             &graph,
             &identity.script_id,
             resources.state_store,
+            resources.default_variables,
             resources.secrets,
         )?;
         Ok(Self {

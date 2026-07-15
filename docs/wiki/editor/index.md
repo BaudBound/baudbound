@@ -49,7 +49,11 @@ Triggers have no execution input because they begin runs. A workflow can contain
 
 Loop body edges leave the **loop** output and completion continues from **done**. Do not connect the body back to the loop node; the runtime owns repetition.
 
-Select an edge to highlight it. Right-click and choose **Disconnect**, or use the normal delete interaction, to remove it. Invalid endpoints or handle names fail verification.
+One output can connect to several nodes. Those branches run one after another in the numbered order shown on the edges. The first connection created from an output is first, and each new connection is added to the end.
+
+Select any numbered edge to open **Execution order** in the inspector. Drag the destination rows or use the arrow buttons to move a connection earlier or later. The order belongs only to that source output. Connections from another output have their own order. Moving nodes around the canvas does not change execution order.
+
+Select an edge to highlight it. Right-click and choose **Disconnect**, use the inspector disconnect button, or use the normal delete interaction to remove it. The remaining connections are renumbered automatically. A node cannot connect to itself. Invalid endpoints, handle names, or execution orders fail verification.
 
 ## Select and move
 
@@ -119,7 +123,7 @@ Export before clearing browser data, switching profiles or devices, using privat
 | --- | --- |
 | Inspector looks empty | Select an executable node and open Properties |
 | Node is missing from library | Check target runtime compatibility and clear the library search |
-| Connection will not verify | Reconnect exact named output and input handles; remove stale edges |
+| Connection will not verify | Reconnect exact named output and input handles, remove stale edges, and review numbered fan-out order |
 | `Ctrl` drag does not select | Begin on empty canvas, keep Ctrl held, and include the node bounds |
 | Copy affects text instead of node | Remove browser text selection and focus the canvas node |
 | Comment controls overlap | Resize the comment wider or reduce its font size |

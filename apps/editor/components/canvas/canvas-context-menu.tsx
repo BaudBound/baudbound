@@ -1,6 +1,8 @@
-import { Clipboard, Copy, CopyPlus, Trash2, Unlink2 } from "lucide-react";
+import { Copy, CopyPlus, Trash2, Unlink2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import type { PaletteItem, TargetRuntime } from "@/lib/types";
+import { CanvasNodeMenu } from "./canvas-node-menu";
 
 export type CanvasContextMenuTarget =
 	| {
@@ -28,6 +30,8 @@ export type CanvasContextMenuState = {
 type CanvasContextMenuProps = {
 	canPaste: boolean;
 	menu: CanvasContextMenuState;
+	targetRuntime: TargetRuntime;
+	onAddNode: (item: PaletteItem, position: { x: number; y: number }) => void;
 	onClose: () => void;
 	onCopyNode: (nodeId: string) => void;
 	onDeleteNode: (nodeId: string) => void;
@@ -39,6 +43,8 @@ type CanvasContextMenuProps = {
 export function CanvasContextMenu({
 	canPaste,
 	menu,
+	targetRuntime,
+	onAddNode,
 	onClose,
 	onCopyNode,
 	onDeleteNode,
@@ -51,14 +57,30 @@ export function CanvasContextMenu({
 		action();
 		onClose();
 	};
+	const position = getMenuPosition(menu);
+
+	if (target.type === "pane") {
+		return (
+			<div data-canvas-overlay className="fixed z-10000" style={position}>
+				<CanvasNodeMenu
+					canPaste={canPaste}
+					targetRuntime={targetRuntime}
+					onAddNode={(item) => runAction(() => onAddNode(item, menu.flowPosition))}
+					onPaste={() => runAction(() => onPaste(menu.flowPosition))}
+				/>
+			</div>
+		);
+	}
 
 	return (
 		<div
+			data-canvas-overlay
 			className="fixed z-10000 min-w-44 rounded border border-baud-border bg-baud-panel py-1 shadow-[0_18px_48px_rgba(0,0,0,0.42)]"
-			style={{ left: menu.x, top: menu.y }}
+			style={position}
 			role="menu"
 			aria-label={`${getContextMenuTargetLabel(target.type)} actions`}
 			onContextMenu={(event) => event.preventDefault()}
+			onPointerDown={(event) => event.stopPropagation()}
 		>
 			{target.type === "node" && (
 				<>
@@ -88,16 +110,22 @@ export function CanvasContextMenu({
 					onClick={() => runAction(() => onDeleteEdge(target.id))}
 				/>
 			)}
-			{target.type === "pane" && (
-				<ContextMenuButton
-					disabled={!canPaste}
-					icon={<Clipboard size={14} />}
-					label="Paste"
-					onClick={() => runAction(() => onPaste(menu.flowPosition))}
-				/>
-			)}
 		</div>
 	);
+}
+
+function getMenuPosition(menu: CanvasContextMenuState) {
+	if (typeof window === "undefined") {
+		return { left: menu.x, top: menu.y };
+	}
+
+	const margin = 8;
+	const width = menu.target.type === "pane" ? 352 : 176;
+	const height = menu.target.type === "pane" ? Math.min(512, window.innerHeight - margin * 2) : 140;
+	return {
+		left: Math.max(margin, Math.min(menu.x, window.innerWidth - width - margin)),
+		top: Math.max(margin, Math.min(menu.y, window.innerHeight - height - margin)),
+	};
 }
 
 function getContextMenuTargetLabel(type: CanvasContextMenuTarget["type"]) {

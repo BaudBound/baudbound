@@ -31,7 +31,15 @@ import {
 	reactFlowProOptions,
 	toReactFlowEdgeType,
 } from "@/data/editor/flow-canvas";
-import type { CommentNodeData, ScriptNodeData } from "@/lib/types";
+import type { CommentNodeData, ScriptNodeData, TargetRuntime } from "@/lib/types";
+import {
+	createGraphEdgeId,
+	getEdgeExecutionOrder,
+	getNextEdgeExecutionOrder,
+	isSelfConnection,
+	withEdgeExecutionOrder,
+} from "@/utils/editor-graph";
+import { isEditableShortcutTarget } from "@/utils/editor-shortcuts";
 import { CanvasContextMenu, type CanvasContextMenuState } from "./canvas-context-menu";
 import { CommentCard, type CommentFlowNode, CommentNodeActionsContext, isCommentFlowNode } from "./comment-card";
 import { ScriptNode } from "./script-node";
@@ -65,6 +73,7 @@ type FlowCanvasProps = {
 	edgeStyle: EditorEdgeStyle;
 	onEdgeStyleChange: (edgeStyle: EditorEdgeStyle) => void;
 	onViewportCenterChange: (position: XYPosition) => void;
+	targetRuntime: TargetRuntime;
 };
 
 const nodeTypes = {
@@ -105,6 +114,7 @@ export function FlowCanvas({
 	showDevelopmentNodeSpawner,
 	onViewportCenterChange,
 	selectedEdgeId,
+	targetRuntime,
 }: FlowCanvasProps) {
 	return (
 		<ReactFlowProvider>
@@ -134,6 +144,7 @@ export function FlowCanvas({
 				showDevelopmentNodeSpawner={showDevelopmentNodeSpawner}
 				onViewportCenterChange={onViewportCenterChange}
 				selectedEdgeId={selectedEdgeId}
+				targetRuntime={targetRuntime}
 			/>
 		</ReactFlowProvider>
 	);
@@ -143,6 +154,7 @@ function FlowCanvasContent({
 	nodes,
 	edges,
 	selectedEdgeId,
+	targetRuntime,
 	onNodesChange,
 	onEdgesChange,
 	onEdgesCommit,
@@ -170,19 +182,29 @@ function FlowCanvasContent({
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const initFrameRef = useRef<number | null>(null);
 	const lastViewportCenterRef = useRef<XYPosition | null>(null);
+	const lastCanvasPointerPositionRef = useRef<XYPosition | null>(null);
 	const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
 
 	const onConnect = useCallback(
 		(connection: Connection) => {
-			const edgeId = `${connection.source}-${connection.sourceHandle ?? "out"}-${connection.target}-${
-				connection.targetHandle ?? "input"
-			}`;
-			onEdgesCommit((current) => addEdge({ ...connection, id: edgeId, type: toReactFlowEdgeType(edgeStyle) }, current));
+			if (isSelfConnection(connection)) {
+				return;
+			}
+
+			const edgeId = createGraphEdgeId(connection);
+			onEdgesCommit((current) => {
+				const edge: Edge = withEdgeExecutionOrder(
+					{ ...connection, id: edgeId, type: toReactFlowEdgeType(edgeStyle) },
+					getNextEdgeExecutionOrder(current, connection.source, connection.sourceHandle),
+				);
+				return addEdge(edge, current);
+			});
 			onSelectNode(null);
 			onSelectEdge(edgeId);
 		},
 		[edgeStyle, onEdgesCommit, onSelectEdge, onSelectNode],
 	);
+	const isValidConnection = useCallback((connection: Connection | Edge) => !isSelfConnection(connection), []);
 
 	const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -289,6 +311,59 @@ function FlowCanvasContent({
 	);
 
 	useEffect(() => {
+		const viewport = viewportRef.current;
+		if (!viewport) {
+			return;
+		}
+
+		const clearPointerPosition = () => {
+			lastCanvasPointerPositionRef.current = null;
+		};
+		const trackPointerPosition = (event: MouseEvent) => {
+			const target = event.target instanceof Element ? event.target : null;
+			const overCanvasControl = target?.closest(".react-flow__controls, .react-flow__minimap, [data-canvas-overlay]");
+			if (overCanvasControl) {
+				clearPointerPosition();
+				return;
+			}
+
+			lastCanvasPointerPositionRef.current = screenToFlowPosition({
+				x: event.clientX,
+				y: event.clientY,
+			});
+		};
+
+		window.addEventListener("blur", clearPointerPosition);
+		viewport.addEventListener("mouseleave", clearPointerPosition);
+		viewport.addEventListener("mousemove", trackPointerPosition, { capture: true, passive: true });
+
+		return () => {
+			window.removeEventListener("blur", clearPointerPosition);
+			viewport.removeEventListener("mouseleave", clearPointerPosition);
+			viewport.removeEventListener("mousemove", trackPointerPosition, { capture: true });
+		};
+	}, [screenToFlowPosition]);
+
+	useEffect(() => {
+		const handlePasteShortcut = (event: KeyboardEvent) => {
+			if (
+				!canPaste ||
+				isEditableShortcutTarget(event.target) ||
+				!(event.ctrlKey || event.metaKey) ||
+				event.key.toLowerCase() !== "v"
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			onPaste(lastCanvasPointerPositionRef.current ?? getViewportCenterPosition());
+		};
+
+		window.addEventListener("keydown", handlePasteShortcut);
+		return () => window.removeEventListener("keydown", handlePasteShortcut);
+	}, [canPaste, getViewportCenterPosition, onPaste]);
+
+	useEffect(() => {
 		if (!contextMenu) {
 			return;
 		}
@@ -300,8 +375,12 @@ function FlowCanvasContent({
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
+		window.addEventListener("pointerdown", closeContextMenu);
 
-		return () => window.removeEventListener("keydown", handleKeyDown);
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+			window.removeEventListener("pointerdown", closeContextMenu);
+		};
 	}, [closeContextMenu, contextMenu]);
 
 	useEffect(() => {
@@ -313,23 +392,34 @@ function FlowCanvasContent({
 		};
 	}, []);
 
-	const displayedEdges = useMemo(
-		() =>
-			edges.map((edge) => {
-				const selected = edge.id === selectedEdgeId;
+	const displayedEdges = useMemo(() => {
+		const groupSizes = new Map<string, number>();
+		for (const edge of edges) {
+			const key = `${edge.source}\u0000${edge.sourceHandle ?? ""}`;
+			groupSizes.set(key, (groupSizes.get(key) ?? 0) + 1);
+		}
 
-				return {
-					...edge,
-					className: selected ? "baud-edge-selected" : undefined,
-					type: toReactFlowEdgeType(edgeStyle),
-					style: {
-						stroke: selected ? edgeColors.selected : edgeColors.default,
-						strokeWidth: selected ? 4 : 2,
-					},
-				};
-			}),
-		[edgeStyle, edges, selectedEdgeId],
-	);
+		return edges.map((edge) => {
+			const selected = edge.selected || edge.id === selectedEdgeId;
+			const groupSize = groupSizes.get(`${edge.source}\u0000${edge.sourceHandle ?? ""}`) ?? 0;
+			const executionOrder = getEdgeExecutionOrder(edge);
+
+			return {
+				...edge,
+				className: selected ? "baud-edge-selected" : undefined,
+				label: groupSize > 1 && executionOrder !== null ? String(executionOrder + 1) : undefined,
+				labelBgBorderRadius: 4,
+				labelBgPadding: [5, 3] as [number, number],
+				labelBgStyle: { fill: selected ? "#e62d3e" : "#182033", fillOpacity: 1 },
+				labelStyle: { fill: "#ffffff", fontSize: 11, fontWeight: 700 },
+				type: toReactFlowEdgeType(edgeStyle),
+				style: {
+					stroke: selected ? edgeColors.selected : edgeColors.default,
+					strokeWidth: selected ? 4 : 2,
+				},
+			};
+		});
+	}, [edgeStyle, edges, selectedEdgeId]);
 	const currentDefaultEdgeOptions = useMemo(() => createDefaultEdgeOptions(edgeStyle), [edgeStyle]);
 
 	return (
@@ -342,6 +432,7 @@ function FlowCanvasContent({
 					onNodesChange={onNodesChange}
 					onEdgesChange={onEdgesChange}
 					onConnect={onConnect}
+					isValidConnection={isValidConnection}
 					onDragOver={handleDragOver}
 					onDrop={handleDrop}
 					onNodeClick={(_, node) => {
@@ -396,7 +487,6 @@ function FlowCanvasContent({
 					selectionKeyCode={["Control", "Meta"]}
 					selectionMode={SelectionMode.Partial}
 					minZoom={0.02}
-					fitView
 					fitViewOptions={{ padding: 0.25 }}
 					defaultEdgeOptions={currentDefaultEdgeOptions}
 					proOptions={reactFlowProOptions}
@@ -421,7 +511,7 @@ function FlowCanvasContent({
 					/>
 				</ReactFlow>
 			</CommentNodeActionsContext.Provider>
-			<div className="pointer-events-auto absolute left-4 top-4 z-10 flex items-center gap-2">
+			<div data-canvas-overlay className="pointer-events-auto absolute left-4 top-4 z-10 flex items-center gap-2">
 				<Button
 					type="button"
 					size="icon"
@@ -444,7 +534,7 @@ function FlowCanvasContent({
 				/>
 			</div>
 			{showDevelopmentNodeSpawner && onSpawnDevelopmentNodes && (
-				<div className="pointer-events-none absolute top-4 right-4 z-10">
+				<div data-canvas-overlay className="pointer-events-none absolute top-4 right-4 z-10">
 					<Button
 						type="button"
 						onClick={onSpawnDevelopmentNodes}
@@ -461,6 +551,8 @@ function FlowCanvasContent({
 				<CanvasContextMenu
 					canPaste={canPaste}
 					menu={contextMenu}
+					targetRuntime={targetRuntime}
+					onAddNode={(item, position) => onDropPaletteNode(item.actionType, position)}
 					onClose={closeContextMenu}
 					onCopyNode={onCopyNode}
 					onDeleteNode={onDeleteNode}

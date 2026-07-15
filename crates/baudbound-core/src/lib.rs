@@ -16,9 +16,9 @@ use std::{path::Path, sync::Arc};
 
 use baudbound_actions::{HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
-    RuntimeActionHandler, RuntimeCancellationToken, RuntimeExecutionResources,
-    RuntimeSecretDeclaration, execute_manual_program_with_state,
-    execute_trigger_program_with_state,
+    RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
+    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeSecretDeclaration,
+    execute_manual_program_with_state, execute_trigger_program_with_state,
 };
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
 use baudbound_security::{RunnerPolicy, SecurityValidationError};
@@ -431,12 +431,28 @@ impl RunnerCore {
                 value_type: secret.value_type.clone(),
             })
             .collect::<Vec<_>>();
+        let default_variables = package
+            .manifest
+            .variables
+            .iter()
+            .map(|variable| RuntimeDefaultVariable {
+                name: variable.name.clone(),
+                scope: if variable.scope == "persistent" {
+                    RuntimeDefaultVariableScope::Persistent
+                } else {
+                    RuntimeDefaultVariableScope::Runtime
+                },
+                value_type: variable.value_type.clone(),
+                value: variable.value.clone(),
+            })
+            .collect::<Vec<_>>();
 
         let runtime_resources = || {
             RuntimeExecutionResources::new(&core_action_handler)
                 .with_package_path(installed.package_path.clone())
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
+                .with_default_variables(&default_variables)
         };
         let report = match trigger_node_id {
             Some(trigger_node_id) => execute_trigger_program_with_state(

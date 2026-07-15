@@ -41,7 +41,7 @@ pnpm --dir apps/editor test
 
 The export path takes current project state, sanitizes node config, verifies graph and target rules, derives declared access, separates executable `program.json` from `editor.json`, writes manifest assets and secret declarations, and creates the ZIP archive. The runner later repeats security and semantic checks independently.
 
-Asset IDs and package paths must remain stable and normalized. Secret values never enter package state. Comments, positions, dimensions, and edge style remain editor metadata and cannot affect runner execution.
+Asset IDs and package paths must remain stable and normalized. Secret values never enter package state. Comments, positions, dimensions, and edge style remain editor metadata and cannot affect runner execution. Edge `execution_order` is executable program data. It must remain unique and consecutive for every source node and source handle.
 
 ## Changing the package contract
 

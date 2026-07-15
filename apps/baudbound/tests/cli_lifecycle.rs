@@ -691,6 +691,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
                     ],
                     "edges": [
                         {{
+                            "execution_order": 0,
                             "source": "n-manual",
                             "source_handle": "out",
                             "target": "n-log",
@@ -790,6 +791,7 @@ fn create_schedule_package() -> Vec<u8> {
                         ],
                         "edges": [
                             {
+                                "execution_order": 0,
                                 "source": "n-schedule",
                                 "source_handle": "out",
                                 "target": "n-log",

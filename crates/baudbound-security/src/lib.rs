@@ -13,9 +13,17 @@ use thiserror::Error;
 
 pub use capabilities::{
     CapabilityValidationError, ProgramCapabilityReport, calculate_program_capabilities,
-    calculate_program_capabilities_with_secrets, validate_program_capabilities,
+    calculate_program_capabilities_with_declarations, calculate_program_capabilities_with_secrets,
+    validate_program_capabilities, validate_program_capabilities_with_declarations,
     validate_program_capabilities_with_secrets,
 };
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RuntimeDeclarationRequirements {
+    pub has_persistent_default_variables: bool,
+    pub has_runtime_default_variables: bool,
+    pub has_secret_declarations: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -151,7 +159,26 @@ pub fn validate_program_permissions_with_secrets(
     policy: &RunnerPolicy,
     has_secret_declarations: bool,
 ) -> Result<ProgramPermissionReport, PermissionValidationError> {
-    let report = calculate_program_permissions_with_secrets(program, has_secret_declarations)?;
+    validate_program_permissions_with_declarations(
+        program,
+        declared_permissions,
+        declared_risk,
+        policy,
+        RuntimeDeclarationRequirements {
+            has_secret_declarations,
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+}
+
+pub fn validate_program_permissions_with_declarations(
+    program: &Value,
+    declared_permissions: &[String],
+    declared_risk: RiskLevel,
+    policy: &RunnerPolicy,
+    requirements: RuntimeDeclarationRequirements,
+) -> Result<ProgramPermissionReport, PermissionValidationError> {
+    let report = calculate_program_permissions_with_declarations(program, requirements)?;
     let required = report
         .required_permissions
         .iter()
@@ -204,6 +231,19 @@ pub fn calculate_program_permissions(
 pub fn calculate_program_permissions_with_secrets(
     program: &Value,
     has_secret_declarations: bool,
+) -> Result<ProgramPermissionReport, PermissionValidationError> {
+    calculate_program_permissions_with_declarations(
+        program,
+        RuntimeDeclarationRequirements {
+            has_secret_declarations,
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+}
+
+pub fn calculate_program_permissions_with_declarations(
+    program: &Value,
+    requirements: RuntimeDeclarationRequirements,
 ) -> Result<ProgramPermissionReport, PermissionValidationError> {
     let mut permissions = Vec::<PermissionGrant>::new();
     let mut seen_permissions = BTreeSet::<String>::new();
@@ -278,7 +318,27 @@ pub fn calculate_program_permissions_with_secrets(
         }
     }
 
-    if has_secret_declarations && seen_permissions.insert("read_secret".to_owned()) {
+    if requirements.has_runtime_default_variables {
+        insert_permission(
+            &mut permissions,
+            &mut seen_permissions,
+            PermissionGrant {
+                name: "set_local_variable".to_owned(),
+                risk: RiskLevel::Low,
+            },
+        );
+    }
+    if requirements.has_persistent_default_variables {
+        insert_permission(
+            &mut permissions,
+            &mut seen_permissions,
+            PermissionGrant {
+                name: "set_persistent_variable".to_owned(),
+                risk: RiskLevel::Medium,
+            },
+        );
+    }
+    if requirements.has_secret_declarations && seen_permissions.insert("read_secret".to_owned()) {
         permissions.push(PermissionGrant {
             name: "read_secret".to_owned(),
             risk: RiskLevel::High,

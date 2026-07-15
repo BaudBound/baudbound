@@ -59,7 +59,7 @@ When a source changes, update generation, validation, tests, and documentation i
 4. `baudbound-security` recalculates permissions, capabilities, and risk from the program instead of trusting declarations.
 5. `baudbound-core` checks package identity, target compatibility, installed hash, policy, approval, and required secret state.
 6. A manual command or `baudbound-triggers` event selects an exact trigger node and payload.
-7. `baudbound-runtime` validates and executes the graph, delegating external actions through an action-handler trait.
+7. `baudbound-runtime` validates edge execution orders and executes each selected output's destinations sequentially in that explicit order, delegating external actions through an action-handler trait.
 8. `baudbound-actions` or an application native adapter performs the supported side effect.
 9. Runtime cancellation and errors stop or branch execution according to graph contracts.
 10. The final redacted report is persisted through `baudbound-storage` and exposed to CLI or desktop views.

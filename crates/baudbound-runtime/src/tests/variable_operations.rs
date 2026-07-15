@@ -239,6 +239,7 @@ fn linear_edges(node_ids: &[&str]) -> Vec<Value> {
     let mut source = "n-trigger";
     for node_id in node_ids {
         edges.push(json!({
+            "execution_order": 0,
             "source": source,
             "source_handle": "out",
             "target": node_id,

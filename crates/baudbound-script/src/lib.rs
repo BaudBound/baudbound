@@ -9,6 +9,6 @@ pub use package::{
     validate_asset_package_path,
 };
 pub use types::{
-    Capabilities, EditorMetadata, Manifest, ManifestAsset, Permissions, Program, RiskLevel,
-    SecretDeclaration,
+    Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
+    RiskLevel, SecretDeclaration,
 };

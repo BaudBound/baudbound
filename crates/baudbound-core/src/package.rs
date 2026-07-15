@@ -2,8 +2,9 @@ use std::path::Path;
 
 use baudbound_script::{PackageSummary, RiskLevel, ScriptPackage};
 use baudbound_security::{
-    RunnerPolicy, SecurityValidationError, validate_program_capabilities_with_secrets,
-    validate_program_permissions_with_secrets,
+    RunnerPolicy, RuntimeDeclarationRequirements, SecurityValidationError,
+    validate_program_capabilities_with_declarations,
+    validate_program_permissions_with_declarations,
 };
 use baudbound_storage::ImportScriptRequest;
 
@@ -47,18 +48,30 @@ pub(crate) fn validate_package_security(
     package: &ScriptPackage,
     policy: &RunnerPolicy,
 ) -> Result<(), SecurityValidationError> {
-    let has_secret_declarations = !package.manifest.secrets.is_empty();
-    validate_program_permissions_with_secrets(
+    let requirements = RuntimeDeclarationRequirements {
+        has_persistent_default_variables: package
+            .manifest
+            .variables
+            .iter()
+            .any(|variable| variable.scope == "persistent"),
+        has_runtime_default_variables: package
+            .manifest
+            .variables
+            .iter()
+            .any(|variable| variable.scope == "runtime"),
+        has_secret_declarations: !package.manifest.secrets.is_empty(),
+    };
+    validate_program_permissions_with_declarations(
         &package.program,
         &package.permissions.declared_permissions,
         security_risk_level(&package.permissions.risk_level),
         policy,
-        has_secret_declarations,
+        requirements,
     )?;
-    validate_program_capabilities_with_secrets(
+    validate_program_capabilities_with_declarations(
         &package.program,
         &package.capabilities.required_capabilities,
-        has_secret_declarations,
+        requirements,
     )?;
     Ok(())
 }

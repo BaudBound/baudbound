@@ -6,15 +6,22 @@ import {
 	createNodeOutputVariables,
 	type EditorVariable,
 } from "@/data/project/variables";
-import type { ProjectSettings, ScriptNodeData, SecretDeclaration, SimulationVariableSnapshot } from "@/lib/types";
+import type {
+	DefaultVariable,
+	ProjectSettings,
+	ScriptNodeData,
+	SecretDeclaration,
+	SimulationVariableSnapshot,
+} from "@/lib/types";
 
 export function createVariablePanelEntries(
 	projectSettings: ProjectSettings,
 	nodes: Node<ScriptNodeData>[],
 	snapshots: SimulationVariableSnapshot[],
 	secretDeclarations: SecretDeclaration[] = [],
+	defaultVariables: DefaultVariable[] = [],
 ): EditorVariable[] {
-	return createEditorVariableRegistry(projectSettings, nodes, snapshots, secretDeclarations);
+	return createEditorVariableRegistry(projectSettings, nodes, snapshots, secretDeclarations, defaultVariables);
 }
 
 export function createEditorVariableRegistry(
@@ -22,6 +29,7 @@ export function createEditorVariableRegistry(
 	nodes: Node<ScriptNodeData>[],
 	snapshots: SimulationVariableSnapshot[] = [],
 	secretDeclarations: SecretDeclaration[] = [],
+	defaultVariables: DefaultVariable[] = [],
 ): EditorVariable[] {
 	const variables = new Map<string, EditorVariable>();
 
@@ -31,6 +39,18 @@ export function createEditorVariableRegistry(
 		...createNodeOutputVariables(nodes),
 	]) {
 		variables.set(variable.name, variable);
+	}
+	for (const variable of defaultVariables) {
+		variables.set(variable.name, {
+			description: variable.description,
+			name: variable.name,
+			read_only: false,
+			scope: variable.scope,
+			source: "user",
+			token: `{{${variable.name}}}`,
+			type: variable.type,
+			value: variable.value,
+		});
 	}
 	for (const secret of secretDeclarations) {
 		variables.set(secret.name, {

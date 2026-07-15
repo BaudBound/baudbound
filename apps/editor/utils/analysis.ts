@@ -12,6 +12,7 @@ import { createNodeOutputVariables } from "@/data/project/variables";
 import type {
 	ActionType,
 	CapabilitySummary,
+	DefaultVariable,
 	EditorAsset,
 	ExecutableActionType,
 	ExportSummary,
@@ -24,6 +25,7 @@ import type {
 	TargetRuntime,
 	TriggerActionType,
 } from "../lib/types";
+import { getEdgeExecutionOrder } from "./editor-graph";
 
 const riskWeight: Record<RiskLevel, number> = {
 	low: 1,
@@ -35,6 +37,7 @@ const riskWeight: Record<RiskLevel, number> = {
 export function calculatePermissions(
 	nodes: Node<ScriptNodeData>[],
 	secretDeclarations: SecretDeclaration[] = [],
+	defaultVariables: DefaultVariable[] = [],
 ): PermissionSummary[] {
 	const permissions = new Map<string, PermissionSummary>();
 
@@ -49,6 +52,12 @@ export function calculatePermissions(
 	if (secretDeclarations.length > 0) {
 		permissions.set("read_secret", { name: "read_secret", risk: "high" });
 	}
+	if (defaultVariables.some((variable) => variable.scope === "runtime")) {
+		permissions.set("set_local_variable", { name: "set_local_variable", risk: "low" });
+	}
+	if (defaultVariables.some((variable) => variable.scope === "persistent")) {
+		permissions.set("set_persistent_variable", { name: "set_persistent_variable", risk: "medium" });
+	}
 
 	return [...permissions.values()].sort(
 		(a, b) => riskWeight[a.risk] - riskWeight[b.risk] || a.name.localeCompare(b.name),
@@ -58,6 +67,7 @@ export function calculatePermissions(
 export function calculateCapabilities(
 	nodes: Node<ScriptNodeData>[],
 	secretDeclarations: SecretDeclaration[] = [],
+	defaultVariables: DefaultVariable[] = [],
 ): CapabilitySummary[] {
 	const capabilities = new Set<string>();
 
@@ -68,6 +78,12 @@ export function calculateCapabilities(
 	}
 	if (secretDeclarations.length > 0) {
 		capabilities.add("runtime.secrets");
+	}
+	if (defaultVariables.length > 0) {
+		capabilities.add("runtime.variables");
+	}
+	if (defaultVariables.some((variable) => variable.scope === "persistent")) {
+		capabilities.add("runtime.persistent_storage");
 	}
 
 	return [...capabilities].sort().map((name) => ({ name }));
@@ -165,6 +181,7 @@ export function toProgramJson(nodes: Node<ScriptNodeData>[], edges: Edge[], proj
 				},
 				steps,
 				edges: edges.map((edge) => ({
+					execution_order: requireEdgeExecutionOrder(edge),
 					source: edge.source,
 					source_handle: edge.sourceHandle,
 					target: edge.target,
@@ -173,6 +190,14 @@ export function toProgramJson(nodes: Node<ScriptNodeData>[], edges: Edge[], proj
 			},
 		},
 	};
+}
+
+function requireEdgeExecutionOrder(edge: Edge) {
+	const executionOrder = getEdgeExecutionOrder(edge);
+	if (executionOrder === null) {
+		throw new Error(`Connection ${edge.id} is missing its execution order.`);
+	}
+	return executionOrder;
 }
 
 function toTriggerJson(node: Node<ScriptNodeData>) {

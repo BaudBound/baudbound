@@ -247,6 +247,7 @@ fn manual_trigger() -> Value {
 
 fn edge(source: &str, source_handle: &str, target: &str) -> Value {
     json!({
+        "execution_order": 0,
         "source": source,
         "source_handle": source_handle,
         "target": target,

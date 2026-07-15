@@ -10,9 +10,11 @@ import {
 } from "@/data/project/assets";
 import { packageLimits, validatePackageEntryLimits } from "@/data/project/package-limits";
 import { targetRuntimes } from "@/data/project/runtimes";
+import { variableTypes } from "@/data/project/variables";
 import type {
 	ActionType,
 	AssetKind,
+	DefaultVariable,
 	EditorAsset,
 	EditorComment,
 	JsonValue,
@@ -23,6 +25,7 @@ import type {
 	TargetRuntime,
 } from "../lib/types";
 import { calculateCapabilities, calculatePermissions, calculateRiskLevel, toProgramJson } from "./analysis";
+import { isSelfConnection, withEdgeExecutionOrder } from "./editor-graph";
 import { validatePackageJsonContracts } from "./package-contract";
 import {
 	createPackageVerificationChecks,
@@ -34,6 +37,7 @@ import {
 type ImportedBbsPackage = {
 	assets: EditorAsset[];
 	comments: EditorComment[];
+	defaultVariables: DefaultVariable[];
 	edgeStyle: EditorEdgeStyle;
 	edges: Edge[];
 	projectSettings: ProjectSettings;
@@ -61,9 +65,10 @@ export async function exportBbsPackage(params: {
 	comments: EditorComment[];
 	edgeStyle: EditorEdgeStyle;
 	secretDeclarations: SecretDeclaration[];
+	defaultVariables: DefaultVariable[];
 }) {
-	const permissions = calculatePermissions(params.nodes, params.secretDeclarations);
-	const capabilities = calculateCapabilities(params.nodes, params.secretDeclarations);
+	const permissions = calculatePermissions(params.nodes, params.secretDeclarations, params.defaultVariables);
+	const capabilities = calculateCapabilities(params.nodes, params.secretDeclarations, params.defaultVariables);
 	const assetManifest = params.assets.map(toAssetManifestEntry);
 	const now = new Date().toISOString();
 	const zip = new JSZip();
@@ -94,6 +99,13 @@ export async function exportBbsPackage(params: {
 			type: secret.type,
 			description: secret.description,
 			required: secret.required,
+		})),
+		variables: params.defaultVariables.map((variable) => ({
+			name: variable.name,
+			scope: variable.scope,
+			type: variable.type,
+			description: variable.description,
+			value: variable.value,
 		})),
 	});
 	const programJson = toProgramJson(params.nodes, params.edges, params.projectSettings);
@@ -223,16 +235,48 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 	const comments = toEditorComments(editorMetadata);
 	const edgeStyle = toEditorEdgeStyle(editorMetadata);
 	const secretDeclarations = toSecretDeclarations(manifest);
+	const defaultVariables = toDefaultVariables(manifest);
 
 	return {
 		assets,
 		comments,
+		defaultVariables,
 		edgeStyle,
 		edges,
 		nodes,
 		projectSettings,
 		secretDeclarations,
 	};
+}
+
+function toDefaultVariables(manifest: Record<string, unknown>): DefaultVariable[] {
+	if (!Array.isArray(manifest.variables)) {
+		return [];
+	}
+
+	return manifest.variables.flatMap((value) => {
+		const variable = isRecord(value) ? value : null;
+		if (
+			!variable ||
+			typeof variable.name !== "string" ||
+			(variable.scope !== "runtime" && variable.scope !== "persistent") ||
+			typeof variable.type !== "string" ||
+			!variableTypes.includes(variable.type as DefaultVariable["type"]) ||
+			!isJsonValue(variable.value)
+		) {
+			return [];
+		}
+
+		return [
+			{
+				description: typeof variable.description === "string" ? variable.description : "",
+				name: variable.name,
+				scope: variable.scope,
+				type: variable.type as DefaultVariable["type"],
+				value: variable.value,
+			},
+		];
+	});
 }
 
 function toSecretDeclarations(manifest: Record<string, unknown>): SecretDeclaration[] {
@@ -698,21 +742,31 @@ function toEditorEdges(value: unknown, nodeIds: ReadonlySet<string>): Edge[] {
 		if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) {
 			throw new Error(`Program edge ${index + 1} references an unknown source or target node.`);
 		}
+		if (isSelfConnection({ source, target })) {
+			throw new Error(`Program edge ${index + 1} cannot connect node "${source}" to itself.`);
+		}
 
 		const sourceHandle = optionalString(edge.source_handle);
 		const targetHandle = optionalString(edge.target_handle);
 		if (!sourceHandle || !targetHandle) {
 			throw new Error(`Program edge ${index + 1} must define source_handle and target_handle.`);
 		}
+		const executionOrder = edge.execution_order;
+		if (typeof executionOrder !== "number" || !Number.isSafeInteger(executionOrder) || executionOrder < 0) {
+			throw new Error(`Program edge ${index + 1} must define a non-negative integer execution_order.`);
+		}
 
-		return {
-			id: `${source}-${sourceHandle}-${target}-${targetHandle}-${index}`,
-			source,
-			sourceHandle,
-			target,
-			targetHandle,
-			type: "smoothstep",
-		};
+		return withEdgeExecutionOrder(
+			{
+				id: `${source}-${sourceHandle}-${target}-${targetHandle}-${index}`,
+				source,
+				sourceHandle,
+				target,
+				targetHandle,
+				type: "smoothstep",
+			},
+			executionOrder,
+		);
 	});
 }
 

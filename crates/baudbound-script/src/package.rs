@@ -13,10 +13,14 @@ use crate::{Capabilities, EditorMetadata, Manifest, Permissions, Program};
 
 mod graph;
 mod limits;
+mod manifest;
 mod schema;
 
 use graph::validate_program_graph;
 use limits::package_limits;
+use manifest::{
+    validate_manifest_secrets, validate_manifest_variable_operations, validate_manifest_variables,
+};
 use schema::validate_program_schema;
 
 const REQUIRED_PACKAGE_FILES: &[&str] = &[
@@ -141,6 +145,7 @@ pub fn read_package_asset_reader<R: Read + Seek>(
 
     let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
     validate_manifest_assets(&entries, &manifest)?;
+    validate_manifest_variables(&manifest)?;
     validate_manifest_secrets(&manifest)?;
 
     let reference = asset_reference.trim();
@@ -190,6 +195,8 @@ pub fn load_script_package_reader<R: Read + Seek>(
     let editor = read_optional_json_file::<EditorMetadata, _>(&mut archive, "editor.json")?;
 
     validate_manifest_assets(&entries, &manifest)?;
+    validate_manifest_variables(&manifest)?;
+    validate_manifest_variable_operations(&manifest, &program)?;
     validate_manifest_secrets(&manifest)?;
 
     Ok(ScriptPackage {
@@ -362,55 +369,6 @@ fn validate_manifest_assets(
     }
 
     finish_validation(errors)
-}
-
-fn validate_manifest_secrets(manifest: &Manifest) -> Result<(), PackageLoadError> {
-    const SUPPORTED_TYPES: &[&str] = &[
-        "string",
-        "number",
-        "boolean",
-        "object",
-        "list",
-        "http_response",
-        "datetime",
-        "duration",
-        "file_path",
-    ];
-
-    let mut errors = Vec::new();
-    let mut names = BTreeSet::new();
-    for secret in &manifest.secrets {
-        if !is_variable_identifier(&secret.name) {
-            errors.push(format!(
-                "manifest secret {:?} must start with a letter or underscore and contain only letters, numbers, or underscores",
-                secret.name
-            ));
-        }
-        if secret.name.starts_with("system_") || secret.name.starts_with("manifest_") {
-            errors.push(format!(
-                "manifest secret {:?} uses a reserved variable prefix",
-                secret.name
-            ));
-        }
-        if !names.insert(secret.name.as_str()) {
-            errors.push(format!("duplicate manifest secret name {:?}", secret.name));
-        }
-        if !SUPPORTED_TYPES.contains(&secret.value_type.as_str()) {
-            errors.push(format!(
-                "manifest secret {:?} uses unsupported type {:?}",
-                secret.name, secret.value_type
-            ));
-        }
-    }
-    finish_validation(errors)
-}
-
-fn is_variable_identifier(value: &str) -> bool {
-    let mut bytes = value.bytes();
-    bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 pub fn validate_asset_package_path(path: &str) -> Result<(), &'static str> {

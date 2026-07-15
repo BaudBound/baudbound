@@ -12,7 +12,15 @@ import {
 	createNodeOutputVariables,
 	normalizeVariableReferenceName,
 } from "@/data/project/variables";
-import type { EditorAsset, PermissionSummary, ScriptNodeData, SecretDeclaration, TargetRuntime } from "@/lib/types";
+import type {
+	DefaultVariable,
+	EditorAsset,
+	PermissionSummary,
+	ScriptNodeData,
+	SecretDeclaration,
+	TargetRuntime,
+} from "@/lib/types";
+import { getEdgeExecutionOrderErrors, isSelfConnection } from "@/utils/editor-graph";
 import { validatePackageJsonContracts } from "./package-contract";
 
 export type VerificationOutcome = "passed" | "warning" | "failed";
@@ -35,6 +43,7 @@ type VerificationRule<Context> = {
 
 type CreateVerificationChecksOptions = {
 	assets: EditorAsset[];
+	defaultVariables?: DefaultVariable[];
 	edges: Edge[];
 	nodes: Node<ScriptNodeData>[];
 	permissions: PermissionSummary[];
@@ -109,9 +118,12 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 		id: "secret-references",
 		title: "Secret references",
 		description: "Checking secret declarations and writable variable conflicts.",
-		run: ({ nodes, secretDeclarations }) => {
+		run: ({ defaultVariables, nodes, secretDeclarations }) => {
 			const declarations = secretDeclarations ?? [];
-			const writableNames = new Set(createConfiguredVariableDefinitions(nodes).map((variable) => variable.name));
+			const writableNames = new Set([
+				...createConfiguredVariableDefinitions(nodes).map((variable) => variable.name),
+				...(defaultVariables ?? []).map((variable) => variable.name),
+			]);
 			const names = new Set<string>();
 			const problems = declarations.flatMap((secret) => {
 				const errors = [];
@@ -195,12 +207,18 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 		description: "Checking edge endpoints and port references.",
 		run: ({ nodes, edges }) => {
 			const invalidEdges = getInvalidEdges(nodes, edges);
+			const orderErrors = getEdgeExecutionOrderErrors(edges);
+			const valid = invalidEdges.length === 0 && orderErrors.length === 0;
 			return {
-				outcome: invalidEdges.length === 0 ? "passed" : "failed",
-				message:
-					invalidEdges.length === 0
-						? `${edges.length} connection${edges.length === 1 ? "" : "s"} validated.`
-						: `${invalidEdges.length} invalid connection${invalidEdges.length === 1 ? "" : "s"} found.`,
+				outcome: valid ? "passed" : "failed",
+				message: valid
+					? `${edges.length} connection${edges.length === 1 ? "" : "s"} validated.`
+					: [
+							...(invalidEdges.length > 0
+								? [`${invalidEdges.length} invalid connection${invalidEdges.length === 1 ? "" : "s"} found.`]
+								: []),
+							...orderErrors,
+						].join(" "),
 			};
 		},
 	},
@@ -228,11 +246,12 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 		id: "variables",
 		title: "Variables",
 		description: "Checking variable writes and read-only runtime references.",
-		run: ({ assets, edges, nodes }) => {
+		run: ({ assets, defaultVariables, edges, nodes, secretDeclarations }) => {
 			const invalidWrites = getInvalidVariableWrites(nodes);
 			const invalidGraphConfigs = getInvalidNodeGraphConfigs(nodes, edges, assets);
 			const invalidNodeConfigKeys = getInvalidNodeConfigKeys(nodes);
-			const errors = [...invalidWrites, ...invalidGraphConfigs, ...invalidNodeConfigKeys];
+			const invalidDefaults = getInvalidDefaultVariables(defaultVariables ?? [], nodes, secretDeclarations ?? []);
+			const errors = [...invalidWrites, ...invalidGraphConfigs, ...invalidNodeConfigKeys, ...invalidDefaults];
 
 			return {
 				outcome: errors.length === 0 ? "passed" : "failed",
@@ -293,6 +312,7 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 		description: "Checking whether the package can be prepared.",
 		run: (context) => {
 			const invalidEdges = getInvalidEdges(context.nodes, context.edges);
+			const invalidEdgeOrders = getEdgeExecutionOrderErrors(context.edges);
 			const triggerCount = context.nodes.filter((node) => node.data.kind === "trigger").length;
 			const manualTriggerCount = context.nodes.filter((node) => node.data.actionType === "trigger.manual").length;
 			const invalidVariableWrites = getInvalidVariableWrites(context.nodes);
@@ -305,6 +325,7 @@ const editorVerificationRules: VerificationRule<CreateVerificationChecksOptions>
 				context.nodes.length > 0 &&
 				triggerCount > 0 &&
 				invalidEdges.length === 0 &&
+				invalidEdgeOrders.length === 0 &&
 				manualTriggerCount <= 1 &&
 				invalidVariableWrites.length === 0 &&
 				invalidGraphConfigs.length === 0 &&
@@ -498,6 +519,10 @@ function getInvalidEdges(nodes: Node<ScriptNodeData>[], edges: Edge[]) {
 	const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
 	return edges.filter((edge) => {
+		if (isSelfConnection(edge)) {
+			return true;
+		}
+
 		const sourceNode = nodesById.get(edge.source);
 		const targetNode = nodesById.get(edge.target);
 
@@ -552,6 +577,31 @@ function getInvalidVariableWrites(nodes: Node<ScriptNodeData>[]) {
 
 			return [];
 		});
+}
+
+function getInvalidDefaultVariables(
+	defaultVariables: DefaultVariable[],
+	nodes: Node<ScriptNodeData>[],
+	secrets: SecretDeclaration[],
+) {
+	const errors: string[] = [];
+	const names = new Set<string>();
+	const secretNames = new Set(secrets.map((secret) => secret.name));
+	const configuredVariables = new Map(
+		createConfiguredVariableDefinitions(nodes).map((variable) => [variable.name, variable]),
+	);
+
+	for (const variable of defaultVariables) {
+		if (names.has(variable.name)) errors.push(`Default variable "${variable.name}" is declared more than once.`);
+		if (secretNames.has(variable.name)) errors.push(`Default variable "${variable.name}" conflicts with a secret.`);
+		names.add(variable.name);
+		const configured = configuredVariables.get(variable.name);
+		if (configured && (configured.scope !== variable.scope || configured.type !== variable.type)) {
+			errors.push(`Default variable "${variable.name}" must match its Variable Operation scope and type.`);
+		}
+	}
+
+	return errors;
 }
 
 function configString(node: Node<ScriptNodeData>, key: string) {

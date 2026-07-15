@@ -102,6 +102,96 @@
       },
       "uniqueItems": true
     },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "scope", "type", "value"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["runtime", "persistent"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "object", "list", "http_response", "datetime", "duration", "file_path"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "value": {
+            "type": ["string", "number", "boolean", "object", "array", "null"]
+          }
+        },
+        "oneOf": [
+          {
+            "properties": { "type": { "const": "string" }, "value": { "type": "string", "pattern": "\\S" } }
+          },
+          {
+            "properties": { "type": { "const": "file_path" }, "value": { "type": "string", "pattern": "\\S" } }
+          },
+          {
+            "properties": { "type": { "const": "number" }, "value": { "type": "number" } }
+          },
+          {
+            "properties": { "type": { "const": "boolean" }, "value": { "type": "boolean" } }
+          },
+          {
+            "properties": { "type": { "const": "list" }, "value": { "type": "array" } }
+          },
+          {
+            "properties": { "type": { "const": "object" }, "value": { "type": "object" } }
+          },
+          {
+            "properties": {
+              "type": { "const": "http_response" },
+              "value": {
+                "type": "object",
+                "required": ["type", "status", "headers", "body"],
+                "properties": {
+                  "type": { "const": "http_response" },
+                  "status": { "type": "number" },
+                  "headers": { "type": "object" }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "type": { "const": "datetime" },
+              "value": {
+                "type": "object",
+                "required": ["type", "value"],
+                "properties": {
+                  "type": { "const": "datetime" },
+                  "value": { "type": "string" }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "type": { "const": "duration" },
+              "value": {
+                "type": "object",
+                "required": ["type", "value", "unit"],
+                "properties": {
+                  "type": { "const": "duration" },
+                  "value": { "type": "number" },
+                  "unit": { "type": "string" }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "uniqueItems": true
+    },
     "secrets": {
       "type": "array",
       "items": {

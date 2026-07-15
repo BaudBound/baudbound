@@ -1,5 +1,6 @@
 import { Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import { useId, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -18,6 +19,7 @@ import type { SecretDeclaration } from "@/lib/types";
 
 type SecretReferenceManagerProps = {
 	declarations: SecretDeclaration[];
+	reservedVariableNames?: ReadonlySet<string>;
 	simulationValues: Record<string, string>;
 	onDeclarationsChange: (declarations: SecretDeclaration[]) => void;
 	onSimulationValueChange: (name: string, value: string) => void;
@@ -32,6 +34,7 @@ const emptyDeclaration: SecretDeclaration = {
 
 export function SecretReferenceManager({
 	declarations,
+	reservedVariableNames = new Set(),
 	simulationValues,
 	onDeclarationsChange,
 	onSimulationValueChange,
@@ -44,8 +47,8 @@ export function SecretReferenceManager({
 	const typeInputId = useId();
 	const descriptionInputId = useId();
 	const declarationError = useMemo(
-		() => validateSecretDeclaration(draft, declarations, editingName ?? undefined),
-		[draft, declarations, editingName],
+		() => validateSecretDeclaration(draft, declarations, editingName ?? undefined, reservedVariableNames),
+		[draft, declarations, editingName, reservedVariableNames],
 	);
 
 	const openCreate = () => {
@@ -83,41 +86,89 @@ export function SecretReferenceManager({
 	};
 
 	return (
-		<div className="border-b border-baud-border bg-baud-panel px-4 py-3">
-			<div className="flex items-center justify-between gap-3">
-				<div className="min-w-0">
-					<div className="flex items-center gap-2 text-sm font-semibold text-baud-text">
-						<KeyRound size={14} className="text-baud-amber" />
-						Secret references
-					</div>
-					<p className="mt-0.5 text-xs text-baud-muted">
-						Simulation values stay in this browser session and are never exported.
-					</p>
+		<section className="min-w-0 bg-baud-panel px-4 py-3">
+			<div className="min-w-0">
+				<div className="flex items-center gap-2 text-sm font-semibold text-baud-text">
+					<KeyRound size={14} className="text-baud-amber" />
+					Secret references
 				</div>
-				<Button type="button" size="xs" variant="toolbar" onClick={openCreate}>
+				<p className="mt-0.5 text-xs text-baud-muted">
+					Simulation values stay in this browser session and are never exported.
+				</p>
+				<Button
+					type="button"
+					size="xs"
+					variant="toolbar"
+					className="mt-2 hover:border-baud-amber/40 hover:bg-baud-amber/10 hover:text-baud-amber [&_svg]:transition-transform hover:[&_svg]:scale-110"
+					onClick={openCreate}
+				>
 					<Plus size={12} /> Add secret
 				</Button>
 			</div>
 
 			{declarations.length > 0 && (
-				<div className="mt-3 grid gap-2">
+				<div className="mt-2.5 grid gap-1.5">
 					{declarations.map((declaration) => {
 						const rawValue = simulationValues[declaration.name] ?? "";
 						const valueError = secretSimulationValueError(declaration.type, rawValue);
 						const visible = visibleValues.has(declaration.name);
+						const inputId = `secret-simulation-${declaration.name}`;
 						return (
-							<div
+							<article
 								key={declaration.name}
-								className="grid grid-cols-[minmax(150px,0.7fr)_100px_minmax(180px,1fr)_64px] items-start gap-2 rounded border border-baud-border bg-baud-soft p-2"
+								className="flex flex-col rounded border border-baud-border bg-baud-soft p-2"
 							>
-								<div className="min-w-0">
-									<div className="break-all font-mono text-sm text-baud-text">{declaration.name}</div>
-									<div className="text-xs text-baud-muted">{declaration.required ? "Required" : "Optional"}</div>
+								<div className="flex min-w-0 items-start gap-2">
+									<div className="min-w-0 flex-1">
+										<div className="flex min-w-0 flex-wrap items-center gap-1">
+											<div className="min-w-0 break-all font-mono text-sm font-semibold text-baud-text">
+												{declaration.name}
+											</div>
+											<Badge variant="outline" className="font-mono text-baud-muted">
+												Type: {declaration.type}
+											</Badge>
+											<Badge variant={declaration.required ? "medium" : "outline"}>
+												{declaration.required ? "Required" : "Optional"}
+											</Badge>
+										</div>
+										{declaration.description && (
+											<p className="mt-0.5 text-xs leading-4 text-baud-muted">{declaration.description}</p>
+										)}
+									</div>
+									<div className="flex shrink-0 justify-end gap-1">
+										<Button
+											type="button"
+											aria-label={`Edit ${declaration.name}`}
+											size="icon-xs"
+											variant="ghost"
+											className="text-baud-muted hover:bg-baud-blue/15 hover:text-baud-blue [&_svg]:transition-transform hover:[&_svg]:scale-110"
+											onClick={() => openEdit(declaration)}
+										>
+											<Pencil />
+										</Button>
+										<Button
+											type="button"
+											aria-label={`Delete ${declaration.name}`}
+											size="icon-xs"
+											variant="ghost"
+											className="text-baud-muted hover:bg-baud-danger/15 hover:text-baud-danger [&_svg]:transition-transform hover:[&_svg]:scale-110"
+											onClick={() => remove(declaration.name)}
+										>
+											<Trash2 />
+										</Button>
+									</div>
 								</div>
-								<div className="font-mono text-xs text-baud-muted">{declaration.type}</div>
-								<div className="min-w-0">
+								<div className="mt-2 border-t border-baud-border/80 pt-1.5">
+									<label
+										htmlFor={inputId}
+										className="mb-0.5 block text-[10px] font-semibold tracking-[0.08em] text-baud-muted uppercase"
+									>
+										Simulation value
+									</label>
 									<div className="flex gap-1">
 										<Input
+											id={inputId}
+											className="h-7 px-2"
 											type={visible ? "text" : "password"}
 											value={rawValue}
 											aria-invalid={Boolean(valueError)}
@@ -129,6 +180,7 @@ export function SecretReferenceManager({
 											aria-label={visible ? "Hide simulation secret" : "Show simulation secret"}
 											size="icon-sm"
 											variant="ghost"
+											className="text-baud-muted hover:bg-baud-blue/15 hover:text-baud-blue [&_svg]:transition-transform hover:[&_svg]:scale-110"
 											onClick={() =>
 												setVisibleValues((current) => {
 													const next = new Set(current);
@@ -142,27 +194,7 @@ export function SecretReferenceManager({
 									</div>
 									{valueError && <div className="mt-1 text-xs text-baud-danger">{valueError}</div>}
 								</div>
-								<div className="flex justify-end gap-1">
-									<Button
-										type="button"
-										aria-label={`Edit ${declaration.name}`}
-										size="icon-xs"
-										variant="ghost"
-										onClick={() => openEdit(declaration)}
-									>
-										<Pencil />
-									</Button>
-									<Button
-										type="button"
-										aria-label={`Delete ${declaration.name}`}
-										size="icon-xs"
-										variant="ghost"
-										onClick={() => remove(declaration.name)}
-									>
-										<Trash2 />
-									</Button>
-								</div>
-							</div>
+							</article>
 						);
 					})}
 				</div>
@@ -228,6 +260,6 @@ export function SecretReferenceManager({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-		</div>
+		</section>
 	);
 }

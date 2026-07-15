@@ -37,7 +37,7 @@ const shortcutRows = [
 const contextMenuRows = [
 	{ target: "Node", action: "Right click a node to copy, duplicate, or delete it." },
 	{ target: "Connection", action: "Right click a connection to disconnect it." },
-	{ target: "Canvas", action: "Right click empty canvas space to paste a copied node when one is available." },
+	{ target: "Canvas", action: "Right click empty canvas space to search for and add nodes, or paste a copied node." },
 ];
 
 const canvasToolRows = [

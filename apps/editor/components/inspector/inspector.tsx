@@ -1,4 +1,4 @@
-import type { Node } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
 import { GripVertical, Info, Plus, Trash2, X } from "lucide-react";
 import { Fragment, type ReactNode, type PointerEvent as ReactPointerEvent, useEffect, useId, useState } from "react";
 import { CopyTextButton } from "@/components/common/copy-text-button";
@@ -63,6 +63,7 @@ import type {
 import { createEditorVariableRegistry } from "@/utils/editor-variables";
 import { RiskBadge } from "../shell/risk-badge";
 import { SimulatorPanel } from "../simulation/simulator-panel";
+import { EdgeOrderPanel } from "./edge-order-panel";
 import { KeyCaptureInput } from "./key-capture-input";
 import { KeyReferencePanel } from "./key-reference-panel";
 import { RuntimeDataPanel } from "./runtime-data-panel";
@@ -71,8 +72,10 @@ import { VariableCodeInput, type VariableCompletion } from "./variable-code-inpu
 type InspectorProps = {
 	activeTab: InspectorTab;
 	assets: EditorAsset[];
+	edges: Edge[];
 	nodes: Node<ScriptNodeData>[];
 	projectSettings: ProjectSettings;
+	selectedEdge: Edge | null;
 	selectedNode: Node<ScriptNodeData> | null;
 	simulationOverrides: SimulationOverride[];
 	simulationSettings: SimulationSettings;
@@ -87,13 +90,18 @@ type InspectorProps = {
 	onUpdateNodeConfig: (nodeId: string, key: string, value: JsonValue) => void;
 	onUpdateSimulationOverride: (nodeId: string, outcome: SimulationOverrideOutcome) => void;
 	onDeleteNode: (nodeId: string) => void;
+	onDeleteEdge: (edgeId: string) => void;
+	onReorderEdges: (edgeIds: string[]) => void;
+	onSelectEdge: (edgeId: string) => void;
 };
 
 export function Inspector({
 	activeTab,
 	assets,
+	edges,
 	nodes,
 	projectSettings,
+	selectedEdge,
 	selectedNode,
 	simulationOverrides,
 	simulationSettings,
@@ -107,7 +115,10 @@ export function Inspector({
 	onTriggerSimulation,
 	onUpdateNodeConfig,
 	onUpdateSimulationOverride,
+	onDeleteEdge,
 	onDeleteNode,
+	onReorderEdges,
+	onSelectEdge,
 }: InspectorProps) {
 	return (
 		<aside className="flex shrink-0 flex-col border-l border-baud-border bg-baud-panel" style={{ width }}>
@@ -130,16 +141,26 @@ export function Inspector({
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				{activeTab === "properties" && (
-					<PropertiesPanel
-						assets={assets}
-						nodes={nodes}
-						projectSettings={projectSettings}
-						selectedNode={selectedNode}
-						onUpdateNodeConfig={onUpdateNodeConfig}
-						onDeleteNode={onDeleteNode}
-					/>
-				)}
+				{activeTab === "properties" &&
+					(selectedEdge ? (
+						<EdgeOrderPanel
+							edges={edges}
+							nodes={nodes}
+							selectedEdge={selectedEdge}
+							onDeleteEdge={onDeleteEdge}
+							onReorder={onReorderEdges}
+							onSelectEdge={onSelectEdge}
+						/>
+					) : (
+						<PropertiesPanel
+							assets={assets}
+							nodes={nodes}
+							projectSettings={projectSettings}
+							selectedNode={selectedNode}
+							onUpdateNodeConfig={onUpdateNodeConfig}
+							onDeleteNode={onDeleteNode}
+						/>
+					))}
 				{activeTab === "simulator" && (
 					<SimulatorPanel
 						nodes={nodes}

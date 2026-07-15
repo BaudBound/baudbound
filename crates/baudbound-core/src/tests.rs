@@ -61,6 +61,7 @@ fn creates_failed_run_record_with_package_identity() {
         editor: None,
         entries: Vec::new(),
         manifest: Manifest {
+            variables: Vec::new(),
             format_version: 1,
             script_language_version: 1,
             id: "script-1".to_owned(),
@@ -930,6 +931,7 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
                         ],
                         "edges": [
                             {{
+                                "execution_order": 0,
                                 "source": "n-manual",
                                 "source_handle": "out",
                                 "target": "n-sub",
@@ -979,6 +981,7 @@ fn create_cancellable_test_package() -> Vec<u8> {
                     "runtime_outputs": []
                 }],
                 "edges": [{
+                    "execution_order": 0,
                     "source": "n-manual",
                     "source_handle": "out",
                     "target": "n-delay",
@@ -1048,6 +1051,7 @@ fn create_action_handler_test_package_with_capabilities(
                             ],
                             "edges": [
                                 {
+                                    "execution_order": 0,
                                     "source": "n-manual",
                                     "source_handle": "out",
                                     "target": "n-format",

@@ -1,7 +1,8 @@
 use serde_json::{Value, json};
 
 use crate::{
-    CapabilityValidationError, validate_program_capabilities,
+    CapabilityValidationError, RuntimeDeclarationRequirements,
+    calculate_program_capabilities_with_declarations, validate_program_capabilities,
     validate_program_capabilities_with_secrets,
 };
 
@@ -115,6 +116,32 @@ fn derives_persistent_storage_and_secret_capabilities() {
     )
     .expect("scope-sensitive capabilities should validate");
     assert_eq!(report.required_capabilities.len(), 4);
+}
+
+#[test]
+fn derives_capabilities_from_manifest_default_variables() {
+    let report = calculate_program_capabilities_with_declarations(
+        &program(&[], &[]),
+        RuntimeDeclarationRequirements {
+            has_persistent_default_variables: true,
+            has_runtime_default_variables: false,
+            has_secret_declarations: false,
+        },
+    )
+    .expect("default variable capabilities should derive from manifest requirements");
+
+    assert!(
+        report
+            .required_capabilities
+            .iter()
+            .any(|value| value.name == "runtime.variables")
+    );
+    assert!(
+        report
+            .required_capabilities
+            .iter()
+            .any(|value| value.name == "runtime.persistent_storage")
+    );
 }
 
 fn program(secondary_triggers: &[&str], steps: &[&str]) -> Value {

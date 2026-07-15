@@ -6,6 +6,7 @@ import { createContext, type PointerEvent, useCallback, useContext, useEffect, u
 import { Button } from "@/components/ui/button";
 import type { CommentNodeData, EditorComment } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { createGraphElementId } from "@/utils/graph-element-id";
 
 export type CommentFlowNode = Node<CommentNodeData, "commentNode">;
 
@@ -16,7 +17,7 @@ type CommentNodeActions = {
 
 export const CommentNodeActionsContext = createContext<CommentNodeActions | null>(null);
 
-const MIN_COMMENT_WIDTH = 260;
+const MIN_COMMENT_WIDTH = 280;
 const MIN_COMMENT_HEIGHT = 156;
 const MIN_COMMENT_FONT_SIZE = 12;
 const MAX_COMMENT_FONT_SIZE = 72;
@@ -146,19 +147,19 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 				selected && "border-baud-red ring-2 ring-baud-red/35",
 			)}
 		>
-			<div className="baud-comment-drag-handle flex h-16 cursor-grab flex-col gap-1 border-b border-white/10 px-2 py-1.5 active:cursor-grabbing">
-				<div className="flex min-h-0 items-center gap-2">
-					<div className="rounded p-1 text-baud-muted transition" aria-hidden="true">
-						<GripVertical size={15} />
-					</div>
-					<div className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-baud-muted">
-						Comment
+			<div className="h-22 border-b border-white/10">
+				<div className="flex h-10 items-center gap-1 px-2">
+					<div className="baud-comment-drag-handle flex min-w-0 flex-1 cursor-grab items-center gap-1 active:cursor-grabbing">
+						<div className="grid size-7 place-items-center rounded text-baud-muted transition" aria-hidden="true">
+							<GripVertical size={18} />
+						</div>
+						<div className="min-w-0 flex-1 truncate text-lg font-semibold text-baud-muted">Comment</div>
 					</div>
 					<Button
 						type="button"
 						size="icon"
 						variant="ghost"
-						className="nodrag h-6 w-6 shrink-0 text-baud-muted hover:text-rose-200"
+						className="nodrag size-9 shrink-0 text-baud-muted hover:bg-rose-400/10 hover:text-rose-200"
 						aria-label="Delete comment"
 						onPointerDown={(event) => event.stopPropagation()}
 						onClick={(event) => {
@@ -166,81 +167,32 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 							actions?.onDelete(id);
 						}}
 					>
-						<Trash2 size={13} />
+						<Trash2 className="size-6" />
 					</Button>
 				</div>
-				<div className="flex min-h-0 min-w-0 items-center justify-between gap-2">
-					<div className="nodrag flex shrink-0 items-center gap-0.5 rounded border border-white/10 bg-black/12 p-0.5">
-						<button
-							type="button"
-							className="grid h-5 min-w-5 place-items-center rounded px-1 text-[10px] font-semibold text-baud-muted transition hover:bg-white/10 hover:text-baud-text disabled:cursor-not-allowed disabled:opacity-40"
-							title="Decrease comment font size"
-							aria-label="Decrease comment font size"
-							disabled={fontSize <= MIN_COMMENT_FONT_SIZE}
-							onPointerDown={(event) => event.stopPropagation()}
-							onClick={(event) => {
-								event.stopPropagation();
-								updateFontSize(fontSize - 1);
-							}}
-						>
-							A-
-						</button>
-						<input
-							type="text"
-							inputMode="numeric"
-							pattern="[0-9]*"
-							className="h-5 w-8 rounded border border-transparent bg-transparent px-0.5 text-center text-[10px] font-semibold tabular-nums text-baud-muted outline-none transition focus:border-baud-red/60 focus:bg-black/20 focus:text-baud-text"
-							aria-label="Comment font size"
-							title={`Comment font size (${MIN_COMMENT_FONT_SIZE}-${MAX_COMMENT_FONT_SIZE})`}
-							value={fontSizeDraft}
-							onBlur={() => {
-								isEditingFontSizeRef.current = false;
-								commitFontSizeDraft();
-							}}
-							onChange={(event) => {
-								const nextDraft = event.target.value.replace(/\D/g, "").slice(0, 3);
-								setFontSizeDraft(nextDraft);
-							}}
-							onFocus={() => {
-								isEditingFontSizeRef.current = true;
-							}}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") {
-									event.currentTarget.blur();
-									return;
-								}
-
-								if (event.key === "Escape") {
-									setFontSizeDraft(String(fontSize));
-									event.currentTarget.blur();
-								}
-							}}
-							onPointerDown={(event) => event.stopPropagation()}
-						/>
-						<button
-							type="button"
-							className="grid h-5 min-w-5 place-items-center rounded px-1 text-[10px] font-semibold text-baud-muted transition hover:bg-white/10 hover:text-baud-text disabled:cursor-not-allowed disabled:opacity-40"
-							title="Increase comment font size"
-							aria-label="Increase comment font size"
-							disabled={fontSize >= MAX_COMMENT_FONT_SIZE}
-							onPointerDown={(event) => event.stopPropagation()}
-							onClick={(event) => {
-								event.stopPropagation();
-								updateFontSize(fontSize + 1);
-							}}
-						>
-							A+
-						</button>
-					</div>
-					<fieldset className="nodrag flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden">
+				<div
+					className="nodrag flex h-12 min-w-0 items-center justify-between gap-2 px-2"
+					onPointerDown={(event) => event.stopPropagation()}
+				>
+					<CommentFontControls
+						fontSize={fontSize}
+						fontSizeDraft={fontSizeDraft}
+						onCommitDraft={commitFontSizeDraft}
+						onEditingChange={(editing) => {
+							isEditingFontSizeRef.current = editing;
+						}}
+						onFontSizeDraftChange={setFontSizeDraft}
+						onUpdateFontSize={updateFontSize}
+					/>
+					<fieldset className="flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden py-0.5">
 						<legend className="sr-only">Comment color</legend>
 						{colorSwatches.map((swatch) => (
 							<button
 								key={swatch.color}
 								type="button"
 								className={cn(
-									"grid size-4 shrink-0 place-items-center rounded-full border border-white/20 transition hover:scale-110 hover:border-white/70",
-									data.color === swatch.color && "border-white ring-2 ring-white/25",
+									"grid size-6 shrink-0 place-items-center rounded-full border border-white/25 transition hover:scale-110 hover:border-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+									data.color === swatch.color && "border-white ring-2 ring-white/35",
 								)}
 								title={`Set comment color to ${swatch.label}`}
 								aria-label={`Set comment color to ${swatch.label}`}
@@ -251,7 +203,7 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 									actions?.onUpdate(id, { color: swatch.color });
 								}}
 							>
-								<span className={cn("size-2.5 rounded-full", swatch.className)} />
+								<span className={cn("size-4 rounded-full", swatch.className)} />
 							</button>
 						))}
 					</fieldset>
@@ -259,7 +211,7 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 			</div>
 			<textarea
 				value={draftText}
-				className="nowheel nodrag h-[calc(100%-4rem)] w-full resize-none bg-transparent px-3 py-2 text-sm leading-5 text-baud-text outline-none placeholder:text-baud-muted/75"
+				className="nowheel nodrag h-[calc(100%-5.5rem)] w-full resize-none bg-transparent px-3 py-2 text-sm leading-5 text-baud-text outline-none placeholder:text-baud-muted/75"
 				style={{
 					fontSize: `${fontSize}px`,
 					lineHeight: `${Math.round(fontSize * 1.45)}px`,
@@ -282,7 +234,7 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 			/>
 			<button
 				type="button"
-				className="nodrag absolute right-1 bottom-1 h-4 w-4 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-baud-muted/70 opacity-80 transition hover:border-baud-text"
+				className="nodrag absolute right-1 bottom-1 size-6 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-baud-muted/70 opacity-80 transition hover:border-baud-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-baud-red/70"
 				aria-label="Resize comment"
 				onPointerDown={startResize}
 			/>
@@ -290,10 +242,89 @@ export function CommentCard({ data, id, selected }: NodeProps<CommentFlowNode>) 
 	);
 }
 
+function CommentFontControls({
+	fontSize,
+	fontSizeDraft,
+	onCommitDraft,
+	onEditingChange,
+	onFontSizeDraftChange,
+	onUpdateFontSize,
+}: {
+	fontSize: number;
+	fontSizeDraft: string;
+	onCommitDraft: (nextDraft?: string) => void;
+	onEditingChange: (editing: boolean) => void;
+	onFontSizeDraftChange: (draft: string) => void;
+	onUpdateFontSize: (fontSize: number) => void;
+}) {
+	return (
+		<div
+			className="flex shrink-0 items-center gap-0.5 rounded border border-white/10 bg-black/12 p-0.5"
+			onPointerDown={(event) => event.stopPropagation()}
+		>
+			<button
+				type="button"
+				className="grid size-8 place-items-center rounded text-xs font-semibold text-baud-muted transition hover:bg-white/10 hover:text-baud-text disabled:cursor-not-allowed disabled:opacity-40"
+				title="Decrease comment font size"
+				aria-label="Decrease comment font size"
+				disabled={fontSize <= MIN_COMMENT_FONT_SIZE}
+				onClick={(event) => {
+					event.stopPropagation();
+					onUpdateFontSize(fontSize - 1);
+				}}
+			>
+				A-
+			</button>
+			<input
+				type="text"
+				inputMode="numeric"
+				pattern="[0-9]*"
+				className="size-8 rounded border border-transparent bg-transparent px-1 text-center text-xs font-semibold tabular-nums text-baud-muted outline-none transition focus:border-baud-red/60 focus:bg-black/20 focus:text-baud-text"
+				aria-label="Comment font size"
+				title={`Comment font size (${MIN_COMMENT_FONT_SIZE}-${MAX_COMMENT_FONT_SIZE})`}
+				value={fontSizeDraft}
+				onBlur={() => {
+					onEditingChange(false);
+					onCommitDraft();
+				}}
+				onChange={(event) => {
+					const nextDraft = event.target.value.replace(/\D/g, "").slice(0, 3);
+					onFontSizeDraftChange(nextDraft);
+				}}
+				onFocus={() => onEditingChange(true)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.currentTarget.blur();
+						return;
+					}
+
+					if (event.key === "Escape") {
+						onFontSizeDraftChange(String(fontSize));
+						event.currentTarget.blur();
+					}
+				}}
+			/>
+			<button
+				type="button"
+				className="grid size-8 place-items-center rounded text-xs font-semibold text-baud-muted transition hover:bg-white/10 hover:text-baud-text disabled:cursor-not-allowed disabled:opacity-40"
+				title="Increase comment font size"
+				aria-label="Increase comment font size"
+				disabled={fontSize >= MAX_COMMENT_FONT_SIZE}
+				onClick={(event) => {
+					event.stopPropagation();
+					onUpdateFontSize(fontSize + 1);
+				}}
+			>
+				A+
+			</button>
+		</div>
+	);
+}
+
 export function createCommentFlowNode(position: XYPosition): CommentFlowNode {
 	return toCommentFlowNode(
 		{
-			id: `c-${crypto.randomUUID()}`,
+			id: createGraphElementId("c"),
 			text: "",
 			position,
 			size: DEFAULT_COMMENT_SIZE,

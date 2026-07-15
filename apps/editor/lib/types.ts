@@ -183,6 +183,14 @@ export type SecretDeclaration = {
 	type: import("@/data/project/variables").VariableType;
 };
 
+export type DefaultVariable = {
+	description: string;
+	name: string;
+	scope: "runtime" | "persistent";
+	type: import("@/data/project/variables").VariableType;
+	value: JsonValue;
+};
+
 export type CapabilitySummary = {
 	name: string;
 };
