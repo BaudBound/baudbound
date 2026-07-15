@@ -138,9 +138,13 @@ fn invoke(webview: &tauri::WebviewWindow<test::MockRuntime>, command: &str, body
             cmd: command.into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "http://tauri.localhost"
-                .parse()
-                .expect("test URL should parse"),
+            url: if cfg!(any(windows, target_os = "android")) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .expect("test URL should parse"),
             body: InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: test::INVOKE_KEY.to_owned(),
