@@ -14,6 +14,7 @@ This reference covers every executable node currently registered by the editor. 
 - Ordinary actions continue through `out`.
 - Fallible actions expose `success` and `failed`. The failed route includes `error.message`, `error.code`, `error.type`, `error.retryable`, and `error.details`.
 - Runtime output references use the real node ID, for example `{{n-example.status_code}}`.
+- When one output connects to multiple destinations, the numbered connections execute sequentially in their explicit execution order. Canvas position does not select that order.
 - Simulation descriptions are controlled tests. Native runner paths, permissions, devices, processes, and desktop state still require target-machine testing.
 - Platform support defaults to all targets, then narrows through desktop-only, explicit target, and configuration-specific rules.
 
@@ -67,10 +68,11 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Hotkey
 
-- **Action type:** `trigger.hotkey`; capability `trigger.hotkey`; medium risk; Desktop targets only.
+- **Action type:** `trigger.hotkey`; capability `trigger.hotkey`; medium risk; Windows Desktop only.
 - **Configuration:** captured **Key** expression, default `Ctrl+Alt+B`.
 - **Output:** `key`.
-- **Use:** start a script from a desktop key combination while the desktop listener is active.
+- **Use:** start a script from a Windows desktop key combination while the desktop listener is active.
+- **Platform:** Windows Desktop only.
 - **Simulation:** uses the supplied or configured expression; it does not register a global OS hook.
 
 ### Serial Input
@@ -188,9 +190,10 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Beep
 
-- **Action type:** `action.beep`; capability `action.sound`; permission `beep`; low risk; fallible.
+- **Action type:** `action.beep`; capability `action.sound`; permission `beep`; low risk; Desktop only; fallible.
 - **Configuration:** variable-aware positive frequency Hz, default `800`; duration ms, default `200`.
 - **Flow/data:** success or failed with structured error.
+- **Runtime:** plays a generated tone through the default desktop audio output.
 - **Simulation:** Web Audio sine tone clamped to safe editor bounds; browsers may block audio before interaction.
 
 ### Show Notification
@@ -255,6 +258,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `action.file.read`; capability `action.file`; permission `file_read`; medium risk; fallible.
 - **Configuration:** variable-aware path and UTF-8 encoding.
 - **Outputs:** content, byte count, resolved path, or error.
+- **Access:** absolute, sensitive, or runtime-selected paths require the dangerous `read_sensitive_file` permission instead of `file_read`.
 - **Simulation:** sample output only; runner account permissions and file existence remain untested.
 
 ### Write File
@@ -262,6 +266,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `action.file.write`; capability `action.file`; permission `file_write_limited`; high risk; fallible.
 - **Configuration:** variable-aware path/content and mode overwrite or append.
 - **Outputs:** resolved path, bytes written, mode, or error.
+- **Access:** absolute, sensitive, or runtime-selected paths require the dangerous `write_any_file` permission instead of `file_write_limited`.
 - **Review:** paths can be influenced by variables; confirm they cannot escape intended storage.
 
 ### Download File
@@ -269,6 +274,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `action.file.download`; capabilities `action.file` and network behavior; permission `download_file`; medium risk; fallible.
 - **Configuration:** variable-aware URL and destination path; overwrite switch.
 - **Outputs:** destination, transferred size/status information, or error.
+- **Access:** an absolute, sensitive, or runtime-selected destination also requires `write_any_file`.
 - **Review:** validate both remote source and local overwrite consequences.
 
 ### Delete File
@@ -283,12 +289,14 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `action.file.copy`; capability `action.file`; permission `file_copy`; medium risk; fallible.
 - **Configuration:** variable-aware source and destination; overwrite switch.
 - **Outputs:** resolved paths, copy result, or error.
+- **Access:** a broad source requires `read_sensitive_file`; a broad destination requires `write_any_file`.
 
 ### Move File
 
 - **Action type:** `action.file.move`; capability `action.file`; permission `file_move`; medium risk; fallible.
 - **Configuration:** variable-aware source and destination; overwrite switch.
 - **Outputs:** resolved paths, move result, or error.
+- **Access:** a broad source requires `read_sensitive_file`; a broad destination requires `write_any_file`.
 - **Review:** a successful move removes the original path.
 
 ## Processes and Windows
@@ -296,7 +304,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Run Process
 
 - **Action type:** `action.process.run`; capability `action.process`; permission `run_process`; high risk; fallible.
-- **Configuration:** variable-aware executable, arguments, and optional working directory.
+- **Configuration:** variable-aware executable, arguments, optional working directory, and optional timeout from `1` to `86400` seconds, default `300`.
 - **Outputs:** process ID, exit/status information where applicable, or error.
 - **Runtime:** uses native process APIs, not shell parsing. Arguments must match the target executable's contract.
 
@@ -353,30 +361,34 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Keyboard
 
-- **Action type:** `action.keyboard`; capability `action.keyboard`; permission `keyboard_control`; high risk; Desktop only; fallible.
+- **Action type:** `action.keyboard`; capability `action.keyboard`; permission `keyboard_control`; high risk; Windows Desktop only; fallible.
 - **Configuration:** key or combination captured by the editor.
+- **Platform:** Windows Desktop only.
 - **Output:** sent key/status or error.
 - **Review:** ensure the intended application has focus.
 
 ### Type Text
 
-- **Action type:** `action.keyboard.type_text`; capability `action.keyboard`; permission `keyboard_control`; high risk; Desktop only; fallible.
+- **Action type:** `action.keyboard.type_text`; capability `action.keyboard`; permission `keyboard_control`; high risk; Windows Desktop only; fallible.
 - **Configuration:** variable-aware text.
+- **Platform:** Windows Desktop only.
 - **Output:** typed length/status or error.
 - **Security:** never type secrets into an unverified foreground target.
 
 ### Mouse Click
 
-- **Action type:** `action.mouse`; capability `action.mouse`; permission `mouse_control`; high risk; Desktop only; fallible.
+- **Action type:** `action.mouse`; capability `action.mouse`; permission `mouse_control`; high risk; Windows Desktop only; fallible.
 - **Configuration:** left/right/middle/back/forward button and single/double click.
 - **Output:** click details or error.
+- **Platform:** Windows Desktop only.
 - **Runtime:** acts at the current pointer position.
 
 ### Move Mouse
 
-- **Action type:** `action.mouse.move`; capability `action.mouse`; permission `mouse_control`; high risk; Desktop only; fallible.
+- **Action type:** `action.mouse.move`; capability `action.mouse`; permission `mouse_control`; high risk; Windows Desktop only; fallible.
 - **Configuration:** variable-aware X/Y and relative switch.
 - **Output:** final coordinates/movement details or error.
+- **Platform:** Windows Desktop only.
 - **Review:** display scaling and monitor layout affect absolute coordinates.
 
 ## Scripts and System
@@ -391,7 +403,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Shell Command
 
 - **Action type:** `action.shell`; capability supplied through process execution; permission `run_shell_command`; dangerous; fallible.
-- **Configuration:** variable-aware command string interpreted by the target shell.
+- **Configuration:** variable-aware command string interpreted by the target shell and optional timeout from `1` to `86400` seconds, default `300`.
 - **Outputs:** exit code, stdout, stderr, or error.
 - **Platform:** syntax is platform-specific even under a Generic target.
 - **Warning:** prefer a native node or Run Process. Shell interpolation can turn data into arbitrary commands and has independent runner policy gates.

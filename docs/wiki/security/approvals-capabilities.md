@@ -61,9 +61,13 @@ The runner derives permissions from executable action types and variable scopes.
 | `websocket_public_bind` | High | Register an inbound WebSocket route |
 | `window_focus` | High | Change foreground-window focus |
 | `delete_file` | Dangerous | Permanently remove a file |
+| `read_sensitive_file` | Dangerous | Read from an absolute, sensitive, or runtime-selected filesystem path |
 | `run_shell_command` | Dangerous | Execute a command through a shell interpreter |
+| `write_any_file` | Dangerous | Write to an absolute, sensitive, or runtime-selected filesystem path |
 
 Trigger nodes such as Manual, Schedule, File Watch, Hotkey, and Process Started can be permissionless while still declaring machine-checkable capabilities and requiring service prerequisites.
+
+File permissions depend on the configured path. A bounded relative path uses `file_read` or `file_write_limited`. An absolute path, a sensitive system location, or a path containing runtime variables requires `read_sensitive_file` or `write_any_file`. This makes path selection visible during approval instead of treating every file action as equally broad.
 
 ## Capability reference
 
