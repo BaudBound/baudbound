@@ -4,7 +4,7 @@ use baudbound_runtime::{
     RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
 use baudbound_script::read_package_asset;
-use rodio::{Decoder, OutputStream, Sink, Source, source::SineWave};
+use rodio::{Decoder, DeviceSinkBuilder, Player, Source, source::SineWave};
 use serde_json::{Map, Number, Value};
 
 use super::config::{config_string, failed_error, required_string};
@@ -21,17 +21,15 @@ pub(super) fn run_beep(
     context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let (frequency_hz, duration_ms) = beep_config(request)?;
-    let (_stream, handle) = OutputStream::try_default().map_err(|source| {
+    let device_sink = DeviceSinkBuilder::open_default_sink().map_err(|source| {
         failed_error(request, format!("failed to open audio output: {source}"))
     })?;
-    let sink = Sink::try_new(&handle).map_err(|source| {
-        failed_error(request, format!("failed to create audio sink: {source}"))
-    })?;
+    let player = Player::connect_new(device_sink.mixer());
     let tone = SineWave::new(frequency_hz as f32)
         .take_duration(Duration::from_secs_f64(duration_ms / 1_000.0))
         .amplify(BEEP_AMPLITUDE);
-    sink.append(tone);
-    wait_for_playback(&sink, &context.cancellation)?;
+    player.append(tone);
+    wait_for_playback(&player, &context.cancellation)?;
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([
@@ -150,16 +148,14 @@ pub(super) fn play_audio_source<R>(
 where
     R: std::io::Read + std::io::Seek + Send + Sync + 'static,
 {
-    let (_stream, handle) = OutputStream::try_default().map_err(|source| {
+    let device_sink = DeviceSinkBuilder::open_default_sink().map_err(|source| {
         failed_error(request, format!("failed to open audio output: {source}"))
     })?;
-    let sink = Sink::try_new(&handle).map_err(|source| {
-        failed_error(request, format!("failed to create audio sink: {source}"))
-    })?;
-    let decoded = Decoder::new(BufReader::new(source))
+    let player = Player::connect_new(device_sink.mixer());
+    let decoded = Decoder::try_from(BufReader::new(source))
         .map_err(|source| failed_error(request, format!("failed to decode audio: {source}")))?;
-    sink.append(decoded);
-    wait_for_playback(&sink, cancellation)
+    player.append(decoded);
+    wait_for_playback(&player, cancellation)
 }
 
 trait PlaybackSink {
@@ -167,13 +163,13 @@ trait PlaybackSink {
     fn stop(&self);
 }
 
-impl PlaybackSink for Sink {
+impl PlaybackSink for Player {
     fn is_empty(&self) -> bool {
         self.empty()
     }
 
     fn stop(&self) {
-        Sink::stop(self);
+        Player::stop(self);
     }
 }
 

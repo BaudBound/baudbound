@@ -67,7 +67,18 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String, StorageError> {
         hasher.update(&buffer[..bytes_read]);
     }
 
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(lowercase_hex(&hasher.finalize()))
+}
+
+fn lowercase_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(DIGITS[(byte >> 4) as usize] as char);
+        encoded.push(DIGITS[(byte & 0x0f) as usize] as char);
+    }
+    encoded
 }
 
 pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), StorageError> {
@@ -120,4 +131,21 @@ pub(crate) fn current_unix_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sha256_file;
+
+    #[test]
+    fn sha256_file_preserves_lowercase_manifest_format() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("payload.bin");
+        std::fs::write(&path, b"abc").expect("test payload should be written");
+
+        assert_eq!(
+            sha256_file(&path).expect("payload should hash"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 }
