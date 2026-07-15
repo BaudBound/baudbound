@@ -153,7 +153,6 @@ export function EditorPage() {
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 	const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 	const [bottomPanelTab, setBottomPanelTab] = useState<BottomPanelTab>("system");
-	const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
 	const [verificationOpen, setVerificationOpen] = useState(false);
 	const [verificationRecord, setVerificationRecord] = useState<VerificationRecord>({
 		signature: null,
@@ -199,7 +198,7 @@ export function EditorPage() {
 	const [logs, setLogs] = useState<LogEntry[]>([]);
 	const [nodes, setNodes, onNodesChange] = useNodesState<EditorFlowNode>(initialNodes);
 	const [edges, setEdges] = useEdgesState<Edge>(initialEdges);
-	const { sizes, startResize } = useEditorPanelSizes();
+	const { collapsed, expandPanel, sizes, startResize, togglePanel } = useEditorPanelSizes();
 
 	const scriptNodes = useMemo(() => nodes.filter(isScriptFlowNode), [nodes]);
 	const comments = useMemo(() => nodes.filter(isCommentFlowNode).map(toEditorComment), [nodes]);
@@ -378,9 +377,9 @@ export function EditorPage() {
 					message: `Export verification ${summary.status}: ${summary.passed} passed, ${summary.warnings} warning${summary.warnings === 1 ? "" : "s"}, ${summary.failed} failed.`,
 				},
 			]);
-			setBottomPanelOpen(true);
+			expandPanel("bottom");
 		},
-		[appendSystemLogs, verificationSignature],
+		[appendSystemLogs, expandPanel, verificationSignature],
 	);
 
 	const handleVerify = () => {
@@ -393,7 +392,7 @@ export function EditorPage() {
 				message: `Verification ${summary.status}: ${summary.passed} passed, ${summary.warnings} warning${summary.warnings === 1 ? "" : "s"}, ${summary.failed} failed.`,
 			},
 		]);
-		setBottomPanelOpen(true);
+		expandPanel("bottom");
 	};
 
 	const showSimulationMessageBox = useCallback(
@@ -553,13 +552,13 @@ export function EditorPage() {
 				appendSimulationLogs([
 					{ level: "error", message: "[Simulation] Simulation blocked: no trigger nodes are available." },
 				]);
-				setBottomPanelOpen(true);
+				expandPanel("bottom");
 				return null;
 			}
 
 			const abortController = new AbortController();
 			const runId = startSimulationLifecycle(abortController);
-			setBottomPanelOpen(true);
+			expandPanel("bottom");
 			setSimulationStatus("waiting");
 			setSimulationLogs([
 				...initialLogs,
@@ -571,7 +570,7 @@ export function EditorPage() {
 			setSimulationVariables([]);
 			return { abortController, active: true, runId };
 		},
-		[appendSimulationLogs, appendSystemLogs, scriptNodes, startSimulationLifecycle],
+		[appendSimulationLogs, appendSystemLogs, expandPanel, scriptNodes, startSimulationLifecycle],
 	);
 
 	const handleTriggerSimulation = useCallback(
@@ -583,7 +582,7 @@ export function EditorPage() {
 						message: "[Simulation] A trigger is already running. Stop it before firing another trigger.",
 					},
 				]);
-				setBottomPanelOpen(true);
+				expandPanel("bottom");
 				return;
 			}
 
@@ -612,7 +611,7 @@ export function EditorPage() {
 					verificationLog,
 					{ level: "error", message: "[Simulation] Simulation blocked: verification failed." },
 				]);
-				setBottomPanelOpen(true);
+				expandPanel("bottom");
 				return;
 			}
 
@@ -633,6 +632,7 @@ export function EditorPage() {
 		[
 			appendSimulationLogs,
 			appendSystemLogs,
+			expandPanel,
 			runSimulationTrigger,
 			simulationStatus,
 			startSimulationSession,
@@ -669,7 +669,7 @@ export function EditorPage() {
 				appendSystemLogs([
 					{ level: "error", message: `Import rejected: ${file.name} did not pass package verification.` },
 				]);
-				setBottomPanelOpen(true);
+				expandPanel("bottom");
 				return;
 			}
 
@@ -736,7 +736,7 @@ export function EditorPage() {
 				},
 			]);
 			setVerificationRecord({ signature: importedSignature, status: importedSummary.status });
-			setBottomPanelOpen(true);
+			expandPanel("bottom");
 			setBottomPanelTab("system");
 			appendSystemLogs([{ level: "info", message: `Import verified: ${file.name}` }]);
 			setActiveTab("properties");
@@ -768,7 +768,7 @@ export function EditorPage() {
 				message: `Project settings saved: ${settings.name} (${settings.targetRuntime})`,
 			},
 		]);
-		setBottomPanelOpen(true);
+		expandPanel("bottom");
 	};
 
 	const handleAssetsChange = (nextAssets: EditorAsset[]) => {
@@ -779,7 +779,7 @@ export function EditorPage() {
 				message: `Assets updated: ${nextAssets.length} file${nextAssets.length === 1 ? "" : "s"} attached.`,
 			},
 		]);
-		setBottomPanelOpen(true);
+		expandPanel("bottom");
 	};
 
 	const handleAddSimulationOverride = (nodeId: string) => {
@@ -824,7 +824,7 @@ export function EditorPage() {
 		appendSystemLogs([
 			{ level: "error", message: "Manual Trigger was not added: only one Manual Trigger is allowed." },
 		]);
-		setBottomPanelOpen(true);
+		expandPanel("bottom");
 	};
 
 	const handleClearBottomPanelTab = (tab: Exclude<BottomPanelTab, "variables">) => {
@@ -943,7 +943,7 @@ export function EditorPage() {
 				message: `Development node grid spawned: ${developmentNodes.length} nodes.`,
 			},
 		]);
-		setBottomPanelOpen(true);
+		expandPanel("bottom");
 	};
 
 	const handleUpdateNodeConfig = (nodeId: string, key: string, value: JsonValue) => {
@@ -1145,7 +1145,9 @@ export function EditorPage() {
 		<div className="flex h-dvh min-h-0 select-none flex-col overflow-hidden bg-baud-bg text-baud-text">
 			<TopBar
 				importInputRef={importInputRef}
+				leftCollapsed={collapsed.left}
 				leftWidth={sizes.left}
+				rightCollapsed={collapsed.right}
 				rightWidth={sizes.right}
 				targetRuntime={projectSettings.targetRuntime}
 				verificationStatus={verificationRecord.status}
@@ -1159,12 +1161,20 @@ export function EditorPage() {
 			/>
 
 			<div className="flex min-h-0 flex-1">
-				<BlockLibrary width={sizes.left} targetRuntime={projectSettings.targetRuntime} onAddBlock={handleAddBlock} />
-				<ResizeHandle
-					axis="horizontal"
-					label="Resize block library"
-					onPointerDown={(event) => startResize("left", event)}
+				<BlockLibrary
+					collapsed={collapsed.left}
+					width={sizes.left}
+					targetRuntime={projectSettings.targetRuntime}
+					onAddBlock={handleAddBlock}
+					onToggleCollapsed={() => togglePanel("left")}
 				/>
+				{!collapsed.left && (
+					<ResizeHandle
+						axis="horizontal"
+						label="Resize block library"
+						onPointerDown={(event) => startResize("left", event)}
+					/>
+				)}
 
 				<main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 					<FlowCanvas
@@ -1200,16 +1210,18 @@ export function EditorPage() {
 						onViewportCenterChange={setViewportCenter}
 						targetRuntime={projectSettings.targetRuntime}
 					/>
-					<ResizeHandle
-						axis="vertical"
-						label="Resize output console"
-						onPointerDown={(event) => startResize("bottom", event)}
-					/>
+					{!collapsed.bottom && (
+						<ResizeHandle
+							axis="vertical"
+							label="Resize output console"
+							onPointerDown={(event) => startResize("bottom", event)}
+						/>
+					)}
 					<OutputConsole
 						activeTab={bottomPanelTab}
 						follow={bottomPanelFollow}
 						logs={logs}
-						open={bottomPanelOpen}
+						open={!collapsed.bottom}
 						systemLogs={systemLogs}
 						simulationLogs={simulationLogs}
 						variables={variableEntries}
@@ -1220,7 +1232,7 @@ export function EditorPage() {
 						onClearTab={handleClearBottomPanelTab}
 						onFollowChange={handleFollowBottomPanelTab}
 						onTabChange={setBottomPanelTab}
-						onToggle={() => setBottomPanelOpen((open) => !open)}
+						onToggle={() => togglePanel("bottom")}
 						onDefaultVariablesChange={setDefaultVariables}
 						onSecretDeclarationsChange={setSecretDeclarations}
 						onSimulationSecretValueChange={(name, value) =>
@@ -1236,11 +1248,13 @@ export function EditorPage() {
 					/>
 				</main>
 
-				<ResizeHandle
-					axis="horizontal"
-					label="Resize inspector"
-					onPointerDown={(event) => startResize("right", event)}
-				/>
+				{!collapsed.right && (
+					<ResizeHandle
+						axis="horizontal"
+						label="Resize inspector"
+						onPointerDown={(event) => startResize("right", event)}
+					/>
+				)}
 				<Inspector
 					activeTab={activeTab}
 					assets={assets}
@@ -1253,6 +1267,7 @@ export function EditorPage() {
 					simulationSettings={simulationSettings}
 					simulationStatus={simulationStatus}
 					width={sizes.right}
+					collapsed={collapsed.right}
 					onAddSimulationOverride={handleAddSimulationOverride}
 					onRemoveSimulationOverride={handleRemoveSimulationOverride}
 					onSimulationSettingsChange={setSimulationSettings}
@@ -1265,6 +1280,7 @@ export function EditorPage() {
 					onDeleteNode={handleDeleteNode}
 					onReorderEdges={handleReorderEdges}
 					onSelectEdge={handleSelectEdge}
+					onToggleCollapsed={() => togglePanel("right")}
 				/>
 			</div>
 

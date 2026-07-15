@@ -8,7 +8,9 @@ import type { VerificationStatus } from "@/utils/verification";
 
 type TopBarProps = {
 	importInputRef: RefObject<HTMLInputElement | null>;
+	leftCollapsed: boolean;
 	leftWidth: number;
+	rightCollapsed: boolean;
 	rightWidth: number;
 	targetRuntime: TargetRuntime;
 	verificationStatus: VerificationStatus;
@@ -23,7 +25,9 @@ type TopBarProps = {
 
 export function TopBar({
 	importInputRef,
+	leftCollapsed,
 	leftWidth,
+	rightCollapsed,
 	rightWidth,
 	targetRuntime,
 	verificationStatus,
@@ -39,10 +43,18 @@ export function TopBar({
 		<header
 			className="grid h-12 shrink-0 border-b border-baud-border bg-baud-panel"
 			style={{
-				gridTemplateColumns: `${leftWidth}px 4px minmax(0, 1fr) 4px ${rightWidth}px`,
+				gridTemplateColumns: `${leftWidth}px ${leftCollapsed ? 0 : 4}px minmax(0, 1fr) ${rightCollapsed ? 0 : 4}px ${rightWidth}px`,
 			}}
 		>
-			<div className="flex h-full min-w-0 items-center gap-2 px-3">
+			<input
+				ref={importInputRef}
+				className="hidden"
+				type="file"
+				accept=".bbs,application/zip"
+				onChange={onImportFileChange}
+			/>
+
+			<div className={`flex h-full min-w-0 items-center ${leftCollapsed ? "justify-center px-1" : "gap-2 px-3"}`}>
 				<Image
 					src="/logo-notext.svg"
 					alt=""
@@ -52,9 +64,12 @@ export function TopBar({
 					aria-hidden="true"
 					className="size-7 shrink-0 rounded object-contain"
 				/>
-				<div className="min-w-0 text-sm font-semibold">
-					<span className="text-white">BaudBound</span> <span className="hidden text-baud-muted xl:inline">Editor</span>
-				</div>
+				{!leftCollapsed && (
+					<div className="min-w-0 text-sm font-semibold">
+						<span className="text-white">BaudBound</span>{" "}
+						<span className="hidden text-baud-muted xl:inline">Editor</span>
+					</div>
+				)}
 			</div>
 
 			<div className="bg-baud-border/30" />
@@ -89,27 +104,36 @@ export function TopBar({
 						<ShieldCheck size={14} />
 						<span className="hidden xl:inline">Verify</span>
 					</Button>
+					{rightCollapsed && (
+						<>
+							<Button type="button" onClick={onImportClick} aria-label="Import package" size="sm" variant="toolbar">
+								<Upload size={14} />
+								<span className="hidden xl:inline">Import</span>
+							</Button>
+							<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
+								<Download size={14} />
+								<span className="hidden xl:inline">Export</span>
+							</Button>
+						</>
+					)}
 				</div>
 			</div>
 
 			<div className="bg-baud-border/30" />
 
 			<div className="flex h-full min-w-0 items-center justify-end gap-1.5 px-2">
-				<input
-					ref={importInputRef}
-					className="hidden"
-					type="file"
-					accept=".bbs,application/zip"
-					onChange={onImportFileChange}
-				/>
-				<Button type="button" onClick={onImportClick} aria-label="Import package" size="sm" variant="toolbar">
-					<Upload size={14} />
-					<span className="hidden xl:inline">Import</span>
-				</Button>
-				<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
-					<Download size={14} />
-					<span className="hidden xl:inline">Export</span>
-				</Button>
+				{!rightCollapsed && (
+					<>
+						<Button type="button" onClick={onImportClick} aria-label="Import package" size="sm" variant="toolbar">
+							<Upload size={14} />
+							<span className="hidden xl:inline">Import</span>
+						</Button>
+						<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
+							<Download size={14} />
+							<span className="hidden xl:inline">Export</span>
+						</Button>
+					</>
+				)}
 			</div>
 		</header>
 	);

@@ -514,12 +514,13 @@ function FlowCanvasContent({
 			<div data-canvas-overlay className="pointer-events-auto absolute left-4 top-4 z-10 flex items-center gap-2">
 				<Button
 					type="button"
-					size="icon"
+					size="default"
 					variant="toolbar"
 					title="Add comment"
 					onClick={() => onCreateComment(getViewportCenterPosition())}
 				>
 					<StickyNote size={15} />
+					Add comment
 				</Button>
 				<OptionCombobox
 					ariaLabel="Edge style"

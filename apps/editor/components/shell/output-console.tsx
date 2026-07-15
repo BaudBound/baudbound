@@ -6,6 +6,7 @@ import { SecretReferenceManager } from "@/components/shell/secret-reference-mana
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { logLevelClassName } from "@/data/editor/output-console";
+import { collapsedPanelSizes } from "@/data/editor/panel-layout";
 import type { EditorVariable } from "@/data/project/variables";
 import type { DefaultVariable, LogEntry, SecretDeclaration, SimulationTraceEntry } from "@/lib/types";
 
@@ -71,8 +72,11 @@ export function OutputConsole({
 
 	return (
 		<section
-			className="grid shrink-0 grid-rows-[36px_minmax(0,1fr)] overflow-hidden border-t border-baud-border bg-baud-panel"
-			style={{ height: open ? height : 36 }}
+			className="grid shrink-0 overflow-hidden border-t border-baud-border bg-baud-panel"
+			style={{
+				height: open ? height : collapsedPanelSizes.bottom,
+				gridTemplateRows: `${collapsedPanelSizes.bottom}px minmax(0, 1fr)`,
+			}}
 		>
 			<div className="flex min-h-0 items-center justify-between overflow-hidden border-b border-baud-border">
 				<div className="flex h-full min-w-0 overflow-hidden">

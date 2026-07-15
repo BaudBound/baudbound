@@ -5,12 +5,15 @@ import { Input } from "@/components/ui/input";
 import { paletteNodeDragDataType } from "@/data/editor/drag-drop";
 import { getPaletteGroups, getTargetRuntimeCompatibilityErrors } from "@/data/nodes/registry";
 import type { PaletteGroup, PaletteItem, TargetRuntime } from "@/lib/types";
+import { PanelCollapseButton } from "./panel-collapse-button";
 import { RiskBadge } from "./risk-badge";
 
 type BlockLibraryProps = {
+	collapsed: boolean;
 	targetRuntime: TargetRuntime;
 	width: number;
 	onAddBlock: (item: PaletteItem) => void;
+	onToggleCollapsed: () => void;
 };
 
 const defaultExpandedPaletteGroups: Record<string, boolean> = {
@@ -22,7 +25,7 @@ const defaultExpandedPaletteGroups: Record<string, boolean> = {
 const paletteGroups = getPaletteGroups();
 const defaultExpandedGroups = createDefaultExpandedGroups(paletteGroups);
 
-export function BlockLibrary({ targetRuntime, width, onAddBlock }: BlockLibraryProps) {
+export function BlockLibrary({ collapsed, targetRuntime, width, onAddBlock, onToggleCollapsed }: BlockLibraryProps) {
 	const [query, setQuery] = useState("");
 	const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(defaultExpandedGroups);
 	const compact = width < 190;
@@ -32,10 +35,26 @@ export function BlockLibrary({ targetRuntime, width, onAddBlock }: BlockLibraryP
 		return paletteGroups.flatMap((group) => filterPaletteGroup(group, normalizedQuery));
 	}, [query]);
 
+	if (collapsed) {
+		return (
+			<aside
+				aria-label="Block library"
+				className="flex shrink-0 justify-center border-r border-baud-border bg-baud-panel pt-0.5"
+				style={{ width }}
+			>
+				<PanelCollapseButton collapsed label="block library" onToggle={onToggleCollapsed} side="left" />
+			</aside>
+		);
+	}
+
 	return (
-		<aside className="flex shrink-0 flex-col border-r border-baud-border bg-baud-panel" style={{ width }}>
-			<div className="border-b border-baud-border p-3">
-				<div className="relative">
+		<aside
+			aria-label="Block library"
+			className="flex shrink-0 flex-col border-r border-baud-border bg-baud-panel"
+			style={{ width }}
+		>
+			<div className="flex items-center gap-1 border-b border-baud-border p-2">
+				<div className="relative min-w-0 flex-1">
 					<Search
 						className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-baud-muted"
 						size={14}
@@ -48,6 +67,7 @@ export function BlockLibrary({ targetRuntime, width, onAddBlock }: BlockLibraryP
 						className="pl-8 pr-3 font-sans"
 					/>
 				</div>
+				<PanelCollapseButton collapsed={false} label="block library" onToggle={onToggleCollapsed} side="left" />
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">

@@ -19,6 +19,35 @@ test("editor shell loads the core controls", async ({ page }) => {
 	await expect(page.getByRole("button", { name: "Stop simulation" })).toBeVisible();
 });
 
+test("panel collapse state persists across editor reloads", async ({ page }) => {
+	await page.goto("/");
+
+	await page.getByRole("button", { name: "Collapse block library" }).click();
+	await page.getByRole("button", { name: "Collapse inspector" }).click();
+	await page.getByRole("button", { name: "Collapse bottom panel" }).click();
+
+	await expect(page.getByRole("button", { name: "Expand block library" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Expand inspector" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Expand bottom panel" })).toBeVisible();
+	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeHidden();
+	await expect(page.getByRole("button", { name: "Properties" })).toBeHidden();
+	await expect(page.getByRole("button", { name: "Import package" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
+
+	const storedState = await page.evaluate(() =>
+		JSON.parse(window.localStorage.getItem("baudbound.editor.panel-collapsed.v1") ?? "null"),
+	);
+	expect(storedState).toEqual({ left: true, right: true, bottom: true });
+
+	await page.reload();
+
+	await expect(page.getByRole("button", { name: "Expand block library" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Expand inspector" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Expand bottom panel" })).toBeVisible();
+	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeHidden();
+	await expect(page.getByRole("button", { name: "Properties" })).toBeHidden();
+});
+
 test("help modal exposes controls, references, expressions, and node docs", async ({ page }) => {
 	await page.goto("/");
 

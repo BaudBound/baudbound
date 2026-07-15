@@ -61,6 +61,7 @@ import type {
 	SimulationTriggerPayload,
 } from "@/lib/types";
 import { createEditorVariableRegistry } from "@/utils/editor-variables";
+import { PanelCollapseButton } from "../shell/panel-collapse-button";
 import { RiskBadge } from "../shell/risk-badge";
 import { SimulatorPanel } from "../simulation/simulator-panel";
 import { EdgeOrderPanel } from "./edge-order-panel";
@@ -81,6 +82,7 @@ type InspectorProps = {
 	simulationSettings: SimulationSettings;
 	simulationStatus: SimulationRunStatus;
 	width: number;
+	collapsed: boolean;
 	onAddSimulationOverride: (nodeId: string) => void;
 	onRemoveSimulationOverride: (nodeId: string) => void;
 	onSimulationSettingsChange: (settings: SimulationSettings) => void;
@@ -93,6 +95,7 @@ type InspectorProps = {
 	onDeleteEdge: (edgeId: string) => void;
 	onReorderEdges: (edgeIds: string[]) => void;
 	onSelectEdge: (edgeId: string) => void;
+	onToggleCollapsed: () => void;
 };
 
 export function Inspector({
@@ -107,6 +110,7 @@ export function Inspector({
 	simulationSettings,
 	simulationStatus,
 	width,
+	collapsed,
 	onAddSimulationOverride,
 	onRemoveSimulationOverride,
 	onSimulationSettingsChange,
@@ -119,25 +123,45 @@ export function Inspector({
 	onDeleteNode,
 	onReorderEdges,
 	onSelectEdge,
+	onToggleCollapsed,
 }: InspectorProps) {
+	if (collapsed) {
+		return (
+			<aside
+				aria-label="Inspector"
+				className="flex shrink-0 justify-center border-l border-baud-border bg-baud-panel pt-0.5"
+				style={{ width }}
+			>
+				<PanelCollapseButton collapsed label="inspector" onToggle={onToggleCollapsed} side="right" />
+			</aside>
+		);
+	}
+
 	return (
-		<aside className="flex shrink-0 flex-col border-l border-baud-border bg-baud-panel" style={{ width }}>
-			<div className="grid h-10 grid-cols-2 border-b border-baud-border">
-				{inspectorTabs.map((tab) => (
-					<Button
-						type="button"
-						key={tab.id}
-						onClick={() => onTabChange(tab.id)}
-						aria-label={tab.label}
-						className={`h-full min-w-0 truncate px-1 text-xs font-bold uppercase tracking-[0.04em] ${
-							activeTab === tab.id ? "border-b-baud-red text-white" : ""
-						}`}
-						size="none"
-						variant="tab"
-					>
-						{width < 340 ? tab.shortLabel : tab.label}
-					</Button>
-				))}
+		<aside
+			aria-label="Inspector"
+			className="flex shrink-0 flex-col border-l border-baud-border bg-baud-panel"
+			style={{ width }}
+		>
+			<div className="flex h-10 border-b border-baud-border">
+				<div className="grid min-w-0 flex-1 grid-cols-2">
+					{inspectorTabs.map((tab) => (
+						<Button
+							type="button"
+							key={tab.id}
+							onClick={() => onTabChange(tab.id)}
+							aria-label={tab.label}
+							className={`h-full min-w-0 truncate px-1 text-xs font-bold uppercase tracking-[0.04em] ${
+								activeTab === tab.id ? "border-b-baud-red text-white" : ""
+							}`}
+							size="none"
+							variant="tab"
+						>
+							{width < 340 ? tab.shortLabel : tab.label}
+						</Button>
+					))}
+				</div>
+				<PanelCollapseButton collapsed={false} label="inspector" onToggle={onToggleCollapsed} side="right" />
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
