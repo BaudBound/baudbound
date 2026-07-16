@@ -24,6 +24,8 @@ pub(crate) fn text_format_action(
         "trim" => (input.trim().to_owned(), Vec::new()),
         "uppercase" => (input.to_uppercase(), Vec::new()),
         "lowercase" => (input.to_lowercase(), Vec::new()),
+        "sentence_case" => (sentence_case(&input), Vec::new()),
+        "capitalize_words" => (capitalize_words(&input), Vec::new()),
         "replace" => (input.replace(&search, &replacement), Vec::new()),
         "regex_replace" => {
             let regex = Regex::new(&search).map_err(|source| RuntimeActionError::Failed {
@@ -169,6 +171,44 @@ fn substring_by_chars(input: &str, start: usize, length: Option<usize>) -> Strin
         Some(length) => chars.take(length).collect(),
         None => chars.collect(),
     }
+}
+
+fn sentence_case(input: &str) -> String {
+    let mut characters = input.chars();
+    let Some(first) = characters.next() else {
+        return String::new();
+    };
+
+    let mut result = first.to_uppercase().collect::<String>();
+    result.push_str(&characters.as_str().to_lowercase());
+    result
+}
+
+fn capitalize_words(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut waiting_for_first_letter = true;
+
+    for character in input.chars() {
+        if character.is_whitespace() {
+            waiting_for_first_letter = true;
+            result.push(character);
+            continue;
+        }
+
+        if !character.is_alphabetic() {
+            result.push(character);
+            continue;
+        }
+
+        if waiting_for_first_letter {
+            result.extend(character.to_uppercase());
+            waiting_for_first_letter = false;
+        } else {
+            result.extend(character.to_lowercase());
+        }
+    }
+
+    result
 }
 
 fn pad_text(input: &str, target_length: usize, pad: &str, start: bool) -> String {

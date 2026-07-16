@@ -79,8 +79,30 @@ test("project settings target runtime can be changed with the combobox", async (
 	await page.getByRole("option", { name: "Windows Desktop" }).click();
 	await page.getByRole("button", { name: "Save Settings" }).click();
 
-	await expect(page.getByText("Desktop", { exact: true })).toBeVisible();
-	await expect(page.getByText("Not verified", { exact: true })).toBeVisible();
+	await expect(page.getByText("Windows Desktop", { exact: true })).toBeVisible();
+	await expect(page.getByText("not verified", { exact: true })).toBeVisible();
+});
+
+test("text transform accepts a default variable with inactive optional numeric fields", async ({ page }) => {
+	await page.goto("/");
+
+	await page.getByRole("button", { name: "Variables", exact: true }).click();
+	await page.getByRole("button", { name: "Add variable" }).click();
+	const variableDialog = page.getByRole("dialog");
+	await variableDialog.getByRole("textbox", { name: "Name" }).fill("test");
+	await variableDialog.getByRole("textbox", { name: "Default value" }).fill("lowercase_data");
+	await variableDialog.getByRole("button", { name: "Save" }).click();
+
+	await page.getByRole("button", { name: "Data & Variables" }).click();
+	await page.getByRole("button", { name: "Text Transform" }).click();
+	await page.getByRole("button", { name: "Operation", exact: true }).click();
+	await page.getByRole("option", { name: "Uppercase" }).click();
+	await page.getByRole("textbox", { name: "Input" }).fill("{{test}}");
+	await page.getByRole("button", { name: "Verify script" }).click();
+
+	await expect(page.getByRole("heading", { name: "Verification" })).toBeVisible();
+	await expect(page.getByText("Variable writes, calculations, and action configs are valid.")).toBeVisible();
+	await expect(page.getByText(/Invalid value for length/)).toHaveCount(0);
 });
 
 test("verification reports graph errors when the script has no trigger", async ({ page }) => {

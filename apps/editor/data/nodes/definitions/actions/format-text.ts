@@ -5,6 +5,8 @@ import { textTransformOperationOptions } from "../options";
 import { requiredConfig, staticNonNegativeIntegerConfig } from "../validators";
 
 const textTransformOperations = textTransformOperationOptions.map((option) => option.value);
+const unicodeLetterPattern = /\p{Alphabetic}/u;
+const whitespacePattern = /\p{White_Space}/u;
 
 type TextTransformOperation = (typeof textTransformOperations)[number];
 
@@ -174,12 +176,16 @@ function validateTextTransformConfig(config: Record<string, JsonValue>) {
 	return errors.filter(Boolean);
 }
 
-function executeTextTransform({
+export function executeTextTransform({
 	config,
 	parseJsonValue,
 	resolveTemplate,
 }: ExecuteTextTransformParams): TextTransformResult {
-	const operation = normalizeTextTransformOperation(configString(config.operation));
+	const configuredOperation = configString(config.operation);
+	if (configuredOperation && !textTransformOperations.includes(configuredOperation)) {
+		return { error: `Unsupported text transform operation "${configuredOperation}".`, ok: false };
+	}
+	const operation = normalizeTextTransformOperation(configuredOperation);
 	const input = resolveToString(configString(config.input), resolveTemplate);
 	const template = resolveToString(configString(config.template), resolveTemplate);
 	const search = resolveToString(configString(config.search), resolveTemplate);
@@ -202,6 +208,14 @@ function executeTextTransform({
 
 		if (operation === "lowercase") {
 			return createTextOutput(input.toLowerCase());
+		}
+
+		if (operation === "sentence_case") {
+			return createTextOutput(toSentenceCase(input));
+		}
+
+		if (operation === "capitalize_words") {
+			return createTextOutput(capitalizeWords(input));
 		}
 
 		if (operation === "replace") {
@@ -229,16 +243,24 @@ function executeTextTransform({
 		if (operation === "substring") {
 			const start = normalizeInteger(resolveToString(configString(config.start), resolveTemplate), 0);
 			const rawLength = resolveToString(configString(config.length), resolveTemplate).trim();
-			const end = rawLength ? start + Math.max(0, normalizeInteger(rawLength, 0)) : undefined;
-			return createTextOutput(input.slice(start, end));
+			const length = rawLength ? Math.max(0, normalizeInteger(rawLength, 0)) : undefined;
+			return createTextOutput(substringByCodePoints(input, start, length));
 		}
 
 		if (operation === "pad_start") {
-			return createTextOutput(input.padStart(normalizeInteger(configString(config.targetLength), input.length), pad));
+			const targetLength = normalizeInteger(
+				resolveToString(configString(config.targetLength), resolveTemplate),
+				codePointLength(input),
+			);
+			return createTextOutput(padByCodePoints(input, targetLength, pad, true));
 		}
 
 		if (operation === "pad_end") {
-			return createTextOutput(input.padEnd(normalizeInteger(configString(config.targetLength), input.length), pad));
+			const targetLength = normalizeInteger(
+				resolveToString(configString(config.targetLength), resolveTemplate),
+				codePointLength(input),
+			);
+			return createTextOutput(padByCodePoints(input, targetLength, pad, false));
 		}
 
 		if (operation === "url_encode") {
@@ -365,6 +387,54 @@ function normalizeInteger(value: string, fallback: number) {
 	return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+function codePointLength(value: string) {
+	return Array.from(value).length;
+}
+
+function toSentenceCase(value: string) {
+	const [first, ...rest] = Array.from(value);
+	return first === undefined ? "" : `${first.toUpperCase()}${rest.join("").toLowerCase()}`;
+}
+
+function capitalizeWords(value: string) {
+	let waitingForFirstLetter = true;
+	let result = "";
+
+	for (const character of value) {
+		if (whitespacePattern.test(character)) {
+			waitingForFirstLetter = true;
+			result += character;
+			continue;
+		}
+
+		if (!unicodeLetterPattern.test(character)) {
+			result += character;
+			continue;
+		}
+
+		result += waitingForFirstLetter ? character.toUpperCase() : character.toLowerCase();
+		waitingForFirstLetter = false;
+	}
+
+	return result;
+}
+
+function substringByCodePoints(value: string, start: number, length?: number) {
+	const codePoints = Array.from(value);
+	return codePoints.slice(start, length === undefined ? undefined : start + length).join("");
+}
+
+function padByCodePoints(value: string, targetLength: number, pad: string, atStart: boolean) {
+	const missing = Math.max(0, targetLength - codePointLength(value));
+	const padCodePoints = Array.from(pad);
+	if (missing === 0 || padCodePoints.length === 0) {
+		return value;
+	}
+
+	const repeated = Array.from({ length: missing }, (_, index) => padCodePoints[index % padCodePoints.length]).join("");
+	return atStart ? `${repeated}${value}` : `${value}${repeated}`;
+}
+
 function encodeBase64(value: string) {
 	const bytes = new TextEncoder().encode(value);
 	let binary = "";
@@ -376,9 +446,17 @@ function encodeBase64(value: string) {
 }
 
 function decodeBase64(value: string) {
-	const binary = atob(value);
+	const encoded = value.trim();
+	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+		throw new Error("Invalid Base64 input. Use standard padded Base64 without embedded whitespace.");
+	}
+
+	const binary = atob(encoded);
+	if (btoa(binary) !== encoded) {
+		throw new Error("Invalid Base64 input. The final Base64 character contains non-zero trailing bits.");
+	}
 	const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-	return new TextDecoder().decode(bytes);
+	return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
 function formatOperationName(operation: string) {

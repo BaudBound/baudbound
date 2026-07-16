@@ -580,6 +580,10 @@ function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<
 		}
 
 		const value = config[field.key];
+		if (field.required === false && typeof value === "string" && !value.trim()) {
+			return [];
+		}
+
 		if ((field.type === "text" || field.type === "textarea") && typeof value !== "string") {
 			return [`Invalid value for ${field.key}: expected string.`];
 		}

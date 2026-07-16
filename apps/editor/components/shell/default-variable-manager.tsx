@@ -158,7 +158,10 @@ export function DefaultVariableManager({ secrets, variables, onChange }: Default
 								<div className="text-[10px] font-semibold tracking-[0.08em] text-baud-muted uppercase">
 									Default value
 								</div>
-								<pre className="mt-0.5 min-h-7 min-w-0 whitespace-pre-wrap break-all rounded border border-baud-border bg-baud-panel/60 px-2 py-1.5 font-mono text-xs leading-4 text-baud-text">
+								<pre
+									className="mt-0.5 min-h-7 min-w-0 whitespace-pre-wrap break-all rounded border border-baud-border bg-baud-panel/60 px-2 py-1.5 font-mono text-xs leading-4 text-baud-text"
+									data-selectable-text="true"
+								>
 									{formatDefaultValue(variable.type, variable.value)}
 								</pre>
 							</div>

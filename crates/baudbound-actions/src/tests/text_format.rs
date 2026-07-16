@@ -26,6 +26,16 @@ fn executes_every_editor_text_transform_operation() {
             json!([]),
         ),
         (
+            json!({"operation": "sentence_case", "input": "hELLO WORLD"}),
+            json!("Hello world"),
+            json!([]),
+        ),
+        (
+            json!({"operation": "capitalize_words", "input": "hELLO   wORLD"}),
+            json!("Hello   World"),
+            json!([]),
+        ),
+        (
             json!({"operation": "replace", "input": "one one", "search": "one", "replacement": "two"}),
             json!("two two"),
             json!([]),
@@ -134,6 +144,9 @@ fn rejects_malformed_text_transform_inputs() {
         json!({"operation": "regex_replace", "input": "text", "search": "[", "replacement": ""}),
         json!({"operation": "join", "items": "{}", "delimiter": ","}),
         json!({"operation": "base64_decode", "input": "%%%"}),
+        json!({"operation": "base64_decode", "input": "YQ"}),
+        json!({"operation": "base64_decode", "input": "Y Q=="}),
+        json!({"operation": "base64_decode", "input": "/w=="}),
         json!({"operation": "url_decode", "input": "%ZZ"}),
         json!({"operation": "json_unescape", "input": "not-json"}),
         json!({"operation": "unsupported", "input": "text"}),
@@ -175,4 +188,21 @@ fn json_unescape_serializes_non_string_values_like_the_editor() {
             Some(&Value::Array(Vec::new()))
         );
     }
+}
+
+#[test]
+fn substring_and_padding_count_unicode_code_points() {
+    let substring = execute(
+        "action.text.format",
+        json!({"operation": "substring", "input": "A😀BC", "start": 1, "length": 2}),
+    )
+    .expect("Unicode substring should succeed");
+    assert_eq!(substring.output_data.get("text"), Some(&json!("😀B")));
+
+    let padded = execute(
+        "action.text.format",
+        json!({"operation": "pad_start", "input": "😀", "targetLength": 3, "pad": "ab"}),
+    )
+    .expect("Unicode padding should succeed");
+    assert_eq!(padded.output_data.get("text"), Some(&json!("ab😀")));
 }

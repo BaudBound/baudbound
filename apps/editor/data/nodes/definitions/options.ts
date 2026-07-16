@@ -85,6 +85,8 @@ export const textTransformOperationOptions: SelectOption[] = [
 	{ label: "Trim", value: "trim" },
 	{ label: "Uppercase", value: "uppercase" },
 	{ label: "Lowercase", value: "lowercase" },
+	{ label: "Sentence case", value: "sentence_case" },
+	{ label: "Capitalize words", value: "capitalize_words" },
 	{ label: "Replace text", value: "replace" },
 	{ label: "Regex replace", value: "regex_replace" },
 	{ label: "Split", value: "split" },

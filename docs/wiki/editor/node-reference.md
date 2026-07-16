@@ -169,7 +169,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 - **Action type:** `action.text.format`; capability `action.text`; permission `text_transform`; low risk.
 - **Configuration:** operation-specific fields for template, input, search, replacement, delimiter, items, start, length, padding, or target length.
-- **Operations:** template, trim, case conversion, literal/regex replace, split, join, substring, padding, URL/Base64 encode/decode, and JSON escape/unescape.
+- **Operations:** template, trim, uppercase, lowercase, sentence case, capitalize words, literal/regex replace, split, join, substring, padding, URL/Base64 encode/decode, and JSON escape/unescape.
 - **Output:** transformed result data available from the node output.
 - **Failure:** invalid regex, encoding, indexes, or input shape produces validation/runtime error as applicable.
 

@@ -1378,6 +1378,14 @@ function getTextTransformHelp(operation: string) {
 		return "Replace matches using a JavaScript-style regular expression pattern.";
 	}
 
+	if (operation === "sentence_case") {
+		return "Uppercase the first character and lowercase the rest of the input.";
+	}
+
+	if (operation === "capitalize_words") {
+		return "Uppercase the first letter at the start and after whitespace, then lowercase the other letters.";
+	}
+
 	if (operation === "split") {
 		return "Split input text into list output items.";
 	}

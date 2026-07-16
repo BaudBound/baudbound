@@ -71,6 +71,8 @@
 						"trim",
 						"uppercase",
 						"lowercase",
+						"sentence_case",
+						"capitalize_words",
 						"replace",
 						"regex_replace",
 						"split",

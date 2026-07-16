@@ -395,7 +395,10 @@ function VariablesTab({
 											<div className="min-w-0 break-all text-baud-muted">{variable.type}</div>
 											<div className="min-w-0 break-all text-baud-muted">{variable.scope}</div>
 											<div className="text-baud-muted">{variable.source}</div>
-											<pre className="min-w-0 whitespace-pre-wrap break-all text-baud-muted">
+											<pre
+												className="min-h-7 min-w-0 whitespace-pre-wrap break-all rounded border border-baud-border bg-baud-panel/60 px-2 py-1.5 font-mono text-xs leading-4 text-baud-text"
+												data-selectable-text="true"
+											>
 												{formatVariableValue(variable.value)}
 											</pre>
 										</div>
