@@ -20,10 +20,10 @@ You do not need an account. Install the runner by following [Installation and Up
 ## 1. Create the project
 
 1. Open the [BaudBound editor](https://editor.baudbound.app/).
-2. Open **Project settings** from the top bar.
+2. Choose **New project**.
 3. Set **Name** to `Hello BaudBound`.
 4. Keep **Target runtime** set to **Generic Desktop**.
-5. Save the settings.
+5. Choose **Create project**.
 
 The project name identifies the workflow in the editor and becomes the default package name. The target runtime limits the project to nodes that the intended runner can support.
 
@@ -35,6 +35,7 @@ The project name identifies the workflow in the editor and becomes the default p
 4. Select the Log node.
 5. Set **Log level** to **Info**.
 6. Replace **Message** with `Hello from BaudBound`.
+7. Choose **Save** in the top bar or press `Ctrl+S`.
 
 The canvas should contain one path:
 
@@ -43,6 +44,8 @@ Manual -> Log
 ```
 
 The Log action writes to BaudBound's run log. It does not print into an unrelated terminal or create a text file.
+
+The project now appears on the editor's Projects screen. You can return to it later from the same browser profile.
 
 ## 3. Verify and simulate
 

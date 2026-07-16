@@ -9,14 +9,22 @@ type StatusBarProps = {
 	riskLevel: RiskLevel;
 	targetRuntime: TargetRuntime;
 	verificationStatus: VerificationStatus;
+	saveStatus: "saved" | "unsaved" | "saving" | "error";
 };
 
-export function StatusBar({ nodes, edges, riskLevel, targetRuntime, verificationStatus }: StatusBarProps) {
+export function StatusBar({ nodes, edges, riskLevel, targetRuntime, verificationStatus, saveStatus }: StatusBarProps) {
 	const verification = getVerificationPresentation(verificationStatus);
 
 	return (
 		<footer className="flex h-6 shrink-0 items-center justify-between gap-3 overflow-hidden border-t border-baud-border bg-baud-panel px-3 font-mono text-xs text-baud-muted sm:text-sm">
 			<div className="flex min-w-0 items-center gap-3 overflow-hidden sm:gap-4">
+				<span
+					className={
+						saveStatus === "error" ? "text-baud-danger" : saveStatus === "unsaved" ? "text-baud-amber" : undefined
+					}
+				>
+					{getSaveStatusLabel(saveStatus)}
+				</span>
 				<span className={`flex items-center gap-1 ${verification.textClassName}`}>
 					<span className={`size-1.5 rounded-full ${verification.dotClassName}`} />
 					{verification.label}
@@ -31,6 +39,13 @@ export function StatusBar({ nodes, edges, riskLevel, targetRuntime, verification
 			<span className="hidden shrink-0 sm:inline">{EDITOR_CREATED_WITH}</span>
 		</footer>
 	);
+}
+
+function getSaveStatusLabel(status: StatusBarProps["saveStatus"]) {
+	if (status === "unsaved") return "unsaved changes";
+	if (status === "saving") return "saving...";
+	if (status === "error") return "save failed";
+	return "saved";
 }
 
 function getVerificationPresentation(status: VerificationStatus) {

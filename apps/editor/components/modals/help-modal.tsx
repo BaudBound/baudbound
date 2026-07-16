@@ -28,8 +28,15 @@ type HelpModalProps = {
 };
 
 const shortcutRows = [
-	{ keys: "Ctrl / Cmd + C", description: "Copy the selected node." },
-	{ keys: "Ctrl / Cmd + V", description: "Paste the copied node at the center of the current canvas view." },
+	{ keys: "Ctrl / Cmd + S", description: "Save the current project to this browser." },
+	{ keys: "Ctrl / Cmd + Z", description: "Undo the latest project change." },
+	{ keys: "Ctrl / Cmd + Y", description: "Redo the latest undone project change." },
+	{ keys: "Ctrl / Cmd + Shift + Z", description: "Redo using the alternate shortcut." },
+	{ keys: "Ctrl / Cmd + C", description: "Copy the selected nodes and their selected connections." },
+	{
+		keys: "Ctrl / Cmd + V",
+		description: "Paste at the canvas pointer, or at the canvas center when the pointer is elsewhere.",
+	},
 	{ keys: "Ctrl / Cmd + drag", description: "Box-select nodes and comments from empty canvas space." },
 	{ keys: "Delete / Backspace", description: "Delete the selected node or connection." },
 ];
@@ -38,6 +45,27 @@ const contextMenuRows = [
 	{ target: "Node", action: "Right click a node to copy, duplicate, or delete it." },
 	{ target: "Connection", action: "Right click a connection to disconnect it." },
 	{ target: "Canvas", action: "Right click empty canvas space to search for and add nodes, or paste a copied node." },
+];
+
+const projectControlRows = [
+	{
+		target: "Save",
+		action:
+			"Commits the complete project to this browser. The status bar reports saved, unsaved changes, saving, or save failed.",
+	},
+	{
+		target: "Return to Projects",
+		action: "Returns immediately when saved. Unsaved work offers Save and return, Discard, or Cancel.",
+	},
+	{
+		target: "Undo and Redo",
+		action:
+			"Tracks graph, configuration, comment, variable, secret declaration, project setting, asset reference, and edge-style changes. View and simulation state are excluded.",
+	},
+	{
+		target: "Browser exit",
+		action: "Reloading or closing a tab with unsaved work uses the browser's standard warning.",
+	},
 ];
 
 const canvasToolRows = [
@@ -344,6 +372,11 @@ function HelpNavButton({
 function ControlsSection() {
 	return (
 		<section className="space-y-6">
+			<div className="space-y-3">
+				<SectionTitle icon={Database} title="Projects And Saving" />
+				<DocTable columns={["Control", "Behavior"]} rows={projectControlRows.map((row) => [row.target, row.action])} />
+			</div>
+
 			<div className="space-y-3">
 				<SectionTitle icon={Keyboard} title="Hotkeys" />
 				<div className="grid gap-2">

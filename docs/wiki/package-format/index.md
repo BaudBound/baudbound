@@ -42,6 +42,8 @@ No other root files are accepted. Directory entries do not count as package docu
 
 An update must keep the same `id`. A display name is not a stable update key and may not uniquely identify a script.
 
+The editor creates this identity when a local project is created. Every export of that project reuses the same `id` and `created_at` value while setting a new `updated_at` value. Duplicating a project or choosing **Import copy** creates a new identity. Package hashes still change whenever exported bytes change, so a revised package requires runner review and approval even though its script identity is stable.
+
 ### `program.json`
 
 The program contains the executable graph. Each node has a unique ID, action type, and action-specific config. Edges connect named execution ports, and the entry identifies the trigger that starts the graph. The per-node config rules come from the generated node schemas and runner semantic validation.

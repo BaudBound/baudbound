@@ -20,13 +20,24 @@ import type { ProjectSettings, TargetRuntime } from "@/lib/types";
 import { DEFAULT_MINIMUM_RUNNER_VERSION } from "@/lib/version";
 
 type ProjectSettingsModalProps = {
+	description?: string;
 	open: boolean;
+	saveLabel?: string;
 	settings: ProjectSettings;
+	title?: string;
 	onClose: () => void;
 	onSave: (settings: ProjectSettings) => void;
 };
 
-export function ProjectSettingsModal({ open, settings, onClose, onSave }: ProjectSettingsModalProps) {
+export function ProjectSettingsModal({
+	description = "Configure package metadata and runtime settings used during export.",
+	open,
+	saveLabel = "Save Settings",
+	settings,
+	title = "Project Settings",
+	onClose,
+	onSave,
+}: ProjectSettingsModalProps) {
 	const titleId = useId();
 	const descriptionId = useId();
 	const [draft, setDraft] = useState(settings);
@@ -72,8 +83,8 @@ export function ProjectSettingsModal({ open, settings, onClose, onSave }: Projec
 		<Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
 			<DialogContent aria-labelledby={titleId} className="sm:max-w-2xl">
 				<DialogHeader>
-					<DialogTitle id={titleId}>Project Settings</DialogTitle>
-					<DialogDescription>Configure package metadata and runtime settings used during export.</DialogDescription>
+					<DialogTitle id={titleId}>{title}</DialogTitle>
+					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
 
 				<div className="grid max-h-[70vh] gap-4 overflow-y-auto pr-1">
@@ -143,7 +154,7 @@ export function ProjectSettingsModal({ open, settings, onClose, onSave }: Projec
 						Cancel
 					</Button>
 					<Button type="button" variant="primary" onClick={handleSave} disabled={hasErrors}>
-						Save Settings
+						{saveLabel}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

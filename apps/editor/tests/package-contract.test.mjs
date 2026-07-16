@@ -222,7 +222,8 @@ test("editor edge style metadata is mapped to valid React Flow edge types", () =
 	assert.match(flowCanvasSource, /getNextEdgeExecutionOrder/);
 	assert.match(flowCanvasSource, /addEdge\(edge, current\)/);
 	assert.match(editorPageSource, /type: toReactFlowEdgeType\(nextEdgeStyle\)/);
-	assert.match(editorPageSource, /type: toReactFlowEdgeType\(importedPackage\.edgeStyle\)/);
+	assert.match(editorPageSource, /type: toReactFlowEdgeType\(initialProject\.edgeStyle\)/);
+	assert.match(editorPageSource, /type: toReactFlowEdgeType\(project\.edgeStyle\)/);
 });
 
 test("program schema includes every editor action type", () => {
@@ -698,6 +699,14 @@ function readJsonFiles(directory) {
 	});
 }
 
+function readSourceFiles(directory) {
+	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+		const path = join(directory, entry.name);
+		if (entry.isDirectory()) return readSourceFiles(path);
+		return /\.tsx?$/.test(entry.name) ? [path] : [];
+	});
+}
+
 function getDefinitionBlock(source, actionType) {
 	const actionTypeIndex = source.indexOf(`actionType: "${actionType}"`);
 	assert.notEqual(actionTypeIndex, -1, `${actionType} definition block should exist`);
@@ -756,6 +765,20 @@ test("default variables are typed package metadata and runner execution state", 
 	assert.match(simulationSource, /defaultVariables\.map/);
 	assert.match(runtimeDefaultSource, /load_or_initialize_persistent_default/);
 	assert.match(runtimeDefaultSource, /compare_and_set_variable/);
+});
+
+test("IndexedDB is the editor's only normal durable browser storage", () => {
+	const allowedLegacyMigration = join(appRoot, "data", "storage", "preference-repository.ts");
+	const sourceFiles = ["app", "components", "data", "hooks", "lib", "utils"].flatMap((directory) =>
+		readSourceFiles(join(appRoot, directory)),
+	);
+	const browserStoragePattern = /\b(?:window\.)?(?:localStorage|sessionStorage)\b/;
+
+	for (const filePath of sourceFiles) {
+		if (!browserStoragePattern.test(read(filePath))) continue;
+		assert.equal(filePath, allowedLegacyMigration, `${filePath} must use the IndexedDB repositories`);
+		assert.doesNotMatch(read(filePath), /\bsessionStorage\b/);
+	}
 });
 
 function extractRustConstStringArray(source, constName) {

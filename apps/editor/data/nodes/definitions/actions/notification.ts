@@ -9,7 +9,7 @@ export const notificationNode = defineNode({
 		{ key: "title", label: "Title", type: "text", usesVariables: true },
 		{ key: "message", label: "Message", type: "textarea", usesVariables: true },
 	],
-	defaultConfig: () => ({ title: "BaudBound", message: "Script completed. Status: {{n-mr3zyt6f-12.status_code}}" }),
+	defaultConfig: () => ({ title: "BaudBound", message: "Notification message" }),
 	description: "Show a desktop notification.",
 	desktopOnly: true,
 	fallible: true,

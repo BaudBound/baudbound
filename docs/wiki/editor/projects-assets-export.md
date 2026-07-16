@@ -26,27 +26,47 @@ The project has a stable manifest identity separate from its display name and ex
 
 Changing the display name does not intentionally create a new identity. Do not hand-edit package IDs to force an update.
 
-## New projects and browser persistence
+## Create and save projects
 
-The editor keeps its current working project in browser-local storage. This protects against an ordinary page refresh but is not a durable backup. Browser-data clearing, private browsing, a different browser profile, or a storage failure can remove it.
+Opening the editor shows the Projects screen. Choose **New project**, complete the project settings, and then choose **Create project**. The complete project is written to IndexedDB before the editor workspace opens.
 
-Use **New** only after exporting work that must be retained. Export important revisions to files you back up outside the browser.
+Changes are not saved automatically. Use **Save** or press `Ctrl+S`. The status bar shows **saved**, **unsaved**, **saving**, or **error**. Returning to Projects with unsaved changes asks whether to save, discard, or stay in the editor.
+
+The Projects screen lists saved projects by recent modification time. It can open, duplicate, or delete them. Duplicating creates an independent identity. Deleting requires confirmation and removes the project's stored assets too.
+
+IndexedDB belongs to the current browser profile. Browser-data clearing, private browsing, another profile, another device, or a storage failure can remove it. Export important revisions to files and keep those files in normal backup or version-control storage.
+
+The editor asks the browser to protect its local storage from automatic eviction. If the browser does not grant that request, a notice appears in the workspace. You can continue editing, but exported `.bbs` files are especially important because clearing site data still removes every local project.
+
+Only one tab can edit a project at a time. A second tab shows **Project already open** instead of another writable canvas. Choose **Take control** to move editing to that tab. Takeover is refused while the current tab has unsaved changes, so save or discard those changes in the current tab first.
+
+If a save fails, the project stays unsaved and the last committed revision remains intact. The recovery dialog explains quota, storage, or revision-conflict failures. Use **Retry save** when available. Use **Export current project** to open the export wizard and preserve the in-memory work before reloading or closing the page.
 
 ## Import an existing package
 
-Choose **Import** and select a `.bbs` file when you need to inspect or continue editing an exported project.
+On the Projects screen, choose **Open package** and select a `.bbs` file when you need to inspect or continue editing an exported project.
 
-Before replacing the current editor state, import checks package structure, document shape, graph identity, assets, and editor data. A rejected import leaves the current project unchanged.
+Before creating a local project, import checks package structure, document shape, graph identity, assets, and editor data. A rejected import does not change existing projects.
+
+If the package identity already exists locally, choose one of these explicit outcomes:
+
+| Choice | Result |
+| --- | --- |
+| **Open existing** | Opens the saved local project without changing it |
+| **Replace** | Replaces the local project's saved content with the imported package |
+| **Import copy** | Creates an independent project with a new identity |
+| **Cancel** | Leaves local projects unchanged |
 
 A successful import restores executable nodes and edges along with editor-owned information such as node positions, comments, and edge style. It does not import production secret values from a runner.
 
 After editing an imported package:
 
-1. review Project Settings and retain the stable identity;
-2. verify changed nodes, permissions, capabilities, and target support;
-3. update the descriptive metadata when behavior changed;
-4. export a new `.bbs` revision; and
-5. use the runner's update workflow rather than importing it as an unrelated script.
+1. Review Project Settings and retain the stable identity.
+2. Save the local project after editing.
+3. Verify changed nodes, permissions, capabilities, and target support.
+4. Update descriptive metadata when behavior changed.
+5. Export a new `.bbs` revision.
+6. Use the runner's update workflow rather than importing it as an unrelated script.
 
 See [Script Management](../runner/script-management.md) for update and approval consequences.
 

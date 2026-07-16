@@ -10,10 +10,10 @@ import {
 	panelSizeConstraints,
 	type ResizablePanel,
 	responsivePanelLayout,
+	sanitizePanelSizes,
 } from "@/data/editor/panel-layout";
+import { getPanelPreferences, setPanelPreferences } from "@/data/storage/preference-repository";
 
-const PANEL_SIZES_STORAGE_KEY = "baudbound.editor.panel-sizes.v1";
-const PANEL_COLLAPSED_STORAGE_KEY = "baudbound.editor.panel-collapsed.v1";
 const viewportFallback = {
 	height: 900,
 	width: 1440,
@@ -28,9 +28,19 @@ export function useEditorPanelSizes() {
 	const sizes = fitPanelSizesToViewport(preferredSizes, collapsed, viewportSize);
 
 	useEffect(() => {
-		setPreferredSizes(getStoredPanelSizes());
-		setCollapsed(getStoredPanelCollapsedState());
-		setStorageReady(true);
+		let active = true;
+		void getPanelPreferences()
+			.then((preferences) => {
+				if (!active) return;
+				setPreferredSizes(preferences.sizes);
+				setCollapsed(preferences.collapsed);
+			})
+			.finally(() => {
+				if (active) setStorageReady(true);
+			});
+		return () => {
+			active = false;
+		};
 	}, []);
 
 	useEffect(() => {
@@ -60,24 +70,10 @@ export function useEditorPanelSizes() {
 			return;
 		}
 
-		try {
-			window.localStorage.setItem(PANEL_SIZES_STORAGE_KEY, JSON.stringify(sanitizePanelSizes(preferredSizes)));
-		} catch {
-			// Local storage can be disabled or unavailable in private contexts; resizing should still work.
-		}
-	}, [preferredSizes, storageReady]);
-
-	useEffect(() => {
-		if (!storageReady) {
-			return;
-		}
-
-		try {
-			window.localStorage.setItem(PANEL_COLLAPSED_STORAGE_KEY, JSON.stringify(collapsed));
-		} catch {
-			// Local storage can be disabled or unavailable in private contexts; panel controls should still work.
-		}
-	}, [collapsed, storageReady]);
+		void setPanelPreferences({ collapsed, sizes: sanitizePanelSizes(preferredSizes) }).catch(() => {
+			// Panel controls remain available when browser persistence is unavailable.
+		});
+	}, [collapsed, preferredSizes, storageReady]);
 
 	useEffect(() => {
 		return () => {
@@ -160,84 +156,6 @@ export function useEditorPanelSizes() {
 	}, []);
 
 	return { collapsed, expandPanel, sizes, startResize, togglePanel };
-}
-
-function getStoredPanelSizes() {
-	if (typeof window === "undefined") {
-		return defaultPanelSizes;
-	}
-
-	try {
-		const storedValue = window.localStorage.getItem(PANEL_SIZES_STORAGE_KEY);
-		if (!storedValue) {
-			return defaultPanelSizes;
-		}
-
-		return sanitizePanelSizes(JSON.parse(storedValue));
-	} catch {
-		return defaultPanelSizes;
-	}
-}
-
-function getStoredPanelCollapsedState(): EditorPanelCollapsedState {
-	if (typeof window === "undefined") {
-		return defaultPanelCollapsedState;
-	}
-
-	try {
-		const storedValue = window.localStorage.getItem(PANEL_COLLAPSED_STORAGE_KEY);
-		if (!storedValue) {
-			return defaultPanelCollapsedState;
-		}
-
-		return sanitizePanelCollapsedState(JSON.parse(storedValue));
-	} catch {
-		return defaultPanelCollapsedState;
-	}
-}
-
-function sanitizePanelSizes(value: unknown): EditorPanelSizes {
-	if (!isPanelSizesRecord(value)) {
-		return defaultPanelSizes;
-	}
-
-	return {
-		left: clamp(value.left, panelSizeConstraints.left.min, panelSizeConstraints.left.max),
-		right: clamp(value.right, panelSizeConstraints.right.min, panelSizeConstraints.right.max),
-		bottom: clamp(value.bottom, panelSizeConstraints.bottom.min, panelSizeConstraints.bottom.max),
-	};
-}
-
-function isPanelSizesRecord(value: unknown): value is EditorPanelSizes {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as Partial<EditorPanelSizes>).left === "number" &&
-		typeof (value as Partial<EditorPanelSizes>).right === "number" &&
-		typeof (value as Partial<EditorPanelSizes>).bottom === "number"
-	);
-}
-
-function sanitizePanelCollapsedState(value: unknown): EditorPanelCollapsedState {
-	if (!isPanelCollapsedState(value)) {
-		return defaultPanelCollapsedState;
-	}
-
-	return {
-		left: value.left,
-		right: value.right,
-		bottom: value.bottom,
-	};
-}
-
-function isPanelCollapsedState(value: unknown): value is EditorPanelCollapsedState {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as Partial<EditorPanelCollapsedState>).left === "boolean" &&
-		typeof (value as Partial<EditorPanelCollapsedState>).right === "boolean" &&
-		typeof (value as Partial<EditorPanelCollapsedState>).bottom === "boolean"
-	);
 }
 
 function clamp(value: number, min: number, max: number) {

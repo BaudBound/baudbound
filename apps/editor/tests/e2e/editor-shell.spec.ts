@@ -1,16 +1,18 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import JSZip from "jszip";
 
 test("editor shell loads the core controls", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await expect(page.getByText("BaudBound Editor", { exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Open asset editor" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Open project settings" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Open help" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Verify script" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Import package" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Save project" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Redo" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Properties" })).toBeVisible();
@@ -20,7 +22,7 @@ test("editor shell loads the core controls", async ({ page }) => {
 });
 
 test("panel collapse state persists across editor reloads", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Collapse block library" }).click();
 	await page.getByRole("button", { name: "Collapse inspector" }).click();
@@ -31,12 +33,9 @@ test("panel collapse state persists across editor reloads", async ({ page }) => 
 	await expect(page.getByRole("button", { name: "Expand bottom panel" })).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeHidden();
 	await expect(page.getByRole("button", { name: "Properties" })).toBeHidden();
-	await expect(page.getByRole("button", { name: "Import package" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
 
-	const storedState = await page.evaluate(() =>
-		JSON.parse(window.localStorage.getItem("baudbound.editor.panel-collapsed.v1") ?? "null"),
-	);
+	const storedState = await readPanelPreferences(page);
 	expect(storedState).toEqual({ left: true, right: true, bottom: true });
 
 	await page.reload();
@@ -49,7 +48,7 @@ test("panel collapse state persists across editor reloads", async ({ page }) => 
 });
 
 test("help modal exposes controls, references, expressions, and node docs", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Open help" }).click();
 	await expect(page.getByRole("heading", { name: "Editor Help" })).toBeVisible();
@@ -70,7 +69,7 @@ test("help modal exposes controls, references, expressions, and node docs", asyn
 });
 
 test("project settings target runtime can be changed with the combobox", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Open project settings" }).click();
 	await expect(page.getByRole("heading", { name: "Project Settings" })).toBeVisible();
@@ -84,7 +83,7 @@ test("project settings target runtime can be changed with the combobox", async (
 });
 
 test("text transform accepts a default variable with inactive optional numeric fields", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Variables", exact: true }).click();
 	await page.getByRole("button", { name: "Add variable" }).click();
@@ -106,7 +105,7 @@ test("text transform accepts a default variable with inactive optional numeric f
 });
 
 test("verification reports graph errors when the script has no trigger", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Verify script" }).click();
 
@@ -116,7 +115,7 @@ test("verification reports graph errors when the script has no trigger", async (
 });
 
 test("manual trigger creation is limited to one node", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Manual" }).click();
 	await page.getByRole("button", { name: "Manual" }).click();
@@ -126,7 +125,7 @@ test("manual trigger creation is limited to one node", async ({ page }) => {
 });
 
 test("verification warns for medium risk nodes", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Manual" }).click();
 	await page.getByRole("textbox", { name: "Search blocks" }).fill("Clipboard");
@@ -140,7 +139,7 @@ test("verification warns for medium risk nodes", async ({ page }) => {
 });
 
 test("comment text editing preserves caret position", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByTitle("Add comment").click();
 	const commentEditor = page.getByPlaceholder("Write a note...");
@@ -249,7 +248,7 @@ test("comment text editing preserves caret position", async ({ page }) => {
 });
 
 test("comment nodes support node context menu actions", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByTitle("Add comment").click();
 	const commentEditors = page.getByPlaceholder("Write a note...");
@@ -301,7 +300,7 @@ test("comment nodes support node context menu actions", async ({ page }) => {
 });
 
 test("empty canvas context menu searches and adds nodes", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	const pane = page.locator(".react-flow__pane");
 	const paneBox = await pane.boundingBox();
@@ -346,7 +345,7 @@ test("empty canvas context menu searches and adds nodes", async ({ page }) => {
 });
 
 test("keyboard paste uses the canvas pointer and falls back to the canvas center", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	const pane = page.locator(".react-flow__pane");
 	const paneBox = await pane.boundingBox();
@@ -433,7 +432,7 @@ test("keyboard paste uses the canvas pointer and falls back to the canvas center
 });
 
 test("copy and paste preserves a selected graph fragment", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	const pane = page.locator(".react-flow__pane");
 	const paneBox = await pane.boundingBox();
@@ -510,10 +509,32 @@ test("copy and paste preserves a selected graph fragment", async ({ page }) => {
 	expect(new Set(selectedNodeIds)).toEqual(new Set([copiedLogId, copiedHttpId]));
 	await expect(page.locator(".react-flow__edge.selected")).toHaveCount(1);
 	await expect(page.getByRole("group", { name: `Edge from ${copiedLogId} to ${copiedHttpId}` })).toHaveCount(1);
+
+	await page.keyboard.press("Delete");
+	await expect(logNodes).toHaveCount(1);
+	await expect(httpNodes).toHaveCount(1);
+	await expect(edges).toHaveCount(1);
+
+	await page.keyboard.press("Control+z");
+	await expect(logNodes).toHaveCount(2);
+	await expect(httpNodes).toHaveCount(2);
+	await expect(edges).toHaveCount(2);
+	await expect(page.getByRole("group", { name: `Edge from ${copiedLogId} to ${copiedHttpId}` })).toHaveCount(1);
+
+	await page.keyboard.press("Control+z");
+	await expect(logNodes).toHaveCount(1);
+	await expect(httpNodes).toHaveCount(1);
+	await expect(edges).toHaveCount(1);
+
+	await page.keyboard.press("Control+Shift+z");
+	await expect(logNodes).toHaveCount(2);
+	await expect(httpNodes).toHaveCount(2);
+	await expect(edges).toHaveCount(2);
+	await expect(page.getByRole("group", { name: `Edge from ${copiedLogId} to ${copiedHttpId}` })).toHaveCount(1);
 });
 
 test("a node cannot connect its output to its own input", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	const pane = page.locator(".react-flow__pane");
 	const paneBox = await pane.boundingBox();
@@ -534,7 +555,7 @@ test("a node cannot connect its output to its own input", async ({ page }) => {
 });
 
 test("fan-out execution order can be changed from the edge inspector", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Manual" }).click();
 	await page.getByRole("textbox", { name: "Search blocks" }).fill("Log");
@@ -569,10 +590,22 @@ test("fan-out execution order can be changed from the edge inspector", async ({ 
 	await expect(orderList.locator("li").nth(0)).toContainText("HTTP Request");
 	await expect(orderList.locator("li").nth(1)).toContainText("Log");
 	await expect(page.locator(".react-flow__edge-text")).toHaveText(["2", "1"]);
+
+	await page.keyboard.press("Control+z");
+	await expect(page.locator(".react-flow__edge-text")).toHaveText(["1", "2"]);
+	await page.locator(".react-flow__edge").last().dispatchEvent("click", { bubbles: true });
+	await expect(orderList.locator("li").nth(0)).toContainText("Log");
+	await expect(orderList.locator("li").nth(1)).toContainText("HTTP Request");
+
+	await page.keyboard.press("Control+y");
+	await expect(page.locator(".react-flow__edge-text")).toHaveText(["2", "1"]);
+	await page.locator(".react-flow__edge").last().dispatchEvent("click", { bubbles: true });
+	await expect(orderList.locator("li").nth(0)).toContainText("HTTP Request");
+	await expect(orderList.locator("li").nth(1)).toContainText("Log");
 });
 
 test("asset editor shows content checks without fixed size caps", async ({ page }) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Open asset editor" }).click();
 
@@ -601,7 +634,7 @@ test("hostile package import is rejected before loading", async ({ page }, testI
 });
 
 test("exported package preserves editor metadata and imports back", async ({ page }, testInfo) => {
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Manual" }).click();
 	await page.getByRole("button", { name: "Variables", exact: true }).click();
@@ -629,6 +662,7 @@ test("exported package preserves editor metadata and imports back", async ({ pag
 	const download = await downloadPromise;
 	const packagePath = testInfo.outputPath(download.suggestedFilename());
 	await download.saveAs(packagePath);
+	await page.getByRole("button", { name: "Cancel export" }).click();
 
 	const zip = await JSZip.loadAsync(readFileSync(packagePath));
 	const editorEntry = zip.file("editor.json");
@@ -652,19 +686,35 @@ test("exported package preserves editor metadata and imports back", async ({ pag
 		},
 	]);
 
-	await page.reload();
+	await page.getByRole("button", { name: "Return to projects" }).click();
+	await page.getByRole("button", { name: "Discard" }).click();
 	await page.locator('input[type="file"]').setInputFiles(packagePath);
-
+	await expect(page.getByRole("heading", { name: "Project already exists" })).toBeVisible();
+	await page.getByRole("button", { name: "Replace" }).click();
+	await expect(page).toHaveURL(new RegExp(`/projects/${manifestJson.id}$`));
+	await expect(page.getByText("saved", { exact: true })).toBeVisible();
 	await expect(page.getByPlaceholder("Write a note...")).toHaveValue("Round-trip comment");
-	await expect(page.getByText("Import verified:")).toBeVisible();
 	await page.getByRole("button", { name: "Variables", exact: true }).click();
 	await expect(page.getByText("Default variables", { exact: true })).toBeVisible();
 	await expect(page.getByText("counter", { exact: true }).last()).toBeVisible();
-});
 
+	await page.getByRole("button", { name: "Return to projects" }).click();
+	await page.locator('input[type="file"]').setInputFiles(packagePath);
+	await expect(page.getByRole("heading", { name: "Project already exists" })).toBeVisible();
+	await page.getByRole("button", { name: "Import copy" }).click();
+	await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+$/);
+	const copiedProjectId = page.url().split("/").at(-1);
+	expect(copiedProjectId).not.toBe(manifestJson.id);
+
+	await page.getByRole("button", { name: "Return to projects" }).click();
+	await page.locator('input[type="file"]').setInputFiles(packagePath);
+	await expect(page.getByRole("heading", { name: "Project already exists" })).toBeVisible();
+	await page.getByRole("button", { name: "Open existing" }).click();
+	await expect(page).toHaveURL(new RegExp(`/projects/${manifestJson.id}$`));
+});
 test("verification modal remains usable on a 1080p-height viewport", async ({ page }) => {
 	await page.setViewportSize({ width: 1366, height: 768 });
-	await page.goto("/");
+	await openEditor(page);
 
 	await page.getByRole("button", { name: "Verify script" }).click();
 
@@ -736,6 +786,31 @@ function addMinimalPackageDocuments(zip: JSZip) {
 		"capabilities.json",
 		JSON.stringify({ required_capabilities: ["trigger.manual"], target_runtime: "Generic Desktop" }),
 	);
+}
+
+async function openEditor(page: Page) {
+	await page.goto("/");
+	await page.getByRole("button", { name: "New project" }).click();
+	await page.getByRole("button", { name: "Create project" }).click();
+	await expect(page.getByRole("button", { name: "Open asset editor" })).toBeVisible();
+}
+
+async function readPanelPreferences(page: Page) {
+	return page.evaluate(async () => {
+		const request = indexedDB.open("baudbound-editor", 1);
+		const database = await new Promise<IDBDatabase>((resolve, reject) => {
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error);
+		});
+		const transaction = database.transaction("preferences", "readonly");
+		const resultRequest = transaction.objectStore("preferences").get("panel-layout.v1");
+		const result = await new Promise<{ value?: { collapsed?: unknown } } | undefined>((resolve, reject) => {
+			resultRequest.onsuccess = () => resolve(resultRequest.result);
+			resultRequest.onerror = () => reject(resultRequest.error);
+		});
+		database.close();
+		return result?.value?.collapsed ?? null;
+	});
 }
 
 function assertEditorMetadata(editorJson: unknown) {

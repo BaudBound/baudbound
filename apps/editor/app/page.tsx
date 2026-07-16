@@ -1,5 +1,5 @@
-import { EditorPage } from "./editor-page";
+import { ProjectHome } from "@/components/projects/project-home";
 
 export default function Page() {
-	return <EditorPage />;
+	return <ProjectHome />;
 }

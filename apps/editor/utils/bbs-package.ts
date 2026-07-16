@@ -11,6 +11,7 @@ import {
 import { packageLimits, validatePackageEntryLimits } from "@/data/project/package-limits";
 import { targetRuntimes } from "@/data/project/runtimes";
 import { variableTypes } from "@/data/project/variables";
+import type { ProjectIdentity } from "../data/projects/model";
 import type {
 	ActionType,
 	AssetKind,
@@ -35,7 +36,7 @@ import {
 	type VerificationCheck,
 } from "./verification";
 
-type ImportedBbsPackage = {
+export type ImportedBbsPackage = {
 	assets: EditorAsset[];
 	comments: EditorComment[];
 	defaultVariables: DefaultVariable[];
@@ -43,6 +44,7 @@ type ImportedBbsPackage = {
 	edges: Edge[];
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
+	identity: ProjectIdentity;
 	secretDeclarations: SecretDeclaration[];
 };
 
@@ -59,6 +61,7 @@ const MIN_COMMENT_FONT_SIZE = 12;
 const MAX_COMMENT_FONT_SIZE = 72;
 
 export async function exportBbsPackage(params: {
+	identity: ProjectIdentity;
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
 	edges: Edge[];
@@ -76,14 +79,14 @@ export async function exportBbsPackage(params: {
 	const manifestJson = compactObject({
 		format_version: 1,
 		script_language_version: 1,
-		id: crypto.randomUUID(),
+		id: params.identity.id,
 		name: params.projectSettings.name,
 		description: params.projectSettings.description,
 		author: params.projectSettings.author,
 		website: params.projectSettings.website,
 		repository: params.projectSettings.repository,
 		created_with: EDITOR_CREATED_WITH,
-		created_at: now,
+		created_at: params.identity.createdAt,
 		updated_at: now,
 		tags: params.projectSettings.tags,
 		minimum_runner_version: params.projectSettings.minimumRunnerVersion,
@@ -231,6 +234,7 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 	const editorMetadata = isRecord(jsonFiles[EDITOR_PACKAGE_FILE]) ? jsonFiles[EDITOR_PACKAGE_FILE] : null;
 
 	const projectSettings = toProjectSettings(manifest, capabilities);
+	const identity = toProjectIdentity(manifest);
 	const assets = await readPackageAssets(zip, manifest);
 	const { nodes, edges } = toEditorGraph(program, editorMetadata);
 	const comments = toEditorComments(editorMetadata);
@@ -245,8 +249,20 @@ export async function importBbsPackage(file: File): Promise<ImportedBbsPackage> 
 		edgeStyle,
 		edges,
 		nodes,
+		identity,
 		projectSettings,
 		secretDeclarations,
+	};
+}
+
+function toProjectIdentity(manifest: Record<string, unknown>): ProjectIdentity {
+	if (typeof manifest.id !== "string" || typeof manifest.created_at !== "string") {
+		throw new Error("manifest.json does not define a valid project identity.");
+	}
+
+	return {
+		id: manifest.id,
+		createdAt: manifest.created_at,
 	};
 }
 

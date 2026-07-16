@@ -11,7 +11,7 @@ The browser editor builds a project as a connected graph. It verifies and simula
 
 | Region | Purpose |
 | --- | --- |
-| **Top bar** | Assets, Project Settings, Help, target/session badge, verification state, Verify, Import, and Export |
+| **Top bar** | Return to Projects, Save, Undo, Redo, Assets, Project Settings, Help, Verify, and Export |
 | **Node library** | Searchable Triggers, Control Flow, and Actions compatible with the selected target |
 | **Canvas** | Executable nodes, comments, connections, selection, pan, zoom, minimap, and edge style |
 | **Inspector** | Properties for the selected node and the Simulation tab |
@@ -67,11 +67,11 @@ Use the React Flow controls to zoom in, zoom out, and fit the graph. The minimap
 
 Right-click an executable node or comment for **Copy**, **Duplicate**, and **Delete**. Right-click empty canvas for **Paste** after copying.
 
-Keyboard copy and paste use `Ctrl+C` and `Ctrl+V`. Paste places the copied node near the viewport center. Text inputs, textareas, code editors, content-editable elements, and active browser text selection keep their normal clipboard behavior.
+Keyboard copy and paste use `Ctrl+C` and `Ctrl+V`. When the pointer is over the canvas, paste uses that position. Otherwise it uses the viewport center. Copying a multi-selection preserves the selected nodes, comments, selected connections, and relative positions. Text inputs, textareas, code editors, content-editable elements, and active browser text selection keep their normal clipboard behavior.
 
 Deleting an executable node also removes connected edges. Deleting a comment does not affect executable flow.
 
-The current editor does not provide project-wide undo and redo history. Verify destructive edits before continuing and export important revisions regularly.
+Use `Ctrl+Z` to undo and `Ctrl+Y` or `Ctrl+Shift+Z` to redo project changes. The toolbar provides the same commands and disables them when no matching history entry exists. Changes inside a focused text or code field keep the browser control's normal text-level undo behavior.
 
 ## Context menus and key capture
 
@@ -99,7 +99,7 @@ The canvas edge selector applies one style to all graph edges. Available styles 
 
 ## Project, assets, and packages
 
-Use **Project Settings** for identity, target, description, author, version requirements, URLs, and tags. Use **Assets** for package-owned files. Use **Import** to load a verified `.bbs` package and **Export** to review and download a new revision.
+The editor opens on the Projects screen. Create a local project there or use **Open package** to import a verified `.bbs` file. Inside a project, use **Project Settings** for editable metadata and target settings, **Assets** for package-owned files, **Save** to commit work to browser storage, and **Export** to review and download a revision.
 
 Read [Projects, Assets, and Export](projects-assets-export.md) before editing an imported production package.
 
@@ -113,7 +113,13 @@ See [Verification and Simulation](simulation.md) for exact rule and payload beha
 
 ## Browser persistence and backups
 
-The working editor project is stored in the current browser profile. It may survive refresh and browser restart, but it is not a reliable project archive.
+Saved projects and assets are stored in IndexedDB in the current browser profile. `Ctrl+S` and the toolbar Save button commit the complete project. The status bar shows whether the project is saved, unsaved, saving, or failed to save. Reloading a saved project URL restores that project.
+
+One tab owns editing for each project. Other tabs show a takeover screen. A clean project can transfer control immediately, but the editor refuses takeover while the current owner has unsaved changes.
+
+Returning to Projects with unsaved changes asks whether to save, discard, or cancel. Reloading or closing the browser tab with unsaved changes uses the browser's standard warning.
+
+A failed save never replaces the previous stored revision. Keep the page open, read the recovery dialog, and retry or choose **Export current project**. A storage notice means the browser did not grant protected storage. The project still works, but it remains dependent on the current browser profile and available browser storage.
 
 Export before clearing browser data, switching profiles or devices, using private browsing, resetting the project, or making a risky graph change. Back up exported packages in normal versioned storage.
 
@@ -127,7 +133,9 @@ Export before clearing browser data, switching profiles or devices, using privat
 | `Ctrl` drag does not select | Begin on empty canvas, keep Ctrl held, and include the node bounds |
 | Copy affects text instead of node | Remove browser text selection and focus the canvas node |
 | Comment controls overlap | Resize the comment wider or reduce its font size |
-| Imported package is rejected | Keep the current project open and inspect the import verification error |
+| Imported package is rejected | Return to Projects, use Open package, and inspect the verification error |
+| Project is already open | Continue in the owning tab, or take control after its changes are saved |
+| Save failed | Keep the tab open, retry the save, or export the current project from the recovery dialog |
 | Work disappeared | Check the original browser profile; restore from the latest exported package |
 
 Continue with [Node Reference](node-reference.md) and [Variables and Data](variables.md).

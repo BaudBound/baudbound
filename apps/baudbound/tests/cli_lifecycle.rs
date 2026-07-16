@@ -87,6 +87,15 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
             package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
+    let imported = command_json(run_baudbound(
+        &runner_home,
+        ["script", "inspect", "cli-lifecycle", "--json"],
+    ));
+    let imported_hash = imported["package_hash"]
+        .as_str()
+        .expect("imported package hash should be a string")
+        .to_owned();
+    assert_eq!(imported["id"], "cli-lifecycle");
 
     let failed_run = run_baudbound(&runner_home, ["script", "run", "cli-lifecycle"]);
     assert!(
@@ -121,6 +130,19 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
             updated_package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
+    let updated = command_json(run_baudbound(
+        &runner_home,
+        ["script", "inspect", "cli-lifecycle", "--json"],
+    ));
+    assert_eq!(updated["id"], "cli-lifecycle");
+    assert_ne!(updated["package_hash"], imported_hash);
+    assert_eq!(
+        command_json(run_baudbound(&runner_home, ["script", "list", "--json"]))
+            .as_array()
+            .expect("installed scripts should be a JSON array")
+            .len(),
+        1
+    );
     assert_eq!(
         command_json(run_baudbound(
             &runner_home,

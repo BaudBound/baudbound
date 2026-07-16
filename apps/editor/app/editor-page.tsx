@@ -8,7 +8,7 @@ import {
 	useNodesState,
 	type XYPosition,
 } from "@xyflow/react";
-import type { ChangeEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	areCommentNodeDataEqual,
@@ -27,6 +27,8 @@ import { ProjectSettingsModal } from "@/components/modals/project-settings-modal
 import { SimulationMessageBoxDialog } from "@/components/modals/simulation-message-box-dialog";
 import { VerificationErrorModal } from "@/components/modals/verification-error-modal";
 import { VerificationModal } from "@/components/modals/verification-modal";
+import { SaveRecoveryDialog } from "@/components/projects/save-recovery-dialog";
+import { UnsavedChangesDialog } from "@/components/projects/unsaved-changes-dialog";
 import { BlockLibrary } from "@/components/shell/block-library";
 import { type BottomPanelTab, OutputConsole } from "@/components/shell/output-console";
 import { ResizeHandle } from "@/components/shell/resize-handle";
@@ -35,15 +37,16 @@ import { TopBar } from "@/components/shell/top-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { defaultEditorEdgeStyle, type EditorEdgeStyle, toReactFlowEdgeType } from "@/data/editor/flow-canvas";
 import { createSwitchOutputPorts, getSwitchCaseRowsFromValue } from "@/data/nodes/definitions/rows";
-import {
-	createDevelopmentEditorNodes,
-	createInitialEditorEdges,
-	createInitialEditorNodes,
-	isDevelopmentGraphEnabled,
-} from "@/data/nodes/development-graph";
+import { createDevelopmentEditorNodes, isDevelopmentGraphEnabled } from "@/data/nodes/development-graph";
 import { createNodeFromPaletteItem, getFlatPaletteItems } from "@/data/nodes/registry";
 import { createSimulationSecretValues, getSecretSimulationProblems } from "@/data/project/secrets";
+import { getProjectHistoryCoalesceKey } from "@/data/projects/history";
+import type { EditorProject } from "@/data/projects/model";
+import { projectContentSignature } from "@/data/projects/serialization";
+import { useDocumentHistory } from "@/hooks/use-document-history";
 import { useEditorPanelSizes } from "@/hooks/use-editor-panel-sizes";
+import { useEditorShortcuts } from "@/hooks/use-editor-shortcuts";
+import { useProjectSaveLifecycle } from "@/hooks/use-project-save-lifecycle";
 import type {
 	CommentNodeData,
 	DefaultVariable,
@@ -70,7 +73,7 @@ import {
 	createConsoleLogs,
 	createExportSummary,
 } from "@/utils/analysis";
-import { exportBbsPackage, importBbsPackage, verifyBbsPackage } from "@/utils/bbs-package";
+import { exportBbsPackage } from "@/utils/bbs-package";
 import {
 	createEditorVerificationSignature,
 	createGraphFragment,
@@ -84,7 +87,6 @@ import {
 	reorderEdgeExecutionGroup,
 } from "@/utils/editor-graph";
 import { truncateLogEntry, truncateSimulationTrace } from "@/utils/editor-log";
-import { hasBrowserTextSelection, isEditableShortcutTarget } from "@/utils/editor-shortcuts";
 import { createVariablePanelEntries } from "@/utils/editor-variables";
 import {
 	createSimulationRun,
@@ -131,25 +133,35 @@ const MAX_SIMULATION_LOG_ENTRIES = 800;
 const paletteItemByActionType: ReadonlyMap<string, PaletteItem> = new Map(
 	getFlatPaletteItems().map((item) => [item.actionType, item]),
 );
-const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
-	name: "untitled-script",
-	description: "",
-	author: "",
-	website: "",
-	repository: "",
-	tags: [],
-	targetRuntime: "Generic Desktop",
-	minimumRunnerVersion: DEFAULT_MINIMUM_RUNNER_VERSION,
-};
-
-export function EditorPage() {
+export function EditorPage({
+	initialProject,
+	onDirtyChange,
+}: {
+	initialProject: EditorProject;
+	onDirtyChange?: (dirty: boolean) => void;
+}) {
+	const router = useRouter();
 	const handleCopyGraphRef = useRef<(nodeId?: string) => boolean>(() => false);
-	const importInputRef = useRef<HTMLInputElement>(null);
 	const simulationLifecycleRef = useRef<SimulationLifecycle>({ abortController: null, active: false, runId: 0 });
 	const simulationMessageBoxResolveRef = useRef<((button: string) => void) | null>(null);
-	const initialNodes = useMemo<EditorFlowNode[]>(() => createInitialEditorNodes() as ScriptFlowNode[], []);
-	const initialEdges = useMemo(() => createInitialEditorEdges(), []);
-	const [projectSettings, setProjectSettings] = useState<ProjectSettings>(DEFAULT_PROJECT_SETTINGS);
+	const initialNodes = useMemo<EditorFlowNode[]>(
+		() => [
+			...(initialProject.nodes as ScriptFlowNode[]),
+			...initialProject.comments.map((comment) => toCommentFlowNode(comment)),
+		],
+		[initialProject],
+	);
+	const initialEdges = useMemo(
+		() =>
+			initialProject.edges.map((edge) => ({
+				...edge,
+				type: toReactFlowEdgeType(initialProject.edgeStyle),
+				style: undefined,
+			})),
+		[initialProject],
+	);
+	const [persistedProject, setPersistedProject] = useState(initialProject);
+	const [projectSettings, setProjectSettings] = useState<ProjectSettings>(initialProject.settings);
 	const [activeTab, setActiveTab] = useState<InspectorTab>("properties");
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 	const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -170,11 +182,11 @@ export function EditorPage() {
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [exportOpen, setExportOpen] = useState(false);
 	const [clipboard, setClipboard] = useState<EditorClipboard | null>(null);
-	const [assets, setAssets] = useState<EditorAsset[]>([]);
-	const [defaultVariables, setDefaultVariables] = useState<DefaultVariable[]>([]);
-	const [secretDeclarations, setSecretDeclarations] = useState<SecretDeclaration[]>([]);
+	const [assets, setAssets] = useState<EditorAsset[]>(initialProject.assets);
+	const [defaultVariables, setDefaultVariables] = useState<DefaultVariable[]>(initialProject.defaultVariables);
+	const [secretDeclarations, setSecretDeclarations] = useState<SecretDeclaration[]>(initialProject.secretDeclarations);
 	const [simulationSecretValues, setSimulationSecretValues] = useState<Record<string, string>>({});
-	const [edgeStyle, setEdgeStyle] = useState<EditorEdgeStyle>(defaultEditorEdgeStyle);
+	const [edgeStyle, setEdgeStyle] = useState<EditorEdgeStyle>(initialProject.edgeStyle ?? defaultEditorEdgeStyle);
 	const [viewportCenter, setViewportCenter] = useState<XYPosition | null>(null);
 	const [bottomPanelFollow, setBottomPanelFollow] = useState({
 		system: true,
@@ -191,8 +203,8 @@ export function EditorPage() {
 	const [simulationMessageBox, setSimulationMessageBox] = useState<SimulationMessageBoxState>(null);
 	const [systemLogs, setSystemLogs] = useState<LogEntry[]>(() =>
 		createConsoleLogs(
-			DEFAULT_PROJECT_SETTINGS.name,
-			DEFAULT_PROJECT_SETTINGS.targetRuntime,
+			initialProject.settings.name,
+			initialProject.settings.targetRuntime,
 			calculatePermissions(initialNodes.filter(isScriptFlowNode)),
 		),
 	);
@@ -285,6 +297,44 @@ export function EditorPage() {
 		name: projectSettings.name.trim() || "untitled-script",
 		minimumRunnerVersion: projectSettings.minimumRunnerVersion.trim() || DEFAULT_MINIMUM_RUNNER_VERSION,
 	};
+	const currentProject = useMemo<EditorProject>(
+		() => ({
+			assets,
+			comments,
+			defaultVariables,
+			edgeStyle,
+			edges,
+			identity: persistedProject.identity,
+			nodes: scriptNodes,
+			revision: persistedProject.revision,
+			schemaVersion: persistedProject.schemaVersion,
+			secretDeclarations,
+			settings: projectSettings,
+			updatedAt: persistedProject.updatedAt,
+		}),
+		[
+			assets,
+			comments,
+			defaultVariables,
+			edgeStyle,
+			edges,
+			persistedProject,
+			projectSettings,
+			scriptNodes,
+			secretDeclarations,
+		],
+	);
+	const currentSignature = useMemo(() => projectContentSignature(currentProject), [currentProject]);
+	const returnToProjects = useCallback(() => router.push("/"), [router]);
+	const projectSave = useProjectSaveLifecycle({
+		currentProject,
+		currentSignature,
+		expectedRevision: persistedProject.revision,
+		initialSavedSignature: projectContentSignature(initialProject),
+		onCommitted: setPersistedProject,
+		onDirtyChange,
+		onReturn: returnToProjects,
+	});
 
 	const appendOutputLogs = useCallback((entries: LogEntry[]) => {
 		setLogs((currentLogs) => [...currentLogs, ...entries.map(truncateLogEntry)].slice(-MAX_OUTPUT_LOG_ENTRIES));
@@ -307,6 +357,45 @@ export function EditorPage() {
 		lifecycle.active = false;
 		lifecycle.runId += 1;
 	}, []);
+
+	const restoreDocument = useCallback(
+		(project: EditorProject) => {
+			abortSimulationLifecycle("history restored");
+			setProjectSettings(project.settings);
+			setAssets(project.assets);
+			setDefaultVariables(project.defaultVariables);
+			setSecretDeclarations(project.secretDeclarations);
+			setEdgeStyle(project.edgeStyle);
+			setNodes([
+				...(project.nodes as ScriptFlowNode[]),
+				...project.comments.map((comment) => toCommentFlowNode(comment)),
+			]);
+			setEdges(
+				project.edges.map((edge) => ({
+					...edge,
+					type: toReactFlowEdgeType(project.edgeStyle),
+					style: undefined,
+				})),
+			);
+			setSelectedNodeId(null);
+			setSelectedEdgeId(null);
+		},
+		[abortSimulationLifecycle, setEdges, setNodes],
+	);
+	const history = useDocumentHistory({
+		getCoalesceKey: getProjectHistoryCoalesceKey,
+		signature: currentSignature,
+		value: currentProject,
+		onRestore: restoreDocument,
+	});
+	const handleCopyShortcut = useCallback(() => handleCopyGraphRef.current(), []);
+	const handleSaveShortcut = useCallback(() => void projectSave.save(), [projectSave.save]);
+	useEditorShortcuts({
+		onCopy: handleCopyShortcut,
+		onRedo: history.redo,
+		onSave: handleSaveShortcut,
+		onUndo: history.undo,
+	});
 
 	const startSimulationLifecycle = useCallback((abortController: AbortController) => {
 		const lifecycle = simulationLifecycleRef.current;
@@ -364,6 +453,7 @@ export function EditorPage() {
 
 	const handleDownloadExport = async () => {
 		await exportBbsPackage({
+			identity: persistedProject.identity,
 			projectSettings: normalizedProjectSettings,
 			nodes: scriptNodes,
 			edges,
@@ -656,115 +746,6 @@ export function EditorPage() {
 		abortSimulationLifecycle("stopped by user");
 		setSimulationStatus("stopped");
 		appendSimulationLogs([{ level: "warn", message: "[Simulation] Stop requested by user." }]);
-	};
-
-	const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-		const file = event.target.files?.[0];
-		if (!file) {
-			return;
-		}
-
-		try {
-			const verification = await verifyBbsPackage(file);
-			if (verification.summary.status !== "verified") {
-				setVerificationErrorDialog({
-					open: true,
-					title: "Import Rejected",
-					description: "The imported package did not pass verification cleanly and was not loaded.",
-					checks: verification.checks,
-				});
-				appendSystemLogs([
-					{ level: "error", message: `Import rejected: ${file.name} did not pass package verification.` },
-				]);
-				expandPanel("bottom");
-				return;
-			}
-
-			const importedPackage = await importBbsPackage(file);
-			const importedPermissions = calculatePermissions(
-				importedPackage.nodes,
-				importedPackage.secretDeclarations,
-				importedPackage.defaultVariables,
-			);
-			const importedVerificationChecks = createVerificationChecks({
-				assets: importedPackage.assets,
-				edges: importedPackage.edges,
-				nodes: importedPackage.nodes,
-				permissions: importedPermissions,
-				defaultVariables: importedPackage.defaultVariables,
-				secretDeclarations: importedPackage.secretDeclarations,
-				scriptName: importedPackage.projectSettings.name,
-				targetRuntime: importedPackage.projectSettings.targetRuntime,
-			});
-			const importedSummary = summarizeVerification(importedVerificationChecks);
-			const importedSignature = createEditorVerificationSignature(
-				importedPackage.projectSettings,
-				importedPackage.nodes,
-				importedPackage.edges,
-				importedPackage.assets,
-				importedPackage.secretDeclarations,
-				importedPackage.defaultVariables,
-			);
-
-			abortSimulationLifecycle("imported package loaded");
-			setProjectSettings(importedPackage.projectSettings);
-			setAssets(importedPackage.assets);
-			setDefaultVariables(importedPackage.defaultVariables);
-			setSecretDeclarations(importedPackage.secretDeclarations);
-			setSimulationSecretValues({});
-			setEdgeStyle(importedPackage.edgeStyle);
-			setNodes([
-				...(importedPackage.nodes as ScriptFlowNode[]),
-				...importedPackage.comments.map((comment) => toCommentFlowNode(comment)),
-			]);
-			setEdges(
-				importedPackage.edges.map((edge) => ({
-					...edge,
-					type: toReactFlowEdgeType(importedPackage.edgeStyle),
-					style: undefined,
-				})),
-			);
-			setSelectedNodeId(null);
-			setSelectedEdgeId(null);
-			setSimulationOverrides([]);
-			setSimulationStatus("idle");
-			setSimulationLogs([]);
-			setSimulationVariables([]);
-			setLogs([]);
-			setSystemLogs([
-				...createConsoleLogs(
-					importedPackage.projectSettings.name,
-					importedPackage.projectSettings.targetRuntime,
-					importedPermissions,
-				),
-				{
-					level: importedSummary.status === "failed" ? "error" : importedSummary.status === "warning" ? "warn" : "info",
-					message: `Imported ${file.name}: ${importedPackage.nodes.length} node${importedPackage.nodes.length === 1 ? "" : "s"}, ${importedPackage.edges.length} connection${importedPackage.edges.length === 1 ? "" : "s"}, ${importedPackage.assets.length} asset${importedPackage.assets.length === 1 ? "" : "s"}.`,
-				},
-			]);
-			setVerificationRecord({ signature: importedSignature, status: importedSummary.status });
-			expandPanel("bottom");
-			setBottomPanelTab("system");
-			appendSystemLogs([{ level: "info", message: `Import verified: ${file.name}` }]);
-			setActiveTab("properties");
-		} catch (error) {
-			setVerificationErrorDialog({
-				open: true,
-				title: "Import Rejected",
-				description: error instanceof Error ? error.message : "The imported package could not be read.",
-				checks: [
-					{
-						id: "package-read",
-						title: "Package Read",
-						description: "Checking that the package can be opened.",
-						outcome: "failed",
-						message: error instanceof Error ? error.message : "The package could not be read.",
-					},
-				],
-			});
-		} finally {
-			event.target.value = "";
-		}
 	};
 
 	const handleSaveProjectSettings = (settings: ProjectSettings) => {
@@ -1124,44 +1105,24 @@ export function EditorPage() {
 		}
 	};
 
-	useEffect(() => {
-		const handleEditorKeyDown = (event: KeyboardEvent) => {
-			if (isEditableShortcutTarget(event.target) || !(event.ctrlKey || event.metaKey)) {
-				return;
-			}
-
-			const key = event.key.toLowerCase();
-			if (key === "c") {
-				if (hasBrowserTextSelection()) {
-					return;
-				}
-
-				if (handleCopyGraphRef.current()) {
-					event.preventDefault();
-				}
-				return;
-			}
-		};
-
-		window.addEventListener("keydown", handleEditorKeyDown);
-
-		return () => window.removeEventListener("keydown", handleEditorKeyDown);
-	}, []);
-
 	return (
 		<div className="flex h-dvh min-h-0 select-none flex-col overflow-hidden bg-baud-bg text-baud-text">
 			<TopBar
-				importInputRef={importInputRef}
 				leftCollapsed={collapsed.left}
 				leftWidth={sizes.left}
 				rightCollapsed={collapsed.right}
 				rightWidth={sizes.right}
+				saveDisabled={!projectSave.hasUnsavedChanges || projectSave.saving}
+				canRedo={history.canRedo}
+				canUndo={history.canUndo}
 				onAssetEditorClick={() => setAssetEditorOpen(true)}
-				onImportClick={() => importInputRef.current?.click()}
-				onImportFileChange={handleImportFileChange}
 				onExportClick={handleExport}
+				onHomeClick={projectSave.requestReturn}
 				onHelpClick={() => setHelpOpen(true)}
 				onProjectSettingsClick={() => setProjectSettingsOpen(true)}
+				onRedoClick={history.redo}
+				onSaveClick={() => void projectSave.save()}
+				onUndoClick={history.undo}
 				onVerifyClick={handleVerify}
 			/>
 
@@ -1295,6 +1256,24 @@ export function EditorPage() {
 				riskLevel={riskLevel}
 				targetRuntime={projectSettings.targetRuntime}
 				verificationStatus={verificationRecord.status}
+				saveStatus={projectSave.status}
+			/>
+			<UnsavedChangesDialog
+				open={projectSave.leaveDialogOpen}
+				saving={projectSave.saving}
+				onCancel={projectSave.closeLeaveDialog}
+				onDiscard={projectSave.discardAndReturn}
+				onSave={() => void projectSave.saveAndReturn()}
+			/>
+			<SaveRecoveryDialog
+				failure={projectSave.failure}
+				saving={projectSave.saving}
+				onClose={projectSave.closeFailure}
+				onExport={() => {
+					projectSave.closeFailure();
+					setExportOpen(true);
+				}}
+				onRetry={() => void projectSave.save()}
 			/>
 			<VerificationModal
 				checks={verificationChecks}

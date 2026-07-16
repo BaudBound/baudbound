@@ -106,6 +106,8 @@ baudbound script approve SCRIPT
 
 Update succeeds only when the package has the same manifest identity as an installed script. It invalidates the old approval because the content changed. Inspect and approve the replacement before running it.
 
+Open the same saved editor project when creating an update. Its later exports retain the manifest identity automatically. Duplicating the editor project or choosing **Import copy** creates a different identity and must be imported as another script instead of used with Update.
+
 Update preserves the script's enabled state, import identity, persistent variables, configured secret values, and historical runs. The previous approval remains recorded against its old hash and is reported as stale until the new revision is approved. When the imported filename changes, the old stored package copy is removed after the replacement is committed.
 
 Remove an installed script with:

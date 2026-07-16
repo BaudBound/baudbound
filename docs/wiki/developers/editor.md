@@ -7,6 +7,12 @@ tags: [developers, editor]
 
 The editor uses Next.js 16, React 19, React Flow, Tailwind CSS 4, Lucide icons, and the repository's shadcn-style primitives. `apps/editor/app` owns routing and page composition, `components` owns UI, `data` owns registry/project definitions, `utils` owns verification/simulation/package behavior, and `tests` owns Node contract tests and Playwright workflows.
 
+The root route is a local project home. Project routes use `/projects/{projectId}`. Durable project records, binary assets, and global editor preferences live in the versioned `baudbound-editor` IndexedDB database behind `data/storage` repositories. Do not add normal `localStorage` or `sessionStorage` persistence. The only localStorage access is the one-time panel-preference migration, which deletes legacy values after its IndexedDB transaction commits.
+
+Project identity is immutable and separate from editable settings. Exports reuse the stored UUID and creation timestamp so the runner can recognize later packages as revisions of the same script. Import conflicts must offer open, replace, or independent-copy behavior explicitly.
+
+Project routes coordinate one writable tab through `BroadcastChannel`. Takeover is denied while the owner is dirty, stale owners expire after missed heartbeats, and IndexedDB revision checks remain the final protection against stale writes. Save transactions must preserve the previous committed revision on failure and keep the current document available for package-export recovery.
+
 Node definitions under `apps/editor/data/nodes/definitions` own display metadata, category, configuration fields, outputs, risk, capabilities, and `supportedTargetRuntimes`. The registry assembles definitions for palette, inspector, verification, help, schema generation, and package export.
 
 Do not create a second platform-compatibility list. Absence of `supportedTargetRuntimes` means all targets; restrictions must be explicit on the definition. Contract tests ensure the runner recognizes the same executable node types and capabilities.

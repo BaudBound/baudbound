@@ -42,3 +42,51 @@ export const responsivePanelLayout = {
 	statusBarHeight: 24,
 	topBarHeight: 48,
 };
+
+export function sanitizePanelSizes(value: unknown): EditorPanelSizes {
+	if (!isPanelSizesRecord(value)) {
+		return defaultPanelSizes;
+	}
+
+	return {
+		left: clamp(value.left, panelSizeConstraints.left.min, panelSizeConstraints.left.max),
+		right: clamp(value.right, panelSizeConstraints.right.min, panelSizeConstraints.right.max),
+		bottom: clamp(value.bottom, panelSizeConstraints.bottom.min, panelSizeConstraints.bottom.max),
+	};
+}
+
+export function sanitizePanelCollapsedState(value: unknown): EditorPanelCollapsedState {
+	if (!isPanelCollapsedState(value)) {
+		return defaultPanelCollapsedState;
+	}
+
+	return {
+		left: value.left,
+		right: value.right,
+		bottom: value.bottom,
+	};
+}
+
+function isPanelSizesRecord(value: unknown): value is EditorPanelSizes {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as Partial<EditorPanelSizes>).left === "number" &&
+		typeof (value as Partial<EditorPanelSizes>).right === "number" &&
+		typeof (value as Partial<EditorPanelSizes>).bottom === "number"
+	);
+}
+
+function isPanelCollapsedState(value: unknown): value is EditorPanelCollapsedState {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as Partial<EditorPanelCollapsedState>).left === "boolean" &&
+		typeof (value as Partial<EditorPanelCollapsedState>).right === "boolean" &&
+		typeof (value as Partial<EditorPanelCollapsedState>).bottom === "boolean"
+	);
+}
+
+function clamp(value: number, min: number, max: number) {
+	return Math.min(Math.max(value, min), max);
+}
