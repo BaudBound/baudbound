@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { executeTextTransform } from "../../data/nodes/definitions/actions/format-text";
+import { executeTextTransform, formatTextNode } from "../../data/nodes/definitions/actions/format-text";
 import type { JsonValue } from "../../lib/types";
 
 const variables: Record<string, JsonValue> = {
@@ -95,4 +95,30 @@ test("editor rejects malformed text transform inputs", () => {
 		const result = executeTextTransform({ config, parseJsonValue, resolveTemplate });
 		expect(result.ok, `operation ${String(config.operation)} should fail`).toBe(false);
 	}
+});
+
+test("text transform export omits fields unused by the selected operation", () => {
+	const sanitizeConfig = formatTextNode.sanitizeConfig;
+	expect(sanitizeConfig).toBeDefined();
+
+	const config = sanitizeConfig?.({
+		customName: "Normalize title",
+		delimiter: ",",
+		input: "{{test}}",
+		items: '["one","two"]',
+		length: "",
+		operation: "sentence_case",
+		pad: " ",
+		replacement: "",
+		search: "",
+		start: "0",
+		targetLength: "10",
+		template: "{{test}}",
+	});
+
+	expect(config).toEqual({
+		customName: "Normalize title",
+		input: "{{test}}",
+		operation: "sentence_case",
+	});
 });

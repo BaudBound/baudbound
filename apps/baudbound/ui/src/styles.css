@@ -67,6 +67,13 @@ code,
   user-select: text;
 }
 
+.cn-toast [data-content],
+.cn-toast [data-title],
+.cn-toast [data-description] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 button,
 input,
 textarea,

@@ -95,6 +95,40 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn accepts_text_transform_operations_and_runtime_outputs_exported_by_the_editor() {
+        for operation in ["uppercase", "sentence_case", "capitalize_words"] {
+            let mut program = minimal_program();
+            program["entry"]["program"]["steps"] = json!([{
+                "id": "n-transform",
+                "action_type": "action.text.format",
+                "type": "action",
+                "action": "format_text",
+                "config": {
+                    "operation": operation,
+                    "input": "{{test}}"
+                },
+                "runtime_outputs": [
+                    {
+                        "name": "text",
+                        "type": "string",
+                        "description": "Transformed text result.",
+                        "example": "n-transform.text"
+                    },
+                    {
+                        "name": "items",
+                        "type": "list",
+                        "description": "List result for split and join operations.",
+                        "example": "n-transform.items"
+                    }
+                ]
+            }]);
+
+            validate_program_schema(&program)
+                .unwrap_or_else(|error| panic!("{operation} export should match schema: {error}"));
+        }
+    }
+
     fn minimal_program() -> Value {
         json!({
             "entry": {

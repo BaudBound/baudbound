@@ -61,10 +61,7 @@ export const formatTextNode = defineNode({
 		},
 	],
 	runnerType: "format_text",
-	sanitizeConfig: (config) => ({
-		...config,
-		operation: normalizeTextTransformOperation(configString(config.operation)),
-	}),
+	sanitizeConfig: sanitizeTextTransformConfig,
 	validateConfig: (config) => validateTextTransformConfig(config),
 	simulation: {
 		createOutput: ({ api, context, node }) => {
@@ -174,6 +171,50 @@ function validateTextTransformConfig(config: Record<string, JsonValue>) {
 	}
 
 	return errors.filter(Boolean);
+}
+
+function sanitizeTextTransformConfig(config: Record<string, JsonValue>) {
+	const operation = normalizeTextTransformOperation(configString(config.operation));
+	const sanitized: Record<string, JsonValue> = { operation };
+	copyConfigFields(config, sanitized, ["customName"]);
+
+	if (operation === "template") {
+		copyConfigFields(config, sanitized, ["template"]);
+		return sanitized;
+	}
+
+	if (operation === "join") {
+		copyConfigFields(config, sanitized, ["items", "delimiter"]);
+		return sanitized;
+	}
+
+	copyConfigFields(config, sanitized, ["input"]);
+	if (operation === "replace" || operation === "regex_replace") {
+		copyConfigFields(config, sanitized, ["search", "replacement"]);
+	} else if (operation === "split") {
+		copyConfigFields(config, sanitized, ["delimiter"]);
+	} else if (operation === "substring") {
+		copyConfigFields(config, sanitized, ["start"]);
+		if (configString(config.length).trim()) {
+			copyConfigFields(config, sanitized, ["length"]);
+		}
+	} else if (operation === "pad_start" || operation === "pad_end") {
+		copyConfigFields(config, sanitized, ["targetLength", "pad"]);
+	}
+
+	return sanitized;
+}
+
+function copyConfigFields(
+	source: Record<string, JsonValue>,
+	target: Record<string, JsonValue>,
+	keys: readonly string[],
+) {
+	for (const key of keys) {
+		if (key in source) {
+			target[key] = source[key];
+		}
+	}
 }
 
 export function executeTextTransform({
