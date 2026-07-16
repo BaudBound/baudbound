@@ -53,7 +53,7 @@ export function TopBar({
 		<header
 			className="grid h-12 shrink-0 border-b border-baud-border bg-baud-panel"
 			style={{
-				gridTemplateColumns: `${leftWidth}px ${leftCollapsed ? 0 : 4}px minmax(0, 1fr) ${rightCollapsed ? 0 : 4}px ${rightWidth}px`,
+				gridTemplateColumns: `${leftWidth}px ${leftCollapsed ? 0 : 4}px minmax(0, 1fr) ${rightCollapsed ? 0 : 4}px ${rightCollapsed ? 0 : rightWidth}px`,
 			}}
 		>
 			<div className={`flex h-full min-w-0 items-center ${leftCollapsed ? "justify-center px-1" : "gap-2 px-3"}`}>
@@ -76,94 +76,130 @@ export function TopBar({
 
 			<div className="bg-baud-border/30" />
 
-			<div className="flex min-w-0 items-center gap-2 overflow-hidden px-2">
-				<Button
-					type="button"
-					onClick={onHomeClick}
-					aria-label="Return to projects"
-					title="Projects"
-					size="icon-sm"
-					variant="toolbar"
-				>
-					<House />
-				</Button>
-				<Button
-					type="button"
-					onClick={onSaveClick}
-					disabled={saveDisabled}
-					aria-label="Save project"
-					size="sm"
-					variant="toolbar"
-				>
-					<Save size={14} />
-					<span className="hidden xl:inline">Save</span>
-				</Button>
-				<div className="flex items-center gap-0.5">
+			<div className="flex min-w-0 items-center justify-between gap-3 overflow-hidden px-2">
+				<fieldset className="m-0 flex shrink-0 items-center gap-1.5 border-0 p-0" aria-label="Canvas editing controls">
 					<Button
 						type="button"
-						onClick={onUndoClick}
-						disabled={!canUndo}
-						aria-label="Undo"
-						title="Undo"
+						onClick={onHomeClick}
+						aria-label="Return to projects"
+						title="Projects"
 						size="icon-sm"
-						variant="ghost"
+						variant="toolbar"
 					>
-						<Undo2 />
+						<House />
 					</Button>
 					<Button
 						type="button"
-						onClick={onRedoClick}
-						disabled={!canRedo}
-						aria-label="Redo"
-						title="Redo"
+						onClick={onSaveClick}
+						disabled={saveDisabled}
+						aria-label="Save project"
+						size="sm"
+						variant="toolbar"
+					>
+						<Save size={14} />
+						<span className="hidden xl:inline">Save</span>
+					</Button>
+					<div className="flex items-center gap-0.5">
+						<Button
+							type="button"
+							onClick={onUndoClick}
+							disabled={!canUndo}
+							aria-label="Undo"
+							title="Undo"
+							size="icon-sm"
+							variant="ghost"
+						>
+							<Undo2 />
+						</Button>
+						<Button
+							type="button"
+							onClick={onRedoClick}
+							disabled={!canRedo}
+							aria-label="Redo"
+							title="Redo"
+							size="icon-sm"
+							variant="ghost"
+						>
+							<Redo2 />
+						</Button>
+					</div>
+				</fieldset>
+				<fieldset
+					className="m-0 flex min-w-0 items-center justify-end gap-1.5 border-0 p-0"
+					aria-label="Canvas project tools"
+				>
+					<Button
+						type="button"
+						onClick={onHelpClick}
+						aria-label="Open help"
+						title="Help"
 						size="icon-sm"
 						variant="ghost"
 					>
-						<Redo2 />
+						<CircleHelp />
 					</Button>
-				</div>
-				<Button type="button" onClick={onAssetEditorClick} aria-label="Open asset editor" size="sm" variant="toolbar">
-					<PackageOpen size={14} />
-					<span className="hidden xl:inline">Assets</span>
-				</Button>
-				<Button
-					type="button"
-					onClick={onProjectSettingsClick}
-					aria-label="Open project settings"
-					size="sm"
-					variant="toolbar"
-				>
-					<SlidersHorizontal size={14} />
-					<span className="hidden 2xl:inline">Project Settings</span>
-				</Button>
-				<Button type="button" onClick={onHelpClick} aria-label="Open help" size="sm" variant="toolbar">
-					<CircleHelp size={14} />
-					<span className="hidden xl:inline">Help</span>
-				</Button>
-				<div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5">
-					<Button type="button" onClick={onVerifyClick} aria-label="Verify script" size="sm" variant="toolbarActive">
-						<ShieldCheck size={14} />
-						<span className="hidden xl:inline">Verify</span>
+					<Button type="button" onClick={onAssetEditorClick} aria-label="Open asset editor" size="sm" variant="toolbar">
+						<PackageOpen size={14} />
+						<span className="hidden xl:inline">Assets</span>
+					</Button>
+					<Button
+						type="button"
+						onClick={onProjectSettingsClick}
+						aria-label="Open project settings"
+						size="sm"
+						variant="toolbar"
+					>
+						<SlidersHorizontal size={14} />
+						<span className="hidden xl:inline">Settings</span>
 					</Button>
 					{rightCollapsed && (
-						<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
-							<Download size={14} />
-							<span className="hidden xl:inline">Export</span>
-						</Button>
+						<>
+							<Button
+								type="button"
+								onClick={onVerifyClick}
+								aria-label="Verify script"
+								title="Verify"
+								size="icon-sm"
+								variant="toolbarActive"
+							>
+								<ShieldCheck />
+							</Button>
+							<Button
+								type="button"
+								onClick={onExportClick}
+								aria-label="Export package"
+								title="Export"
+								size="icon-sm"
+								variant="primary"
+							>
+								<Download />
+							</Button>
+						</>
 					)}
-				</div>
+				</fieldset>
 			</div>
 
 			<div className="bg-baud-border/30" />
 
-			<div className="flex h-full min-w-0 items-center justify-end gap-1.5 px-2">
+			<fieldset
+				className={`m-0 flex h-full min-w-0 items-center justify-end gap-1.5 overflow-hidden border-0 py-0 ${
+					rightCollapsed ? "px-0" : "px-2"
+				}`}
+				aria-label="Package actions"
+			>
 				{!rightCollapsed && (
-					<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
-						<Download size={14} />
-						<span className="hidden xl:inline">Export</span>
-					</Button>
+					<>
+						<Button type="button" onClick={onVerifyClick} aria-label="Verify script" size="sm" variant="toolbarActive">
+							<ShieldCheck size={14} />
+							<span className="hidden 2xl:inline">Verify</span>
+						</Button>
+						<Button type="button" onClick={onExportClick} aria-label="Export package" size="sm" variant="primary">
+							<Download size={14} />
+							<span className="hidden xl:inline">Export</span>
+						</Button>
+					</>
 				)}
-			</div>
+			</fieldset>
 		</header>
 	);
 }

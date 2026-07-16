@@ -23,7 +23,7 @@ import {
 	requestPersistentEditorStorage,
 } from "@/data/storage/project-repository";
 import type { ProjectSettings } from "@/lib/types";
-import { importBbsPackage, verifyBbsPackage } from "@/utils/bbs-package";
+import { exportBbsPackage, importBbsPackage, verifyBbsPackage } from "@/utils/bbs-package";
 import type { VerificationCheck } from "@/utils/verification";
 
 type PendingImport = { fileName: string; project: EditorProject };
@@ -34,6 +34,7 @@ export function ProjectHome() {
 	const [loading, setLoading] = useState(true);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [helpOpen, setHelpOpen] = useState(false);
+	const [exportingProjectId, setExportingProjectId] = useState<string | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
 	const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
 	const [importError, setImportError] = useState<{ checks: VerificationCheck[]; description: string } | null>(null);
@@ -47,6 +48,12 @@ export function ProjectHome() {
 			.catch((error) => toast.error(toErrorMessage(error)))
 			.finally(() => setLoading(false));
 	}, [refreshProjects]);
+
+	useEffect(() => {
+		const disableNativeContextMenu = (event: MouseEvent) => event.preventDefault();
+		document.addEventListener("contextmenu", disableNativeContextMenu);
+		return () => document.removeEventListener("contextmenu", disableNativeContextMenu);
+	}, []);
 
 	const openProject = (projectId: string) => window.location.assign(`/projects/${projectId}`);
 
@@ -75,6 +82,30 @@ export function ProjectHome() {
 			toast.success(`Created ${duplicate.settings.name}.`);
 		} catch (error) {
 			toast.error(toErrorMessage(error));
+		}
+	};
+
+	const handleExport = async (summary: ProjectSummary) => {
+		if (exportingProjectId !== null) return;
+		setExportingProjectId(summary.id);
+		try {
+			const project = await getProject(summary.id);
+			await exportBbsPackage({
+				assets: project.assets,
+				comments: project.comments,
+				defaultVariables: project.defaultVariables,
+				edges: project.edges,
+				edgeStyle: project.edgeStyle,
+				identity: project.identity,
+				nodes: project.nodes,
+				projectSettings: project.settings,
+				secretDeclarations: project.secretDeclarations,
+			});
+			toast.success(`Exported ${project.settings.name}.`);
+		} catch (error) {
+			toast.error(toErrorMessage(error));
+		} finally {
+			setExportingProjectId(null);
 		}
 	};
 
@@ -213,8 +244,10 @@ export function ProjectHome() {
 					) : (
 						<ProjectList
 							projects={projects}
+							exportingProjectId={exportingProjectId}
 							onOpen={(project) => openProject(project.id)}
 							onDuplicate={handleDuplicate}
+							onExport={(project) => void handleExport(project)}
 							onDelete={setDeleteTarget}
 						/>
 					)}

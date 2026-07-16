@@ -42,6 +42,14 @@ test("project creation requires valid settings before writing storage", async ({
 	expect(await readStoredProjectCount(page)).toBe(1);
 });
 
+test("project home disables the native browser context menu", async ({ page }) => {
+	await page.goto("/");
+	const defaultAllowed = await page.evaluate(() =>
+		document.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	expect(defaultAllowed).toBe(false);
+});
+
 test("initial IndexedDB upgrade creates the complete versioned schema", async ({ page }) => {
 	await page.goto("/missing-schema-probe");
 	await page.evaluate(
@@ -327,6 +335,23 @@ test("repeated exports preserve project identity while package content changes",
 	expect(secondManifest.created_at).toBe(firstManifest.created_at);
 	expect(secondManifest.updated_at).not.toBe(firstManifest.updated_at);
 	expect(readFileSync(secondPath).equals(readFileSync(firstPath))).toBe(false);
+});
+
+test("saved projects can be exported directly from the project list", async ({ page }, testInfo) => {
+	await createProject(page, "Home export");
+	await page.getByRole("button", { name: "Manual" }).click();
+	await page.keyboard.press("Control+s");
+	await page.getByRole("button", { name: "Return to projects" }).click();
+
+	const downloadPromise = page.waitForEvent("download");
+	await page.getByRole("button", { name: "Export Home export" }).click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toBe("home-export.bbs");
+	const destination = testInfo.outputPath("home-export.bbs");
+	await download.saveAs(destination);
+	const manifest = await readPackageManifest(destination);
+	expect(manifest.id).toMatch(/^[0-9a-f-]{36}$/);
+	await expect(page.getByText("Exported Home export.", { exact: true })).toBeVisible();
 });
 
 test("duplicating and deleting projects keeps local records isolated", async ({ page }) => {

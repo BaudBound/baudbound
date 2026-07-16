@@ -6,14 +6,17 @@ test("editor shell loads the core controls", async ({ page }) => {
 	await openEditor(page);
 
 	await expect(page.getByText("BaudBound Editor", { exact: true })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Open asset editor" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Open project settings" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Open help" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Verify script" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Save project" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Redo" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
+	const editingControls = page.getByRole("group", { name: "Canvas editing controls" });
+	await expect(editingControls.getByRole("button", { name: "Save project" })).toBeVisible();
+	await expect(editingControls.getByRole("button", { name: "Undo" })).toBeVisible();
+	await expect(editingControls.getByRole("button", { name: "Redo" })).toBeVisible();
+	const projectTools = page.getByRole("group", { name: "Canvas project tools" });
+	await expect(projectTools.getByRole("button", { name: "Open help" })).toBeVisible();
+	await expect(projectTools.getByRole("button", { name: "Open asset editor" })).toBeVisible();
+	await expect(projectTools.getByRole("button", { name: "Open project settings" })).toBeVisible();
+	const packageActions = page.getByRole("group", { name: "Package actions" });
+	await expect(packageActions.getByRole("button", { name: "Verify script" })).toBeVisible();
+	await expect(packageActions.getByRole("button", { name: "Export package" })).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Properties" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Simulator" })).toBeVisible();
@@ -33,7 +36,13 @@ test("panel collapse state persists across editor reloads", async ({ page }) => 
 	await expect(page.getByRole("button", { name: "Expand bottom panel" })).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Search blocks" })).toBeHidden();
 	await expect(page.getByRole("button", { name: "Properties" })).toBeHidden();
-	await expect(page.getByRole("button", { name: "Export package" })).toBeVisible();
+	const exportButton = page.getByRole("button", { name: "Export package" });
+	await expect(exportButton).toBeVisible();
+	const exportBounds = await exportButton.boundingBox();
+	expect(exportBounds).not.toBeNull();
+	expect((page.viewportSize()?.width ?? 0) - ((exportBounds?.x ?? 0) + (exportBounds?.width ?? 0))).toBeLessThanOrEqual(
+		12,
+	);
 
 	const storedState = await readPanelPreferences(page);
 	expect(storedState).toEqual({ left: true, right: true, bottom: true });
