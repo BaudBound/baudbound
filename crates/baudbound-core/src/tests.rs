@@ -119,6 +119,8 @@ fn cancelled_execution_is_persisted_as_cancelled() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("cancellable package should import");
+    core.approve_installed(&store, "cancellable")
+        .expect("cancellable package should approve");
 
     let cancellation = RuntimeCancellationToken::new();
     let thread_cancellation = cancellation.clone();
@@ -165,7 +167,7 @@ fn current_script_approval_allows_policy_blocked_permissions() {
     let unapproved = core
         .run_installed(&store, "network-trigger")
         .expect_err("unapproved network trigger should be blocked");
-    assert!(matches!(unapproved, CoreError::Security(_)));
+    assert!(matches!(unapproved, CoreError::ApprovalRequired(_)));
 
     let approval = core
         .approve_installed(&store, "network-trigger")
@@ -210,7 +212,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     let blocked = core
         .run_installed(&store, "network-trigger")
         .expect_err("unapproved high-risk package should be blocked");
-    assert!(matches!(blocked, CoreError::Security(_)));
+    assert!(matches!(blocked, CoreError::ApprovalRequired(_)));
     assert_eq!(
         store
             .list_run_records(Some("network-trigger"), None)
@@ -296,6 +298,8 @@ fn custom_action_handler_is_used_for_script_execution() {
     let core = RunnerCore::default().with_action_handler(handler.clone());
     core.import_package(&store, &package_path)
         .expect("package should import");
+    core.approve_installed(&store, "action-handler-test")
+        .expect("package should approve");
     let report = core
         .run_installed(&store, "action-handler-test")
         .expect("script should run with injected action handler");
@@ -595,6 +599,8 @@ fn sub_script_action_runs_installed_manual_script() {
         .expect("parent package should import");
     core.approve_installed(&store, "parent-script")
         .expect("sub-script parent should approve");
+    core.approve_installed(&store, "action-handler-test")
+        .expect("child package should approve");
 
     let report = core
         .run_installed(&store, "parent-script")
@@ -686,6 +692,8 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
+    core.approve_installed(&store, "network-trigger")
+        .expect("package should approve");
 
     assert!(
         !core
@@ -710,6 +718,85 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
             .expect("direct trigger registrations should list")
             .is_empty()
     );
+}
+
+#[test]
+fn disabled_scripts_cannot_execute_from_stale_trigger_events() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("network-trigger.bbs");
+    fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("package should import");
+    core.approve_installed(&store, "network-trigger")
+        .expect("package should approve");
+    core.set_installed_enabled(&store, "network-trigger", false)
+        .expect("script should disable");
+
+    let error = core
+        .dispatch_trigger_event(
+            &store,
+            TriggerEvent {
+                node_id: "n-webhook".to_owned(),
+                payload: json!({"body": "stale event"}),
+                script_id: "network-trigger".to_owned(),
+            },
+        )
+        .expect_err("a stale trigger event must not execute a disabled script");
+
+    assert!(matches!(error, CoreError::ScriptDisabled(_)));
+}
+
+#[test]
+fn unapproved_scripts_are_not_registered_or_executed() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("network-trigger.bbs");
+    fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("package should import");
+
+    assert!(
+        core.list_trigger_registrations(&store, None)
+            .expect("active trigger registrations should list")
+            .is_empty()
+    );
+
+    let error = core
+        .dispatch_trigger_event(
+            &store,
+            TriggerEvent {
+                node_id: "n-webhook".to_owned(),
+                payload: json!({"body": "unapproved event"}),
+                script_id: "network-trigger".to_owned(),
+            },
+        )
+        .expect_err("an unapproved script must not execute");
+
+    assert!(matches!(error, CoreError::ApprovalRequired(_)));
+}
+
+#[test]
+fn unapproved_low_risk_scripts_cannot_execute() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("action-handler-test.bbs");
+    fs::write(&package_path, create_action_handler_test_package())
+        .expect("low-risk test package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("low-risk package should import");
+
+    let error = core
+        .run_installed(&store, "action-handler-test")
+        .expect_err("an unapproved low-risk script must not execute");
+
+    assert!(matches!(error, CoreError::ApprovalRequired(_)));
 }
 
 #[test]
@@ -774,10 +861,12 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].approval_status,
         ApprovalStatus::Missing
     ));
+    core.set_installed_enabled(&store, "network-trigger", true)
+        .expect("script should re-enable");
     let blocked = core
         .run_installed(&store, "network-trigger")
-        .expect_err("revoked high-risk script should be blocked");
-    assert!(matches!(blocked, CoreError::Security(_)));
+        .expect_err("revoked script should be blocked");
+    assert!(matches!(blocked, CoreError::ApprovalRequired(_)));
 }
 
 #[test]

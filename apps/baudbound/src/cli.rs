@@ -28,7 +28,11 @@ pub enum Command {
         json: bool,
     },
     /// Open the native desktop runner UI.
-    Ui,
+    Ui {
+        /// Marks a desktop-session autostart launch.
+        #[arg(long, hide = true)]
+        autostart: bool,
+    },
     /// Check native desktop action support on this machine.
     Doctor {
         /// Print machine-readable JSON.
@@ -294,7 +298,7 @@ pub fn default_command() -> Command {
 
 fn default_command_for_session(has_desktop_session: bool) -> Command {
     if has_desktop_session {
-        Command::Ui
+        Command::Ui { autostart: false }
     } else {
         Command::Status { json: false }
     }
@@ -345,8 +349,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_internal_desktop_autostart_launch() {
+        let cli = Cli::try_parse_from(["baudbound", "ui", "--autostart"])
+            .expect("desktop autostart marker should parse");
+        assert!(matches!(cli.command, Some(Command::Ui { autostart: true })));
+    }
+
+    #[test]
     fn default_command_matches_session_type() {
-        assert!(matches!(default_command_for_session(true), Command::Ui));
+        assert!(matches!(
+            default_command_for_session(true),
+            Command::Ui { autostart: false }
+        ));
         assert!(matches!(
             default_command_for_session(false),
             Command::Status { json: false }
@@ -356,6 +370,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn defaults_to_desktop_ui_on_windows() {
-        assert!(matches!(default_command(), Command::Ui));
+        assert!(matches!(
+            default_command(),
+            Command::Ui { autostart: false }
+        ));
     }
 }

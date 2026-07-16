@@ -12,6 +12,27 @@ pub use storage::{
     sqlite::{CURRENT_SCHEMA_VERSION, RunRetentionPolicy, SqliteRunnerStore},
 };
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DesktopSettings {
+    pub automatic_update_checks: bool,
+    pub keep_running_on_close: bool,
+    pub launch_at_login: bool,
+    pub start_background_runner_on_launch: bool,
+    pub start_minimized_to_tray: bool,
+}
+
+impl Default for DesktopSettings {
+    fn default() -> Self {
+        Self {
+            automatic_update_checks: true,
+            keep_running_on_close: true,
+            launch_at_login: false,
+            start_background_runner_on_launch: false,
+            start_minimized_to_tray: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredVariableScope {
     Persistent,

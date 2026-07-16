@@ -272,6 +272,10 @@ fn cli_reports_serve_preflight_without_opening_services() {
             package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "cli-lifecycle"],
+    ));
 
     let preflight = command_json(run_baudbound(
         &runner_home,
@@ -324,6 +328,10 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
             "import",
             package_path.to_str().expect("path should be UTF-8"),
         ],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "scheduled-log"],
     ));
 
     let preflight = command_json(run_baudbound(
@@ -416,6 +424,10 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
             package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "cli-lifecycle"],
+    ));
 
     let reloaded_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 1
@@ -425,7 +437,42 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     assert_eq!(webhook["registrations"], 1);
     assert_eq!(webhook["target"], format!("127.0.0.1:{webhook_port}"));
 
-    request_service_control(&reloaded_status, "stop");
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "disable", "cli-lifecycle"],
+    ));
+    let disabled_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running" && status["active_service_count"] == 0
+    });
+    assert_eq!(disabled_status["idle"], true);
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "enable", "cli-lifecycle"],
+    ));
+    wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running" && status["active_service_count"] == 1
+    });
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "revoke-approval", "cli-lifecycle"],
+    ));
+    let revoked_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running" && status["active_service_count"] == 0
+    });
+    assert_eq!(revoked_status["idle"], true);
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "cli-lifecycle"],
+    ));
+    let reapproved_status =
+        wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+            status["state"] == "running" && status["active_service_count"] == 1
+        });
+
+    request_service_control(&reapproved_status, "stop");
     assert_child_exits_successfully(serve, Duration::from_secs(8));
 
     let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {

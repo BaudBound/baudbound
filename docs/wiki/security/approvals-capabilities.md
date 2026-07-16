@@ -97,7 +97,9 @@ Approval records:
 
 An approval is **current** only while the installed package hash and permission set match. Updating package content invalidates the previous approval. An unchanged display name does not preserve trust.
 
-Revocation removes consent for the current revision without removing the package. Disabling a script stops unattended trigger registration but does not mean its revision is unapproved.
+Revocation removes consent for the current revision without removing the package. The runner removes its active trigger registrations and rejects new manual, automatic, queued, and sub-script execution attempts until that revision is approved again.
+
+Disabling a script is separate from revoking approval. A disabled script remains approved and installed, but the runner removes its active trigger registrations and rejects every new execution attempt. A run that was already executing is not forcefully cancelled.
 
 ## Review in the desktop application
 

@@ -34,7 +34,7 @@ The service reports skipped and failed registrations instead of silently claimin
 
 ## Reload boundaries
 
-Installed script import, update, enablement, approval, and removal create durable state changes. The running service checks for them at `runner.trigger_reload_seconds` and can receive an immediate reload request through authenticated loopback IPC.
+Installed script import, update, enablement, approval, revocation, and removal create durable state changes and request an immediate trigger reload through SQLite. The running service also checks for changes at `runner.trigger_reload_seconds` and can receive an authenticated loopback IPC reload request.
 
 Reload rebuilds script registrations. Configuration fields are loaded into service options at startup; use Service **Reload** or restart the external process after changing listener addresses, family switches, targets, or serial mappings.
 

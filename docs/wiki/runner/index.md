@@ -47,7 +47,7 @@ Changing installed package bytes or importing an updated revision makes approval
 
 The desktop application includes a background-runner supervisor and system tray. Starting it activates eligible schedules, watchers, webhooks, WebSockets, hotkeys, startup triggers, and serial readers.
 
-Closing the window hides it to the tray. Choosing **Quit BaudBound** stops the background runner and exits. It is not an operating-system service and does not remain alive after the desktop process exits.
+By default, closing the window hides it to the tray. Desktop Settings can launch BaudBound after login, start the background runner with the app, change close behavior, and keep an automatic login launch hidden. Choosing **Quit BaudBound** stops the background runner and exits. This is desktop-session startup, not an operating-system service, and it does not remain alive after the desktop process exits.
 
 Use [Desktop App Guide](desktop-app.md) for every tab and control.
 

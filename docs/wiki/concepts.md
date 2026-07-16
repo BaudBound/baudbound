@@ -83,7 +83,7 @@ Passing an earlier stage does not bypass a later one.
 
 ### Enabled and approved are different
 
-An **approved** script has operator approval for its current package hash. An **enabled** script may register long-running triggers when the service loads it. A script generally needs to be valid, approved, and enabled before listener-based triggers become active.
+An **approved** script has operator approval for its current package hash. An **enabled** script is allowed to start new runs and may register long-running triggers when the service loads it. A script must be valid, approved, and enabled before any manual or automatic execution can start.
 
 Disabling a script is useful when you want to keep it installed but stop unattended trigger registration. Revoking approval records that the current revision is no longer trusted.
 

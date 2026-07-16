@@ -58,7 +58,7 @@ fn parent_approval_cannot_bypass_child_script_approval() {
     assert!(
         error
             .to_string()
-            .contains("runner policy blocks permission webhook_public_bind"),
+            .contains("is not approved for its current package"),
         "{error}"
     );
 

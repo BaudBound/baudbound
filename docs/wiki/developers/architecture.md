@@ -72,7 +72,7 @@ This order ensures security and compatibility checks occur before native side ef
 
 The installed `baudbound` executable hosts Tauri and the React UI. Tauri commands call typed Rust functions for dashboard reads and actions. The UI does not open SQLite or parse packages itself.
 
-The desktop background runner is supervised inside the desktop application. Closing the window hides it to the tray; quitting stops the background runner and exits the process.
+The desktop background runner is supervised inside the desktop application. SQLite-backed desktop settings control login registration, automatic runner startup, login-launch visibility, close behavior, and update checks. Tauri's native autostart integration registers the current executable with the Windows or Linux desktop session. Quitting stops the background runner and exits the process.
 
 ### Headless service
 

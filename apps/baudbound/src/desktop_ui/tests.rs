@@ -28,6 +28,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
             config_path.clone(),
         )),
         background_runner: DesktopRunnerSupervisor::default(),
+        desktop_settings: Mutex::new(DesktopSettings::default()),
         config_path: config_path.clone(),
         runner_config: Mutex::new(runner_config.clone()),
         core: Mutex::new(build_runner_core(

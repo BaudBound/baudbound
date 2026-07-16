@@ -230,6 +230,24 @@ export type ActionPayload = {
   message: string;
 };
 
+export type DesktopSettings = {
+  automatic_update_checks: boolean;
+  keep_running_on_close: boolean;
+  launch_at_login: boolean;
+  start_background_runner_on_launch: boolean;
+  start_minimized_to_tray: boolean;
+};
+
+export type DesktopSettingsPayload = {
+  launch_at_login_registered: boolean;
+  settings: DesktopSettings;
+};
+
+export type SettingsActionPayload = {
+  message: string;
+  payload: DesktopSettingsPayload;
+};
+
 export type RunnerConfig = {
   runner: RunnerSettings;
   serial: SerialSettings;
@@ -301,6 +319,14 @@ export function getDashboardState() {
   return invoke<DashboardPayload>("dashboard_state");
 }
 
+export function readDesktopSettings() {
+  return invoke<DesktopSettingsPayload>("read_desktop_settings");
+}
+
+export function saveDesktopSettings(settings: DesktopSettings) {
+  return invoke<SettingsActionPayload>("save_desktop_settings", { settings });
+}
+
 export function readRunnerConfig() {
   return invoke<RunnerConfigPayload>("read_runner_config");
 }
@@ -343,10 +369,6 @@ export function importScriptPackage(packagePath: string) {
 
 export function updateScriptPackage(packagePath: string) {
   return invoke<ActionPayload>("update_script_package", { packagePath });
-}
-
-export function requestTriggerReload() {
-  return invoke<ActionPayload>("request_trigger_reload");
 }
 
 export function startBackgroundRunner() {

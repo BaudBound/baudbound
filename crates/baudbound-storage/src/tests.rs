@@ -58,6 +58,36 @@ fn initializes_and_reopens_versioned_schema() {
 }
 
 #[test]
+fn round_trips_desktop_settings() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+
+    assert_eq!(
+        store
+            .read_desktop_settings()
+            .expect("default desktop settings should be readable"),
+        DesktopSettings::default()
+    );
+
+    let settings = DesktopSettings {
+        automatic_update_checks: false,
+        keep_running_on_close: false,
+        launch_at_login: true,
+        start_background_runner_on_launch: true,
+        start_minimized_to_tray: true,
+    };
+    store
+        .write_desktop_settings(&settings)
+        .expect("desktop settings should write");
+    assert_eq!(
+        store
+            .read_desktop_settings()
+            .expect("saved desktop settings should be readable"),
+        settings
+    );
+}
+
+#[test]
 fn round_trips_service_status() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
@@ -141,6 +171,21 @@ fn supports_complete_script_lifecycle() {
         .set_script_enabled("script-1", false)
         .expect("script should disable");
     assert!(!disabled.enabled);
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("disable should request reload")
+    );
+
+    let enabled = store
+        .set_script_enabled("script-1", true)
+        .expect("script should enable");
+    assert!(enabled.enabled);
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("enable should request reload")
+    );
 
     let removed = store
         .remove_script("script-1")
@@ -152,6 +197,11 @@ fn supports_complete_script_lifecycle() {
             .list_scripts()
             .expect("scripts should list")
             .is_empty()
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("removal should request reload")
     );
 }
 
@@ -167,6 +217,11 @@ fn update_replaces_package_and_invalidates_approval() {
             script_id: imported.id,
         })
         .expect("script should approve");
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("import and approval reload request should clear")
+    );
 
     let updated_package_path = temporary_directory.path().join("script-updated.bbs");
     std::fs::write(&updated_package_path, b"updated bytes")
@@ -193,6 +248,11 @@ fn update_replaces_package_and_invalidates_approval() {
             .expect("approval lookup should succeed")
             .is_none()
     );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("update should request reload")
+    );
 }
 
 #[test]
@@ -200,6 +260,11 @@ fn stores_finds_and_revokes_approval() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
     let imported = import_test_script(&store, &temporary_directory);
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("import reload request should clear")
+    );
     let approval = store
         .approve_script(ApproveScriptRequest {
             approved_permissions: vec!["http_request".to_owned()],
@@ -207,6 +272,11 @@ fn stores_finds_and_revokes_approval() {
             script_id: imported.id,
         })
         .expect("script should approve");
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("approval should request trigger reload")
+    );
 
     assert_eq!(approval.approved_permissions, ["http_request"]);
     assert_eq!(
@@ -222,6 +292,11 @@ fn stores_finds_and_revokes_approval() {
             .revoke_script_approval("script-1")
             .expect("approval should revoke")
             .is_some()
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("revocation should request trigger reload")
     );
 }
 

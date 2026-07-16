@@ -12,7 +12,12 @@ import {
   type ScriptStatus,
   setScriptEnabled,
 } from "@/lib/runner-api";
-import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
+import {
+  approvalLabel,
+  isApprovalCurrent,
+  packageHashLabel,
+  riskVariant,
+} from "@/lib/status-format";
 import { cn } from "@/lib/utils";
 
 export function ScriptRow({
@@ -37,6 +42,9 @@ export function ScriptRow({
   const removeAction = `remove:${reference}`;
   const runScriptAction = `run:${reference}`;
   const toggleAction = `toggle:${reference}`;
+  const runUnavailableReason = manualRunUnavailableReason(script);
+  const canRun = runUnavailableReason === null;
+  const runTitle = runUnavailableReason ?? "Run";
 
   return (
     <tr
@@ -93,10 +101,10 @@ export function ScriptRow({
           <Button
             aria-label={`Run ${script.installed.name}`}
             className="size-8 p-0"
-            disabled={busyActions.has(runScriptAction)}
+            disabled={!canRun || busyActions.has(runScriptAction)}
             onClick={() => runAction(runScriptAction, () => runScript(reference))}
             size="sm"
-            title="Run"
+            title={runTitle}
             variant="default"
           >
             <Play />
@@ -151,4 +159,15 @@ export function ScriptRow({
       </td>
     </tr>
   );
+}
+
+function manualRunUnavailableReason(script: ScriptStatus) {
+  if (!script.installed.enabled) return "Enable this script before running it";
+  if (!isApprovalCurrent(script.approval_status)) {
+    return "Approve this script before running it";
+  }
+  if (!script.triggers.some((trigger) => trigger.action_type === "trigger.manual")) {
+    return "This script has no Manual trigger";
+  }
+  return null;
 }

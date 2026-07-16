@@ -98,13 +98,14 @@ export function calculateRiskLevel(permissions: PermissionSummary[]): RiskLevel 
 export function createExportSummary(
 	projectName: string,
 	targetRuntime: TargetRuntime,
+	minimumRunnerVersion: string,
 	assets: EditorAsset[] = [],
 ): ExportSummary {
 	return {
 		filename: `${slugFromName(projectName)}.bbs`,
 		formatVersion: 1,
 		languageVersion: 1,
-		minimumRunnerVersion: "0.1.0",
+		minimumRunnerVersion,
 		targetRuntime,
 		contents: [
 			"manifest.json",

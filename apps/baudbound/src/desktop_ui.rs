@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
-use baudbound_storage::{ScriptStore, SqliteRunnerStore, StoredRunRecord};
+use baudbound_storage::{DesktopSettings, ScriptStore, SqliteRunnerStore, StoredRunRecord};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
 use serde_json::Value;
@@ -23,24 +23,27 @@ use crate::service::{ServeOptions, ServeOverrides};
 
 mod background;
 mod lifecycle;
+mod settings;
 
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
+use settings::{DesktopSettingsPayload, SettingsActionPayload};
 
 macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
             dashboard_state,
+            read_desktop_settings,
             import_script_package,
             prepare_for_update,
             remove_script,
             revoke_script_approval,
             reload_background_runner,
-            request_trigger_reload,
             read_runner_config,
             run_script,
             save_runner_config,
             save_runner_config_model,
+            save_desktop_settings,
             scan_serial_ports,
             set_script_secret,
             remove_script_secret,
@@ -59,6 +62,7 @@ pub fn run_desktop_ui(
     store: SqliteRunnerStore,
     runner_config: RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
+    launched_from_autostart: bool,
 ) -> Result<()> {
     let background_options = desktop_background_options(
         &runner_config,
@@ -66,12 +70,22 @@ pub fn run_desktop_ui(
         config_path.clone(),
     );
     let background_runner = DesktopRunnerSupervisor::default();
+    let desktop_settings = store
+        .read_desktop_settings()
+        .map_err(|error| anyhow!("failed to load desktop settings: {error}"))?;
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("BaudBound")
+                .args(["ui", "--autostart"])
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             background_runner: background_runner.clone(),
+            desktop_settings: Mutex::new(desktop_settings),
             config_path,
             runner_config: Mutex::new(runner_config),
             core: Mutex::new(core),
@@ -80,7 +94,9 @@ pub fn run_desktop_ui(
             operation_lock: Mutex::new(()),
         })
         .setup(move |app| {
-            lifecycle::configure_desktop_lifecycle(app)?;
+            settings::reconcile_autostart_registration(app.handle());
+            lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
+            settings::start_configured_background_runner(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 window
                     .set_title("BaudBound")
@@ -96,12 +112,30 @@ pub fn run_desktop_ui(
 pub(super) struct DesktopUiState {
     background_options: Mutex<ServeOptions>,
     background_runner: DesktopRunnerSupervisor,
+    desktop_settings: Mutex<DesktopSettings>,
     config_path: PathBuf,
     runner_config: Mutex<RunnerConfig>,
     core: Mutex<RunnerCore>,
     store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Mutex<()>,
+}
+
+#[tauri::command]
+fn read_desktop_settings(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    state: State<'_, DesktopUiState>,
+) -> Result<DesktopSettingsPayload, String> {
+    settings::read_settings_payload(&autostart, &state).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_desktop_settings(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    settings: DesktopSettings,
+    state: State<'_, DesktopUiState>,
+) -> Result<SettingsActionPayload, String> {
+    settings::save_settings(&autostart, &state, settings).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -182,14 +216,6 @@ fn update_script_package(
             "Updated {} ({}) as {}.",
             script.name, script.id, script.package_file_name
         ))
-    })
-}
-
-#[tauri::command]
-fn request_trigger_reload(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
-    run_locked_action(&state, || {
-        request_running_service_reload(&state.store)?;
-        Ok("Requested trigger reload.".to_owned())
     })
 }
 

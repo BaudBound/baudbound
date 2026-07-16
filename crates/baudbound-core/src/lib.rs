@@ -221,6 +221,7 @@ impl RunnerCore {
         store: &impl ScriptStore,
         reference: Option<&str>,
     ) -> Result<Vec<TriggerRegistration>, CoreError> {
+        let include_inactive = reference.is_some();
         let scripts = match reference {
             Some(reference) => vec![store.verify_script_package_hash(reference)?],
             None => store
@@ -235,6 +236,9 @@ impl RunnerCore {
         for script in scripts {
             let package = load_script_package(&script.package_path)?;
             self.validate_package_compatibility(&package)?;
+            if !include_inactive && !has_current_approval(store, &script, &package)? {
+                continue;
+            }
             registrations.extend(trigger_registrations_from_package(&script, &package)?);
         }
         registrations.sort_by(|left, right| {
@@ -381,6 +385,9 @@ impl RunnerCore {
         cancellation: RuntimeCancellationToken,
     ) -> Result<RunReport, CoreError> {
         let installed = store.verify_script_package_hash(reference)?;
+        if !installed.enabled {
+            return Err(CoreError::ScriptDisabled(installed.id));
+        }
         if call_stack
             .iter()
             .any(|script_id| script_id == &installed.id)
@@ -396,11 +403,12 @@ impl RunnerCore {
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
             return Err(source);
         }
-        let policy = if has_current_approval(store, &installed, &package)? {
-            RunnerPolicy::permissive()
-        } else {
-            RunnerPolicy::default()
-        };
+        if !has_current_approval(store, &installed, &package)? {
+            let source = CoreError::ApprovalRequired(installed.id.clone());
+            append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            return Err(source);
+        }
+        let policy = RunnerPolicy::permissive();
         if let Err(source) = validate_package_security(&package, &policy) {
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
             return Err(CoreError::Security(source));
@@ -591,6 +599,8 @@ impl RunnerCore {
 
 #[derive(Debug, Error)]
 pub enum CoreError {
+    #[error("script {0} is not approved for its current package")]
+    ApprovalRequired(String),
     #[error(transparent)]
     Compatibility(#[from] CompatibilityError),
     #[error("program trigger registration failed: {0}")]
@@ -603,6 +613,8 @@ pub enum CoreError {
     Security(#[from] SecurityValidationError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    #[error("script {0} is disabled")]
+    ScriptDisabled(String),
     #[error("sub-script cycle detected: {0}")]
     SubScriptCycle(String),
     #[error("secret configuration is invalid: {0}")]

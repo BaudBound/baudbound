@@ -52,6 +52,19 @@ body,
   margin: 0;
   min-width: 0;
   overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+pre,
+code,
+.cm-editor,
+.cm-editor * {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button,

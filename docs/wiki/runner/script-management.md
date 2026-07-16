@@ -90,7 +90,7 @@ baudbound script enable SCRIPT
 baudbound serve
 ```
 
-Enablement does not bypass validation or approval. A disabled script remains installed and inspectable but its schedule, webhook, serial, file, process, startup, WebSocket, and hotkey listeners are not loaded by the background runner.
+Enablement does not bypass validation or approval. A disabled script remains installed and inspectable, but it cannot start a manual run, automatic run, queued trigger event, or sub-script run. Its schedule, webhook, serial, file, process, startup, WebSocket, and hotkey listeners are not loaded by the background runner. Disabling does not force-cancel a run that is already executing.
 
 The foreground `baudbound serve` command is mainly for headless operation and testing. Desktop users can start the desktop-owned background runner from **Service** instead.
 

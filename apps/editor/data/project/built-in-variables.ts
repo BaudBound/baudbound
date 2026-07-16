@@ -1,4 +1,5 @@
 import type { ProjectSettings } from "@/lib/types";
+import { DEFAULT_MINIMUM_RUNNER_VERSION } from "@/lib/version";
 import type { EditorVariable } from "./variables";
 
 export type BuiltInVariable = Omit<
@@ -107,7 +108,7 @@ export const builtInVariableGroups: BuiltInVariableGroup[] = [
 				token: "{{manifest_minimum_runner_version}}",
 				type: "string",
 				description: "Minimum runner version required by the package.",
-				example: "0.1.0",
+				example: DEFAULT_MINIMUM_RUNNER_VERSION,
 				runtimeBinding: "manifest.minimum_runner_version",
 			},
 		],

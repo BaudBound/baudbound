@@ -30,7 +30,7 @@ const initialState: AppUpdateState = {
   version: null,
 };
 
-export function useAppUpdater(onError: (message: string) => void) {
+export function useAppUpdater(onError: (message: string) => void, checkOnStartup: boolean) {
   const [state, setState] = useState(initialState);
   const updateRef = useRef<Update | null>(null);
   const downloadedRef = useRef(false);
@@ -63,10 +63,10 @@ export function useAppUpdater(onError: (message: string) => void) {
   }, [onError]);
 
   useEffect(() => {
-    if (checkedOnStartup.current) return;
+    if (!checkOnStartup || checkedOnStartup.current) return;
     checkedOnStartup.current = true;
     void checkForUpdate();
-  }, [checkForUpdate]);
+  }, [checkForUpdate, checkOnStartup]);
 
   const download = useCallback(async () => {
     const update = updateRef.current;

@@ -16,6 +16,7 @@ use crate::{
 };
 
 mod conversions;
+mod desktop_settings;
 mod rows;
 mod run_retention;
 mod schema;
@@ -488,6 +489,7 @@ impl ScriptStore for SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
+        self.request_trigger_reload_with_connection(&connection)?;
         Ok(approval)
     }
 
@@ -681,6 +683,7 @@ impl ScriptStore for SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
+        self.request_trigger_reload_with_connection(&connection)?;
         Ok(existing)
     }
 

@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -124,7 +124,16 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 PRIMARY KEY (script_id, name)
             );
 
-            PRAGMA user_version = 2;
+            CREATE TABLE IF NOT EXISTS desktop_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                automatic_update_checks INTEGER NOT NULL CHECK (automatic_update_checks IN (0, 1)),
+                keep_running_on_close INTEGER NOT NULL CHECK (keep_running_on_close IN (0, 1)),
+                launch_at_login INTEGER NOT NULL CHECK (launch_at_login IN (0, 1)),
+                start_background_runner_on_launch INTEGER NOT NULL CHECK (start_background_runner_on_launch IN (0, 1)),
+                start_minimized_to_tray INTEGER NOT NULL CHECK (start_minimized_to_tray IN (0, 1))
+            );
+
+            PRAGMA user_version = 3;
             COMMIT;
             "#,
         )

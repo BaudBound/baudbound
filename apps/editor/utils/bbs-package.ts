@@ -24,6 +24,7 @@ import type {
 	SecretDeclaration,
 	TargetRuntime,
 } from "../lib/types";
+import { DEFAULT_MINIMUM_RUNNER_VERSION, EDITOR_CREATED_WITH } from "../lib/version";
 import { calculateCapabilities, calculatePermissions, calculateRiskLevel, toProgramJson } from "./analysis";
 import { isSelfConnection, withEdgeExecutionOrder } from "./editor-graph";
 import { validatePackageJsonContracts } from "./package-contract";
@@ -81,7 +82,7 @@ export async function exportBbsPackage(params: {
 		author: params.projectSettings.author,
 		website: params.projectSettings.website,
 		repository: params.projectSettings.repository,
-		created_with: "BaudBound Editor 0.1.0",
+		created_with: EDITOR_CREATED_WITH,
 		created_at: now,
 		updated_at: now,
 		tags: params.projectSettings.tags,
@@ -331,7 +332,7 @@ function slugFromName(name: string) {
 function toEditorJson(nodes: Node<ScriptNodeData>[], comments: EditorComment[], edgeStyle: EditorEdgeStyle) {
 	return {
 		format_version: EDITOR_METADATA_FORMAT_VERSION,
-		created_with: "BaudBound Editor 0.1.0",
+		created_with: EDITOR_CREATED_WITH,
 		canvas: {
 			edge_style: edgeStyle,
 		},
@@ -395,7 +396,7 @@ function toProjectSettings(manifest: Record<string, unknown>, capabilities: Reco
 		repository: stringOrDefault(manifest.repository, ""),
 		tags: Array.isArray(manifest.tags) ? manifest.tags.filter((tag): tag is string => typeof tag === "string") : [],
 		targetRuntime,
-		minimumRunnerVersion: stringOrDefault(manifest.minimum_runner_version, "0.1.0"),
+		minimumRunnerVersion: stringOrDefault(manifest.minimum_runner_version, DEFAULT_MINIMUM_RUNNER_VERSION),
 	};
 }
 

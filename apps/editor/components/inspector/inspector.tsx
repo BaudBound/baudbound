@@ -34,6 +34,7 @@ import { getNodeConfigFields } from "@/data/nodes/registry";
 import { builtInVariableNames } from "@/data/project/built-in-variables";
 import { createSerialDeviceOptions, serialLineEndingOptions } from "@/data/project/serial";
 import {
+	type EditorVariable,
 	getDefaultVariableOperationValue,
 	getVariableOperationFixedType,
 	normalizeVariableOperation,
@@ -52,7 +53,6 @@ import type {
 	EditorAsset,
 	InspectorTab,
 	JsonValue,
-	ProjectSettings,
 	ScriptNodeData,
 	SimulationOverride,
 	SimulationOverrideOutcome,
@@ -60,7 +60,6 @@ import type {
 	SimulationSettings,
 	SimulationTriggerPayload,
 } from "@/lib/types";
-import { createEditorVariableRegistry } from "@/utils/editor-variables";
 import { PanelCollapseButton } from "../shell/panel-collapse-button";
 import { RiskBadge } from "../shell/risk-badge";
 import { SimulatorPanel } from "../simulation/simulator-panel";
@@ -75,12 +74,12 @@ type InspectorProps = {
 	assets: EditorAsset[];
 	edges: Edge[];
 	nodes: Node<ScriptNodeData>[];
-	projectSettings: ProjectSettings;
 	selectedEdge: Edge | null;
 	selectedNode: Node<ScriptNodeData> | null;
 	simulationOverrides: SimulationOverride[];
 	simulationSettings: SimulationSettings;
 	simulationStatus: SimulationRunStatus;
+	variables: EditorVariable[];
 	width: number;
 	collapsed: boolean;
 	onAddSimulationOverride: (nodeId: string) => void;
@@ -103,12 +102,12 @@ export function Inspector({
 	assets,
 	edges,
 	nodes,
-	projectSettings,
 	selectedEdge,
 	selectedNode,
 	simulationOverrides,
 	simulationSettings,
 	simulationStatus,
+	variables,
 	width,
 	collapsed,
 	onAddSimulationOverride,
@@ -179,8 +178,8 @@ export function Inspector({
 						<PropertiesPanel
 							assets={assets}
 							nodes={nodes}
-							projectSettings={projectSettings}
 							selectedNode={selectedNode}
+							variables={variables}
 							onUpdateNodeConfig={onUpdateNodeConfig}
 							onDeleteNode={onDeleteNode}
 						/>
@@ -207,15 +206,15 @@ export function Inspector({
 function PropertiesPanel({
 	assets,
 	nodes,
-	projectSettings,
 	selectedNode,
+	variables,
 	onUpdateNodeConfig,
 	onDeleteNode,
 }: {
 	assets: EditorAsset[];
 	nodes: Node<ScriptNodeData>[];
-	projectSettings: ProjectSettings;
 	selectedNode: Node<ScriptNodeData> | null;
+	variables: EditorVariable[];
 	onUpdateNodeConfig: (nodeId: string, key: string, value: JsonValue) => void;
 	onDeleteNode: (nodeId: string) => void;
 }) {
@@ -234,7 +233,7 @@ function PropertiesPanel({
 	}
 
 	const fields = getNodeConfigFields(selectedNode.data.actionType);
-	const variableCompletions = createVariableCompletions(projectSettings, nodes);
+	const variableCompletions = createVariableCompletions(variables);
 	const visibleFields =
 		selectedNode.data.actionType === "runtime.set_variable" ||
 		selectedNode.data.actionType === "action.text.format" ||
@@ -1454,13 +1453,10 @@ function valueToInputString(value: JsonValue | undefined) {
 	return "";
 }
 
-function createVariableCompletions(
-	projectSettings: ProjectSettings,
-	nodes: Node<ScriptNodeData>[],
-): VariableCompletion[] {
+function createVariableCompletions(variables: EditorVariable[]): VariableCompletion[] {
 	const completionsByName = new Map<string, VariableCompletion>();
 
-	for (const variable of createEditorVariableRegistry(projectSettings, nodes)) {
+	for (const variable of variables) {
 		completionsByName.set(variable.name, {
 			description: variable.description,
 			name: variable.name,

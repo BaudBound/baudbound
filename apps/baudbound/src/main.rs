@@ -48,7 +48,7 @@ fn main() -> Result<()> {
         SystemDesktopActionAdapter,
     ));
     let core = core.with_action_handler(action_handler);
-    let secret_cipher = if matches!(&command, Command::Ui) {
+    let secret_cipher = if matches!(&command, Command::Ui { .. }) {
         Some(secrets::desktop_secret_cipher()?)
     } else {
         secrets::headless_secret_cipher_from_environment()?
@@ -86,12 +86,13 @@ fn dispatch_command(
     match command {
         Command::Config { .. } => unreachable!("config command returns before runner config loads"),
         Command::Status { json } => commands::status::print_app_status(core, store, json),
-        Command::Ui => desktop_ui::run_desktop_ui(
+        Command::Ui { autostart } => desktop_ui::run_desktop_ui(
             config_path.to_path_buf(),
             core.clone(),
             store.clone(),
             runner_config.clone(),
             Arc::clone(websocket_registry),
+            autostart,
         ),
         Command::Doctor { json } => commands::doctor::print_desktop_doctor(json),
         Command::Validate { package } => commands::package::validate_package(core, package),

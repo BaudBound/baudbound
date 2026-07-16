@@ -1,4 +1,4 @@
-import { FileUp, RotateCcw } from "lucide-react";
+import { FileUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,7 +6,6 @@ import type { DashboardAction } from "@/lib/app-types";
 import {
   type ActionPayload,
   importScriptPackage,
-  requestTriggerReload,
   selectPackageFile,
   updateScriptPackage,
 } from "@/lib/runner-api";
@@ -24,10 +23,11 @@ export function ScriptPackageToolbar({
         <div className="min-w-0">
           <div className="text-sm font-medium">Package management</div>
           <div className="text-xs text-muted-foreground">
-            Import packages, update installed scripts, and reload trigger registrations.
+            Import packages or update installed scripts. Trigger registrations refresh
+            automatically.
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 md:flex md:justify-end">
+        <div className="grid grid-cols-2 gap-2 md:flex md:justify-end">
           <Button
             className="w-full md:w-auto"
             disabled={busyActions.has("import-package")}
@@ -49,15 +49,6 @@ export function ScriptPackageToolbar({
           >
             <FileUp />
             {busyActions.has("update-package") ? "Working..." : "Update"}
-          </Button>
-          <Button
-            className="w-full md:w-auto"
-            disabled={busyActions.has("reload-triggers")}
-            onClick={() => runAction("reload-triggers", () => requestTriggerReload())}
-            variant="outline"
-          >
-            <RotateCcw />
-            {busyActions.has("reload-triggers") ? "Working..." : "Reload triggers"}
           </Button>
         </div>
       </CardContent>

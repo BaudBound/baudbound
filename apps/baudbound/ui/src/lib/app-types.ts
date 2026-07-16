@@ -10,6 +10,7 @@ export type TabId =
   | "logs"
   | "service"
   | "config"
+  | "settings"
   | "diagnostics";
 
 export type Notice = {

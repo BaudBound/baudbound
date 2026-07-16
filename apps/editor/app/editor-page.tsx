@@ -62,6 +62,7 @@ import type {
 	SimulationTriggerPayload,
 	SimulationVariableSnapshot,
 } from "@/lib/types";
+import { DEFAULT_MINIMUM_RUNNER_VERSION } from "@/lib/version";
 import {
 	calculateCapabilities,
 	calculatePermissions,
@@ -138,7 +139,7 @@ const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 	repository: "",
 	tags: [],
 	targetRuntime: "Generic Desktop",
-	minimumRunnerVersion: "0.1.0",
+	minimumRunnerVersion: DEFAULT_MINIMUM_RUNNER_VERSION,
 };
 
 export function EditorPage() {
@@ -224,8 +225,14 @@ export function EditorPage() {
 	);
 	const riskLevel = useMemo(() => calculateRiskLevel(permissions), [permissions]);
 	const exportSummary = useMemo(
-		() => createExportSummary(projectSettings.name, projectSettings.targetRuntime, assets),
-		[assets, projectSettings.name, projectSettings.targetRuntime],
+		() =>
+			createExportSummary(
+				projectSettings.name,
+				projectSettings.targetRuntime,
+				projectSettings.minimumRunnerVersion,
+				assets,
+			),
+		[assets, projectSettings.minimumRunnerVersion, projectSettings.name, projectSettings.targetRuntime],
 	);
 	const verificationChecks = useMemo(
 		() =>
@@ -276,7 +283,7 @@ export function EditorPage() {
 	const normalizedProjectSettings = {
 		...projectSettings,
 		name: projectSettings.name.trim() || "untitled-script",
-		minimumRunnerVersion: projectSettings.minimumRunnerVersion.trim() || "0.1.0",
+		minimumRunnerVersion: projectSettings.minimumRunnerVersion.trim() || DEFAULT_MINIMUM_RUNNER_VERSION,
 	};
 
 	const appendOutputLogs = useCallback((entries: LogEntry[]) => {
@@ -1260,12 +1267,12 @@ export function EditorPage() {
 					assets={assets}
 					edges={edges}
 					nodes={scriptNodes}
-					projectSettings={projectSettings}
 					selectedEdge={selectedEdge}
 					selectedNode={selectedNode}
 					simulationOverrides={simulationOverrides}
 					simulationSettings={simulationSettings}
 					simulationStatus={simulationStatus}
+					variables={variableEntries}
 					width={sizes.right}
 					collapsed={collapsed.right}
 					onAddSimulationOverride={handleAddSimulationOverride}

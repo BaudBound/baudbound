@@ -3,6 +3,7 @@ import {
   Cable,
   ClipboardCheck,
   FileClock,
+  FileCog,
   Gauge,
   HeartPulse,
   ListTree,
@@ -33,7 +34,9 @@ import type { DashboardAction, Notice, TabId } from "@/lib/app-types";
 import {
   type ActionPayload,
   type DashboardPayload,
+  type DesktopSettingsPayload,
   getDashboardState,
+  readDesktopSettings,
 } from "@/lib/runner-api";
 import { DashboardView } from "@/views/dashboard-view";
 import { DevicesView } from "@/views/devices-view";
@@ -47,6 +50,9 @@ import { TriggersView } from "@/views/triggers-view";
 
 const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
+);
+const SettingsView = lazy(() =>
+  import("@/views/settings-view").then((module) => ({ default: module.SettingsView })),
 );
 
 type NavigationItem = {
@@ -77,19 +83,28 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
   {
     label: "System",
     items: [
-      { icon: Settings, id: "config", label: "Config" },
+      { icon: FileCog, id: "config", label: "Config" },
       { icon: Stethoscope, id: "diagnostics", label: "Doctor" },
     ],
   },
 ];
 
-const navigationItems = navigationGroups.flatMap((group) => group.items);
+const settingsNavigationItem: NavigationItem = {
+  icon: Settings,
+  id: "settings",
+  label: "Settings",
+};
+const navigationItems = [
+  ...navigationGroups.flatMap((group) => group.items),
+  settingsNavigationItem,
+];
 
 const liveRefreshIntervalMs = 4_000;
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsPayload | null>(null);
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const refreshInFlight = useRef(false);
@@ -125,6 +140,12 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    readDesktopSettings()
+      .then(setDesktopSettings)
+      .catch((error) => pushNotice({ kind: "error", message: String(error) }));
+  }, [pushNotice]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -208,6 +229,16 @@ export function App() {
             </div>
           ))}
         </nav>
+        <div className="mt-auto border-t border-border pt-3 max-lg:hidden">
+          <Button
+            data-active={activeTab === settingsNavigationItem.id}
+            onClick={() => setActiveTab(settingsNavigationItem.id)}
+            variant="tab"
+          >
+            <Settings className="size-4" />
+            {settingsNavigationItem.label}
+          </Button>
+        </div>
         <nav className="hidden min-w-0 flex-wrap gap-1.5 max-lg:flex" aria-label="Runner sections">
           {navigationItems.map((tab) => {
             const Icon = tab.icon;
@@ -275,11 +306,7 @@ export function App() {
           ) : activeTab === "security" ? (
             <SecurityView busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
           ) : activeTab === "triggers" ? (
-            <TriggersView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
+            <TriggersView dashboard={dashboard} />
           ) : activeTab === "devices" ? (
             <DevicesView
               busyActions={busyActions}
@@ -304,12 +331,23 @@ export function App() {
                 runAction={runAction}
               />
             </Suspense>
+          ) : activeTab === "settings" ? (
+            desktopSettings ? (
+              <Suspense fallback={<EmptyState>Loading desktop settings...</EmptyState>}>
+                <SettingsView payload={desktopSettings} onSaved={setDesktopSettings} />
+              </Suspense>
+            ) : (
+              <EmptyState>Loading desktop settings...</EmptyState>
+            )
           ) : (
             <DiagnosticsView dashboard={dashboard} />
           )}
         </section>
       </main>
-      <AppUpdateDialog onError={reportUpdateError} />
+      <AppUpdateDialog
+        automaticCheck={desktopSettings?.settings.automatic_update_checks ?? false}
+        onError={reportUpdateError}
+      />
       <Toaster closeButton position="top-center" richColors />
     </div>
   );
@@ -326,6 +364,7 @@ function pageTitle(activeTab: TabId) {
     scripts: "Scripts",
     security: "Security",
     service: "Service",
+    settings: "Settings",
     triggers: "Triggers",
   };
   return labels[activeTab];
@@ -350,6 +389,9 @@ function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | null) {
   }
   if (activeTab === "config") {
     return dashboard.config_path;
+  }
+  if (activeTab === "settings") {
+    return "Desktop startup, background behavior, and updates";
   }
   if (activeTab === "runs") {
     return `${dashboard.recent_runs.length} recent run records`;

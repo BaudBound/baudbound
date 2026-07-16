@@ -17,9 +17,11 @@ const MENU_RELOAD_RUNNER: &str = "reload-runner";
 const MENU_QUIT: &str = "quit";
 const QUIT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn configure_desktop_lifecycle(app: &mut App) -> Result<()> {
+pub fn configure_desktop_lifecycle(app: &mut App, launched_from_autostart: bool) -> Result<()> {
     configure_close_to_tray(app);
-    configure_tray(app)
+    configure_tray(app)?;
+    configure_initial_window_visibility(app, launched_from_autostart);
+    Ok(())
 }
 
 fn configure_close_to_tray(app: &App) {
@@ -27,12 +29,43 @@ fn configure_close_to_tray(app: &App) {
         return;
     };
     let window_to_hide = window.clone();
+    let app_handle = app.handle().clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            let _ = window_to_hide.hide();
+            let state = app_handle.state::<super::DesktopUiState>();
+            let keep_running = state
+                .desktop_settings
+                .lock()
+                .map(|settings| settings.keep_running_on_close)
+                .unwrap_or(true);
+            if keep_running {
+                let _ = window_to_hide.hide();
+            } else {
+                log_runner_command(
+                    "stop background runner before closing",
+                    super::run_locked_message(&state, || {
+                        state.background_runner.stop_and_wait(QUIT_SHUTDOWN_TIMEOUT)
+                    }),
+                );
+                app_handle.exit(0);
+            }
         }
     });
+}
+
+fn configure_initial_window_visibility(app: &App, launched_from_autostart: bool) {
+    let state = app.state::<super::DesktopUiState>();
+    let start_hidden = launched_from_autostart
+        && state
+            .desktop_settings
+            .lock()
+            .map(|settings| settings.start_minimized_to_tray)
+            .unwrap_or(false);
+    if start_hidden {
+        return;
+    }
+    show_main_window(app.handle());
 }
 
 fn configure_tray(app: &App) -> Result<()> {

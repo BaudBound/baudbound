@@ -214,6 +214,10 @@ fn desktop_cli_supports_package_and_script_commands() {
         ["script", "inspect", "desktop-script", "--json"],
     ));
     assert_eq!(installed["id"], "desktop-script");
+    assert_success(run_desktop(
+        &runner_home,
+        ["script", "approve", "desktop-script"],
+    ));
 
     let triggers = command_json(run_desktop(&runner_home, ["script", "triggers", "--json"]));
     assert!(
@@ -240,10 +244,6 @@ fn desktop_cli_supports_package_and_script_commands() {
         1
     );
 
-    assert_success(run_desktop(
-        &runner_home,
-        ["script", "approve", "desktop-script"],
-    ));
     let approval = command_json(run_desktop(
         &runner_home,
         ["script", "approval", "desktop-script", "--json"],
@@ -370,6 +370,10 @@ fn desktop_cli_dispatches_hotkey_triggers() {
             package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
+    assert_success(run_desktop(
+        &runner_home,
+        ["script", "approve", "hotkey-script"],
+    ));
 
     let hotkeys = command_json(run_desktop(&runner_home, ["hotkey", "list", "--json"]));
     assert_eq!(hotkeys["count"], 1);
@@ -417,6 +421,10 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
             "import",
             package_path.to_str().expect("path should be UTF-8"),
         ],
+    ));
+    assert_success(run_desktop(
+        &runner_home,
+        ["script", "approve", "hotkey-script"],
     ));
 
     let output = run_desktop_with_stdin(
@@ -467,6 +475,10 @@ fn desktop_cli_serves_hotkey_stdin_once() {
             "import",
             package_path.to_str().expect("path should be UTF-8"),
         ],
+    ));
+    assert_success(run_desktop(
+        &runner_home,
+        ["script", "approve", "hotkey-script"],
     ));
 
     let preflight = command_json(run_desktop(

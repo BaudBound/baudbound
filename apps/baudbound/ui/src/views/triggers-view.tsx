@@ -1,14 +1,11 @@
-import { Activity, RotateCcw } from "lucide-react";
+import { Activity } from "lucide-react";
 import { useMemo } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { DashboardAction } from "@/lib/app-types";
 import {
   type DashboardPayload,
-  requestTriggerReload,
   type TriggerDispatchActivity,
   type TriggerRegistrationStatus,
 } from "@/lib/runner-api";
@@ -19,37 +16,21 @@ type TriggerRow = TriggerRegistrationStatus & {
   scriptName: string;
 };
 
-export function TriggersView({
-  busyActions,
-  dashboard,
-  runAction,
-}: {
-  busyActions: Set<string>;
-  dashboard: DashboardPayload;
-  runAction: DashboardAction;
-}) {
+export function TriggersView({ dashboard }: { dashboard: DashboardPayload }) {
   const rows = useMemo(() => triggerRows(dashboard), [dashboard]);
   const grouped = useMemo(() => groupTriggers(rows), [rows]);
 
   return (
     <div className="grid gap-4">
       <Card>
-        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <CardContent>
           <div>
             <div className="text-sm font-medium">Trigger registrations</div>
             <div className="text-xs text-muted-foreground">
-              Registrations are discovered from enabled installed scripts and loaded by the
+              Registrations from enabled and approved scripts are loaded automatically by the
               desktop background runner.
             </div>
           </div>
-          <Button
-            disabled={busyActions.has("trigger-reload")}
-            onClick={() => runAction("trigger-reload", () => requestTriggerReload())}
-            variant="secondary"
-          >
-            <RotateCcw />
-            {busyActions.has("trigger-reload") ? "Working..." : "Reload triggers"}
-          </Button>
         </CardContent>
       </Card>
 

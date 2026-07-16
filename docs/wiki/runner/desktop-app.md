@@ -23,6 +23,7 @@ The interface refreshes automatically while it is open and when the window regai
 | **Logs** | Searching recent log messages across runs |
 | **Config** | Validated runner and device configuration |
 | **Doctor** | Native support, paths, runtime facts, and corrective diagnostics |
+| **Settings** | Desktop login startup, window behavior, background startup, and update checks |
 
 ## Dashboard
 <!-- desktop-tab:dashboard -->
@@ -40,7 +41,7 @@ Choose **Import package** to select a `.bbs` file. Import validates the package 
 
 Each script row provides frequent actions directly:
 
-- **Run** starts a supported manual trigger after validation and approval checks.
+- **Run** starts a supported manual trigger only when the script is enabled and its current package revision is approved.
 - **Approve** appears when the current revision needs review.
 - The row expander shows package identity, health, declared permissions, triggers, and recent runs.
 - The action menu contains less frequent operations such as update, enable or disable, revoke approval, secret management, and removal.
@@ -64,7 +65,7 @@ The Service tab controls the background runner owned by this desktop application
 
 The status badge and timestamp distinguish `running`, `stopping`, `failed`, and `stopped` states. Listener panels show enabled families, registration counts, runtime state, and diagnostics.
 
-Closing the window hides it to the system tray; it does not quit the application. Left-click the tray icon to restore the window. The tray menu can show the window, start, stop, or reload the background runner, or **Quit BaudBound**. Quit stops the background runner before exiting.
+By default, closing the window hides it to the system tray and does not quit the application. Left-click the tray icon to restore the window. The tray menu can show the window, start, stop, or reload the background runner, or **Quit BaudBound**. Quit stops the background runner before exiting. You can change close behavior under Settings.
 
 The background runner does not become an operating-system service. It exists only while the BaudBound desktop process remains running. Headless machines should use [Linux Background Service](linux-background-service.md).
 
@@ -91,7 +92,7 @@ Approval does not override malformed packages, unsupported targets, missing requ
 
 This tab groups registrations by trigger family and reports enabled, registered, active, and failed states. A registration exists only when its script and package are eligible and the listener family is enabled.
 
-Use **Reload triggers** after importing, updating, enabling, or disabling scripts when you need an immediate refresh. Otherwise, the running service reload interval detects changes automatically.
+Trigger registrations refresh automatically after importing, updating, removing, enabling, disabling, approving, or revoking approval for a script. No manual reload is required. The execution boundary also checks current enablement and approval, so an outdated listener or queued event cannot bypass the latest script state.
 
 A registered trigger is not necessarily receiving events. Inspect listener state, the script's approval and enablement, and family-specific prerequisites. [Background Service and Triggers](service-triggers.md) describes each family.
 
@@ -151,9 +152,24 @@ Doctor is a diagnostic view, not another configuration editor. It reports:
 
 Treat a failed check as blocking for the related feature. A warning describes a limitation or inactive service that may be intentional. Use the reported path and fact values when requesting support, but remove usernames and never include secrets.
 
+## Settings
+<!-- desktop-tab:settings -->
+
+Settings control the desktop application itself. They are stored in the runner database and are separate from the runner TOML shown under Config.
+
+- **Launch at login** registers BaudBound with the current Windows or Linux desktop session. It starts after that user signs in. It does not create a system service or start on a headless machine.
+- **Start background runner on launch** starts trigger listeners whenever the desktop application opens.
+- **Start login launch in the tray** keeps the main window hidden when the operating system launches BaudBound after login. Opening BaudBound manually still shows the window.
+- **Keep running when the window closes** hides the window in the tray. When disabled, closing the window stops the desktop background runner and exits the application.
+- **Automatically check for updates** checks the signed release feed once after the desktop application starts.
+
+Linux login startup uses the current user's desktop-session autostart directory. It works only after a graphical login. Use [Linux Background Service](linux-background-service.md) when triggers must start before login or on a headless machine.
+
+The login-startup badge reports the operating system registration state. If it says **Registration needs repair**, save the settings again. BaudBound rewrites enabled login entries during startup so an application update or moved AppImage points to the current executable.
+
 ## Application updates
 
-The signed updater checks the configured release endpoint after startup. When a newer compatible release exists, the update dialog displays its version and release notes.
+When automatic update checks are enabled under Settings, the signed updater checks the configured release endpoint after startup. When a newer compatible release exists, the update dialog displays its version and release notes.
 
 - **Later** closes an available-update dialog without installing.
 - **Download** begins a signed download and shows progress.

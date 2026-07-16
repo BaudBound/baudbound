@@ -17,6 +17,7 @@ import { OptionCombobox } from "@/components/ui/option-combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { targetRuntimes } from "@/data/project/runtimes";
 import type { ProjectSettings, TargetRuntime } from "@/lib/types";
+import { DEFAULT_MINIMUM_RUNNER_VERSION } from "@/lib/version";
 
 type ProjectSettingsModalProps = {
 	open: boolean;
@@ -61,7 +62,7 @@ export function ProjectSettingsModal({ open, settings, onClose, onSave }: Projec
 			author: draft.author.trim(),
 			website: draft.website.trim(),
 			repository: draft.repository.trim(),
-			minimumRunnerVersion: draft.minimumRunnerVersion.trim() || "0.1.0",
+			minimumRunnerVersion: draft.minimumRunnerVersion.trim() || DEFAULT_MINIMUM_RUNNER_VERSION,
 			tags: nextTags,
 		});
 		onClose();

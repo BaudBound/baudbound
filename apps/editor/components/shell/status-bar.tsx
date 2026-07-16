@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { RiskLevel, ScriptNodeData } from "@/lib/types";
+import { EDITOR_CREATED_WITH } from "@/lib/version";
 
 type StatusBarProps = {
 	nodes: Node<ScriptNodeData>[];
@@ -21,7 +22,7 @@ export function StatusBar({ nodes, edges, riskLevel }: StatusBarProps) {
 				<span className="hidden md:inline">package v1</span>
 				<span className="hidden lg:inline">runtime v1</span>
 			</div>
-			<span className="hidden shrink-0 sm:inline">BaudBound Editor 0.1.0</span>
+			<span className="hidden shrink-0 sm:inline">{EDITOR_CREATED_WITH}</span>
 		</footer>
 	);
 }

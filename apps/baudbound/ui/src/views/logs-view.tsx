@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { DashboardPayload } from "@/lib/runner-api";
@@ -39,21 +38,12 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
               Showing {visibleRows.length} of {rows.length}
             </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Input
-              aria-label="Search logs"
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search message, script, node, run, or level"
-              value={searchTerm}
-            />
-            <Button
-              disabled={!searchTerm.trim()}
-              onClick={() => setSearchTerm("")}
-              variant="outline"
-            >
-              Clear
-            </Button>
-          </div>
+          <Input
+            aria-label="Search logs"
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search message, script, node, run, or level"
+            value={searchTerm}
+          />
         </CardHeader>
         <CardContent className="p-0 max-[900px]:p-3">
           {visibleRows.length === 0 ? (

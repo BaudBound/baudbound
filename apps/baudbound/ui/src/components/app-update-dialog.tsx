@@ -13,9 +13,18 @@ import {
 import { useAppUpdater } from "@/hooks/use-app-updater";
 import { updateProgressPercent } from "@/lib/update-progress";
 
-export function AppUpdateDialog({ onError }: { onError: (message: string) => void }) {
+export function AppUpdateDialog({
+  automaticCheck,
+  onError,
+}: {
+  automaticCheck: boolean;
+  onError: (message: string) => void;
+}) {
   const stableErrorHandler = useCallback((message: string) => onError(message), [onError]);
-  const { dismiss, download, installAndRestart, retry, state } = useAppUpdater(stableErrorHandler);
+  const { dismiss, download, installAndRestart, retry, state } = useAppUpdater(
+    stableErrorHandler,
+    automaticCheck,
+  );
   const open =
     state.phase === "available" ||
     state.phase === "downloading" ||

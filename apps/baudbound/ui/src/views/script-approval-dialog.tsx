@@ -20,6 +20,7 @@ import {
 import {
   approvalLabel,
   approvalVariant,
+  isPackageHashValid,
   packageHashLabel,
   riskVariant,
 } from "@/lib/status-format";
@@ -79,16 +80,26 @@ export function ScriptApprovalDialog({
               {script.installed.id}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge variant={riskVariant(script.installed.risk_level)}>
-                {script.installed.risk_level} risk
-              </Badge>
-              <Badge variant={hashLabel === "valid" ? "good" : "destructive"}>
-                hash {hashLabel}
-              </Badge>
-              <Badge variant={approvalVariant(script.approval_status)}>
-                approval {approvalLabel(script.approval_status)}
-              </Badge>
-              <Badge variant="muted">{script.installed.target_runtime}</Badge>
+              <ReviewBadge
+                label="Risk"
+                value={titleCase(script.installed.risk_level)}
+                variant={riskVariant(script.installed.risk_level)}
+              />
+              <ReviewBadge
+                label="Integrity"
+                value={hashLabel}
+                variant={isPackageHashValid(script.package_hash_status) ? "good" : "destructive"}
+              />
+              <ReviewBadge
+                label="Approval"
+                value={approvalLabel(script.approval_status)}
+                variant={approvalVariant(script.approval_status)}
+              />
+              <ReviewBadge
+                label="Target"
+                value={script.installed.target_runtime}
+                variant="muted"
+              />
             </div>
           </section>
 
@@ -141,4 +152,26 @@ export function ScriptApprovalDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function ReviewBadge({
+  label,
+  value,
+  variant,
+}: {
+  label: string;
+  value: string;
+  variant: "default" | "destructive" | "good" | "medium" | "muted" | "red";
+}) {
+  return (
+    <Badge className="h-6 gap-1.5 px-2.5" variant={variant}>
+      <span className="opacity-70">{label}</span>
+      <span aria-hidden="true" className="h-3 w-px bg-current opacity-30" />
+      <span>{value}</span>
+    </Badge>
+  );
+}
+
+function titleCase(value: string) {
+  return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

@@ -48,9 +48,6 @@ export function RunsView({ dashboard }: { dashboard: DashboardPayload }) {
       }),
     [dashboard.recent_runs, scriptFilter, scriptNames, searchTerm, statusFilter],
   );
-  const hasActiveFilters =
-    scriptFilter !== allFilterValue || statusFilter !== allFilterValue || searchTerm.trim();
-
   function toggleRunDetails(runId: string) {
     setExpandedRunIds((current) => {
       const next = new Set(current);
@@ -85,12 +82,6 @@ export function RunsView({ dashboard }: { dashboard: DashboardPayload }) {
             </div>
           </div>
           <RunFilters
-            canClear={Boolean(hasActiveFilters)}
-            onClear={() => {
-              setScriptFilter(allFilterValue);
-              setStatusFilter(allFilterValue);
-              setSearchTerm("");
-            }}
             onScriptFilterChange={setScriptFilter}
             onSearchTermChange={setSearchTerm}
             onStatusFilterChange={setStatusFilter}
@@ -175,8 +166,6 @@ function RunSummaryTile({
 }
 
 function RunFilters({
-  canClear,
-  onClear,
   onScriptFilterChange,
   onSearchTermChange,
   onStatusFilterChange,
@@ -186,8 +175,6 @@ function RunFilters({
   statusFilter,
   statusOptions,
 }: {
-  canClear: boolean;
-  onClear: () => void;
   onScriptFilterChange: (value: string) => void;
   onSearchTermChange: (value: string) => void;
   onStatusFilterChange: (value: string) => void;
@@ -198,7 +185,7 @@ function RunFilters({
   statusOptions: string[];
 }) {
   return (
-    <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_180px_auto]">
+    <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
       <Input
         aria-label="Search runs"
         onChange={(event) => onSearchTermChange(event.target.value)}
@@ -231,9 +218,6 @@ function RunFilters({
           ))}
         </SelectContent>
       </Select>
-      <Button disabled={!canClear} onClick={onClear} variant="outline">
-        Clear
-      </Button>
     </div>
   );
 }
