@@ -1,10 +1,7 @@
 import { CircleHelp, Download, PackageOpen, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
 import Image from "next/image";
 import type { ChangeEvent, RefObject } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { TargetRuntime } from "@/lib/types";
-import type { VerificationStatus } from "@/utils/verification";
 
 type TopBarProps = {
 	importInputRef: RefObject<HTMLInputElement | null>;
@@ -12,8 +9,6 @@ type TopBarProps = {
 	leftWidth: number;
 	rightCollapsed: boolean;
 	rightWidth: number;
-	targetRuntime: TargetRuntime;
-	verificationStatus: VerificationStatus;
 	onAssetEditorClick: () => void;
 	onImportClick: () => void;
 	onImportFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -29,8 +24,6 @@ export function TopBar({
 	leftWidth,
 	rightCollapsed,
 	rightWidth,
-	targetRuntime,
-	verificationStatus,
 	onAssetEditorClick,
 	onImportClick,
 	onImportFileChange,
@@ -93,12 +86,6 @@ export function TopBar({
 					<CircleHelp size={14} />
 					<span className="hidden xl:inline">Help</span>
 				</Button>
-				<Badge className="hidden px-1.5 py-0.5 text-xs font-bold lg:inline-flex" variant="medium">
-					{targetRuntime.toLowerCase().includes("headless") ? "Headless" : "Desktop"}
-				</Badge>
-				<Badge className="px-1.5 py-0.5 text-xs font-bold" variant={getVerificationBadgeVariant(verificationStatus)}>
-					{getVerificationLabel(verificationStatus)}
-				</Badge>
 				<div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5">
 					<Button type="button" onClick={onVerifyClick} aria-label="Verify script" size="sm" variant="toolbarActive">
 						<ShieldCheck size={14} />
@@ -137,36 +124,4 @@ export function TopBar({
 			</div>
 		</header>
 	);
-}
-
-function getVerificationBadgeVariant(status: VerificationStatus) {
-	if (status === "verified") {
-		return "low";
-	}
-
-	if (status === "warning") {
-		return "medium";
-	}
-
-	if (status === "failed") {
-		return "high";
-	}
-
-	return "outline";
-}
-
-function getVerificationLabel(status: VerificationStatus) {
-	if (status === "verified") {
-		return "Verified";
-	}
-
-	if (status === "warning") {
-		return "Warnings";
-	}
-
-	if (status === "failed") {
-		return "Failed";
-	}
-
-	return "Not verified";
 }

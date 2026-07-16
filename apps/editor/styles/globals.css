@@ -50,6 +50,7 @@ body {
 	height: 100%;
 	margin: 0;
 	background: #090b10;
+	user-select: none;
 }
 
 button,

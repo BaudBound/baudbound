@@ -1156,8 +1156,6 @@ export function EditorPage() {
 				leftWidth={sizes.left}
 				rightCollapsed={collapsed.right}
 				rightWidth={sizes.right}
-				targetRuntime={projectSettings.targetRuntime}
-				verificationStatus={verificationRecord.status}
 				onAssetEditorClick={() => setAssetEditorOpen(true)}
 				onImportClick={() => importInputRef.current?.click()}
 				onImportFileChange={handleImportFileChange}
@@ -1291,7 +1289,13 @@ export function EditorPage() {
 				/>
 			</div>
 
-			<StatusBar nodes={scriptNodes} edges={edges} riskLevel={riskLevel} />
+			<StatusBar
+				nodes={scriptNodes}
+				edges={edges}
+				riskLevel={riskLevel}
+				targetRuntime={projectSettings.targetRuntime}
+				verificationStatus={verificationRecord.status}
+			/>
 			<VerificationModal
 				checks={verificationChecks}
 				open={verificationOpen}

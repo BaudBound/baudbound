@@ -182,7 +182,7 @@ function LogPanel({
 
 	return (
 		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
-			<div ref={scrollRef} className="overflow-y-auto px-4 py-3 select-text" data-selectable-text="true">
+			<div ref={scrollRef} className="overflow-y-auto px-4 py-3" data-selectable-text="true">
 				{empty ? (
 					<div className="rounded border border-baud-border bg-baud-soft p-3 text-sm leading-5 text-baud-muted">
 						{emptyText}
@@ -350,7 +350,7 @@ function VariablesTab({
 
 	return (
 		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_32px] overflow-hidden">
-			<div className="overflow-y-auto select-text" data-selectable-text="true">
+			<div className="overflow-y-auto">
 				<div className="grid min-w-0 divide-y divide-baud-border border-b border-baud-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
 					<SecretReferenceManager
 						declarations={secretDeclarations}
