@@ -12,7 +12,9 @@ pub(in crate::desktop_ui) struct CoordinatePickerState {
 
 #[cfg(not(windows))]
 #[derive(Default)]
-pub(in crate::desktop_ui) struct CoordinatePickerState;
+pub(in crate::desktop_ui) struct CoordinatePickerState {
+    _unsupported: (),
+}
 
 #[cfg(windows)]
 impl Default for CoordinatePickerState {
