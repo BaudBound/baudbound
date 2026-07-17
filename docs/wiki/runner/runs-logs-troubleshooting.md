@@ -41,12 +41,16 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 ## Inspect in the desktop app
 
 1. Open **Scripts** and expand the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.
-2. Open **Runs**, select the relevant script, and choose the newest failed or cancelled run.
-3. Copy the run ID, trigger ID, status, and first useful error.
-4. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
-5. Open **Triggers** when the run never started or a configured serial reader is disconnected. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state or **Doctor** for machine support.
+2. Open **Runs** and check **Currently running** when the script has not finished. The live entry shows which trigger started it and displays new log messages as they are emitted.
+3. Choose **Stop** on an active entry when the run must end. Cancellation is cooperative, so the entry remains visible until the current action reaches a safe point.
+4. For a finished run, select the relevant script and choose the newest failed or cancelled record.
+5. Copy the run ID, trigger ID, status, and first useful error.
+6. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
+7. Open **Triggers** when the run never started or a configured serial reader is disconnected. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state or **Doctor** for machine support.
 
 The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
+
+The desktop receives active run changes directly from the Rust runner. A run does not need to remain active until the next refresh interval. Finished history is refreshed only after the runner has committed its terminal record to SQLite.
 
 The shared clock setting changes human readable desktop and CLI timestamps between 12 hour and 24 hour notation. Change it in the desktop Config page or with `baudbound config set display.time-format`. It does not alter stored timestamps, log order, or CLI JSON values.
 

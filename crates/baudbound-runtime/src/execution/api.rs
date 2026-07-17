@@ -1,12 +1,28 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::runtime::RuntimeGraph;
 use serde_json::Value;
 
 use super::{
     RunIdentity, RunReport, RuntimeActionHandler, RuntimeError, RuntimeExecutionResources,
-    RuntimeExecutor, UnsupportedActionHandler,
+    RuntimeExecutor, RuntimeRunObserver, UnsupportedActionHandler,
 };
+
+struct RunObservationGuard {
+    identity: RunIdentity,
+    observer: Option<std::sync::Arc<dyn RuntimeRunObserver>>,
+}
+
+static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+impl Drop for RunObservationGuard {
+    fn drop(&mut self) {
+        if let Some(observer) = &self.observer {
+            observer.run_finished(&self.identity);
+        }
+    }
+}
 
 pub fn execute_manual_program(program: &Value, script_id: &str) -> Result<RunReport, RuntimeError> {
     execute_manual_program_with_actions(program, script_id, &UnsupportedActionHandler)
@@ -107,7 +123,13 @@ fn execute_graph_from_trigger(
         script_id: script_id.to_owned(),
         trigger_node_id: trigger.id.clone(),
     };
-    let mut executor = RuntimeExecutor::new(graph, identity, trigger_payload, resources)?;
+    let observer = resources.observer.clone();
+    let cancellation = resources.cancellation.clone();
+    let mut executor = RuntimeExecutor::new(graph, identity.clone(), trigger_payload, resources)?;
+    if let Some(observer) = &observer {
+        observer.run_started(&identity, cancellation);
+    }
+    let _observation = RunObservationGuard { identity, observer };
     match executor.run_from_trigger() {
         Ok(report) => Ok(executor.redact_report(report)),
         Err(RuntimeError::Cancelled) => Err(RuntimeError::Cancelled),
@@ -123,5 +145,6 @@ fn create_run_id(script_id: &str, trigger_node_id: &str) -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    format!("{script_id}:{trigger_node_id}:{timestamp}")
+    let sequence = RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{script_id}:{trigger_node_id}:{timestamp}:{sequence}")
 }

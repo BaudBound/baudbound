@@ -21,7 +21,9 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let websocket_registry = Arc::new(WebSocketConnectionRegistry::new());
     let store = SqliteRunnerStore::open(runner_home.join("runner.sqlite3"))
         .expect("SQLite runner store should open");
+    let active_runs = Arc::new(ActiveRunRegistry::default());
     let state = DesktopUiState {
+        active_runs: Arc::clone(&active_runs),
         background_options: Mutex::new(desktop_background_options(
             &runner_config,
             Arc::clone(&websocket_registry),
@@ -34,6 +36,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         core: Arc::new(Mutex::new(build_runner_core(
             &runner_config,
             Arc::clone(&websocket_registry),
+            active_runs,
         ))),
         store,
         websocket_registry,

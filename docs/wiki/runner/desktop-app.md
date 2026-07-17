@@ -42,7 +42,8 @@ Choose **Import package** to select a `.bbs` file. Import validates the package 
 
 Each script row provides frequent actions directly:
 
-- **Run** starts a supported manual trigger only when the script is enabled and its current package revision is approved.
+- **Run** appears only when the script contains a Manual trigger. It starts the Manual trigger when the script is enabled and its current package revision is approved.
+- **Stop** replaces **Run** while that script is running. It requests cancellation for every active run of that script.
 - **Approve** appears when the current revision needs review.
 - The row expander shows package identity, health, declared permissions, triggers, and recent runs.
 - The action menu contains less frequent operations such as update, enable or disable, revoke approval, secret management, and removal.
@@ -123,7 +124,11 @@ Enable USB identity validation when vendor and product IDs are available. Auto r
 ## Runs
 <!-- desktop-tab:runs -->
 
-Runs summarizes completed, failed, cancelled, and error-containing executions. Search and status filters narrow the list without changing stored records.
+**Currently running** lists every active execution, including runs started by Manual, Startup, Schedule, Hotkey, File Watch, Process Started, Serial Input, Webhook, WebSocket, and Sub-script paths. Run start, log, cancellation, and finish changes are sent directly from the Rust runner to the desktop window. They do not wait for a dashboard timer. Each entry shows the script, trigger, start time, run ID, and live log messages. Choose **Stop** to request cancellation for one run. A stopping run remains visible until execution has reached a safe cancellation point.
+
+Live messages are filtered through the same secret redaction rules as stored logs. **Follow output** is enabled by default and keeps the newest message in view. Turn it off before scrolling through older messages. The preview keeps the newest 500 messages and reports how many older messages were omitted. A run can have no messages while it is waiting inside an action. The empty message area does not mean the run has stopped.
+
+Below the active list, Runs summarizes completed, failed, cancelled, and error-containing executions. The runner refreshes this durable history after SQLite commits each terminal record. Search and status filters narrow the list without changing stored records.
 
 Expand a run to inspect:
 

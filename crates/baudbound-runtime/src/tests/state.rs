@@ -1,17 +1,39 @@
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use serde_json::{Value, json};
 
 use crate::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeExecutionResources,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
-    VersionedRuntimeVariable, execute_manual_program_with_state,
+    RunIdentity, RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeDefaultVariableScope,
+    RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver, RuntimeSecretDeclaration,
+    RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler, VersionedRuntimeVariable,
+    execute_manual_program_with_state,
 };
 
 #[derive(Default)]
 struct TestStateStore {
     secrets: Mutex<BTreeMap<(String, String), Value>>,
     variables: Mutex<BTreeMap<(RuntimeVariableScopeKey, String, String), VersionedRuntimeVariable>>,
+}
+
+#[derive(Default)]
+struct LogObserver {
+    logs: Mutex<Vec<RuntimeLogEntry>>,
+}
+
+impl RuntimeRunObserver for LogObserver {
+    fn run_started(&self, _identity: &RunIdentity, _cancellation: RuntimeCancellationToken) {}
+
+    fn log_emitted(&self, _identity: &RunIdentity, entry: &RuntimeLogEntry) {
+        self.logs
+            .lock()
+            .expect("observer log lock should work")
+            .push(entry.clone());
+    }
+
+    fn run_finished(&self, _identity: &RunIdentity) {}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -254,10 +276,11 @@ fn loads_required_secret_and_redacts_reports() {
         required: true,
         value_type: "string".to_owned(),
     }];
+    let observer = Arc::new(LogObserver::default());
     let report = execute_manual_program_with_state(
         &program,
         "script-1",
-        state_resources(&store, &declarations),
+        state_resources(&store, &declarations).with_observer(observer.clone()),
     )
     .expect("secret-backed run should execute");
 
@@ -274,6 +297,14 @@ fn loads_required_secret_and_redacts_reports() {
             .logs
             .iter()
             .any(|log| log.message.contains("[REDACTED]"))
+    );
+    assert!(
+        observer
+            .logs
+            .lock()
+            .expect("observer log lock should work")
+            .iter()
+            .all(|log| !log.message.contains("actual-secret"))
     );
 }
 

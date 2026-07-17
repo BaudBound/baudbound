@@ -20,6 +20,7 @@ use crate::commands::{
 use crate::desktop_actions::SystemDesktopActionAdapter;
 use crate::service::{ServeOptions, ServeOverrides};
 
+mod active_runs;
 mod background;
 mod coordinate_picker;
 mod desktop_config;
@@ -27,6 +28,7 @@ mod lifecycle;
 mod manual_runs;
 mod tools;
 
+use active_runs::{ActiveRunRegistry, ActiveRunSnapshot};
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
 macro_rules! desktop_command_handler {
     () => {
@@ -42,6 +44,8 @@ macro_rules! desktop_command_handler {
             reload_background_runner,
             read_runner_config,
             manual_runs::run_script,
+            manual_runs::stop_run,
+            manual_runs::stop_script_runs,
             save_runner_config,
             save_runner_config_model,
             coordinate_picker::select_coordinate_picker,
@@ -69,6 +73,8 @@ pub fn run_desktop_ui(
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     launched_from_autostart: bool,
 ) -> Result<()> {
+    let active_runs = Arc::new(ActiveRunRegistry::default());
+    let core = core.with_run_observer(Arc::clone(&active_runs));
     let background_options = desktop_background_options(
         &runner_config,
         Arc::clone(&websocket_registry),
@@ -93,6 +99,7 @@ pub fn run_desktop_ui(
         .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
+            active_runs,
             background_runner: background_runner.clone(),
             config_path,
             login_startup_registered: Mutex::new(None),
@@ -103,6 +110,9 @@ pub fn run_desktop_ui(
             operation_lock: Arc::new(Mutex::new(())),
         })
         .setup(move |app| {
+            app.state::<DesktopUiState>()
+                .active_runs
+                .connect_event_sink(app.handle().clone());
             desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
             desktop_config::start_configured_background_runner(app.handle());
@@ -119,6 +129,7 @@ pub fn run_desktop_ui(
 }
 
 pub(super) struct DesktopUiState {
+    active_runs: Arc<ActiveRunRegistry>,
     background_options: Mutex<ServeOptions>,
     background_runner: DesktopRunnerSupervisor,
     config_path: PathBuf,
@@ -412,6 +423,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         })
         .collect::<std::collections::BTreeMap<_, _>>();
     let recent_runs = state.store.list_run_records(None, Some(50))?;
+    let active_runs = state.active_runs.snapshot();
     let desktop_background = state.background_runner.snapshot()?;
     let runner_config = current_runner_config(state)?;
     let serial_devices = serial_device_payloads(&runner_config);
@@ -423,6 +435,8 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
     }
     let native_doctor_checks = desktop_doctor_checks();
     Ok(DashboardPayload {
+        active_runs: active_runs.runs,
+        active_runs_revision: active_runs.revision,
         desktop_background,
         automatic_update_checks: runner_config.updates.automatic_checks,
         launch_at_login_desired: runner_config.desktop.launch_at_login,
@@ -455,6 +469,8 @@ fn request_running_service_reload(store: &SqliteRunnerStore) -> Result<()> {
 
 #[derive(Serialize)]
 struct DashboardPayload {
+    active_runs: Vec<ActiveRunSnapshot>,
+    active_runs_revision: u64,
     automatic_update_checks: bool,
     config_path: String,
     desktop_background: DesktopRunnerSnapshot,
@@ -652,7 +668,11 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
             runner_config.runner.run_history_max_records,
             runner_config.runner.run_history_max_age_days,
         ))?;
-    let next_core = build_runner_core(&runner_config, Arc::clone(&state.websocket_registry));
+    let next_core = build_runner_core(
+        &runner_config,
+        Arc::clone(&state.websocket_registry),
+        Arc::clone(&state.active_runs),
+    );
     let next_background_options = desktop_background_options(
         &runner_config,
         Arc::clone(&state.websocket_registry),
@@ -741,8 +761,11 @@ fn current_runtime(state: &DesktopUiState) -> Result<(RunnerCore, ServeOptions)>
 fn build_runner_core(
     runner_config: &RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
+    active_runs: Arc<ActiveRunRegistry>,
 ) -> RunnerCore {
-    let core = RunnerCore::from_config(runner_config).with_websocket_sink(websocket_registry);
+    let core = RunnerCore::from_config(runner_config)
+        .with_websocket_sink(websocket_registry)
+        .with_run_observer(active_runs);
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
         SystemDesktopActionAdapter,

@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     path::PathBuf,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -110,6 +111,16 @@ pub trait RuntimeActionHandler: Send + Sync {
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 }
 
+pub trait RuntimeRunObserver: Send + Sync {
+    fn run_started(&self, identity: &RunIdentity, cancellation: RuntimeCancellationToken);
+
+    fn log_emitted(&self, identity: &RunIdentity, entry: &RuntimeLogEntry);
+
+    fn run_finished(&self, identity: &RunIdentity);
+
+    fn run_recorded(&self) {}
+}
+
 #[derive(Debug, Default)]
 pub struct UnsupportedActionHandler;
 
@@ -129,6 +140,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) cancellation: RuntimeCancellationToken,
     pub(super) state_store: Option<&'a dyn RuntimeStateStore>,
     pub(super) default_variables: &'a [RuntimeDefaultVariable],
+    pub(super) observer: Option<Arc<dyn RuntimeRunObserver>>,
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
 }
 
@@ -141,6 +153,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
             default_variables: &[],
+            observer: None,
             secrets: &[],
         }
     }
@@ -174,6 +187,12 @@ impl<'a> RuntimeExecutionResources<'a> {
         default_variables: &'a [RuntimeDefaultVariable],
     ) -> Self {
         self.default_variables = default_variables;
+        self
+    }
+
+    #[must_use]
+    pub fn with_observer(mut self, observer: Arc<dyn RuntimeRunObserver>) -> Self {
+        self.observer = Some(observer);
         self
     }
 }

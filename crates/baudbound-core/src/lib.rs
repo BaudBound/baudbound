@@ -17,8 +17,9 @@ use std::{path::Path, sync::Arc};
 use baudbound_actions::{HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
     RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
-    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeSecretDeclaration,
-    execute_manual_program_with_state, execute_trigger_program_with_state,
+    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeRunObserver,
+    RuntimeSecretDeclaration, execute_manual_program_with_state,
+    execute_trigger_program_with_state,
 };
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
 use baudbound_security::{RunnerPolicy, SecurityValidationError};
@@ -68,6 +69,7 @@ pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 #[derive(Clone)]
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
+    run_observer: Option<Arc<dyn RuntimeRunObserver>>,
     serial_devices: Vec<baudbound_actions::SerialDeviceConfig>,
     supported_target_runtimes: Vec<String>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
@@ -77,6 +79,7 @@ impl Default for RunnerCore {
     fn default() -> Self {
         Self {
             action_handler: None,
+            run_observer: None,
             serial_devices: Vec::new(),
             supported_target_runtimes: default_host_target_runtime_names(),
             websocket_sink: None,
@@ -89,6 +92,7 @@ impl RunnerCore {
     pub fn from_config(config: &RunnerConfig) -> Self {
         Self {
             action_handler: None,
+            run_observer: None,
             serial_devices: action_serial_devices_from_config(config),
             supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
             websocket_sink: None,
@@ -101,6 +105,15 @@ impl RunnerCore {
         T: RuntimeActionHandler + 'static,
     {
         self.action_handler = Some(handler);
+        self
+    }
+
+    #[must_use]
+    pub fn with_run_observer<T>(mut self, observer: Arc<T>) -> Self
+    where
+        T: RuntimeRunObserver + 'static,
+    {
+        self.run_observer = Some(observer);
         self
     }
 
@@ -398,16 +411,19 @@ impl RunnerCore {
         let package = load_script_package(&installed.package_path)?;
         if let Err(source) = self.validate_package_compatibility(&package) {
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            self.notify_run_recorded();
             return Err(source);
         }
         if !has_current_approval(store, &installed, &package)? {
             let source = CoreError::ApprovalRequired(installed.id.clone());
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            self.notify_run_recorded();
             return Err(source);
         }
         let policy = RunnerPolicy::permissive();
         if let Err(source) = validate_package_security(&package, &policy) {
             append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            self.notify_run_recorded();
             return Err(CoreError::Security(source));
         }
         let headless_action_handler;
@@ -453,11 +469,16 @@ impl RunnerCore {
             .collect::<Vec<_>>();
 
         let runtime_resources = || {
-            RuntimeExecutionResources::new(&core_action_handler)
+            let resources = RuntimeExecutionResources::new(&core_action_handler)
                 .with_package_path(installed.package_path.clone())
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
-                .with_default_variables(&default_variables)
+                .with_default_variables(&default_variables);
+            if let Some(observer) = &self.run_observer {
+                resources.with_observer(Arc::clone(observer))
+            } else {
+                resources
+            }
         };
         let report = match trigger_node_id {
             Some(trigger_node_id) => execute_trigger_program_with_state(
@@ -482,11 +503,20 @@ impl RunnerCore {
             };
             if let Err(error) = persistence_result {
                 tracing::warn!("failed to persist failed run record: {error}");
+            } else {
+                self.notify_run_recorded();
             }
             CoreError::Runtime(source)
         })?;
         store.append_run_record(stored_run_record_from_report(&report))?;
+        self.notify_run_recorded();
         Ok(report)
+    }
+
+    fn notify_run_recorded(&self) {
+        if let Some(observer) = &self.run_observer {
+            observer.run_recorded();
+        }
     }
 
     #[must_use]

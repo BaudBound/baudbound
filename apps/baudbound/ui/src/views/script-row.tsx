@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Play, Power, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -9,8 +9,10 @@ import type { DashboardAction } from "@/lib/app-types";
 import {
   removeScript,
   runScript,
+  type ActiveRun,
   type ScriptStatus,
   setScriptEnabled,
+  stopScriptRuns,
 } from "@/lib/runner-api";
 import {
   approvalLabel,
@@ -18,9 +20,11 @@ import {
   packageHashLabel,
   riskVariant,
 } from "@/lib/status-format";
+import { scriptRunControl } from "@/lib/script-run-control";
 import { cn } from "@/lib/utils";
 
 export function ScriptRow({
+  activeRuns,
   busyActions,
   expanded,
   onToggleDetails,
@@ -28,6 +32,7 @@ export function ScriptRow({
   runAction,
   script,
 }: {
+  activeRuns: ActiveRun[];
   busyActions: Set<string>;
   expanded: boolean;
   onToggleDetails: (scriptId: string) => void;
@@ -41,10 +46,15 @@ export function ScriptRow({
   const revokeApprovalAction = `revoke-approval:${reference}`;
   const removeAction = `remove:${reference}`;
   const runScriptAction = `run:${reference}`;
+  const stopScriptAction = `stop-script:${reference}`;
   const toggleAction = `toggle:${reference}`;
   const runUnavailableReason = manualRunUnavailableReason(script);
   const canRun = runUnavailableReason === null;
   const runTitle = runUnavailableReason ?? "Run";
+  const isStarting = busyActions.has(runScriptAction) && activeRuns.length === 0;
+  const runControl = isStarting ? "stop" : scriptRunControl(script, activeRuns);
+  const isRunning = activeRuns.length > 0;
+  const isStopping = isRunning && activeRuns.every((run) => run.cancellation_requested);
 
   return (
     <tr
@@ -97,18 +107,42 @@ export function ScriptRow({
         {script.installed.target_runtime}
       </td>
       <td className="px-3 py-3" data-label="Actions">
-        <div className="grid w-fit grid-cols-3 gap-1.5">
-          <Button
-            aria-label={`Run ${script.installed.name}`}
-            className="size-8 p-0"
-            disabled={!canRun || busyActions.has(runScriptAction)}
-            onClick={() => runAction(runScriptAction, () => runScript(reference))}
-            size="sm"
-            title={runTitle}
-            variant="default"
-          >
-            <Play />
-          </Button>
+        <div className="flex w-fit gap-1.5">
+          {runControl === "stop" ? (
+            <Button
+              aria-label={`Stop ${script.installed.name}`}
+              className="size-8 p-0"
+              disabled={isStarting || isStopping || busyActions.has(stopScriptAction)}
+              onClick={() =>
+                runAction(stopScriptAction, () => stopScriptRuns(reference))
+              }
+              size="sm"
+              title={
+                isStarting
+                  ? "Starting"
+                  : isStopping
+                    ? "Stop requested"
+                    : `Stop ${activeRuns.length} active run${activeRuns.length === 1 ? "" : "s"}`
+              }
+              variant="destructive"
+            >
+              <Square />
+            </Button>
+          ) : runControl === "run" ? (
+            <Button
+              aria-label={`Run ${script.installed.name}`}
+              className="size-8 p-0"
+              disabled={!canRun || busyActions.has(runScriptAction)}
+              onClick={() => runAction(runScriptAction, () => runScript(reference))}
+              size="sm"
+              title={runTitle}
+              variant="default"
+            >
+              <Play />
+            </Button>
+          ) : (
+            <span aria-hidden="true" className="size-8 shrink-0" />
+          )}
           <Button
             aria-label={`Review approval for ${script.installed.name}`}
             className="size-8 p-0"

@@ -13,14 +13,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { DashboardAction } from "@/lib/app-types";
 import type { DashboardPayload, StoredRunRecord } from "@/lib/runner-api";
 import { runStatusVariant, runSummary } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunDetailPanel } from "@/views/run-detail-panel";
+import { ActiveRunsPanel } from "@/views/active-runs-panel";
 
 const allFilterValue = "__all__";
 
-export function RunsView({ dashboard }: { dashboard: DashboardPayload }) {
+export function RunsView({
+  busyActions,
+  dashboard,
+  runAction,
+}: {
+  busyActions: Set<string>;
+  dashboard: DashboardPayload;
+  runAction: DashboardAction;
+}) {
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(new Set());
   const [scriptFilter, setScriptFilter] = useState(allFilterValue);
   const [statusFilter, setStatusFilter] = useState(allFilterValue);
@@ -61,85 +71,109 @@ export function RunsView({ dashboard }: { dashboard: DashboardPayload }) {
     });
   }
 
-  if (dashboard.recent_runs.length === 0) {
-    return <EmptyState>No run history has been recorded yet.</EmptyState>;
-  }
-
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-        <RunSummaryTile label="Total" value={dashboard.recent_runs.length} />
-        <RunSummaryTile label="Completed" tone="good" value={summary.completed} />
-        <RunSummaryTile label="Failed" tone="destructive" value={summary.failed} />
-        <RunSummaryTile label="Cancelled" tone="medium" value={summary.cancelled} />
-        <RunSummaryTile label="With errors" tone="medium" value={summary.withErrors} />
-      </div>
-      <Card>
-        <CardHeader className="grid gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>Recent runs</CardTitle>
-            <div className="text-xs text-muted-foreground">
-              Showing {visibleRuns.length} of {dashboard.recent_runs.length}
-            </div>
-          </div>
-          <RunFilters
-            onScriptFilterChange={setScriptFilter}
-            onSearchTermChange={setSearchTerm}
-            onStatusFilterChange={setStatusFilter}
-            scriptFilter={scriptFilter}
-            scripts={dashboard.runner.scripts.map((script) => ({
-              id: script.installed.id,
-              name: script.installed.name,
-            }))}
-            searchTerm={searchTerm}
-            statusFilter={statusFilter}
-            statusOptions={statusOptions}
+      {dashboard.recent_runs.length > 0 ? (
+        <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+          <RunSummaryTile label="Total" value={dashboard.recent_runs.length} />
+          <RunSummaryTile
+            label="Completed"
+            tone="good"
+            value={summary.completed}
           />
-        </CardHeader>
-        <CardContent className="p-0 max-[900px]:p-3">
-          {visibleRuns.length === 0 ? (
-            <div className="p-4">
-              <EmptyState>No runs match the current filters.</EmptyState>
-            </div>
-          ) : (
-            <table className="responsive-table w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2">Completed</th>
-                  <th className="px-3 py-2">Script</th>
-                  <th className="px-3 py-2">Trigger</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Run ID</th>
-                  <th className="px-3 py-2">Recent log</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRuns.map((run) => {
-                  const expanded = expandedRunIds.has(run.run_id);
-                  const scriptName = scriptNames.get(run.script_id) ?? run.script_id;
-                  return (
-                    <Fragment key={run.run_id}>
-                      <RunRow
-                        expanded={expanded}
-                        onToggleDetails={toggleRunDetails}
-                        run={run}
-                        scriptName={scriptName}
-                      />
-                      {expanded ? (
-                        <tr className="border-b border-border bg-background/40">
-                          <td className="p-3" colSpan={6} data-label="">
-                            <RunDetailPanel run={run} scriptName={scriptName} />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
+          <RunSummaryTile
+            label="Failed"
+            tone="destructive"
+            value={summary.failed}
+          />
+          <RunSummaryTile
+            label="Cancelled"
+            tone="medium"
+            value={summary.cancelled}
+          />
+          <RunSummaryTile
+            label="With errors"
+            tone="medium"
+            value={summary.withErrors}
+          />
+        </div>
+      ) : null}
+      <ActiveRunsPanel
+        busyActions={busyActions}
+        runAction={runAction}
+        runs={dashboard.active_runs}
+        scriptNames={scriptNames}
+      />
+      {dashboard.recent_runs.length === 0 ? (
+        <EmptyState>No run history has been recorded yet.</EmptyState>
+      ) : (
+        <Card>
+            <CardHeader className="grid gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle>Recent runs</CardTitle>
+                <div className="text-xs text-muted-foreground">
+                  Showing {visibleRuns.length} of {dashboard.recent_runs.length}
+                </div>
+              </div>
+              <RunFilters
+                onScriptFilterChange={setScriptFilter}
+                onSearchTermChange={setSearchTerm}
+                onStatusFilterChange={setStatusFilter}
+                scriptFilter={scriptFilter}
+                scripts={dashboard.runner.scripts.map((script) => ({
+                  id: script.installed.id,
+                  name: script.installed.name,
+                }))}
+                searchTerm={searchTerm}
+                statusFilter={statusFilter}
+                statusOptions={statusOptions}
+              />
+            </CardHeader>
+            <CardContent className="p-0 max-[900px]:p-3">
+              {visibleRuns.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState>No runs match the current filters.</EmptyState>
+                </div>
+              ) : (
+                <table className="responsive-table w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
+                      <th className="px-3 py-2">Completed</th>
+                      <th className="px-3 py-2">Script</th>
+                      <th className="px-3 py-2">Trigger</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Run ID</th>
+                      <th className="px-3 py-2">Recent log</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRuns.map((run) => {
+                      const expanded = expandedRunIds.has(run.run_id);
+                      const scriptName = scriptNames.get(run.script_id) ?? run.script_id;
+                      return (
+                        <Fragment key={run.run_id}>
+                          <RunRow
+                            expanded={expanded}
+                            onToggleDetails={toggleRunDetails}
+                            run={run}
+                            scriptName={scriptName}
+                          />
+                          {expanded ? (
+                            <tr className="border-b border-border bg-background/40">
+                              <td className="p-3" colSpan={6} data-label="">
+                                <RunDetailPanel run={run} scriptName={scriptName} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

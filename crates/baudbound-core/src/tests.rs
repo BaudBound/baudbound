@@ -7,8 +7,9 @@ use std::{
 };
 
 use baudbound_runtime::{
-    RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest, RuntimeActionResult,
-    RuntimeContext,
+    RunIdentity, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
+    RuntimeActionResult, RuntimeCancellationToken, RuntimeContext, RuntimeLogEntry,
+    RuntimeRunObserver,
 };
 use baudbound_script::{Capabilities, Manifest, Permissions, RiskLevel};
 use baudbound_storage::SqliteRunnerStore;
@@ -33,6 +34,31 @@ fn test_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
 #[derive(Default)]
 struct RecordingActionHandler {
     actions: Mutex<Vec<String>>,
+}
+
+struct RecordingRunObserver {
+    observed_record_counts: Mutex<Vec<usize>>,
+    store: SqliteRunnerStore,
+}
+
+impl RuntimeRunObserver for RecordingRunObserver {
+    fn run_started(&self, _identity: &RunIdentity, _cancellation: RuntimeCancellationToken) {}
+
+    fn log_emitted(&self, _identity: &RunIdentity, _entry: &RuntimeLogEntry) {}
+
+    fn run_finished(&self, _identity: &RunIdentity) {}
+
+    fn run_recorded(&self) {
+        let count = self
+            .store
+            .list_run_records(None, None)
+            .expect("committed run records should be readable")
+            .len();
+        self.observed_record_counts
+            .lock()
+            .expect("observer count lock should not be poisoned")
+            .push(count);
+    }
 }
 
 impl RuntimeActionHandler for RecordingActionHandler {
@@ -286,6 +312,39 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
             .is_empty()
     );
     assert!(!updated.package_path.exists());
+}
+
+#[test]
+fn run_observer_is_notified_after_terminal_records_are_committed() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("action-handler-test.bbs");
+    fs::write(&package_path, create_action_handler_test_package())
+        .expect("test package should be written");
+
+    let store = test_store(&temporary_directory);
+    let observer = Arc::new(RecordingRunObserver {
+        observed_record_counts: Mutex::new(Vec::new()),
+        store: store.clone(),
+    });
+    let core = RunnerCore::default().with_run_observer(observer.clone());
+    core.import_package(&store, &package_path)
+        .expect("package should import");
+
+    core.run_installed(&store, "action-handler-test")
+        .expect_err("unapproved package should create a failed record");
+    core.approve_installed(&store, "action-handler-test")
+        .expect("package should approve");
+    core.run_installed(&store, "action-handler-test")
+        .expect("approved package should complete");
+
+    assert_eq!(
+        observer
+            .observed_record_counts
+            .lock()
+            .expect("observer count lock should not be poisoned")
+            .as_slice(),
+        &[1, 2]
+    );
 }
 
 #[test]

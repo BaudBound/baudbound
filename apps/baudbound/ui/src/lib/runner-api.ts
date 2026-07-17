@@ -246,6 +246,29 @@ export type RunLogEntry = {
   timestamp_unix_ms: number;
 };
 
+export type ActiveRun = {
+  cancellation_requested: boolean;
+  discarded_log_count: number;
+  logs: RunLogEntry[];
+  run_id: string;
+  script_id: string;
+  started_at_unix_ms: number;
+  trigger_node_id: string;
+};
+
+export type ActiveRunEvent =
+  | { kind: "started"; revision: number; run: ActiveRun }
+  | {
+      kind: "log_emitted";
+      discarded_log_count: number;
+      log: RunLogEntry;
+      revision: number;
+      run_id: string;
+    }
+  | { kind: "cancellation_requested"; revision: number; run_id: string }
+  | { kind: "finished"; revision: number; run_id: string }
+  | { kind: "run_recorded"; revision: number };
+
 export type StoredRunRecord = {
   completed_at_unix: number;
   logs: RunLogEntry[];
@@ -257,6 +280,8 @@ export type StoredRunRecord = {
 };
 
 export type DashboardPayload = {
+  active_runs: ActiveRun[];
+  active_runs_revision: number;
   automatic_update_checks: boolean;
   config_path: string;
   desktop_background: DesktopBackgroundRunnerState;
@@ -490,6 +515,14 @@ export function removeScript(reference: string) {
 
 export function runScript(reference: string) {
   return invoke<ActionPayload>("run_script", { reference });
+}
+
+export function stopRun(runId: string) {
+  return invoke<ActionPayload>("stop_run", { runId });
+}
+
+export function stopScriptRuns(reference: string) {
+  return invoke<ActionPayload>("stop_script_runs", { reference });
 }
 
 export function setScriptEnabled(reference: string, enabled: boolean) {

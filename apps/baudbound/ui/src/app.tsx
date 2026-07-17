@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import {
   Activity,
   HeartPulse,
@@ -20,6 +21,11 @@ import { DashboardLoadState } from "@/components/dashboard-load-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  applyActiveRunEvent,
+  mergeActiveRunState,
+  type ActiveRunState,
+} from "@/lib/active-run-events";
 import type { DashboardAction, Notice, TabId } from "@/lib/app-types";
 import {
   navigationGroups,
@@ -29,6 +35,7 @@ import {
 } from "@/lib/navigation";
 import {
   type ActionPayload,
+  type ActiveRunEvent,
   type DashboardPayload,
   getDashboardState,
 } from "@/lib/runner-api";
@@ -46,7 +53,7 @@ import { ToolsView } from "@/views/tools-view";
 const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
 );
-const liveRefreshIntervalMs = 4_000;
+const activeRunEventChannel = "runner-active-run";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -54,7 +61,10 @@ export function App() {
   const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const dashboardRef = useRef<DashboardPayload | null>(null);
+  const pendingActiveRunEvents = useRef<ActiveRunEvent[]>([]);
   const refreshInFlight = useRef(false);
+  const refreshQueued = useRef(false);
 
   const pushNotice = useCallback((notice: Notice) => {
     if (notice.kind === "success") {
@@ -68,36 +78,98 @@ export function App() {
     [pushNotice],
   );
 
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
-    if (refreshInFlight.current) return;
-    refreshInFlight.current = true;
-    const silent = options?.silent ?? false;
-    if (!silent) {
-      setDashboardLoadError(null);
+  const installDashboard = useCallback((incoming: DashboardPayload) => {
+    const current = dashboardRef.current;
+    let activeState = mergeActiveRunState(
+      current ? activeRunState(current) : activeRunState(incoming),
+      activeRunState(incoming),
+    );
+    for (const event of pendingActiveRunEvents.current) {
+      activeState = applyActiveRunEvent(activeState, event);
     }
-    try {
-      setDashboard(await getDashboardState());
-      setDashboardLoadError(null);
-      setLastUpdatedAt(new Date());
-    } catch (error) {
-      if (!silent) {
-        const message = String(error);
-        setDashboardLoadError(message);
-        pushNotice({ kind: "error", message });
+    pendingActiveRunEvents.current = [];
+    const next = withActiveRunState(incoming, activeState);
+    dashboardRef.current = next;
+    setDashboard(next);
+  }, []);
+
+  const refresh = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (refreshInFlight.current) {
+        refreshQueued.current = true;
+        return;
       }
-    } finally {
+      refreshInFlight.current = true;
+      const silent = options?.silent ?? false;
+      do {
+        refreshQueued.current = false;
+        if (!silent) {
+          setDashboardLoadError(null);
+        }
+        try {
+          installDashboard(await getDashboardState());
+          setDashboardLoadError(null);
+          setLastUpdatedAt(new Date());
+        } catch (error) {
+          if (!silent) {
+            const message = String(error);
+            setDashboardLoadError(message);
+            pushNotice({ kind: "error", message });
+          }
+        }
+      } while (refreshQueued.current);
       refreshInFlight.current = false;
-    }
-  }, [pushNotice]);
+    },
+    [installDashboard, pushNotice],
+  );
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
+    void listen<ActiveRunEvent>(activeRunEventChannel, (event) => {
+      if (event.payload.kind === "run_recorded") {
+        void refresh({ silent: true });
+        return;
+      }
+      const current = dashboardRef.current;
+      if (!current) {
+        pendingActiveRunEvents.current.push(event.payload);
+        return;
+      }
+      const currentActiveState = activeRunState(current);
+      const nextActiveState = applyActiveRunEvent(currentActiveState, event.payload);
+      if (nextActiveState === currentActiveState) return;
+      const next = withActiveRunState(current, nextActiveState);
+      dashboardRef.current = next;
+      setDashboard(next);
+      setLastUpdatedAt(new Date());
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+        void refresh();
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize live runner events: ${String(error)}`,
+          });
+          void refresh();
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [pushNotice, refresh]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void refresh({ silent: true });
-    }, liveRefreshIntervalMs);
 
     function refreshWhenVisible() {
       if (document.visibilityState === "visible") {
@@ -108,7 +180,6 @@ export function App() {
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
@@ -120,7 +191,7 @@ export function App() {
       setBusyActions((current) => new Set(current).add(actionId));
       try {
         const result = await action();
-        setDashboard(result.dashboard);
+        installDashboard(result.dashboard);
         setLastUpdatedAt(new Date());
         pushNotice({ kind: "success", message: result.message });
         return true;
@@ -135,7 +206,7 @@ export function App() {
         });
       }
     },
-    [busyActions, pushNotice],
+    [busyActions, installDashboard, pushNotice],
   );
 
   const activePageLabel = useMemo(() => pageTitle(activeTab), [activeTab]);
@@ -257,7 +328,11 @@ export function App() {
               runAction={runAction}
             />
           ) : activeTab === "runs" ? (
-            <RunsView dashboard={dashboard} />
+            <RunsView
+              busyActions={busyActions}
+              dashboard={dashboard}
+              runAction={runAction}
+            />
           ) : activeTab === "logs" ? (
             <LogsView dashboard={dashboard} />
           ) : activeTab === "service" ? (
@@ -287,4 +362,22 @@ export function App() {
       </div>
     </DesktopTimeProvider>
   );
+}
+
+function activeRunState(dashboard: DashboardPayload): ActiveRunState {
+  return {
+    revision: dashboard.active_runs_revision,
+    runs: dashboard.active_runs,
+  };
+}
+
+function withActiveRunState(
+  dashboard: DashboardPayload,
+  activeState: ActiveRunState,
+): DashboardPayload {
+  return {
+    ...dashboard,
+    active_runs: activeState.runs,
+    active_runs_revision: activeState.revision,
+  };
 }

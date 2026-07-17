@@ -68,6 +68,9 @@ export function ScriptsView({
                   return (
                     <Fragment key={script.installed.id}>
                       <ScriptRow
+                        activeRuns={dashboard.active_runs.filter(
+                          (run) => run.script_id === script.installed.id,
+                        )}
                         busyActions={busyActions}
                         expanded={expanded}
                         onReviewApproval={setApprovalScriptId}

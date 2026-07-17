@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -10,16 +10,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 
 const allLevels = "all";
 
-export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
+export function RunLogPanel({
+  emptyMessage = "No log entries were recorded for this run.",
+  followOutputControl = false,
+  logs,
+}: {
+  emptyMessage?: string;
+  followOutputControl?: boolean;
+  logs: RunLogEntry[];
+}) {
   const { formatUnixMilliseconds } = useDesktopTime();
+  const [followOutput, setFollowOutput] = useState(followOutputControl);
   const [levelFilter, setLevelFilter] = useState(allLevels);
   const [query, setQuery] = useState("");
+  const logViewportRef = useRef<HTMLDivElement>(null);
   const levelCounts = useMemo(() => countLogsByLevel(logs), [logs]);
   const levels = useMemo(() => logLevels(logs), [logs]);
   const visibleLogs = useMemo(
@@ -27,13 +38,27 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
     [levelFilter, logs, query],
   );
 
+  useEffect(() => {
+    const viewport = logViewportRef.current;
+    if (followOutput && viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, [followOutput, visibleLogs]);
+
   if (logs.length === 0) {
-    return <EmptyState>No log entries were recorded for this run.</EmptyState>;
+    return (
+      <div className="grid gap-3">
+        {followOutputControl ? (
+          <FollowOutputControl checked={followOutput} onChange={setFollowOutput} />
+        ) : null}
+        <EmptyState>{emptyMessage}</EmptyState>
+      </div>
+    );
   }
 
   return (
     <div className="grid gap-3">
-      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_180px]">
+      <div className="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
         <Input
           aria-label="Search run logs"
           onChange={(event) => setQuery(event.target.value)}
@@ -53,6 +78,9 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
             ))}
           </SelectContent>
         </Select>
+        {followOutputControl ? (
+          <FollowOutputControl checked={followOutput} onChange={setFollowOutput} />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -66,7 +94,10 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
       {visibleLogs.length === 0 ? (
         <EmptyState>No log entries match the current filters.</EmptyState>
       ) : (
-        <div className="max-h-[380px] overflow-auto rounded-md border border-border p-0 max-[900px]:border-0">
+        <div
+          className="max-h-[380px] overflow-auto rounded-md border border-border p-0 max-[900px]:border-0"
+          ref={logViewportRef}
+        >
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -111,6 +142,25 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+function FollowOutputControl({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2 whitespace-nowrap text-sm">
+      <Switch
+        aria-label="Follow live output"
+        checked={checked}
+        onCheckedChange={onChange}
+      />
+      Follow output
+    </label>
   );
 }
 

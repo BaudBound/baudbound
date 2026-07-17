@@ -56,8 +56,12 @@ impl TriggerExecutor {
         let store = store.clone();
         let run_cancellation = cancellation.clone();
         let runner = Arc::new(move |event: TriggerEvent| {
-            core.dispatch_trigger_event_with_cancellation(&store, event, run_cancellation.clone())
-                .map_err(|error| error.to_string())
+            core.dispatch_trigger_event_with_cancellation(
+                &store,
+                event,
+                run_cancellation.child_token(),
+            )
+            .map_err(|error| error.to_string())
         });
         let worker_count = thread::available_parallelism()
             .map_or(MIN_WORKERS, usize::from)

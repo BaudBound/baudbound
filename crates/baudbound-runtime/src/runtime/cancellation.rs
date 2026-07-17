@@ -1,7 +1,7 @@
 use std::{
     fmt,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -16,6 +16,7 @@ pub struct RuntimeCancellationToken {
 struct CancellationState {
     cancelled: AtomicBool,
     changed: Condvar,
+    children: Mutex<Vec<Weak<CancellationState>>>,
     wait_lock: Mutex<()>,
 }
 
@@ -26,9 +27,24 @@ impl RuntimeCancellationToken {
     }
 
     pub fn cancel(&self) {
-        if !self.inner.cancelled.swap(true, Ordering::AcqRel) {
-            self.inner.changed.notify_all();
+        cancel_state(&self.inner);
+    }
+
+    #[must_use]
+    pub fn child_token(&self) -> Self {
+        let child = Self::new();
+        let mut children = self
+            .inner
+            .children
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        children.retain(|candidate| candidate.strong_count() > 0);
+        if self.is_cancelled() {
+            child.cancel();
+        } else {
+            children.push(Arc::downgrade(&child.inner));
         }
+        child
     }
 
     #[must_use]
@@ -53,6 +69,28 @@ impl RuntimeCancellationToken {
             .wait_timeout_while(guard, duration, |_| !self.is_cancelled())
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.is_cancelled()
+    }
+}
+
+fn cancel_state(state: &Arc<CancellationState>) {
+    if state.cancelled.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    state.changed.notify_all();
+    let children = {
+        let mut children = state
+            .children
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let active = children
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect::<Vec<_>>();
+        children.retain(|candidate| candidate.strong_count() > 0);
+        active
+    };
+    for child in children {
+        cancel_state(&child);
     }
 }
 

@@ -1,4 +1,5 @@
 use std::{
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -106,4 +107,82 @@ fn pre_cancelled_execution_does_not_start_the_graph() {
     .expect_err("pre-cancelled run must not start");
 
     assert!(matches!(error, RuntimeError::Cancelled));
+}
+
+#[test]
+fn child_cancellation_is_isolated_and_parent_cancellation_cascades() {
+    let parent = RuntimeCancellationToken::new();
+    let first = parent.child_token();
+    let second = parent.child_token();
+
+    first.cancel();
+    assert!(first.is_cancelled());
+    assert!(!second.is_cancelled());
+    assert!(!parent.is_cancelled());
+
+    parent.cancel();
+    assert!(second.is_cancelled());
+}
+
+#[derive(Default)]
+struct RecordingObserver {
+    finished: Mutex<Vec<String>>,
+    logs: Mutex<Vec<RuntimeLogEntry>>,
+    started: Mutex<Vec<String>>,
+}
+
+impl RuntimeRunObserver for RecordingObserver {
+    fn run_started(&self, identity: &RunIdentity, _cancellation: RuntimeCancellationToken) {
+        self.started
+            .lock()
+            .expect("started lock should be available")
+            .push(identity.run_id.clone());
+    }
+
+    fn log_emitted(&self, _identity: &RunIdentity, entry: &RuntimeLogEntry) {
+        self.logs
+            .lock()
+            .expect("log lock should be available")
+            .push(entry.clone());
+    }
+
+    fn run_finished(&self, identity: &RunIdentity) {
+        self.finished
+            .lock()
+            .expect("finished lock should be available")
+            .push(identity.run_id.clone());
+    }
+}
+
+#[test]
+fn observer_receives_the_complete_run_lifecycle() {
+    let observer = Arc::new(RecordingObserver::default());
+    let report = execute_manual_program_with_state(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [log_node("n-log", "observed")],
+                    "edges": [edge("n-trigger", "out", "n-log")]
+                }
+            }
+        }),
+        "script-1",
+        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_observer(observer.clone()),
+    )
+    .expect("observed run should complete");
+
+    let started = observer
+        .started
+        .lock()
+        .expect("started lock should be available");
+    let finished = observer
+        .finished
+        .lock()
+        .expect("finished lock should be available");
+    let logs = observer.logs.lock().expect("log lock should be available");
+    assert_eq!(started.as_slice(), [report.identity.run_id.as_str()]);
+    assert_eq!(finished.as_slice(), [report.identity.run_id.as_str()]);
+    assert!(logs.iter().any(|entry| entry.message == "observed"));
 }

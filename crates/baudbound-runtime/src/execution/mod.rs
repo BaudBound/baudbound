@@ -1,6 +1,7 @@
 use crate::runtime::{RuntimeFrame, RuntimeGraph, refresh_derived_variable_metadata};
 use crate::{RuntimeCancellationToken, RuntimeStateStore};
 use serde_json::Value;
+use std::sync::Arc;
 
 mod action_dispatch;
 mod api;
@@ -20,6 +21,7 @@ struct RuntimeExecutor<'a> {
     graph: RuntimeGraph,
     context: RuntimeContext,
     logs: Vec<RuntimeLogEntry>,
+    observer: Option<Arc<dyn RuntimeRunObserver>>,
     action_handler: &'a dyn RuntimeActionHandler,
     cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
@@ -51,6 +53,7 @@ impl<'a> RuntimeExecutor<'a> {
                 variables: initial_state.variables,
             },
             logs: Vec::new(),
+            observer: resources.observer,
             action_handler: resources.action_handler,
             cancellation: resources.cancellation,
             state_store: resources.state_store,
@@ -121,11 +124,17 @@ impl<'a> RuntimeExecutor<'a> {
         message: impl Into<String>,
         node_id: Option<String>,
     ) {
-        self.logs.push(RuntimeLogEntry {
+        let entry = RuntimeLogEntry {
             level: level.to_owned(),
             message: message.into(),
             node_id,
             timestamp_unix_ms: contracts::unix_timestamp_millis_now(),
-        });
+        };
+        if let Some(observer) = &self.observer {
+            let mut public_entry = entry.clone();
+            public_entry.message = self.redact_text(&public_entry.message);
+            observer.log_emitted(&self.context.identity, &public_entry);
+        }
+        self.logs.push(entry);
     }
 }
