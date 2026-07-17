@@ -60,6 +60,10 @@ baudbound config path
 | `baudbound config print` | Prints a complete example TOML template. It does not print the active file. |
 | `baudbound config init` | Writes the starter template to the resolved path and refuses to replace an existing file. |
 | `baudbound config init --force` | Replaces an existing config with the starter template. |
+| `baudbound config set display.time-format 12-hour` | Uses a 12 hour clock for human readable desktop and CLI timestamps. |
+| `baudbound config set display.time-format 24-hour` | Uses a 24 hour clock for human readable desktop and CLI timestamps. |
+
+The time format command updates the active `config.toml` with an atomic file replacement. It does not alter stored Unix timestamps or JSON command output.
 
 ### Status and diagnostics
 
@@ -71,18 +75,14 @@ baudbound config path
 | `baudbound doctor --json` | Prints diagnostic results as JSON. |
 | `baudbound ui` | Explicitly opens the desktop application. |
 
-### Shared settings
-
-The application settings store contains shared runner preferences and desktop-only behavior. The CLI exposes only settings that also affect command-line output.
+### Updates
 
 | Command | Behavior |
 | --- | --- |
-| `baudbound settings show` | Shows the current shared settings. |
-| `baudbound settings show --json` | Prints shared settings as machine-readable JSON. |
-| `baudbound settings set time-format 12-hour` | Uses a 12-hour clock for human-readable desktop and CLI timestamps. |
-| `baudbound settings set time-format 24-hour` | Uses a 24-hour clock for human-readable desktop and CLI timestamps. |
+| `baudbound update check` | Checks the official BaudBound release feed and explains whether a newer version is available. |
+| `baudbound update check --json` | Prints the current version, latest version, check time, and availability as JSON. |
 
-Changing the time format does not alter stored Unix timestamps or any JSON command output. Desktop-only choices such as login startup, tray behavior, and update checks remain in the desktop Settings tab.
+This command only checks and reports. It does not replace the executable or launch an installer. Successful results are cached so automatic checks can respect `updates.check_interval_hours`.
 
 ### Package files
 

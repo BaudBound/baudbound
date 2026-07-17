@@ -15,13 +15,13 @@ use crate::{
     },
 };
 
-mod application_settings;
 mod conversions;
 mod rows;
 mod run_retention;
 mod schema;
 mod scoped_variables;
 mod secrets;
+mod update_cache;
 
 use conversions::{
     bool_to_sqlite, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite, usize_to_sqlite,

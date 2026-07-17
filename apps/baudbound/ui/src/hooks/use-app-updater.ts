@@ -8,7 +8,11 @@ import {
   reduceUpdateProgress,
   type UpdateProgress,
 } from "@/lib/update-progress";
-import { prepareForUpdate } from "@/lib/runner-api";
+import {
+  prepareForUpdate,
+  recordUpdateCheck,
+  shouldCheckForUpdate,
+} from "@/lib/runner-api";
 
 export type AppUpdatePhase = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
 
@@ -41,6 +45,7 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
     setState((current) => ({ ...current, error: null, phase: "checking" }));
     try {
       const update = await check({ timeout: 15_000 });
+      await recordUpdateCheck(update?.version ?? null, update?.body?.trim() || null);
       if (!update) {
         setState(initialState);
         return;
@@ -65,8 +70,12 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
   useEffect(() => {
     if (!checkOnStartup || checkedOnStartup.current) return;
     checkedOnStartup.current = true;
-    void checkForUpdate();
-  }, [checkForUpdate, checkOnStartup]);
+    void shouldCheckForUpdate()
+      .then((due) => {
+        if (due) return checkForUpdate();
+      })
+      .catch((error) => onError(`Update schedule check failed: ${String(error)}`));
+  }, [checkForUpdate, checkOnStartup, onError]);
 
   const download = useCallback(async () => {
     const update = updateRef.current;

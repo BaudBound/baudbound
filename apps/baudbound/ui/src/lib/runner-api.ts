@@ -222,6 +222,7 @@ export type ServiceStatusDocument = {
   started_at_unix: number;
   state: string;
   storage_root: string;
+  time_format: TimeFormat;
 };
 
 export type ServiceHealthDocument = {
@@ -258,8 +259,11 @@ export type StoredRunRecord = {
 };
 
 export type DashboardPayload = {
+  automatic_update_checks: boolean;
   config_path: string;
   desktop_background: DesktopBackgroundRunnerState;
+  launch_at_login_desired: boolean;
+  launch_at_login_registered: boolean | null;
   native_doctor_checks: NativeDoctorCheck[];
   recent_runs: StoredRunRecord[];
   runner: RunnerStatus;
@@ -268,6 +272,7 @@ export type DashboardPayload = {
   service_health: ServiceHealthDocument;
   service_status: ServiceStatusDocument | null;
   storage_root: string;
+  time_format: TimeFormat;
 };
 
 export type InstalledSecretStatus = {
@@ -286,37 +291,29 @@ export type ActionPayload = {
 
 export type TimeFormat = "12-hour" | "24-hour";
 
-export type SharedSettings = {
+export type DisplaySettings = {
   time_format: TimeFormat;
 };
 
 export type DesktopSettings = {
-  automatic_update_checks: boolean;
   keep_running_on_close: boolean;
   launch_at_login: boolean;
   start_background_runner_on_launch: boolean;
   start_minimized_to_tray: boolean;
 };
 
-export type ApplicationSettings = {
-  desktop: DesktopSettings;
-  shared: SharedSettings;
-};
-
-export type ApplicationSettingsPayload = {
-  launch_at_login_registered: boolean;
-  settings: ApplicationSettings;
-};
-
-export type SettingsActionPayload = {
-  message: string;
-  payload: ApplicationSettingsPayload;
+export type UpdateSettings = {
+  automatic_checks: boolean;
+  check_interval_hours: number;
 };
 
 export type RunnerConfig = {
+  desktop: DesktopSettings;
+  display: DisplaySettings;
   runner: RunnerSettings;
   serial: SerialSettings;
   triggers: TriggerSettings;
+  updates: UpdateSettings;
   webhooks: WebhookSettings;
   websockets: WebSocketSettings;
 };
@@ -378,6 +375,7 @@ export type WebSocketSettings = {
 export type RunnerConfigPayload = {
   config: RunnerConfig;
   contents: string;
+  launch_at_login_registered: boolean;
   path: string;
 };
 
@@ -385,16 +383,16 @@ export function getDashboardState() {
   return invoke<DashboardPayload>("dashboard_state");
 }
 
-export function readApplicationSettings() {
-  return invoke<ApplicationSettingsPayload>("read_application_settings");
-}
-
-export function saveApplicationSettings(settings: ApplicationSettings) {
-  return invoke<SettingsActionPayload>("save_application_settings", { settings });
-}
-
 export function readRunnerConfig() {
   return invoke<RunnerConfigPayload>("read_runner_config");
+}
+
+export function shouldCheckForUpdate() {
+  return invoke<boolean>("should_check_for_update");
+}
+
+export function recordUpdateCheck(latestVersion: string | null, releaseNotes: string | null) {
+  return invoke<void>("record_update_check", { latestVersion, releaseNotes });
 }
 
 export function saveRunnerConfig(contents: string, restartBackground: boolean) {

@@ -28,8 +28,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
             config_path.clone(),
         )),
         background_runner: DesktopRunnerSupervisor::default(),
-        application_settings: Mutex::new(ApplicationSettings::default()),
         config_path: config_path.clone(),
+        login_startup_registered: Mutex::new(None),
         runner_config: Mutex::new(runner_config.clone()),
         core: Mutex::new(build_runner_core(
             &runner_config,
@@ -40,6 +40,12 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         operation_lock: Mutex::new(()),
     };
     let app = test::mock_builder()
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("BaudBound")
+                .args(["ui", "--autostart"])
+                .build(),
+        )
         .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(state)
         .invoke_handler(desktop_command_handler!())
@@ -105,6 +111,9 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     );
 
     let config = invoke(&webview, "read_runner_config", json!({}));
+    assert_eq!(config["config"]["display"]["time_format"], "24-hour");
+    assert_eq!(config["config"]["updates"]["automatic_checks"], true);
+    assert_eq!(config["config"]["desktop"]["launch_at_login"], false);
     let mut contents = config["contents"]
         .as_str()
         .expect("config contents should be returned")
@@ -182,6 +191,27 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         json!({"reference": "desktop-workflow"}),
     );
     assert_eq!(removed["dashboard"]["runner"]["total_script_count"], 0);
+}
+
+#[test]
+fn only_runtime_owned_config_requires_a_background_restart() {
+    let previous = RunnerConfig::default();
+
+    let mut desktop = previous.clone();
+    desktop.desktop.keep_running_on_close = false;
+    assert!(!runner_runtime_config_changed(&previous, &desktop));
+
+    let mut display = previous.clone();
+    display.display.time_format = TimeFormat::TwelveHour;
+    assert!(!runner_runtime_config_changed(&previous, &display));
+
+    let mut updates = previous.clone();
+    updates.updates.check_interval_hours = 6;
+    assert!(!runner_runtime_config_changed(&previous, &updates));
+
+    let mut runner = previous.clone();
+    runner.runner.trigger_reload_seconds = 5;
+    assert!(runner_runtime_config_changed(&previous, &runner));
 }
 
 fn invoke(webview: &tauri::WebviewWindow<test::MockRuntime>, command: &str, body: Value) -> Value {

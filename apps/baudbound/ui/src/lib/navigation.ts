@@ -6,7 +6,6 @@ import {
   ListTree,
   MonitorCog,
   ScrollText,
-  Settings,
   ShieldCheck,
   Stethoscope,
   Wrench,
@@ -50,16 +49,7 @@ export const navigationGroups: Array<{ items: NavigationItem[]; label: string }>
   },
 ];
 
-export const settingsNavigationItem: NavigationItem = {
-  icon: Settings,
-  id: "settings",
-  label: "Settings",
-};
-
-export const navigationItems = [
-  ...navigationGroups.flatMap((group) => group.items),
-  settingsNavigationItem,
-];
+export const navigationItems = navigationGroups.flatMap((group) => group.items);
 
 export function pageTitle(activeTab: TabId) {
   const labels: Record<TabId, string> = {
@@ -71,7 +61,6 @@ export function pageTitle(activeTab: TabId) {
     scripts: "Scripts",
     security: "Security",
     service: "Service",
-    settings: "Settings",
     tools: "Tools",
     triggers: "Triggers",
   };
@@ -97,9 +86,6 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
   }
   if (activeTab === "config") {
     return dashboard.config_path;
-  }
-  if (activeTab === "settings") {
-    return "Desktop startup, background behavior, and updates";
   }
   if (activeTab === "runs") {
     return `${dashboard.recent_runs.length} recent run records`;

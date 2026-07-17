@@ -1,5 +1,5 @@
-use anyhow::{Context, Result, anyhow};
-use baudbound_storage::{SqliteRunnerStore, TimeFormat};
+use anyhow::{Result, anyhow};
+use baudbound_core::{RunnerConfig, TimeFormat};
 use chrono::{DateTime, Local};
 
 #[derive(Debug, Clone, Copy)]
@@ -8,13 +8,10 @@ pub struct CliTimeFormatter {
 }
 
 impl CliTimeFormatter {
-    pub fn from_store(store: &SqliteRunnerStore) -> Result<Self> {
-        let settings = store
-            .read_application_settings()
-            .context("failed to read application settings")?;
-        Ok(Self {
-            time_format: settings.shared.time_format,
-        })
+    pub const fn from_config(config: &RunnerConfig) -> Self {
+        Self {
+            time_format: config.display.time_format,
+        }
     }
 
     pub fn format_unix_seconds(self, value: u64) -> Result<String> {

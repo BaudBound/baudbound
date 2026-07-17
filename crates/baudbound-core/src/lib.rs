@@ -41,10 +41,11 @@ pub use baudbound_runtime::RunReport;
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 pub use compatibility::{DESKTOP_ONLY_ACTIONS, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
-    DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_WEBHOOK_BIND, DEFAULT_WEBHOOK_MAX_BODY_BYTES,
-    DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND, DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
-    DEFAULT_WEBSOCKET_PORT, RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings,
-    SerialSettings, TriggerSettings, WebSocketSettings, WebhookSettings,
+    DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, DEFAULT_WEBHOOK_BIND,
+    DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
+    DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
+    RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings,
+    TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
 };
 pub use package::PackageInspection;
 pub use secrets::InstalledSecretStatus;

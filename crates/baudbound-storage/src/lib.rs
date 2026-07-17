@@ -12,66 +12,6 @@ pub use storage::{
     sqlite::{CURRENT_SCHEMA_VERSION, RunRetentionPolicy, SqliteRunnerStore},
 };
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ApplicationSettings {
-    pub shared: SharedSettings,
-    pub desktop: DesktopSettings,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct SharedSettings {
-    pub time_format: TimeFormat,
-}
-
-#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub enum TimeFormat {
-    #[serde(rename = "12-hour")]
-    TwelveHour,
-    #[default]
-    #[serde(rename = "24-hour")]
-    TwentyFourHour,
-}
-
-impl TimeFormat {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::TwelveHour => "12-hour",
-            Self::TwentyFourHour => "24-hour",
-        }
-    }
-
-    #[must_use]
-    pub fn from_storage(value: &str) -> Option<Self> {
-        match value {
-            "12-hour" => Some(Self::TwelveHour),
-            "24-hour" => Some(Self::TwentyFourHour),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DesktopSettings {
-    pub automatic_update_checks: bool,
-    pub keep_running_on_close: bool,
-    pub launch_at_login: bool,
-    pub start_background_runner_on_launch: bool,
-    pub start_minimized_to_tray: bool,
-}
-
-impl Default for DesktopSettings {
-    fn default() -> Self {
-        Self {
-            automatic_update_checks: true,
-            keep_running_on_close: true,
-            launch_at_login: false,
-            start_background_runner_on_launch: false,
-            start_minimized_to_tray: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredVariableScope {
     Persistent,
@@ -155,6 +95,15 @@ pub struct StoredRunRecord {
     pub trigger_node_id: String,
     #[serde(default)]
     pub variables: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct UpdateCheckCache {
+    pub checked_at_unix: u64,
+    pub latest_version: String,
+    pub published_at: Option<String>,
+    pub release_notes: Option<String>,
+    pub update_available: bool,
 }
 
 #[derive(Debug, Error)]

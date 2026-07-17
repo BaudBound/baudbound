@@ -1,13 +1,13 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
-use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
-use baudbound_storage::{ApplicationSettings, ScriptStore, SqliteRunnerStore, StoredRunRecord};
+use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings, TimeFormat};
+use baudbound_storage::{ScriptStore, SqliteRunnerStore, StoredRunRecord};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
 use serde_json::Value;
@@ -22,13 +22,11 @@ use crate::service::{ServeOptions, ServeOverrides};
 
 mod background;
 mod coordinate_picker;
+mod desktop_config;
 mod lifecycle;
-mod settings;
 mod tools;
 
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
-use settings::{ApplicationSettingsPayload, SettingsActionPayload};
-
 macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
@@ -36,7 +34,6 @@ macro_rules! desktop_command_handler {
             dashboard_state,
             coordinate_picker::cancel_coordinate_picker,
             tools::discover_monitors,
-            read_application_settings,
             import_script_package,
             prepare_for_update,
             remove_script,
@@ -46,7 +43,6 @@ macro_rules! desktop_command_handler {
             run_script,
             save_runner_config,
             save_runner_config_model,
-            save_application_settings,
             coordinate_picker::select_coordinate_picker,
             tools::scan_serial_ports,
             set_script_secret,
@@ -56,6 +52,8 @@ macro_rules! desktop_command_handler {
             start_background_runner,
             coordinate_picker::start_coordinate_picker,
             stop_background_runner,
+            should_check_for_update,
+            record_update_check,
             update_script_package,
         ]
     };
@@ -75,14 +73,17 @@ pub fn run_desktop_ui(
         config_path.clone(),
     );
     let background_runner = DesktopRunnerSupervisor::default();
-    let application_settings = store
-        .read_application_settings()
-        .map_err(|error| anyhow!("failed to load application settings: {error}"))?;
+    let autostart_args = [
+        "--config".to_owned(),
+        config_path.display().to_string(),
+        "ui".to_owned(),
+        "--autostart".to_owned(),
+    ];
     tauri::Builder::default()
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("BaudBound")
-                .args(["ui", "--autostart"])
+                .args(autostart_args)
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
@@ -91,8 +92,8 @@ pub fn run_desktop_ui(
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             background_runner: background_runner.clone(),
-            application_settings: Mutex::new(application_settings),
             config_path,
+            login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
             core: Mutex::new(core),
             store,
@@ -100,9 +101,9 @@ pub fn run_desktop_ui(
             operation_lock: Mutex::new(()),
         })
         .setup(move |app| {
-            settings::reconcile_autostart_registration(app.handle());
+            desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
-            settings::start_configured_background_runner(app.handle());
+            desktop_config::start_configured_background_runner(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 window
                     .set_title("BaudBound")
@@ -118,8 +119,8 @@ pub fn run_desktop_ui(
 pub(super) struct DesktopUiState {
     background_options: Mutex<ServeOptions>,
     background_runner: DesktopRunnerSupervisor,
-    application_settings: Mutex<ApplicationSettings>,
     config_path: PathBuf,
+    login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
     core: Mutex<RunnerCore>,
     store: SqliteRunnerStore,
@@ -128,25 +129,28 @@ pub(super) struct DesktopUiState {
 }
 
 #[tauri::command]
-fn read_application_settings(
-    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
-    state: State<'_, DesktopUiState>,
-) -> Result<ApplicationSettingsPayload, String> {
-    settings::read_settings_payload(&autostart, &state).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn save_application_settings(
-    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
-    settings: ApplicationSettings,
-    state: State<'_, DesktopUiState>,
-) -> Result<SettingsActionPayload, String> {
-    settings::save_settings(&autostart, &state, settings).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
 fn dashboard_state(state: State<'_, DesktopUiState>) -> Result<DashboardPayload, String> {
     build_dashboard_payload(&state).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn should_check_for_update(state: State<'_, DesktopUiState>) -> Result<bool, String> {
+    let config = current_runner_config(&state).map_err(|error| error.to_string())?;
+    if !config.updates.automatic_checks {
+        return Ok(false);
+    }
+    crate::updates::check_is_due(&state.store, config.updates.check_interval_hours)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn record_update_check(
+    latest_version: Option<String>,
+    release_notes: Option<String>,
+    state: State<'_, DesktopUiState>,
+) -> Result<(), String> {
+    crate::updates::record_desktop_check(&state.store, latest_version.as_deref(), release_notes)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -319,29 +323,34 @@ fn remove_script_secret(
 }
 
 #[tauri::command]
-fn read_runner_config(state: State<'_, DesktopUiState>) -> Result<RunnerConfigPayload, String> {
-    read_runner_config_payload(&state).map_err(|error| error.to_string())
+fn read_runner_config(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    state: State<'_, DesktopUiState>,
+) -> Result<RunnerConfigPayload, String> {
+    read_runner_config_payload(&autostart, &state).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn save_runner_config(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
     contents: String,
     restart_background: bool,
     state: State<'_, DesktopUiState>,
 ) -> Result<ActionPayload, String> {
     run_locked_action(&state, || {
-        save_runner_config_contents(&state, &contents, restart_background)
+        save_runner_config_contents(&autostart, &state, &contents, restart_background)
     })
 }
 
 #[tauri::command]
 fn save_runner_config_model(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
     config: RunnerConfig,
     restart_background: bool,
     state: State<'_, DesktopUiState>,
 ) -> Result<ActionPayload, String> {
     run_locked_action(&state, || {
-        save_runner_config_model_contents(&state, config, restart_background)
+        save_runner_config_model_contents(&autostart, &state, config, restart_background)
     })
 }
 
@@ -399,7 +408,8 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         .collect::<std::collections::BTreeMap<_, _>>();
     let recent_runs = state.store.list_run_records(None, Some(50))?;
     let desktop_background = state.background_runner.snapshot()?;
-    let serial_devices = serial_device_payloads(&current_runner_config(state)?);
+    let runner_config = current_runner_config(state)?;
+    let serial_devices = serial_device_payloads(&runner_config);
     let service_status = state.store.read_service_status()?;
     let service_health = service_health_document(service_status.as_ref());
     let mut public_service_status = service_status;
@@ -409,6 +419,12 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
     let native_doctor_checks = desktop_doctor_checks();
     Ok(DashboardPayload {
         desktop_background,
+        automatic_update_checks: runner_config.updates.automatic_checks,
+        launch_at_login_desired: runner_config.desktop.launch_at_login,
+        launch_at_login_registered: *state
+            .login_startup_registered
+            .lock()
+            .map_err(|_| anyhow!("login startup state lock is poisoned"))?,
         native_doctor_checks,
         recent_runs,
         runner,
@@ -418,6 +434,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         service_status: public_service_status,
         config_path: state.config_path.display().to_string(),
         storage_root: state.store.root().display().to_string(),
+        time_format: runner_config.display.time_format,
     })
 }
 
@@ -433,8 +450,11 @@ fn request_running_service_reload(store: &SqliteRunnerStore) -> Result<()> {
 
 #[derive(Serialize)]
 struct DashboardPayload {
+    automatic_update_checks: bool,
     config_path: String,
     desktop_background: DesktopRunnerSnapshot,
+    launch_at_login_desired: bool,
+    launch_at_login_registered: Option<bool>,
     native_doctor_checks: Vec<DoctorCheck>,
     recent_runs: Vec<StoredRunRecord>,
     runner: baudbound_core::RunnerStatus,
@@ -443,6 +463,7 @@ struct DashboardPayload {
     service_health: Value,
     service_status: Option<Value>,
     storage_root: String,
+    time_format: TimeFormat,
 }
 
 #[derive(Serialize)]
@@ -475,48 +496,78 @@ struct ActionPayload {
 struct RunnerConfigPayload {
     config: RunnerConfig,
     contents: String,
+    launch_at_login_registered: bool,
     path: String,
 }
 
-fn read_runner_config_payload(state: &DesktopUiState) -> Result<RunnerConfigPayload> {
+fn read_runner_config_payload(
+    autostart: &tauri_plugin_autostart::AutoLaunchManager,
+    state: &DesktopUiState,
+) -> Result<RunnerConfigPayload> {
     let contents = fs::read_to_string(&state.config_path)?;
     let config = RunnerConfig::from_toml(&contents, &state.config_path)?;
     Ok(RunnerConfigPayload {
         config,
         contents,
+        launch_at_login_registered: desktop_config::autostart_registration(autostart)?,
         path: state.config_path.display().to_string(),
     })
 }
 
 fn save_runner_config_contents(
+    autostart: &tauri_plugin_autostart::AutoLaunchManager,
     state: &DesktopUiState,
     contents: &str,
     restart_background: bool,
 ) -> Result<String> {
-    save_valid_runner_config(state, contents, restart_background)
+    save_valid_runner_config(autostart, state, contents, restart_background)
 }
 
 fn save_runner_config_model_contents(
+    autostart: &tauri_plugin_autostart::AutoLaunchManager,
     state: &DesktopUiState,
     config: RunnerConfig,
     restart_background: bool,
 ) -> Result<String> {
-    let contents = toml::to_string_pretty(&SerializableRunnerConfig::from(config))
-        .map_err(|source| anyhow!("failed to serialize runner config: {source}"))?;
-    save_valid_runner_config(state, &contents, restart_background)
+    let contents = config.to_pretty_toml()?;
+    save_valid_runner_config(autostart, state, &contents, restart_background)
 }
 
 fn save_valid_runner_config(
+    autostart: &tauri_plugin_autostart::AutoLaunchManager,
     state: &DesktopUiState,
     contents: &str,
     restart_background: bool,
 ) -> Result<String> {
     let next_config = RunnerConfig::from_toml(contents, &state.config_path)?;
-    write_runner_config_file(&state.config_path, contents)?;
-    replace_runtime_config(state, next_config)?;
+    let previous_contents = fs::read_to_string(&state.config_path)?;
+    let previous_config = current_runner_config(state)?;
+    let runtime_changed = runner_runtime_config_changed(&previous_config, &next_config);
+    let previous_registration = desktop_config::autostart_registration(autostart)?;
+
+    desktop_config::set_autostart_registration(autostart, next_config.desktop.launch_at_login)?;
+    desktop_config::remember_autostart_registration(state, autostart);
+    if let Err(error) = RunnerConfig::write_atomic(&state.config_path, contents) {
+        let _ = desktop_config::set_autostart_registration(autostart, previous_registration);
+        desktop_config::remember_autostart_registration(state, autostart);
+        return Err(error.into());
+    }
+    if let Err(error) = replace_runtime_config(state, next_config) {
+        let config_rollback = RunnerConfig::write_atomic(&state.config_path, &previous_contents);
+        let runtime_rollback = replace_runtime_config(state, previous_config);
+        let autostart_rollback =
+            desktop_config::set_autostart_registration(autostart, previous_registration);
+        desktop_config::remember_autostart_registration(state, autostart);
+        return Err(anyhow!(
+            "failed to apply saved config: {error}; file rollback: {}; runtime rollback: {}; login startup rollback: {}",
+            rollback_result(config_rollback),
+            rollback_result(runtime_rollback),
+            rollback_result(autostart_rollback)
+        ));
+    }
 
     let was_running = state.background_runner.snapshot()?.running;
-    if restart_background && was_running {
+    if restart_background && runtime_changed && was_running {
         state
             .background_runner
             .stop_and_wait(std::time::Duration::from_secs(2))?;
@@ -527,7 +578,7 @@ fn save_valid_runner_config(
         return Ok("Saved runner config and restarted the desktop background runner.".to_owned());
     }
 
-    if was_running {
+    if runtime_changed && was_running {
         return Ok(
             "Saved runner config. Restart the desktop background runner to apply listener changes."
                 .to_owned(),
@@ -537,32 +588,18 @@ fn save_valid_runner_config(
     Ok("Saved runner config.".to_owned())
 }
 
-fn write_runner_config_file(path: &Path, contents: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, contents)?;
-    Ok(())
+fn runner_runtime_config_changed(previous: &RunnerConfig, next: &RunnerConfig) -> bool {
+    previous.runner != next.runner
+        || previous.serial != next.serial
+        || previous.triggers != next.triggers
+        || previous.webhooks != next.webhooks
+        || previous.websockets != next.websockets
 }
 
-#[derive(Serialize)]
-struct SerializableRunnerConfig {
-    runner: baudbound_core::RunnerSettings,
-    serial: baudbound_core::SerialSettings,
-    triggers: baudbound_core::TriggerSettings,
-    webhooks: baudbound_core::WebhookSettings,
-    websockets: baudbound_core::WebSocketSettings,
-}
-
-impl From<RunnerConfig> for SerializableRunnerConfig {
-    fn from(config: RunnerConfig) -> Self {
-        Self {
-            runner: config.runner,
-            serial: config.serial,
-            triggers: config.triggers,
-            webhooks: config.webhooks,
-            websockets: config.websockets,
-        }
+fn rollback_result<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> String {
+    match result {
+        Ok(_) => "succeeded".to_owned(),
+        Err(error) => format!("failed ({error})"),
     }
 }
 

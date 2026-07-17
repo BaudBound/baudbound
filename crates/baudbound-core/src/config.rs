@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -17,13 +18,17 @@ pub const DEFAULT_WEBSOCKET_MAX_CONNECTIONS: usize = 128;
 pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
 pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
+pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RunnerConfig {
+    pub desktop: DesktopSettings,
+    pub display: DisplaySettings,
     pub runner: RunnerSettings,
     pub serial: SerialSettings,
     pub triggers: TriggerSettings,
+    pub updates: UpdateSettings,
     pub webhooks: WebhookSettings,
     pub websockets: WebSocketSettings,
 }
@@ -85,6 +90,12 @@ impl RunnerConfig {
                 message: "runner.run_history_max_age_days must be greater than zero".to_owned(),
             });
         }
+        if self.updates.check_interval_hours == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "updates.check_interval_hours must be greater than zero".to_owned(),
+            });
+        }
         if self.websockets.max_connections == 0 {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
@@ -130,18 +141,42 @@ impl RunnerConfig {
     }
 
     pub fn write_template(path: impl AsRef<Path>) -> Result<(), RunnerConfigError> {
+        Self::write_atomic(path, Self::template_toml())
+    }
+
+    pub fn write_atomic(path: impl AsRef<Path>, contents: &str) -> Result<(), RunnerConfigError> {
         let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|source| RunnerConfigError::Write {
-                path: parent.to_path_buf(),
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent).map_err(|source| RunnerConfigError::Write {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(parent).map_err(|source| RunnerConfigError::Write {
+                path: path.to_path_buf(),
                 source,
             })?;
-        }
+        temporary
+            .write_all(contents.as_bytes())
+            .and_then(|()| temporary.as_file_mut().sync_all())
+            .map_err(|source| RunnerConfigError::Write {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        temporary
+            .persist(path)
+            .map_err(|error| RunnerConfigError::Write {
+                path: path.to_path_buf(),
+                source: error.error,
+            })?;
+        Ok(())
+    }
 
-        fs::write(path, Self::template_toml()).map_err(|source| RunnerConfigError::Write {
-            path: path.to_path_buf(),
-            source,
-        })
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), RunnerConfigError> {
+        let path = path.as_ref();
+        self.validate(path)?;
+        let contents = self.to_pretty_toml()?;
+        Self::write_atomic(path, &contents)
     }
 
     pub fn runner_name(&self) -> String {
@@ -169,6 +204,19 @@ run_history_max_age_days = 30
 # For headless service deployments, set this explicitly, for example:
 # target_runtimes = ["Generic Headless", "Linux Headless"]
 target_runtimes = []
+
+[display]
+time_format = "24-hour"
+
+[updates]
+automatic_checks = true
+check_interval_hours = 24
+
+[desktop]
+launch_at_login = false
+start_background_runner_on_launch = false
+start_minimized_to_tray = false
+keep_running_on_close = true
 
 [triggers]
 schedules_enabled = true
@@ -214,13 +262,82 @@ max_connections = 128
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DisplaySettings {
+    pub time_format: TimeFormat,
+}
+
+impl Default for DisplaySettings {
+    fn default() -> Self {
+        Self {
+            time_format: TimeFormat::TwentyFourHour,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum TimeFormat {
+    #[serde(rename = "12-hour")]
+    TwelveHour,
+    #[default]
+    #[serde(rename = "24-hour")]
+    TwentyFourHour,
+}
+
+impl TimeFormat {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TwelveHour => "12-hour",
+            Self::TwentyFourHour => "24-hour",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    pub automatic_checks: bool,
+    pub check_interval_hours: u64,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            automatic_checks: true,
+            check_interval_hours: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DesktopSettings {
+    pub keep_running_on_close: bool,
+    pub launch_at_login: bool,
+    pub start_background_runner_on_launch: bool,
+    pub start_minimized_to_tray: bool,
+}
+
+impl Default for DesktopSettings {
+    fn default() -> Self {
+        Self {
+            keep_running_on_close: true,
+            launch_at_login: false,
+            start_background_runner_on_launch: false,
+            start_minimized_to_tray: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct SerialSettings {
     pub devices: BTreeMap<String, SerialDeviceSettings>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct SerialDeviceSettings {
     pub auto_reconnect: bool,
@@ -262,7 +379,7 @@ impl Default for SerialDeviceSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct RunnerSettings {
     pub name: Option<String>,
@@ -284,7 +401,7 @@ impl Default for RunnerSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct TriggerSettings {
     pub file_watch_enabled: bool,
@@ -312,7 +429,7 @@ impl Default for TriggerSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WebhookSettings {
     pub bind: String,
@@ -330,7 +447,7 @@ impl Default for WebhookSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WebSocketSettings {
     pub bind: String,
@@ -598,11 +715,45 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_update_check_interval() {
+        let error = RunnerConfig::from_toml("[updates]\ncheck_interval_hours = 0", "runner.toml")
+            .expect_err("update checks need a positive interval");
+
+        assert!(error.to_string().contains("updates.check_interval_hours"));
+    }
+
+    #[test]
+    fn saves_config_atomically_over_an_existing_file() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "old contents").expect("initial config should be written");
+
+        let mut config = RunnerConfig::default();
+        config.display.time_format = TimeFormat::TwelveHour;
+        config.desktop.launch_at_login = true;
+        config.updates.check_interval_hours = 6;
+        config.save(&path).expect("config should be replaced");
+
+        let saved = RunnerConfig::load_or_init(&path).expect("saved config should load");
+        assert_eq!(saved.display.time_format, TimeFormat::TwelveHour);
+        assert!(saved.desktop.launch_at_login);
+        assert_eq!(saved.updates.check_interval_hours, 6);
+    }
+
+    #[test]
     fn template_toml_parses_as_valid_config() {
         let config = RunnerConfig::from_toml(RunnerConfig::template_toml(), "template.toml")
             .expect("template should parse");
 
         assert_eq!(config.runner_name(), "BaudBound Runner");
+        assert_eq!(config.display.time_format, TimeFormat::TwentyFourHour);
+        assert!(config.updates.automatic_checks);
+        assert_eq!(
+            config.updates.check_interval_hours,
+            DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
+        );
+        assert!(!config.desktop.launch_at_login);
+        assert!(config.desktop.keep_running_on_close);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
         assert_eq!(config.websockets.port, DEFAULT_WEBSOCKET_PORT);
         assert_eq!(

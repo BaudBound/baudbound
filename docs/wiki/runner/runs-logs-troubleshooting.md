@@ -48,7 +48,7 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 
 The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
 
-The shared clock setting changes human-readable desktop and CLI timestamps between 12-hour and 24-hour notation. Change it in the desktop Settings tab or with `baudbound settings set time-format`. It does not alter stored timestamps, log order, or CLI JSON values.
+The shared clock setting changes human readable desktop and CLI timestamps between 12 hour and 24 hour notation. Change it in the desktop Config page or with `baudbound config set display.time-format`. It does not alter stored timestamps, log order, or CLI JSON values.
 
 ## Inspect with the CLI
 

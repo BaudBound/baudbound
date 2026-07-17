@@ -23,9 +23,8 @@ The interface refreshes automatically while it is open and when the window regai
 | **Tools** | Screen-coordinate inspection and serial-port discovery |
 | **Runs** | Per-run status, logs, results, and variable snapshots |
 | **Logs** | Searching recent log messages across runs |
-| **Config** | Validated runner and device configuration |
+| **Config** | Shared, runner, and desktop application configuration |
 | **Doctor** | Native support, paths, runtime facts, and corrective diagnostics |
-| **Settings** | Clock format, desktop login startup, window behavior, background startup, and update checks |
 
 ## Dashboard
 <!-- desktop-tab:dashboard -->
@@ -67,7 +66,7 @@ The Service tab controls the background runner owned by this desktop application
 
 The status badge and timestamp distinguish `running`, `stopping`, `failed`, and `stopped` states. Listener panels show enabled families, registration counts, runtime state, and diagnostics.
 
-By default, closing the window hides it to the system tray and does not quit the application. Left-click the tray icon to restore the window. The tray menu can show the window, start, stop, or reload the background runner, or **Quit BaudBound**. Quit stops the background runner before exiting. You can change close behavior under Settings.
+By default, closing the window hides it to the system tray and does not quit the application. Left click the tray icon to restore the window. The tray menu can show the window, start, stop, or reload the background runner, or **Quit BaudBound**. Quit stops the background runner before exiting. You can change close behavior under Config.
 
 The background runner does not become an operating-system service. It exists only while the BaudBound desktop process remains running. Headless machines should use [Linux Background Service](linux-background-service.md).
 
@@ -148,11 +147,33 @@ Log levels are `debug`, `info`, `warn`, and `error`. An error message can appear
 ## Config
 <!-- desktop-tab:config -->
 
-Use **Simple** mode for validated fields and switches. It covers runner identity, target runtimes, reload timing, trigger families, network listeners, and serial devices.
+Use **Simple** mode for validated fields and switches. The page separates settings by ownership so you can see where each value applies.
+
+**Shared configuration** contains the clock format and update checks used by both the desktop app and CLI.
+
+**Runner configuration** contains runner identity, target runtimes, reload timing, trigger families, network listeners, and serial devices.
+
+**Desktop configuration** contains login startup, automatic background startup, tray startup, and close behavior. These values affect the graphical app only. They do not change a headless `baudbound serve` process.
 
 Use **Advanced** mode for the complete raw TOML. The CodeMirror editor supports line numbers, selection, normal keyboard editing, indentation, and scrolling. The runner validates the entire document before replacing the active configuration.
 
-**Reload** discards unsaved edits and rereads the file. **Save** writes only valid configuration. Enable **Restart desktop background runner after saving** when listener, target, or device changes must apply immediately and the runner is currently active.
+**Reload** discards unsaved edits and rereads the file. **Save** writes only valid configuration. Enable **Restart desktop background runner after saving** when listener, target, or device changes must apply immediately and the runner is currently active. Display, update, and desktop window changes apply without restarting the background runner.
+
+**Launch at login** registers BaudBound with the current Windows or Linux desktop session. It starts after that user signs in. It does not create a system service or start on a headless machine.
+
+**Start background runner on launch** starts trigger listeners whenever the desktop application opens.
+
+**Start login launch in the tray** keeps the main window hidden when the operating system launches BaudBound after login. Opening BaudBound manually still shows the window.
+
+**Keep running when the window closes** hides the window in the tray. When disabled, closing the window stops the desktop background runner and exits the application.
+
+**Clock format** changes human readable desktop and CLI timestamps between 12 hour and 24 hour notation. The same value can be changed with `baudbound config set display.time-format`.
+
+**Automatically check for updates** uses the signed release feed after the configured check interval has elapsed.
+
+Linux login startup uses the current user's desktop session autostart directory. It works only after a graphical login. Use [Linux Background Service](linux-background-service.md) when triggers must start before login or on a headless machine.
+
+The login startup badge reports the operating system registration state. If it reports a mismatch, save Config again. BaudBound rewrites enabled login entries during startup so the registration points to the current executable and resolved config path.
 
 ## Doctor
 <!-- desktop-tab:diagnostics -->
@@ -166,27 +187,9 @@ Doctor is a diagnostic view, not another configuration editor. It reports:
 
 Treat a failed check as blocking for the related feature. A warning describes a limitation or inactive service that may be intentional. Use the reported path and fact values when requesting support, but remove usernames and never include secrets.
 
-## Settings
-<!-- desktop-tab:settings -->
-
-Settings are stored in the runner database and are separate from the runner TOML shown under Config. The page combines settings shared with the CLI and behavior that applies only to the desktop app.
-
-- **Launch at login** registers BaudBound with the current Windows or Linux desktop session. It starts after that user signs in. It does not create a system service or start on a headless machine.
-- **Start background runner on launch** starts trigger listeners whenever the desktop application opens.
-- **Start login launch in the tray** keeps the main window hidden when the operating system launches BaudBound after login. Opening BaudBound manually still shows the window.
-- **Keep running when the window closes** hides the window in the tray. When disabled, closing the window stops the desktop background runner and exits the application.
-- **Clock format** changes human-readable desktop and CLI timestamps between 12-hour and 24-hour notation. The same preference can be changed with `baudbound settings set time-format`.
-- **Automatically check for updates** checks the signed release feed once after the desktop application starts.
-
-The clock setting changes only how time is displayed. Stored run and log timestamps remain UTC Unix values, and CLI JSON output does not change when the setting changes.
-
-Linux login startup uses the current user's desktop-session autostart directory. It works only after a graphical login. Use [Linux Background Service](linux-background-service.md) when triggers must start before login or on a headless machine.
-
-The login-startup badge reports the operating system registration state. If it says **Registration needs repair**, save the settings again. BaudBound rewrites enabled login entries during startup so an application update or moved AppImage points to the current executable.
-
 ## Application updates
 
-When automatic update checks are enabled under Settings, the signed updater checks the configured release endpoint after startup. When a newer compatible release exists, the update dialog displays its version and release notes.
+When automatic update checks are enabled under Config, the signed updater checks the official release endpoint after the configured interval has elapsed. When a newer compatible release exists, the update dialog displays its version and release notes.
 
 - **Later** closes an available-update dialog without installing.
 - **Download** begins a signed download and shows progress.

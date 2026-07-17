@@ -46,6 +46,40 @@ baudbound config print
 
 Edit the path from `baudbound config path` under the account that runs BaudBound. Restart the background service after changes. `baudbound config init` exists for explicit provisioning, but normal startup already initializes a missing file.
 
+## Shared display settings
+
+These settings affect both the desktop app and human readable CLI output.
+
+| Key | Type and default | Meaning |
+| --- | --- | --- |
+| `display.time_format` | `12-hour` or `24-hour`. Default `24-hour` | Chooses how human readable timestamps are displayed |
+
+This setting does not change stored Unix timestamps or JSON output. You can also change it with `baudbound config set display.time-format 12-hour` or `baudbound config set display.time-format 24-hour`.
+
+## Update settings
+
+Update discovery uses the official BaudBound release feed compiled into the runner. The config cannot redirect checks to an untrusted feed.
+
+| Key | Type and default | Meaning |
+| --- | --- | --- |
+| `updates.automatic_checks` | boolean. `true` | Allows automatic checks in the desktop app, interactive CLI sessions, and the long running service |
+| `updates.check_interval_hours` | positive integer. `24` | Minimum time between successful automatic checks |
+
+The desktop application checks when it starts. Interactive CLI commands check when they start. A running `baudbound serve` process continues checking at the configured interval. Failed checks do not stop scripts or listener services. Run `baudbound update check` when you want to check immediately.
+
+## Desktop application settings
+
+These settings affect only the native Windows and Linux desktop app. They do not change `baudbound serve` on a headless machine.
+
+| Key | Type and default | Meaning |
+| --- | --- | --- |
+| `desktop.launch_at_login` | boolean. `false` | Opens BaudBound after the current desktop user signs in |
+| `desktop.start_background_runner_on_launch` | boolean. `false` | Starts trigger listeners when the desktop app opens |
+| `desktop.start_minimized_to_tray` | boolean. `false` | Hides an automatic login launch in the tray |
+| `desktop.keep_running_on_close` | boolean. `true` | Hides the window in the tray instead of exiting when it is closed |
+
+The login setting represents the desired operating system registration. BaudBound reconciles the real registration when the app starts and when Config is saved. Doctor reports a warning if the requested and actual states do not match.
+
 ## Runner settings
 
 | Key | Type and default | Meaning | Restart/security impact |
@@ -169,6 +203,19 @@ run_history_max_records = 10000
 run_history_max_age_days = 30
 target_runtimes = []
 
+[display]
+time_format = "24-hour"
+
+[updates]
+automatic_checks = true
+check_interval_hours = 24
+
+[desktop]
+launch_at_login = false
+start_background_runner_on_launch = false
+start_minimized_to_tray = false
+keep_running_on_close = true
+
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
@@ -200,6 +247,19 @@ trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30
 target_runtimes = ["Generic Headless", "Linux Headless"]
+
+[display]
+time_format = "24-hour"
+
+[updates]
+automatic_checks = true
+check_interval_hours = 24
+
+[desktop]
+launch_at_login = false
+start_background_runner_on_launch = false
+start_minimized_to_tray = false
+keep_running_on_close = true
 
 [triggers]
 schedules_enabled = true

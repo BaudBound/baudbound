@@ -1,5 +1,5 @@
 use anyhow::Result;
-use baudbound_core::RunnerCore;
+use baudbound_core::{RunnerConfig, RunnerCore};
 use baudbound_storage::SqliteRunnerStore;
 
 use crate::cli::ScriptCommand;
@@ -12,6 +12,7 @@ mod lifecycle;
 mod logs;
 
 pub fn handle_script_command(
+    config: &RunnerConfig,
     core: &RunnerCore,
     store: &SqliteRunnerStore,
     command: ScriptCommand,
@@ -42,7 +43,7 @@ pub fn handle_script_command(
             lifecycle::remove_script(core, store, script)?;
         }
         ScriptCommand::Approval { script, json } => {
-            approval::print_approval(store, script, json)?;
+            approval::print_approval(config, store, script, json)?;
         }
         ScriptCommand::Triggers { script, json } => {
             print_trigger_registrations_for_script(core, store, script.as_deref(), json)?;
@@ -72,7 +73,7 @@ pub fn handle_script_command(
             limit,
             json,
         } => {
-            logs::print_logs(store, script, limit, json)?;
+            logs::print_logs(config, store, script, limit, json)?;
         }
     }
 

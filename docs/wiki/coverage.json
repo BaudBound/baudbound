@@ -59,8 +59,11 @@
   "configuration": {
     "source": "crates/baudbound-core/src/config.rs",
     "page": "runner/configuration",
-    "structs": ["RunnerSettings", "TriggerSettings", "SerialDeviceSettings", "WebhookSettings", "WebSocketSettings"],
-    "sections": {
+    "structs": ["DisplaySettings", "UpdateSettings", "DesktopSettings", "RunnerSettings", "TriggerSettings", "SerialDeviceSettings", "WebhookSettings", "WebSocketSettings"],
+      "sections": {
+        "display": "DisplaySettings",
+        "updates": "UpdateSettings",
+        "desktop": "DesktopSettings",
       "runner": "RunnerSettings",
       "triggers": "TriggerSettings",
       "serial.devices.*": "SerialDeviceSettings",

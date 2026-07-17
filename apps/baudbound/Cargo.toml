@@ -30,6 +30,7 @@ keyring.workspace = true
 notify-rust = "4.11.7"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 rpassword.workspace = true
+reqwest.workspace = true
 rodio = { version = "0.22.2", default-features = false, features = [
 	"flac",
 	"mp3",
@@ -40,6 +41,7 @@ rodio = { version = "0.22.2", default-features = false, features = [
 ] }
 serde.workspace = true
 serde_json.workspace = true
+semver.workspace = true
 serialport.workspace = true
 tauri = { version = "2.11.5", features = ["image-ico", "tray-icon"] }
 tauri-plugin-autostart = "2.5.1"

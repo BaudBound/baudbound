@@ -58,121 +58,33 @@ fn initializes_and_reopens_versioned_schema() {
 }
 
 #[test]
-fn migrates_version_three_settings_into_the_application_settings_model() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let database_path = temporary_directory.path().join("runner.sqlite3");
-    let connection = rusqlite::Connection::open(&database_path)
-        .expect("version three SQLite database should open");
-    connection
-        .execute_batch(
-            r#"
-            CREATE TABLE desktop_settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                automatic_update_checks INTEGER NOT NULL CHECK (automatic_update_checks IN (0, 1)),
-                keep_running_on_close INTEGER NOT NULL CHECK (keep_running_on_close IN (0, 1)),
-                launch_at_login INTEGER NOT NULL CHECK (launch_at_login IN (0, 1)),
-                start_background_runner_on_launch INTEGER NOT NULL CHECK (start_background_runner_on_launch IN (0, 1)),
-                start_minimized_to_tray INTEGER NOT NULL CHECK (start_minimized_to_tray IN (0, 1))
-            );
-            INSERT INTO desktop_settings VALUES (1, 0, 1, 0, 1, 0);
-            PRAGMA user_version = 3;
-            "#,
-        )
-        .expect("version three desktop settings should be created");
-    drop(connection);
-
-    let store = SqliteRunnerStore::open(&database_path).expect("database should migrate");
-    let settings = store
-        .read_application_settings()
-        .expect("migrated settings should be readable");
-    assert_eq!(settings.shared.time_format, TimeFormat::TwentyFourHour);
-    assert!(!settings.desktop.automatic_update_checks);
-    assert!(settings.desktop.keep_running_on_close);
-    assert!(settings.desktop.start_background_runner_on_launch);
-    assert_eq!(
-        store
-            .schema_version()
-            .expect("migrated schema version should be readable"),
-        CURRENT_SCHEMA_VERSION
-    );
-}
-
-#[test]
-fn round_trips_application_settings() {
+fn round_trips_the_normalized_update_check_cache() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
-
-    assert_eq!(
+    assert!(
         store
-            .read_application_settings()
-            .expect("default application settings should be readable"),
-        ApplicationSettings::default()
+            .read_update_check_cache()
+            .expect("empty update cache should read")
+            .is_none()
     );
 
-    let settings = ApplicationSettings {
-        shared: SharedSettings {
-            time_format: TimeFormat::TwelveHour,
-        },
-        desktop: DesktopSettings {
-            automatic_update_checks: false,
-            keep_running_on_close: false,
-            launch_at_login: true,
-            start_background_runner_on_launch: true,
-            start_minimized_to_tray: true,
-        },
+    let cache = UpdateCheckCache {
+        checked_at_unix: 123,
+        latest_version: "2.1.0".to_owned(),
+        published_at: Some("2026-07-17T12:00:00Z".to_owned()),
+        release_notes: Some("Changes".to_owned()),
+        update_available: true,
     };
     store
-        .write_application_settings(&settings)
-        .expect("application settings should write");
+        .write_update_check_cache(&cache)
+        .expect("update cache should write");
+
     assert_eq!(
         store
-            .read_application_settings()
-            .expect("saved application settings should be readable"),
-        settings
+            .read_update_check_cache()
+            .expect("update cache should read"),
+        Some(cache)
     );
-}
-
-#[test]
-fn serializes_time_formats_with_the_public_numeric_contract() {
-    let serialized = serde_json::to_value(ApplicationSettings::default())
-        .expect("application settings should serialize");
-    assert_eq!(serialized["shared"]["time_format"], "24-hour");
-
-    let parsed: ApplicationSettings = serde_json::from_value(serde_json::json!({
-        "shared": { "time_format": "12-hour" },
-        "desktop": {
-            "automatic_update_checks": true,
-            "keep_running_on_close": true,
-            "launch_at_login": false,
-            "start_background_runner_on_launch": false,
-            "start_minimized_to_tray": false
-        }
-    }))
-    .expect("numeric time format should deserialize");
-    assert_eq!(parsed.shared.time_format, TimeFormat::TwelveHour);
-}
-
-#[test]
-fn updating_shared_settings_preserves_desktop_settings() {
-    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
-    let store = open_store(&temporary_directory);
-    let mut settings = ApplicationSettings::default();
-    settings.desktop.launch_at_login = true;
-    store
-        .write_application_settings(&settings)
-        .expect("application settings should write");
-
-    store
-        .write_shared_settings(&SharedSettings {
-            time_format: TimeFormat::TwelveHour,
-        })
-        .expect("shared settings should write independently");
-
-    let saved = store
-        .read_application_settings()
-        .expect("application settings should remain readable");
-    assert_eq!(saved.shared.time_format, TimeFormat::TwelveHour);
-    assert!(saved.desktop.launch_at_login);
 }
 
 #[test]

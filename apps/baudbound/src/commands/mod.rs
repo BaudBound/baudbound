@@ -5,5 +5,5 @@ pub mod package;
 pub mod script;
 pub mod secret;
 pub mod service_health;
-pub mod settings;
 pub mod status;
+pub mod update;

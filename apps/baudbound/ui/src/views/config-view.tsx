@@ -24,6 +24,11 @@ import {
   saveRunnerConfigModel,
 } from "@/lib/runner-api";
 import { cn } from "@/lib/utils";
+import {
+  ConfigGroupHeading,
+  DesktopConfiguration,
+  SharedConfiguration,
+} from "@/views/configuration-preferences";
 
 type ConfigMode = "simple" | "advanced";
 
@@ -63,6 +68,7 @@ export function ConfigView({
   const [isLoading, setIsLoading] = useState(false);
   const [restartBackground, setRestartBackground] = useState(true);
   const [newDeviceId, setNewDeviceId] = useState("");
+  const [launchAtLoginRegistered, setLaunchAtLoginRegistered] = useState(false);
 
   const isSaving = busyActions.has("config-save");
   const isBackgroundRunning = dashboard.desktop_background.running;
@@ -80,6 +86,7 @@ export function ConfigView({
       setSavedConfig(payload.config);
       setContents(payload.contents);
       setSavedContents(payload.contents);
+      setLaunchAtLoginRegistered(payload.launch_at_login_registered);
     } catch (error) {
       setLoadError(String(error));
     } finally {
@@ -187,6 +194,7 @@ export function ConfigView({
       ) : (
         <SimpleConfigEditor
           config={config}
+          launchAtLoginRegistered={launchAtLoginRegistered}
           newDeviceId={newDeviceId}
           onAddSerialDevice={addSerialDevice}
           onChange={setConfig}
@@ -207,17 +215,19 @@ function ModeSwitch({
   return (
     <div className="grid grid-cols-2 rounded-md border border-border bg-background p-1 text-sm">
       {(["simple", "advanced"] as const).map((item) => (
-        <button
+        <Button
           className={cn(
             "rounded px-3 py-1.5 text-muted-foreground transition-colors",
             mode === item && "bg-muted text-foreground",
           )}
           key={item}
           onClick={() => onChange(item)}
+          size="sm"
           type="button"
+          variant="subtle"
         >
           {item === "simple" ? "Simple" : "Advanced"}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -225,12 +235,14 @@ function ModeSwitch({
 
 function SimpleConfigEditor({
   config,
+  launchAtLoginRegistered,
   newDeviceId,
   onAddSerialDevice,
   onChange,
   onNewDeviceIdChange,
 }: {
   config: RunnerConfig;
+  launchAtLoginRegistered: boolean;
   newDeviceId: string;
   onAddSerialDevice: () => void;
   onChange: (config: RunnerConfig) => void;
@@ -238,6 +250,18 @@ function SimpleConfigEditor({
 }) {
   return (
     <div className="grid gap-4">
+      <DesktopConfiguration
+        config={config}
+        launchAtLoginRegistered={launchAtLoginRegistered}
+        onChange={onChange}
+      />
+
+      <SharedConfiguration config={config} onChange={onChange} />
+
+      <ConfigGroupHeading
+        description="Runtime identity, listeners, networking, and connected serial hardware."
+        title="Runner configuration"
+      />
       <Card>
         <CardHeader>
           <CardTitle>Runner</CardTitle>

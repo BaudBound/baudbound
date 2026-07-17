@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -42,10 +42,10 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
         return Ok(());
     }
 
-    if version < 3 {
+    if version < CURRENT_SCHEMA_VERSION {
         connection
             .execute_batch(
-            r#"
+                r#"
             BEGIN;
 
             CREATE TABLE IF NOT EXISTS scripts (
@@ -125,85 +125,18 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 PRIMARY KEY (script_id, name)
             );
 
-            CREATE TABLE IF NOT EXISTS desktop_settings (
+            CREATE TABLE IF NOT EXISTS update_check_cache (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
-                automatic_update_checks INTEGER NOT NULL CHECK (automatic_update_checks IN (0, 1)),
-                keep_running_on_close INTEGER NOT NULL CHECK (keep_running_on_close IN (0, 1)),
-                launch_at_login INTEGER NOT NULL CHECK (launch_at_login IN (0, 1)),
-                start_background_runner_on_launch INTEGER NOT NULL CHECK (start_background_runner_on_launch IN (0, 1)),
-                start_minimized_to_tray INTEGER NOT NULL CHECK (start_minimized_to_tray IN (0, 1))
+                checked_at_unix INTEGER NOT NULL,
+                latest_version TEXT NOT NULL,
+                published_at TEXT,
+                release_notes TEXT,
+                update_available INTEGER NOT NULL CHECK (update_available IN (0, 1))
             );
 
-            PRAGMA user_version = 3;
+            PRAGMA user_version = 6;
             COMMIT;
             "#,
-            )
-            .map_err(|source| StorageError::Sqlite {
-                path: path.to_path_buf(),
-                source,
-            })?;
-    }
-
-    if version < 4 {
-        connection
-            .execute_batch(
-                r#"
-                BEGIN;
-                ALTER TABLE desktop_settings
-                    ADD COLUMN time_format TEXT NOT NULL DEFAULT '24-hour'
-                    CHECK (time_format IN ('12-hour', '24-hour'));
-                PRAGMA user_version = 4;
-                COMMIT;
-                "#,
-            )
-            .map_err(|source| StorageError::Sqlite {
-                path: path.to_path_buf(),
-                source,
-            })?;
-    }
-
-    if version < 5 {
-        connection
-            .execute_batch(
-                r#"
-                BEGIN;
-                CREATE TABLE application_settings (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    time_format TEXT NOT NULL DEFAULT '24-hour'
-                        CHECK (time_format IN ('12-hour', '24-hour')),
-                    automatic_update_checks INTEGER NOT NULL DEFAULT 1
-                        CHECK (automatic_update_checks IN (0, 1)),
-                    keep_running_on_close INTEGER NOT NULL DEFAULT 1
-                        CHECK (keep_running_on_close IN (0, 1)),
-                    launch_at_login INTEGER NOT NULL DEFAULT 0
-                        CHECK (launch_at_login IN (0, 1)),
-                    start_background_runner_on_launch INTEGER NOT NULL DEFAULT 0
-                        CHECK (start_background_runner_on_launch IN (0, 1)),
-                    start_minimized_to_tray INTEGER NOT NULL DEFAULT 0
-                        CHECK (start_minimized_to_tray IN (0, 1))
-                );
-                INSERT INTO application_settings (
-                    id,
-                    time_format,
-                    automatic_update_checks,
-                    keep_running_on_close,
-                    launch_at_login,
-                    start_background_runner_on_launch,
-                    start_minimized_to_tray
-                )
-                SELECT
-                    id,
-                    time_format,
-                    automatic_update_checks,
-                    keep_running_on_close,
-                    launch_at_login,
-                    start_background_runner_on_launch,
-                    start_minimized_to_tray
-                FROM desktop_settings;
-                DROP TABLE desktop_settings;
-                PRAGMA user_version = 5;
-                COMMIT;
-                "#,
             )
             .map_err(|source| StorageError::Sqlite {
                 path: path.to_path_buf(),

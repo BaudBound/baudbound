@@ -5,6 +5,7 @@ import {
   Cpu,
   FolderCog,
   HardDrive,
+  LogIn,
   MonitorCog,
   ShieldCheck,
   Stethoscope,
@@ -184,6 +185,23 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
           : "No serial devices are configured or referenced.";
 
   return [
+    {
+      detail:
+        dashboard.launch_at_login_registered === null
+          ? "The operating system login startup registration could not be inspected."
+          : dashboard.launch_at_login_desired === dashboard.launch_at_login_registered
+            ? dashboard.launch_at_login_registered
+              ? "Login startup is enabled and registered with the operating system."
+              : "Login startup is disabled."
+            : "The TOML setting and operating system registration do not match. Save Config to repair it.",
+      icon: <LogIn className="size-4" />,
+      label: "Login startup registration",
+      state:
+        dashboard.launch_at_login_registered === null ||
+        dashboard.launch_at_login_desired !== dashboard.launch_at_login_registered
+          ? "warn"
+          : "ok",
+    },
     {
       detail: dashboard.desktop_background.running
         ? dashboard.desktop_background.message

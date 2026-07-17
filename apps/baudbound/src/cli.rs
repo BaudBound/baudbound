@@ -115,32 +115,21 @@ pub enum Command {
         #[command(subcommand)]
         command: SecretCommand,
     },
-    /// View or change runner-wide application settings.
-    Settings {
+    /// Check whether a newer signed runner release is available.
+    Update {
         #[command(subcommand)]
-        command: SettingsCommand,
+        command: UpdateCommand,
     },
 }
 
 #[derive(Debug, Subcommand)]
-pub enum SettingsCommand {
-    /// Show settings shared by the desktop app and CLI.
-    Show {
+pub enum UpdateCommand {
+    /// Check the official BaudBound release feed now.
+    Check {
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
     },
-    /// Change a shared setting.
-    Set {
-        #[command(subcommand)]
-        command: SetSettingCommand,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum SetSettingCommand {
-    /// Choose the clock format used for human-readable timestamps.
-    TimeFormat { value: TimeFormatValue },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -179,6 +168,19 @@ pub enum ConfigCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Change one value in runner.toml.
+    Set {
+        /// Config key to change.
+        key: ConfigKey,
+        /// New value for the selected key.
+        value: TimeFormatValue,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ConfigKey {
+    #[value(name = "display.time-format")]
+    DisplayTimeFormat,
 }
 
 #[derive(Debug, Subcommand)]
@@ -362,8 +364,8 @@ mod tests {
     #[cfg(windows)]
     use super::default_command;
     use super::{
-        Cli, Command, ScriptCommand, SecretCommand, SetSettingCommand, SettingsCommand,
-        TimeFormatValue, default_command_for_session, parse_positive_usize,
+        Cli, Command, ConfigCommand, ConfigKey, ScriptCommand, SecretCommand, TimeFormatValue,
+        default_command_for_session, parse_positive_usize,
     };
 
     #[test]
@@ -393,16 +395,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_shared_time_format_setting() {
-        let cli = Cli::try_parse_from(["baudbound", "settings", "set", "time-format", "12-hour"])
-            .expect("time format command should parse");
+    fn parses_shared_time_format_config() {
+        let cli = Cli::try_parse_from([
+            "baudbound",
+            "config",
+            "set",
+            "display.time-format",
+            "12-hour",
+        ])
+        .expect("time format command should parse");
         assert!(matches!(
             cli.command,
-            Some(Command::Settings {
-                command: SettingsCommand::Set {
-                    command: SetSettingCommand::TimeFormat {
-                        value: TimeFormatValue::TwelveHour
-                    }
+            Some(Command::Config {
+                command: ConfigCommand::Set {
+                    key: ConfigKey::DisplayTimeFormat,
+                    value: TimeFormatValue::TwelveHour
                 }
             })
         ));

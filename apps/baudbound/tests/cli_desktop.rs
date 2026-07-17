@@ -57,19 +57,17 @@ fn desktop_startup_creates_runner_config_automatically() {
 }
 
 #[test]
-fn desktop_cli_reads_and_updates_shared_application_settings() {
+fn desktop_cli_reads_and_updates_shared_config() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
 
-    let initial = command_json(run_desktop(&runner_home, ["settings", "show", "--json"]));
-    assert_eq!(initial["time_format"], "24-hour");
-
     assert_success(run_desktop(
         &runner_home,
-        ["settings", "set", "time-format", "12-hour"],
+        ["config", "set", "display.time-format", "12-hour"],
     ));
-    let updated = command_json(run_desktop(&runner_home, ["settings", "show", "--json"]));
-    assert_eq!(updated["time_format"], "12-hour");
+    let config = fs::read_to_string(runner_home.join("config.toml"))
+        .expect("runner config should be readable");
+    assert!(config.contains("time_format = \"12-hour\""));
 }
 
 #[test]

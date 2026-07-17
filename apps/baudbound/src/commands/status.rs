@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use baudbound_core::{RunnerCore, RunnerStatus};
+use baudbound_core::{RunnerConfig, RunnerCore, RunnerStatus};
 use baudbound_storage::SqliteRunnerStore;
 
 use crate::{
@@ -13,7 +13,12 @@ pub fn runner_status(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<Run
     core.status(store).context("failed to build runner status")
 }
 
-pub fn print_app_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool) -> Result<()> {
+pub fn print_app_status(
+    config: &RunnerConfig,
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
+    json: bool,
+) -> Result<()> {
     let status = runner_status(core, store)?;
     let service_status = store
         .read_service_status()
@@ -56,7 +61,7 @@ pub fn print_app_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool
     print_service_status(
         public_service_status.as_ref(),
         Some(&service_health),
-        CliTimeFormatter::from_store(store)?,
+        CliTimeFormatter::from_config(config),
     )?;
     println!();
     print_runner_status(&status, store.root());

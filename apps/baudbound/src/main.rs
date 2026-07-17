@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{io::IsTerminal, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
@@ -17,6 +17,7 @@ mod paths;
 mod secrets;
 mod service;
 mod time_format;
+mod updates;
 
 use cli::{Cli, Command};
 
@@ -66,6 +67,8 @@ fn main() -> Result<()> {
         store = store.with_secret_cipher(secret_cipher);
     }
 
+    check_for_automatic_cli_update(&command, &runner_config, &store);
+
     dispatch_command(
         command,
         &config_path,
@@ -74,6 +77,42 @@ fn main() -> Result<()> {
         &core,
         &store,
     )
+}
+
+fn check_for_automatic_cli_update(
+    command: &Command,
+    config: &RunnerConfig,
+    store: &SqliteRunnerStore,
+) {
+    if !config.updates.automatic_checks
+        || !std::io::stdout().is_terminal()
+        || !matches!(
+            command,
+            Command::Status { json: false }
+                | Command::Serve { json: false, .. }
+                | Command::Validate { .. }
+        )
+    {
+        return;
+    }
+    let due = match updates::check_is_due(store, config.updates.check_interval_hours) {
+        Ok(due) => due,
+        Err(error) => {
+            tracing::debug!(%error, "failed to inspect update check schedule");
+            return;
+        }
+    };
+    if !due {
+        return;
+    }
+    match updates::check_now(store) {
+        Ok(result) if result.update_available => eprintln!(
+            "BaudBound {} is available. Run `baudbound update check` for details.",
+            result.latest_version
+        ),
+        Ok(_) => {}
+        Err(error) => tracing::debug!(%error, "automatic update check failed"),
+    }
 }
 
 fn dispatch_command(
@@ -86,7 +125,9 @@ fn dispatch_command(
 ) -> Result<()> {
     match command {
         Command::Config { .. } => unreachable!("config command returns before runner config loads"),
-        Command::Status { json } => commands::status::print_app_status(core, store, json),
+        Command::Status { json } => {
+            commands::status::print_app_status(runner_config, core, store, json)
+        }
         Command::Ui { autostart } => desktop_ui::run_desktop_ui(
             config_path.to_path_buf(),
             core.clone(),
@@ -142,11 +183,17 @@ fn dispatch_command(
             } else if json {
                 Err(anyhow!("serve --json is only supported with --dry-run"))
             } else {
-                service::serve_triggers(core, store, options)
+                let update_worker = updates::AutomaticUpdateWorker::start(
+                    store.clone(),
+                    runner_config.updates.clone(),
+                );
+                let result = service::serve_triggers(core, store, options);
+                drop(update_worker);
+                result
             }
         }
         Command::Script { command } => {
-            commands::script::handle_script_command(core, store, command)
+            commands::script::handle_script_command(runner_config, core, store, command)
         }
         Command::Hotkey { command } => {
             commands::hotkey::handle_hotkey_command(core, store, command)
@@ -154,8 +201,8 @@ fn dispatch_command(
         Command::Secret { command } => {
             commands::secret::handle_secret_command(core, store, command)
         }
-        Command::Settings { command } => {
-            commands::settings::handle_settings_command(store, command)
-        }
+        Command::Update { command } => match command {
+            cli::UpdateCommand::Check { json } => commands::update::check(store, json),
+        },
     }
 }

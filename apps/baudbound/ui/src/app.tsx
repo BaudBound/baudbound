@@ -26,14 +26,11 @@ import {
   navigationItems,
   pageSubtitle,
   pageTitle,
-  settingsNavigationItem,
 } from "@/lib/navigation";
 import {
   type ActionPayload,
   type DashboardPayload,
-  type ApplicationSettingsPayload,
   getDashboardState,
-  readApplicationSettings,
 } from "@/lib/runner-api";
 import { createDesktopTimeFormatter, DesktopTimeProvider } from "@/lib/time-format";
 import { DashboardView } from "@/views/dashboard-view";
@@ -49,18 +46,12 @@ import { ToolsView } from "@/views/tools-view";
 const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
 );
-const SettingsView = lazy(() =>
-  import("@/views/settings-view").then((module) => ({ default: module.SettingsView })),
-);
-
 const liveRefreshIntervalMs = 4_000;
-const SettingsIcon = settingsNavigationItem.icon;
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
-  const [applicationSettings, setApplicationSettings] = useState<ApplicationSettingsPayload | null>(null);
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const refreshInFlight = useRef(false);
@@ -102,12 +93,6 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    readApplicationSettings()
-      .then(setApplicationSettings)
-      .catch((error) => pushNotice({ kind: "error", message: String(error) }));
-  }, [pushNotice]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -155,7 +140,7 @@ export function App() {
 
   const activePageLabel = useMemo(() => pageTitle(activeTab), [activeTab]);
   const subtitle = useMemo(() => pageSubtitle(activeTab, dashboard), [activeTab, dashboard]);
-  const timeFormat = applicationSettings?.settings.shared.time_format ?? "24-hour";
+  const timeFormat = dashboard?.time_format ?? "24-hour";
   const desktopTime = useMemo(() => createDesktopTimeFormatter(timeFormat), [timeFormat]);
 
   return (
@@ -194,16 +179,6 @@ export function App() {
             </div>
           ))}
         </nav>
-        <div className="mt-auto border-t border-border pt-3 max-lg:hidden">
-          <Button
-            data-active={activeTab === settingsNavigationItem.id}
-            onClick={() => setActiveTab(settingsNavigationItem.id)}
-            variant="tab"
-          >
-            <SettingsIcon className="size-4" />
-            {settingsNavigationItem.label}
-          </Button>
-        </div>
         <nav className="hidden min-w-0 flex-wrap gap-1.5 max-lg:flex" aria-label="Runner sections">
           {navigationItems.map((tab) => {
             const Icon = tab.icon;
@@ -299,21 +274,13 @@ export function App() {
                 runAction={runAction}
               />
             </Suspense>
-          ) : activeTab === "settings" ? (
-            applicationSettings ? (
-              <Suspense fallback={<EmptyState>Loading desktop settings...</EmptyState>}>
-                <SettingsView payload={applicationSettings} onSaved={setApplicationSettings} />
-              </Suspense>
-            ) : (
-              <EmptyState>Loading desktop settings...</EmptyState>
-            )
           ) : (
             <DiagnosticsView dashboard={dashboard} />
           )}
         </section>
       </main>
         <AppUpdateDialog
-          automaticCheck={applicationSettings?.settings.desktop.automatic_update_checks ?? false}
+          automaticCheck={dashboard?.automatic_update_checks ?? false}
           onError={reportUpdateError}
         />
         <Toaster closeButton position="top-center" richColors />
