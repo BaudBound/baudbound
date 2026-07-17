@@ -5,6 +5,8 @@ use baudbound_core::{
 };
 use baudbound_storage::{InstalledScript, ScriptApproval, StoredRunRecord};
 
+use crate::time_format::CliTimeFormatter;
+
 pub fn print_installed_script(script: &InstalledScript) {
     println!("Script: {}", script.name);
     println!("ID: {}", script.id);
@@ -34,13 +36,14 @@ pub fn print_approval_permissions(approval: &ScriptApproval) {
 pub fn print_service_status(
     service_status: Option<&serde_json::Value>,
     service_health: Option<&serde_json::Value>,
-) {
+    time: CliTimeFormatter,
+) -> anyhow::Result<()> {
     println!();
     println!("Service:");
 
     let Some(service_status) = service_status else {
         println!("  No serve status has been written yet.");
-        return;
+        return Ok(());
     };
 
     println!(
@@ -60,7 +63,10 @@ pub fn print_service_status(
         .get("last_heartbeat_unix")
         .and_then(serde_json::Value::as_u64)
     {
-        println!("  Last heartbeat: {last_heartbeat}");
+        println!(
+            "  Last heartbeat: {}",
+            time.format_unix_seconds(last_heartbeat)?
+        );
     }
     if let Some(reload_interval) = service_status
         .get("reload_interval_seconds")
@@ -97,6 +103,7 @@ pub fn print_service_status(
             println!("  Warning: service heartbeat is stale.");
         }
     }
+    Ok(())
 }
 
 fn print_listener_service_diagnostics(service_status: &serde_json::Value) {
@@ -331,15 +338,22 @@ pub fn print_run_report(report: RunReport) {
     }
 }
 
-pub fn print_run_record(record: &StoredRunRecord) {
+pub fn print_run_record(record: &StoredRunRecord, time: CliTimeFormatter) -> anyhow::Result<()> {
     println!(
         "Run: {}  script={}  status={}  completed_at={}",
-        record.run_id, record.script_id, record.status, record.completed_at_unix
+        record.run_id,
+        record.script_id,
+        record.status,
+        time.format_unix_seconds(record.completed_at_unix)?
     );
     for log in &record.logs {
+        let timestamp = time.format_unix_milliseconds(log.timestamp_unix_ms)?;
         match &log.node_id {
-            Some(node_id) => println!("  [{}] [{}] {}", log.level, node_id, log.message),
-            None => println!("  [{}] {}", log.level, log.message),
+            Some(node_id) => println!(
+                "  [{timestamp}] [{}] [{}] {}",
+                log.level, node_id, log.message
+            ),
+            None => println!("  [{timestamp}] [{}] {}", log.level, log.message),
         }
     }
     if !record.variables.is_empty() {
@@ -348,4 +362,5 @@ pub fn print_run_record(record: &StoredRunRecord) {
             println!("    {name}: {value}");
         }
     }
+    Ok(())
 }

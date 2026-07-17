@@ -1,34 +1,37 @@
+mod state;
+
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     ptr,
-    sync::mpsc::{self, SyncSender},
+    sync::mpsc::{self, Receiver, Sender, SyncSender},
     thread::{self, JoinHandle},
     time::SystemTime,
 };
 
 use windows_sys::Win32::{
-    Foundation::GetLastError,
-    System::Threading::GetCurrentThreadId,
-    UI::{
-        Input::KeyboardAndMouse::{
-            MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, RegisterHotKey,
-            UnregisterHotKey, VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_INSERT,
-            VK_LEFT, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB, VK_UP,
-        },
-        WindowsAndMessaging::{
-            GetMessageW, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, WM_HOTKEY, WM_QUIT,
-        },
+    Foundation::{GetLastError, LPARAM, LRESULT, WPARAM},
+    System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
+    UI::WindowsAndMessaging::{
+        CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
+        LLKHF_LOWER_IL_INJECTED, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW,
+        SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP,
+        WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
     },
 };
 
-use super::HotkeyService;
+use self::state::{KeyTransition, KeyboardState, NativeChord};
+use super::{HotkeyService, modifier_virtual_keys, parse_hotkey};
 use crate::{
     TriggerError, TriggerEvent, TriggerRegistration, TriggerServiceDiagnostics,
     try_send_trigger_event,
 };
 
+const WM_BAUDBOUND_RECONFIGURE_HOTKEYS: u32 = WM_APP + 1;
+
 pub struct NativeHotkeyService {
     binding_count: usize,
+    command_sender: Option<Sender<WorkerCommand>>,
     thread_id: Option<u32>,
     worker: Option<JoinHandle<()>>,
 }
@@ -38,6 +41,7 @@ impl NativeHotkeyService {
     pub fn empty() -> Self {
         Self {
             binding_count: 0,
+            command_sender: None,
             thread_id: None,
             worker: None,
         }
@@ -47,56 +51,96 @@ impl NativeHotkeyService {
         registrations: impl IntoIterator<Item = TriggerRegistration>,
         sender: SyncSender<TriggerEvent>,
     ) -> Result<Self, TriggerError> {
-        let service = HotkeyService::from_registrations(registrations)?;
-        if service.is_empty() {
+        Self::start_or_reconfigure(registrations, sender, None)
+    }
+
+    pub fn start_or_reconfigure(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+        sender: SyncSender<TriggerEvent>,
+        previous: Option<Self>,
+    ) -> Result<Self, TriggerError> {
+        let configuration = NativeConfiguration::from_registrations(registrations)?;
+        if let Some(mut previous) = previous
+            && previous
+                .worker
+                .as_ref()
+                .is_some_and(|worker| !worker.is_finished())
+        {
+            previous.reconfigure(configuration)?;
+            return Ok(previous);
+        }
+        if configuration.binding_count == 0 {
             return Ok(Self::empty());
         }
 
-        let bindings = service
-            .registered_hotkeys()
-            .into_iter()
-            .enumerate()
-            .map(|(index, expression)| {
-                let id = i32::try_from(index + 1).map_err(|_| {
-                    TriggerError::Failed(
-                        "trigger.hotkey".to_owned(),
-                        "too many native hotkey bindings".to_owned(),
-                    )
-                })?;
-                parse_native_hotkey(id, expression)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let binding_count = bindings.len();
+        Self::start_worker(configuration, sender)
+    }
+
+    fn start_worker(
+        configuration: NativeConfiguration,
+        sender: SyncSender<TriggerEvent>,
+    ) -> Result<Self, TriggerError> {
+        let binding_count = configuration.binding_count;
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let (command_sender, command_receiver) = mpsc::channel();
         let worker = thread::Builder::new()
             .name("baudbound-native-hotkeys".to_owned())
-            .spawn(move || run_message_loop(service, bindings, sender, ready_sender))
+            .spawn(move || {
+                run_hook_loop(configuration, sender, command_receiver, ready_sender);
+            })
             .map_err(|source| {
-                TriggerError::Failed(
-                    "trigger.hotkey".to_owned(),
-                    format!("failed to start native hotkey thread: {source}"),
-                )
+                hotkey_error(format!("failed to start native hotkey thread: {source}"))
             })?;
         let thread_id = match ready_receiver.recv() {
             Ok(Ok(thread_id)) => thread_id,
             Ok(Err(message)) => {
                 let _ = worker.join();
-                return Err(TriggerError::Failed("trigger.hotkey".to_owned(), message));
+                return Err(hotkey_error(message));
             }
             Err(_) => {
                 let _ = worker.join();
-                return Err(TriggerError::Failed(
-                    "trigger.hotkey".to_owned(),
-                    "native hotkey thread exited before initialization".to_owned(),
+                return Err(hotkey_error(
+                    "native hotkey thread exited before initialization",
                 ));
             }
         };
 
         Ok(Self {
             binding_count,
+            command_sender: Some(command_sender),
             thread_id: Some(thread_id),
             worker: Some(worker),
         })
+    }
+
+    fn reconfigure(&mut self, configuration: NativeConfiguration) -> Result<(), TriggerError> {
+        let binding_count = configuration.binding_count;
+        let (acknowledge, acknowledged) = mpsc::sync_channel(1);
+        self.command_sender
+            .as_ref()
+            .ok_or_else(|| hotkey_error("native hotkey command channel is unavailable"))?
+            .send(WorkerCommand::Reconfigure {
+                acknowledge,
+                configuration,
+            })
+            .map_err(|_| hotkey_error("native hotkey worker stopped during reload"))?;
+        let thread_id = self
+            .thread_id
+            .ok_or_else(|| hotkey_error("native hotkey thread ID is unavailable"))?;
+        // SAFETY: The thread ID belongs to the live worker and its message queue is initialized.
+        let posted =
+            unsafe { PostThreadMessageW(thread_id, WM_BAUDBOUND_RECONFIGURE_HOTKEYS, 0, 0) };
+        if posted == 0 {
+            return Err(hotkey_error(format!(
+                "failed to notify native hotkey worker during reload (Win32 error {})",
+                unsafe { GetLastError() }
+            )));
+        }
+        acknowledged
+            .recv()
+            .map_err(|_| hotkey_error("native hotkey worker stopped during reload"))?;
+        self.binding_count = binding_count;
+        Ok(())
     }
 
     #[must_use]
@@ -116,13 +160,14 @@ impl NativeHotkeyService {
                 .as_ref()
                 .is_some_and(|worker| !worker.is_finished()),
             self.binding_count,
-            "native hotkey binding(s)",
+            "native Windows hotkey binding(s)",
         )
     }
 }
 
 impl Drop for NativeHotkeyService {
     fn drop(&mut self) {
+        self.command_sender.take();
         if let Some(thread_id) = self.thread_id.take() {
             // SAFETY: The worker creates its message queue before publishing this thread ID.
             unsafe {
@@ -137,51 +182,136 @@ impl Drop for NativeHotkeyService {
     }
 }
 
-#[derive(Debug)]
-struct NativeBinding {
-    expression: String,
-    id: i32,
-    modifiers: u32,
-    virtual_key: u32,
+struct NativeConfiguration {
+    binding_count: usize,
+    bindings: BTreeMap<NativeChord, String>,
+    service: HotkeyService,
 }
 
-fn run_message_loop(
-    service: HotkeyService,
-    bindings: Vec<NativeBinding>,
+impl NativeConfiguration {
+    fn from_registrations(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+    ) -> Result<Self, TriggerError> {
+        let service = HotkeyService::from_registrations(registrations)?;
+        let mut bindings = BTreeMap::new();
+        for expression in service.registered_hotkeys() {
+            let parsed = parse_hotkey(expression).map_err(hotkey_error)?;
+            let chord = NativeChord {
+                modifiers: parsed.modifiers,
+                virtual_keys: parsed.virtual_keys,
+            };
+            if bindings.insert(chord, parsed.expression).is_some() {
+                return Err(hotkey_error(format!(
+                    "hotkey {expression:?} duplicates another native key binding"
+                )));
+            }
+        }
+        Ok(Self {
+            binding_count: bindings.len(),
+            bindings,
+            service,
+        })
+    }
+}
+
+enum WorkerCommand {
+    Reconfigure {
+        acknowledge: mpsc::SyncSender<()>,
+        configuration: NativeConfiguration,
+    },
+}
+
+struct HookContext {
+    keyboard: KeyboardState,
     sender: SyncSender<TriggerEvent>,
+    service: HotkeyService,
+}
+
+impl HookContext {
+    fn new(
+        configuration: NativeConfiguration,
+        sender: SyncSender<TriggerEvent>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            keyboard: KeyboardState::new(configuration.bindings, modifier_virtual_keys()?.clone()),
+            sender,
+            service: configuration.service,
+        })
+    }
+
+    fn reconfigure(&mut self, configuration: NativeConfiguration) {
+        self.keyboard.reconfigure(configuration.bindings);
+        self.service = configuration.service;
+    }
+
+    fn process(&mut self, virtual_key: u32, transition: KeyTransition, injected: bool) {
+        let Some(expression) = self.keyboard.process(virtual_key, transition, injected) else {
+            return;
+        };
+        match self.service.events_for_key(&expression, SystemTime::now()) {
+            Ok(events) => {
+                for event in events {
+                    try_send_trigger_event(&self.sender, event, "native hotkey");
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, hotkey = expression, "failed to build native hotkey event");
+            }
+        }
+    }
+}
+
+thread_local! {
+    static HOOK_CONTEXT: RefCell<Option<HookContext>> = const { RefCell::new(None) };
+}
+
+fn run_hook_loop(
+    configuration: NativeConfiguration,
+    sender: SyncSender<TriggerEvent>,
+    commands: Receiver<WorkerCommand>,
     ready: mpsc::SyncSender<Result<u32, String>>,
 ) {
+    let context = match HookContext::new(configuration, sender) {
+        Ok(context) => context,
+        Err(error) => {
+            let _ = ready.send(Err(error));
+            return;
+        }
+    };
+    HOOK_CONTEXT.with(|slot| slot.replace(Some(context)));
+
     let thread_id = unsafe { GetCurrentThreadId() };
     let mut message = MSG::default();
-    // SAFETY: A null window handle creates a thread message queue without removing a message.
+    // SAFETY: A null window handle creates this worker's message queue without removing a message.
     unsafe {
         PeekMessageW(&mut message, ptr::null_mut(), 0, 0, PM_NOREMOVE);
     }
-
-    let mut expressions = BTreeMap::new();
-    for binding in &bindings {
-        // SAFETY: IDs are unique in this thread and virtual-key/modifier values are validated.
-        let registered = unsafe {
-            RegisterHotKey(
-                ptr::null_mut(),
-                binding.id,
-                binding.modifiers,
-                binding.virtual_key,
-            )
-        };
-        if registered == 0 {
-            let error = unsafe { GetLastError() };
-            unregister_bindings(&bindings);
-            let _ = ready.send(Err(format!(
-                "failed to register hotkey {:?} (Win32 error {error}); it may already be in use",
-                binding.expression
-            )));
-            return;
-        }
-        expressions.insert(binding.id, binding.expression.clone());
+    // SAFETY: A null module name returns the module containing this executable's hook callback.
+    let module = unsafe { GetModuleHandleW(ptr::null()) };
+    if module.is_null() {
+        HOOK_CONTEXT.with(|slot| slot.replace(None));
+        let _ = ready.send(Err(format!(
+            "failed to resolve runner module for native hotkeys (Win32 error {})",
+            unsafe { GetLastError() }
+        )));
+        return;
+    }
+    // SAFETY: The callback has static lifetime and the thread pumps messages until unhooking it.
+    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), module, 0) };
+    if hook.is_null() {
+        HOOK_CONTEXT.with(|slot| slot.replace(None));
+        let _ = ready.send(Err(format!(
+            "failed to install native Windows keyboard hook (Win32 error {})",
+            unsafe { GetLastError() }
+        )));
+        return;
     }
     if ready.send(Ok(thread_id)).is_err() {
-        unregister_bindings(&bindings);
+        // SAFETY: This thread owns the successfully installed hook.
+        unsafe {
+            UnhookWindowsHookEx(hook);
+        }
+        HOOK_CONTEXT.with(|slot| slot.replace(None));
         return;
     }
 
@@ -191,128 +321,123 @@ fn run_message_loop(
         if result <= 0 {
             break;
         }
-        if message.message != WM_HOTKEY {
-            continue;
-        }
-        let Ok(id) = i32::try_from(message.wParam) else {
-            continue;
-        };
-        let Some(expression) = expressions.get(&id) else {
-            continue;
-        };
-        match service.events_for_key(expression, SystemTime::now()) {
-            Ok(events) => {
-                for event in events {
-                    try_send_trigger_event(&sender, event, "native hotkey");
-                }
-            }
-            Err(error) => {
-                tracing::error!(%error, hotkey = expression, "failed to build native hotkey event")
-            }
+        if message.message == WM_BAUDBOUND_RECONFIGURE_HOTKEYS {
+            apply_pending_commands(&commands);
         }
     }
-    unregister_bindings(&bindings);
+
+    // SAFETY: This thread owns the hook and no callback can run after it is removed.
+    unsafe {
+        UnhookWindowsHookEx(hook);
+    }
+    HOOK_CONTEXT.with(|slot| slot.replace(None));
 }
 
-fn unregister_bindings(bindings: &[NativeBinding]) {
-    for binding in bindings {
-        // SAFETY: Unregistering an absent ID is harmless and the ID belongs to this thread.
-        unsafe {
-            UnregisterHotKey(ptr::null_mut(), binding.id);
+fn apply_pending_commands(commands: &Receiver<WorkerCommand>) {
+    while let Ok(command) = commands.try_recv() {
+        match command {
+            WorkerCommand::Reconfigure {
+                acknowledge,
+                configuration,
+            } => {
+                HOOK_CONTEXT.with(|slot| {
+                    let mut context = slot.borrow_mut();
+                    context
+                        .as_mut()
+                        .expect("hotkey hook context must exist while its worker is running")
+                        .reconfigure(configuration);
+                });
+                let _ = acknowledge.send(());
+            }
         }
     }
 }
 
-fn parse_native_hotkey(id: i32, expression: &str) -> Result<NativeBinding, TriggerError> {
-    let mut modifiers = MOD_NOREPEAT;
-    let mut key = None;
-    for part in expression.split('+') {
-        match part {
-            "Ctrl" => modifiers |= MOD_CONTROL,
-            "Alt" => modifiers |= MOD_ALT,
-            "Shift" => modifiers |= MOD_SHIFT,
-            "Meta" => modifiers |= MOD_WIN,
-            value if key.is_none() => key = Some(value),
-            _ => {
-                return Err(TriggerError::Failed(
-                    "trigger.hotkey".to_owned(),
-                    format!("hotkey {expression:?} contains multiple primary keys"),
-                ));
-            }
-        }
-    }
-    let key = key.ok_or_else(|| {
-        TriggerError::Failed(
-            "trigger.hotkey".to_owned(),
-            format!("hotkey {expression:?} has no primary key"),
+unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION.cast_signed()
+        && matches!(
+            u32::try_from(wparam),
+            Ok(WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP)
         )
-    })?;
-    let virtual_key = virtual_key(key).ok_or_else(|| {
-        TriggerError::Failed(
-            "trigger.hotkey".to_owned(),
-            format!("hotkey key {key:?} is not supported by the Windows native backend"),
-        )
-    })?;
-    Ok(NativeBinding {
-        expression: expression.to_owned(),
-        id,
-        modifiers,
-        virtual_key,
-    })
-}
-
-fn virtual_key(key: &str) -> Option<u32> {
-    if key.len() == 1 {
-        let byte = key.as_bytes()[0];
-        if byte.is_ascii_uppercase() || byte.is_ascii_digit() {
-            return Some(u32::from(byte));
-        }
-    }
-    if let Some(number) = key
-        .strip_prefix('F')
-        .and_then(|value| value.parse::<u32>().ok())
-        && (1..=24).contains(&number)
     {
-        return Some(0x70 + number - 1);
+        // SAFETY: Windows supplies a valid KBDLLHOOKSTRUCT pointer for HC_ACTION keyboard events.
+        let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
+        let transition = if matches!(u32::try_from(wparam), Ok(WM_KEYUP | WM_SYSKEYUP)) {
+            KeyTransition::Up
+        } else {
+            KeyTransition::Down
+        };
+        let injected = event.flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED) != 0;
+        HOOK_CONTEXT.with(|slot| {
+            if let Some(context) = slot.borrow_mut().as_mut() {
+                context.process(event.vkCode, transition, injected);
+            }
+        });
     }
-    Some(match key {
-        "Escape" => u32::from(VK_ESCAPE),
-        "Enter" => u32::from(VK_RETURN),
-        "Space" => u32::from(VK_SPACE),
-        "Tab" => u32::from(VK_TAB),
-        "Backspace" => u32::from(VK_BACK),
-        "Delete" => u32::from(VK_DELETE),
-        "Insert" => u32::from(VK_INSERT),
-        "Home" => u32::from(VK_HOME),
-        "End" => u32::from(VK_END),
-        "PageUp" => u32::from(VK_PRIOR),
-        "PageDown" => u32::from(VK_NEXT),
-        "ArrowUp" => u32::from(VK_UP),
-        "ArrowDown" => u32::from(VK_DOWN),
-        "ArrowLeft" => u32::from(VK_LEFT),
-        "ArrowRight" => u32::from(VK_RIGHT),
-        _ => return None,
-    })
+
+    // SAFETY: The hook never suppresses input and always forwards the event to the next hook.
+    unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
+}
+
+fn hotkey_error(message: impl Into<String>) -> TriggerError {
+    TriggerError::Failed("trigger.hotkey".to_owned(), message.into())
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
-    #[test]
-    fn parses_supported_windows_hotkeys() {
-        let hotkey = parse_native_hotkey(1, "Ctrl+Alt+B").expect("hotkey should parse");
-        assert_eq!(hotkey.virtual_key, u32::from(b'B'));
-        assert_ne!(hotkey.modifiers & MOD_CONTROL, 0);
-        assert_ne!(hotkey.modifiers & MOD_ALT, 0);
-        assert_eq!(virtual_key("F24"), Some(0x87));
-        assert_eq!(virtual_key("ArrowLeft"), Some(u32::from(VK_LEFT)));
+    fn registration(key: &str) -> TriggerRegistration {
+        TriggerRegistration {
+            action_type: "trigger.hotkey".to_owned(),
+            config: json!({ "key": key }),
+            node_id: "n-hotkey".to_owned(),
+            runner_type: "hotkey".to_owned(),
+            script_id: "script".to_owned(),
+            script_name: "Script".to_owned(),
+        }
     }
 
     #[test]
-    fn rejects_unsupported_windows_hotkey_keys() {
-        let error = parse_native_hotkey(1, "Ctrl+MediaPlay")
-            .expect_err("unsupported virtual key should fail");
-        assert!(error.to_string().contains("not supported"));
+    fn builds_unmodified_punctuation_numpad_and_media_bindings() {
+        let configuration = NativeConfiguration::from_registrations([
+            registration("A"),
+            registration("Semicolon"),
+            registration("Numpad7"),
+            registration("MediaPlayPause"),
+        ])
+        .expect("supported native keys should parse");
+
+        assert_eq!(configuration.binding_count, 4);
+        assert!(configuration.bindings.contains_key(&NativeChord {
+            modifiers: 0,
+            virtual_keys: vec![65],
+        }));
+        assert!(configuration.bindings.contains_key(&NativeChord {
+            modifiers: 0,
+            virtual_keys: vec![179],
+        }));
+    }
+
+    #[test]
+    fn installs_reconfigures_and_removes_the_native_hook() {
+        let (sender, _receiver) = mpsc::sync_channel(4);
+        let service = NativeHotkeyService::start([registration("A")], sender.clone())
+            .expect("native hook should install");
+        let worker_thread = service.thread_id;
+
+        let service = NativeHotkeyService::start_or_reconfigure(
+            [registration("Ctrl+MediaPlayPause")],
+            sender,
+            Some(service),
+        )
+        .expect("native hook should reconfigure");
+
+        assert_eq!(service.thread_id, worker_thread);
+        assert_eq!(service.len(), 1);
+        assert!(service.diagnostics().running);
+        drop(service);
     }
 }

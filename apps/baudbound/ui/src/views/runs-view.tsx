@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import type { DashboardPayload, StoredRunRecord } from "@/lib/runner-api";
 import { runStatusVariant, runSummary } from "@/lib/run-inspection";
+import { useDesktopTime } from "@/lib/time-format";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 
 const allFilterValue = "__all__";
@@ -233,6 +234,7 @@ function RunRow({
   run: StoredRunRecord;
   scriptName: string;
 }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const lastLog = run.logs.at(-1);
 
   return (
@@ -252,7 +254,7 @@ function RunRow({
           >
             {expanded ? <ChevronUp /> : <ChevronDown />}
           </Button>
-          <span>{formatUnixTime(run.completed_at_unix)}</span>
+          <span>{formatUnixSeconds(run.completed_at_unix)}</span>
         </div>
       </td>
       <td className="px-3 py-3" data-label="Script">
@@ -301,8 +303,4 @@ function runMatchesSearch(run: StoredRunRecord, scriptName: string, searchTerm: 
     .join("\n")
     .toLowerCase();
   return haystack.includes(query);
-}
-
-function formatUnixTime(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

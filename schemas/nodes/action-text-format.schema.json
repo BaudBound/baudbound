@@ -56,7 +56,9 @@
 				"length": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 18446744073709552000
 						},
 						{
 							"type": "string",
@@ -100,7 +102,9 @@
 				"start": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 18446744073709552000
 						},
 						{
 							"type": "string",
@@ -111,7 +115,9 @@
 				"targetLength": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 18446744073709552000
 						},
 						{
 							"type": "string",

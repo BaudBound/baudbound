@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import { isConditionRow, isSwitchCaseRow } from "@/data/nodes/definitions/rows";
 import type { NodeSimulationApi } from "@/data/nodes/node-definition";
+import { numericContractApplies, validateNumericConfigValue } from "@/data/nodes/numeric-validation";
 import { fallibleActionTypes, getNodeDefinition } from "@/data/nodes/registry";
 import { createSimulationBuiltInVariableValues } from "@/data/project/built-in-variables";
 import type {
@@ -60,8 +61,8 @@ type SimulationFrame =
 	  }
 	| {
 			kind: "loop";
-			count: number;
-			index: number;
+			count: bigint;
+			index: bigint;
 			nodeId: string;
 	  }
 	| {
@@ -76,7 +77,6 @@ type SimulationFrame =
 	  };
 
 const nodeSimulationApi: NodeSimulationApi = {
-	clampNumber,
 	createError,
 	createPixelColorOutput: createSimulatedPixelColorOutput,
 	executeHttpRequest: executeHttpRequestNode,
@@ -252,6 +252,15 @@ async function executeNodeFrame(
 
 	const override = context.overridesByNodeId.get(node.id);
 	const forcedFailed = override === "failed";
+	const numericError = validateResolvedNumericNode(node, context);
+	if (numericError) {
+		context.failed = true;
+		await pushStep(context, {
+			level: "error",
+			message: `[Simulation] ${node.data.label} (${node.id}) failed validation: ${numericError}`,
+		});
+		return;
+	}
 	const result = await createNodeOutputData(node, context, forcedFailed);
 	if (context.signal?.aborted) {
 		return;
@@ -321,7 +330,7 @@ async function executeNodeFrame(
 
 	if (node.data.actionType === "control.loop") {
 		const count = normalizeIterationCount(resolveTemplate(getConfigString(node, "count"), context));
-		frames.push({ kind: "loop", nodeId: node.id, index: 0, count });
+		frames.push({ kind: "loop", nodeId: node.id, index: BigInt(0), count });
 		return;
 	}
 
@@ -369,9 +378,9 @@ async function processLoopFrame(
 
 	await pushStep(context, {
 		level: "info",
-		message: `[Simulation] Loop ${node.id} iteration ${frame.index + 1} of ${frame.count}.`,
+		message: `[Simulation] Loop ${node.id} iteration ${frame.index + BigInt(1)} of ${frame.count}.`,
 	});
-	frames.push({ kind: "loop", nodeId: node.id, index: frame.index + 1, count: frame.count });
+	frames.push({ kind: "loop", nodeId: node.id, index: frame.index + BigInt(1), count: frame.count });
 	frames.push({ kind: "follow", sourceNodeId: node.id, handle: "loop", stopAtNodeId: node.id });
 }
 
@@ -493,6 +502,10 @@ async function determineOutputHandle(
 	context: SimulationContext,
 	outcome: "success" | "failed",
 ) {
+	if (node.data.actionType === "control.color_match" && outcome === "failed") {
+		return "";
+	}
+
 	if (outcome === "failed" && !node.data.outputs.some((output) => output.id === "failed")) {
 		await pushStep(context, {
 			level: "warn",
@@ -512,6 +525,15 @@ async function determineOutputHandle(
 			message: `[Simulation] If / Else ${node.id} evaluated to ${result ? "true" : "false"}.`,
 		});
 		return result ? "true" : "false";
+	}
+
+	if (node.data.actionType === "control.color_match") {
+		const matches = context.nodeOutputs[node.id]?.matches === true;
+		await pushStep(context, {
+			level: "info",
+			message: `[Simulation] Color Match ${node.id} selected ${matches ? "match" : "no match"}.`,
+		});
+		return matches ? "match" : "no_match";
 	}
 
 	if (node.data.actionType === "control.switch") {
@@ -641,6 +663,31 @@ async function createNodeOutputData(
 	return { failed: false, outputData: {} };
 }
 
+function validateResolvedNumericNode(node: Node<ScriptNodeData>, context: SimulationContext) {
+	const numericFields = getNodeDefinition(node.data.actionType)?.configFields?.filter((field) =>
+		numericContractApplies(field, node.data.config),
+	);
+	for (const field of numericFields ?? []) {
+		if (!field.numeric) {
+			throw new Error(`Numeric contract metadata is missing for ${field.key}.`);
+		}
+		const configuredValue = node.data.config[field.key];
+		if (configuredValue === undefined) {
+			continue;
+		}
+		if (field.required === false && typeof configuredValue === "string" && !configuredValue.trim()) {
+			continue;
+		}
+		const resolvedValue =
+			typeof configuredValue === "string" ? resolveTemplate(configuredValue, context) : configuredValue;
+		const error = validateNumericConfigValue(resolvedValue, field.numeric);
+		if (error) {
+			return `${field.label} ${error}.`;
+		}
+	}
+	return "";
+}
+
 function getForEachItems(node: Node<ScriptNodeData>, context: SimulationContext): JsonValue[] {
 	const value = resolveJsonCompatibleInput(getConfigString(node, "items"), context);
 	if (Array.isArray(value)) {
@@ -662,16 +709,16 @@ function getForEachItems(node: Node<ScriptNodeData>, context: SimulationContext)
 }
 
 function createSimulatedPixelColorOutput(x: number, y: number): Record<string, JsonValue> {
-	const normalizedX = Math.trunc(Math.max(0, x));
-	const normalizedY = Math.trunc(Math.max(0, y));
-	const red = (normalizedX * 37 + normalizedY * 17) % 256;
-	const green = (normalizedX * 13 + normalizedY * 57) % 256;
-	const blue = (normalizedX * 91 + normalizedY * 23) % 256;
+	const red = positiveModulo(x * 37 + y * 17, 256);
+	const green = positiveModulo(x * 13 + y * 57, 256);
+	const blue = positiveModulo(x * 91 + y * 23, 256);
 	const alpha = 255;
 	const integer = red * 65536 + green * 256 + blue;
 	const hex = `#${toHexChannel(red)}${toHexChannel(green)}${toHexChannel(blue)}`;
 
 	return {
+		x,
+		y,
 		hex,
 		rgb: { r: red, g: green, b: blue },
 		rgba: { r: red, g: green, b: blue, a: alpha },
@@ -681,6 +728,10 @@ function createSimulatedPixelColorOutput(x: number, y: number): Record<string, J
 		alpha,
 		integer,
 	};
+}
+
+function positiveModulo(value: number, divisor: number) {
+	return ((value % divisor) + divisor) % divisor;
 }
 
 function toHexChannel(value: number) {
@@ -731,8 +782,7 @@ async function simulateDelayNode(node: Node<ScriptNodeData>, context: Simulation
 
 function getDelaySimulationDuration(node: Node<ScriptNodeData>, context: SimulationContext) {
 	const amountValue = Number(resolveTemplate(getConfigString(node, "amount"), context));
-	const safeAmount = Number.isFinite(amountValue) && amountValue > 0 ? amountValue : 0;
-	const configuredMs = Math.round(safeAmount * getDelayUnitMultiplier(getConfigString(node, "unit")));
+	const configuredMs = Math.round(amountValue * getDelayUnitMultiplier(getConfigString(node, "unit")));
 
 	return {
 		label: `${formatValue(resolveTemplate(getConfigString(node, "amount"), context))} ${normalizeDelayUnit(getConfigString(node, "unit"))}`,
@@ -741,6 +791,10 @@ function getDelaySimulationDuration(node: Node<ScriptNodeData>, context: Simulat
 }
 
 function getDelayUnitMultiplier(unit: string) {
+	if (unit === "milliseconds") {
+		return 1;
+	}
+
 	if (unit === "days") {
 		return 24 * 60 * 60 * 1000;
 	}
@@ -753,11 +807,15 @@ function getDelayUnitMultiplier(unit: string) {
 		return 60 * 1000;
 	}
 
-	return 1000;
+	if (unit === "seconds") {
+		return 1000;
+	}
+
+	throw new Error(`Unsupported delay unit: ${unit || "(empty)"}`);
 }
 
 function normalizeDelayUnit(unit: string) {
-	return unit === "days" || unit === "hours" || unit === "minutes" ? unit : "seconds";
+	return ["milliseconds", "seconds", "minutes", "hours", "days"].includes(unit) ? unit : "unknown unit";
 }
 
 function createPlaySoundErrorObject(message: string, details: Record<string, JsonValue>): Record<string, JsonValue> {
@@ -787,7 +845,7 @@ async function executeHttpRequestNode(
 	const method = normalizeHttpMethod(getConfigString(node, "method"));
 	const url = String(resolveTemplate(getConfigString(node, "url"), context)).trim();
 	const body = String(resolveTemplate(getConfigString(node, "body"), context));
-	const timeoutSeconds = clampNumber(Number(getConfigString(node, "timeoutSeconds")) || 30, 1, 300);
+	const timeoutSeconds = Number(getConfigString(node, "timeoutSeconds"));
 	const headers = createHttpHeaders(node, context);
 	const startedAt = performance.now();
 	const abortController = new AbortController();
@@ -999,15 +1057,14 @@ function resolveTemplate(value: string, context: SimulationContext): JsonValue {
 
 function normalizeIterationCount(value: JsonValue) {
 	if (typeof value === "number") {
-		return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+		return BigInt(value);
 	}
 
 	if (typeof value === "string") {
-		const count = Number(value.trim());
-		return Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
+		return BigInt(value.trim());
 	}
 
-	return 0;
+	throw new TypeError("Validated loop count did not resolve to an integer");
 }
 
 function getReferenceValue(reference: string, context: SimulationContext): JsonValue {
@@ -1410,10 +1467,6 @@ function isJsonValue(value: unknown): value is JsonValue {
 	}
 
 	return false;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-	return Math.min(Math.max(value, min), max);
 }
 
 function formatValue(value: JsonValue) {

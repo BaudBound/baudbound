@@ -1,18 +1,43 @@
 import { MousePointer2 } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { actionMouse } from "../shared";
-import { configString, staticNonNegativeNumberConfig, staticNumberConfig } from "../validators";
 
 export const moveMouseNode = defineNode({
 	actionType: "action.mouse.move",
 	capabilities: actionMouse,
 	configFields: [
-		{ key: "x", label: "X", type: "number", usesVariables: true },
-		{ key: "y", label: "Y", type: "number", usesVariables: true },
+		{
+			key: "x",
+			label: "X",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: true,
+				minimum: "-2147483648",
+				maximum: "2147483647",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
+		{
+			key: "y",
+			label: "Y",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: true,
+				minimum: "-2147483648",
+				maximum: "2147483647",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
 		{ key: "relative", label: "Relative move", type: "switch" },
 	],
 	defaultConfig: () => ({ x: "100", y: "100", relative: false }),
-	description: "Move the mouse to absolute or relative coordinates.",
+	description: "Move to a signed virtual-desktop coordinate or by a signed relative offset.",
 	desktopOnly: true,
 	fallible: true,
 	group: "actions",
@@ -23,17 +48,6 @@ export const moveMouseNode = defineNode({
 	risk: "high",
 	runnerType: "move_mouse",
 	supportedTargetRuntimes: ["Windows Desktop"],
-	validateConfig: (config) => {
-		const relative = configString(config, "relative") === "true" || config.relative === true;
-		return [
-			relative
-				? staticNumberConfig(config, "x", "mouse X offset")
-				: staticNonNegativeNumberConfig(config, "x", "mouse X coordinate"),
-			relative
-				? staticNumberConfig(config, "y", "mouse Y offset")
-				: staticNonNegativeNumberConfig(config, "y", "mouse Y coordinate"),
-		].filter(Boolean);
-	},
 	simulation: {
 		describe: ({ api, context, node }) => [
 			{

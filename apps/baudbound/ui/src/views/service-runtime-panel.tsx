@@ -9,8 +9,10 @@ import {
   desktopRuntimeHealth,
   type RuntimeHealth,
 } from "@/lib/service-health";
+import { useDesktopTime } from "@/lib/time-format";
 
 export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const desktop = desktopRuntimeHealth(dashboard);
   const serviceStatus = dashboard.service_status;
   const serviceHealth = dashboard.service_health;
@@ -29,13 +31,13 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
               [
                 "Started",
                 dashboard.desktop_background.started_at_unix
-                  ? formatUnix(dashboard.desktop_background.started_at_unix)
+                  ? formatUnixSeconds(dashboard.desktop_background.started_at_unix)
                   : "not running",
               ],
               [
                 "Stopped",
                 dashboard.desktop_background.stopped_at_unix
-                  ? formatUnix(dashboard.desktop_background.stopped_at_unix)
+                  ? formatUnixSeconds(dashboard.desktop_background.stopped_at_unix)
                   : "not recorded",
               ],
             ]}
@@ -61,7 +63,7 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
                   [
                     "Last heartbeat",
                     serviceStatus?.last_heartbeat_unix
-                      ? formatUnix(serviceStatus.last_heartbeat_unix)
+                      ? formatUnixSeconds(serviceStatus.last_heartbeat_unix)
                       : "not written",
                   ],
                   [
@@ -114,7 +116,7 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
                   </Badge>
                   <span className="text-muted-foreground">
                     {serviceName(activity.last_dispatch.source)} at{" "}
-                    {formatUnix(activity.last_dispatch.completed_at_unix)}
+                    {formatUnixSeconds(activity.last_dispatch.completed_at_unix)}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -242,10 +244,6 @@ function runtimeBadgeVariant(state: RuntimeHealth["state"]) {
     return "destructive";
   }
   return "muted";
-}
-
-function formatUnix(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }
 
 function serviceName(value: string) {

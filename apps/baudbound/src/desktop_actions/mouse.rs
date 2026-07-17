@@ -1,5 +1,5 @@
 use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
-use enigo::{Button, Coordinate, Direction, Mouse};
+use enigo::{Button, Direction, Mouse};
 use serde_json::{Map, Number, Value};
 
 use super::{
@@ -43,18 +43,15 @@ pub(super) fn run_mouse_move(
     let x = required_i32(request, "x")?;
     let y = required_i32(request, "y")?;
     let relative = config_bool(request, "relative");
-    let mut enigo = native_input(request)?;
-    enigo
-        .move_mouse(
-            x,
-            y,
-            if relative {
-                Coordinate::Rel
-            } else {
-                Coordinate::Abs
-            },
-        )
-        .map_err(|source| failed_error(request, format!("mouse move failed: {source}")))?;
+    if relative {
+        super::screen_tools::move_cursor_relative(x, y)
+            .map_err(|error| failed_error(request, error))?;
+    } else {
+        super::screen_tools::validate_coordinate(x, y)
+            .map_err(|error| failed_error(request, error))?;
+        super::screen_tools::move_cursor_absolute(x, y)
+            .map_err(|error| failed_error(request, error))?;
+    }
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([

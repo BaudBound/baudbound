@@ -56,6 +56,12 @@ body,
   user-select: none;
 }
 
+html.coordinate-picker-document,
+html.coordinate-picker-document body,
+html.coordinate-picker-document #root {
+  background: transparent;
+}
+
 input,
 textarea,
 [contenteditable="true"],

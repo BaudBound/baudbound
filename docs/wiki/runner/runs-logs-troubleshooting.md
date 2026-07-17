@@ -15,7 +15,7 @@ Every terminal run record contains:
 - the trigger node ID;
 - completion timestamp;
 - status: `completed`, `failed`, or `cancelled`;
-- structured log entries with level, message, and optional node ID; and
+- structured log entries with their own emission timestamp, level, message, and optional node ID; and
 - the final non-secret variable snapshot available for inspection.
 
 `completed` means graph execution reached a normal terminal state. A fallible action can take its failure branch and still produce a completed run when the graph handles that failure. `failed` means execution could not continue. `cancelled` means a stop request interrupted runtime execution.
@@ -43,10 +43,12 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 1. Open **Scripts** and expand the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.
 2. Open **Runs**, select the relevant script, and choose the newest failed or cancelled run.
 3. Copy the run ID, trigger ID, status, and first useful error.
-4. Inspect its node logs and final variables. A node ID connects a runtime failure to the editor graph.
-5. Open **Triggers** when the run never started, **Devices** for serial state, **Service** for listener state, or **Doctor** for machine support.
+4. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
+5. Open **Triggers** when the run never started or a configured serial reader is disconnected. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state or **Doctor** for machine support.
 
 The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
+
+The shared clock setting changes human-readable desktop and CLI timestamps between 12-hour and 24-hour notation. Change it in the desktop Settings tab or with `baudbound settings set time-format`. It does not alter stored timestamps, log order, or CLI JSON values.
 
 ## Inspect with the CLI
 
@@ -73,7 +75,7 @@ Use `--json` only on commands that document it when collecting structured diagno
 | Manual run rejected | `baudbound script inspect` | Manual trigger, approval, policy, target, secrets |
 | No automatic event | Triggers and Service | Script enabled, registration, family toggle, OS prerequisite |
 | Run failed at a node | Runs and Logs | Node config, resolved variables, native error, failure branch |
-| Serial disconnected | Devices | Port access, protocol, USB identity, ambiguity |
+| Serial disconnected | Triggers, then Tools | Reader state, detected ports, access, protocol, USB identity, ambiguity |
 | Webhook unavailable | Service listener | Bind, port, route, firewall/proxy, body limit |
 | Update unavailable | Update dialog/error | HTTPS, release metadata, platform artifact, signature, clock |
 

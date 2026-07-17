@@ -1,0 +1,324 @@
+{
+	"version": 2,
+	"nodes": {
+		"action.application.open": {},
+		"action.beep": {
+			"frequencyHz": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "20",
+				"maximum": "20000",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Frequency Hz",
+				"required": true,
+				"allows_variables": true
+			},
+			"durationMs": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "10",
+				"maximum": "5000",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Duration ms",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"action.calculate": {},
+		"action.clipboard.get": {},
+		"action.clipboard.set": {},
+		"action.delay": {
+			"amount": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "1.7976931348623157e308",
+				"minimum_inclusive": false,
+				"maximum_inclusive": true,
+				"label": "Amount",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"action.file.copy": {},
+		"action.file.delete": {},
+		"action.file.download": {},
+		"action.file.move": {},
+		"action.file.read": {},
+		"action.file.write": {},
+		"action.http": {
+			"timeoutSeconds": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "86400",
+				"minimum_inclusive": false,
+				"maximum_inclusive": true,
+				"label": "Timeout seconds",
+				"required": true,
+				"allows_variables": false
+			}
+		},
+		"action.keyboard": {},
+		"action.keyboard.type_text": {},
+		"action.log": {},
+		"action.message_box": {},
+		"action.mouse": {},
+		"action.mouse.move": {
+			"x": {
+				"kind": "integer",
+				"signed": true,
+				"minimum": "-2147483648",
+				"maximum": "2147483647",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "X",
+				"required": true,
+				"allows_variables": true
+			},
+			"y": {
+				"kind": "integer",
+				"signed": true,
+				"minimum": "-2147483648",
+				"maximum": "2147483647",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Y",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"action.notification": {},
+		"action.pixel.get": {
+			"x": {
+				"kind": "integer",
+				"signed": true,
+				"minimum": "-2147483648",
+				"maximum": "2147483647",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Screen X",
+				"required": true,
+				"allows_variables": true
+			},
+			"y": {
+				"kind": "integer",
+				"signed": true,
+				"minimum": "-2147483648",
+				"maximum": "2147483647",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Screen Y",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"action.process.kill": {
+			"target": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "4294967295",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Target",
+				"required": true,
+				"allows_variables": true,
+				"when": {
+					"key": "matchMode",
+					"equals": "pid"
+				}
+			}
+		},
+		"action.process.run": {
+			"timeoutSeconds": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "1",
+				"maximum": "86400",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Timeout seconds",
+				"required": false,
+				"allows_variables": true
+			}
+		},
+		"action.process.status": {
+			"target": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "4294967295",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Target",
+				"required": true,
+				"allows_variables": true,
+				"when": {
+					"key": "matchMode",
+					"equals": "pid"
+				}
+			}
+		},
+		"action.script.run": {},
+		"action.serial.write": {},
+		"action.shell": {
+			"timeoutSeconds": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "1",
+				"maximum": "86400",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Timeout seconds",
+				"required": false,
+				"allows_variables": true
+			}
+		},
+		"action.sound.play": {},
+		"action.text.format": {
+			"start": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "18446744073709551615",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Start",
+				"required": false,
+				"allows_variables": true
+			},
+			"length": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "18446744073709551615",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Length",
+				"required": false,
+				"allows_variables": true
+			},
+			"targetLength": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "18446744073709551615",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Target length",
+				"required": false,
+				"allows_variables": true
+			}
+		},
+		"action.webhook_response": {
+			"statusCode": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "100",
+				"maximum": "599",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Status code",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"action.websocket.write": {},
+		"action.window.active": {},
+		"action.window.focus": {
+			"target": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "4294967295",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Target",
+				"required": true,
+				"allows_variables": true,
+				"when": {
+					"key": "matchMode",
+					"equals": "pid"
+				}
+			}
+		},
+		"control.color_match": {
+			"tolerancePercent": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "100",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Tolerance (%)",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"control.for_each": {},
+		"control.if": {},
+		"control.loop": {
+			"count": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "1",
+				"maximum": "18446744073709551615",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Repeat count",
+				"required": true,
+				"allows_variables": true
+			}
+		},
+		"control.switch": {},
+		"control.while": {},
+		"runtime.set_variable": {},
+		"trigger.file_watch": {},
+		"trigger.hotkey": {},
+		"trigger.manual": {},
+		"trigger.process_started": {},
+		"trigger.schedule": {
+			"every": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "1.7976931348623157e308",
+				"minimum_inclusive": false,
+				"maximum_inclusive": true,
+				"label": "Every",
+				"required": true,
+				"allows_variables": false
+			}
+		},
+		"trigger.serial_input": {},
+		"trigger.startup": {},
+		"trigger.webhook": {
+			"responseTimeoutSeconds": {
+				"kind": "float",
+				"signed": false,
+				"minimum": "0",
+				"maximum": "86400",
+				"minimum_inclusive": false,
+				"maximum_inclusive": true,
+				"label": "Response timeout seconds",
+				"required": false,
+				"allows_variables": false
+			},
+			"timeoutResponseStatus": {
+				"kind": "integer",
+				"signed": false,
+				"minimum": "100",
+				"maximum": "599",
+				"minimum_inclusive": true,
+				"maximum_inclusive": true,
+				"label": "Fallback response status",
+				"required": false,
+				"allows_variables": false
+			}
+		},
+		"trigger.websocket": {}
+	}
+}

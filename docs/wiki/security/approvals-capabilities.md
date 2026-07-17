@@ -39,6 +39,7 @@ The runner derives permissions from executable action types and variable scopes.
 | `open_application` | Medium | Open an application through a native adapter |
 | `play_sound` | Medium | Play package or filesystem audio |
 | `process_query` | Medium | Inspect process state |
+| `read_clipboard` | Medium | Read text from the native clipboard |
 | `screen_pixel_read` | Medium | Read a screen pixel on supported desktops |
 | `serial_write` | Medium | Send data to a configured serial device |
 | `set_persistent_variable` | Medium | Store script data between runs |

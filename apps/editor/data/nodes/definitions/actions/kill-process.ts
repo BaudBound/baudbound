@@ -3,19 +3,28 @@ import { defineNode } from "../../node-definition";
 import { killProcessMatchModeOptions } from "../options";
 import { fallible } from "../runtime-outputs";
 import { actionProcess } from "../shared";
-import {
-	configString,
-	requiredConfig,
-	staticNonNegativeIntegerConfig,
-	windowsDesktopOnlyConfigValue,
-} from "../validators";
+import { requiredConfig, windowsDesktopOnlyConfigValue } from "../validators";
 
 export const killProcessNode = defineNode({
 	actionType: "action.process.kill",
 	capabilities: actionProcess,
 	configFields: [
 		{ key: "matchMode", label: "Match by", type: "select", options: killProcessMatchModeOptions },
-		{ key: "target", label: "Target", type: "text", usesVariables: true },
+		{
+			key: "target",
+			label: "Target",
+			type: "text",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: false,
+				minimum: "0",
+				maximum: "4294967295",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+			numericWhen: { key: "matchMode", equals: "pid" },
+		},
 	],
 	defaultConfig: () => ({ matchMode: "process_name", target: "app.exe" }),
 	description: "Terminate a target process.",
@@ -41,11 +50,7 @@ export const killProcessNode = defineNode({
 		},
 	]),
 	runnerType: "kill_process",
-	validateConfig: (config) =>
-		[
-			requiredConfig(config, "target", "process target"),
-			configString(config, "matchMode") === "pid" ? staticNonNegativeIntegerConfig(config, "target", "process ID") : "",
-		].filter(Boolean),
+	validateConfig: (config) => [requiredConfig(config, "target", "process target")].filter(Boolean),
 	validateTargetRuntime: ({ config, targetRuntime }) =>
 		[
 			windowsDesktopOnlyConfigValue(
@@ -89,5 +94,5 @@ function getSimulatedProcessId(matchMode: string, target: unknown) {
 	}
 
 	const processId = Number(target);
-	return Number.isFinite(processId) && processId >= 0 ? Math.trunc(processId) : 4242;
+	return processId;
 }

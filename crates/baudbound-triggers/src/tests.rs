@@ -8,7 +8,7 @@ use std::{
 use super::*;
 use crate::services::{
     file_watch::{FileWatchSpec, file_watch_event},
-    hotkey::HotkeySpec,
+    hotkey::{HotkeySpec, parse_hotkey},
     process_started::{ProcessMatchMode, ProcessStartedSpec},
     serial_input::{
         SerialInputSpec, SerialReadMode, send_serial_event, set_serial_reader_status,
@@ -111,7 +111,7 @@ fn ignores_non_schedule_registrations() {
 #[test]
 fn parses_hotkey_registration_and_builds_payload() {
     let service = HotkeyService::from_registrations([hotkey_registration(json!({
-        "key": "Control + Option + b"
+        "key": "Control + Alt + b"
     }))])
     .expect("hotkey should parse");
 
@@ -130,11 +130,50 @@ fn parses_hotkey_registration_and_builds_payload() {
 }
 
 #[test]
+fn parses_windows_hotkey_catalog_categories_and_aliases() {
+    let cases = [
+        ("a", "A", 0, 65),
+        ("control + shift + b", "Ctrl+Shift+B", 5, 66),
+        ("F24", "F24", 0, 135),
+        ("arrow up", "ArrowUp", 0, 38),
+        ("apostrophe", "Quote", 0, 222),
+        ("Numpad7", "Numpad7", 0, 103),
+        ("AudioVolumeUp", "VolumeUp", 0, 175),
+        ("MediaTrackNext", "MediaNext", 0, 176),
+        ("BrowserBack", "BrowserBack", 0, 166),
+        ("win + launch mail", "Windows+LaunchMail", 8, 180),
+    ];
+
+    for (input, expression, modifiers, virtual_key) in cases {
+        let parsed = parse_hotkey(input).expect("declared Windows hotkey should parse");
+        assert_eq!(parsed.expression, expression, "input: {input}");
+        assert_eq!(parsed.modifiers, modifiers, "input: {input}");
+        assert_eq!(parsed.virtual_keys, [virtual_key], "input: {input}");
+    }
+}
+
+#[test]
+fn hotkey_service_dispatches_an_unmodified_key() {
+    let service = HotkeyService::from_registrations([hotkey_registration(json!({
+        "key": "a"
+    }))])
+    .expect("plain hotkey should parse");
+
+    assert_eq!(service.registered_hotkeys(), ["A"]);
+    let events = service
+        .events_for_key("A", UNIX_EPOCH)
+        .expect("plain hotkey event should build");
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].payload["key"], "A");
+}
+
+#[test]
 fn hotkey_service_supports_multiple_scripts_on_same_combo() {
     let mut first = hotkey_registration(json!({"key": "Ctrl+Alt+B"}));
     first.script_id = "script-1".to_owned();
     first.node_id = "n-hotkey-1".to_owned();
-    let mut second = hotkey_registration(json!({"key": "control-option-b"}));
+    let mut second = hotkey_registration(json!({"key": "control-alt-b"}));
     second.script_id = "script-2".to_owned();
     second.node_id = "n-hotkey-2".to_owned();
 
@@ -195,12 +234,37 @@ fn hotkey_service_ignores_unmatched_keys() {
 }
 
 #[test]
-fn rejects_hotkey_without_primary_key() {
-    let registration = hotkey_registration(json!({"key": "Ctrl+Alt"}));
+fn accepts_hotkeys_with_multiple_regular_keys_or_only_modifiers() {
+    assert_eq!(
+        parse_hotkey("K+L")
+            .expect("regular-key chord should parse")
+            .virtual_keys,
+        [75, 76]
+    );
+    assert_eq!(
+        parse_hotkey("F1+T")
+            .expect("function-key chord should parse")
+            .virtual_keys,
+        [84, 112]
+    );
+    assert_eq!(
+        parse_hotkey("Ctrl+Alt")
+            .expect("modifier-only chord should parse")
+            .expression,
+        "Ctrl+Alt"
+    );
+}
 
-    let error = HotkeySpec::from_registration(&registration).expect_err("missing key should fail");
-
-    assert!(error.to_string().contains("primary key"));
+#[test]
+fn accepts_modifiers_in_any_position_and_rejects_duplicate_keys() {
+    assert_eq!(
+        parse_hotkey("A+Ctrl")
+            .expect("modifier order should not matter")
+            .expression,
+        "Ctrl+A"
+    );
+    assert!(parse_hotkey("Ctrl+Control+A").is_err());
+    assert!(parse_hotkey("A+A").is_err());
 }
 
 #[test]

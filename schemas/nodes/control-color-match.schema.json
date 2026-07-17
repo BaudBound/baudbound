@@ -1,14 +1,13 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
-	"$id": "https://schemas.baudbound.app/nodes/action-clipboard.schema.json",
-	"title": "BaudBound Node - Clipboard",
+	"$id": "https://schemas.baudbound.app/nodes/control-color-match.schema.json",
+	"title": "BaudBound Node - Color Match",
 	"type": "object",
 	"additionalProperties": false,
 	"required": [
 		"id",
 		"action_type",
 		"type",
-		"action",
 		"config",
 		"runtime_outputs"
 	],
@@ -18,10 +17,10 @@
 			"minLength": 1
 		},
 		"action_type": {
-			"const": "action.clipboard"
+			"const": "control.color_match"
 		},
 		"type": {
-			"const": "action"
+			"const": "color_match"
 		},
 		"config": {
 			"$ref": "#/$defs/config"
@@ -31,9 +30,6 @@
 			"items": {
 				"$ref": "https://schemas.baudbound.app/program.schema.json#/$defs/runtimeOutput"
 			}
-		},
-		"action": {
-			"const": "set_clipboard"
 		}
 	},
 	"$defs": {
@@ -41,14 +37,40 @@
 			"type": "object",
 			"additionalProperties": false,
 			"required": [
-				"value"
+				"actualColor",
+				"comparisonMode",
+				"expectedColor",
+				"tolerancePercent"
 			],
 			"properties": {
+				"actualColor": {
+					"type": "string"
+				},
+				"comparisonMode": {
+					"type": "string",
+					"enum": [
+						"per_channel",
+						"total_distance"
+					]
+				},
 				"customName": {
 					"type": "string"
 				},
-				"value": {
+				"expectedColor": {
 					"type": "string"
+				},
+				"tolerancePercent": {
+					"anyOf": [
+						{
+							"type": "number",
+							"minimum": 0,
+							"maximum": 100
+						},
+						{
+							"type": "string",
+							"minLength": 1
+						}
+					]
 				}
 			}
 		}

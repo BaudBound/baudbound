@@ -129,6 +129,110 @@ mod tests {
         }
     }
 
+    #[test]
+    fn accepts_color_match_control_contract_exported_by_the_editor() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["steps"] = json!([{
+            "id": "n-color-match",
+            "action_type": "control.color_match",
+            "type": "color_match",
+            "config": {
+                "actualColor": "{{n-pixel.rgb}}",
+                "expectedColor": "#336699",
+                "comparisonMode": "total_distance",
+                "tolerancePercent": "12.5"
+            },
+            "runtime_outputs": [
+                {
+                    "name": "matches",
+                    "type": "boolean",
+                    "description": "Whether the colors matched within tolerance.",
+                    "example": "true"
+                },
+                {
+                    "name": "difference_percent",
+                    "type": "number",
+                    "description": "Normalized color difference percentage.",
+                    "example": "4.2"
+                },
+                {
+                    "name": "red_difference",
+                    "type": "number",
+                    "description": "Absolute red-channel difference.",
+                    "example": "10"
+                },
+                {
+                    "name": "green_difference",
+                    "type": "number",
+                    "description": "Absolute green-channel difference.",
+                    "example": "5"
+                },
+                {
+                    "name": "blue_difference",
+                    "type": "number",
+                    "description": "Absolute blue-channel difference.",
+                    "example": "0"
+                }
+            ]
+        }]);
+
+        validate_program_schema(&program).expect("Color Match export should match schema");
+    }
+
+    #[test]
+    fn accepts_millisecond_delay_and_schedule_units() {
+        let mut scheduled = minimal_program();
+        scheduled["entry"]["trigger"] = json!({
+            "id": "n-schedule",
+            "action_type": "trigger.schedule",
+            "type": "schedule",
+            "config": { "every": "25", "unit": "milliseconds" },
+            "runtime_outputs": []
+        });
+        validate_program_schema(&scheduled).expect("millisecond schedule should match schema");
+
+        let mut delayed = minimal_program();
+        delayed["entry"]["program"]["steps"] = json!([{
+            "id": "n-delay",
+            "action_type": "action.delay",
+            "type": "action",
+            "action": "delay",
+            "config": { "amount": "25", "unit": "milliseconds" },
+            "runtime_outputs": []
+        }]);
+        validate_program_schema(&delayed).expect("millisecond delay should match schema");
+    }
+
+    #[test]
+    fn rejects_unknown_delay_and_schedule_units() {
+        let mut scheduled = minimal_program();
+        scheduled["entry"]["trigger"] = json!({
+            "id": "n-schedule",
+            "action_type": "trigger.schedule",
+            "type": "schedule",
+            "config": { "every": "1", "unit": "fortnights" },
+            "runtime_outputs": []
+        });
+        assert!(matches!(
+            validate_program_schema(&scheduled),
+            Err(PackageLoadError::ProgramSchema(_))
+        ));
+
+        let mut delayed = minimal_program();
+        delayed["entry"]["program"]["steps"] = json!([{
+            "id": "n-delay",
+            "action_type": "action.delay",
+            "type": "action",
+            "action": "delay",
+            "config": { "amount": "1", "unit": "fortnights" },
+            "runtime_outputs": []
+        }]);
+        assert!(matches!(
+            validate_program_schema(&delayed),
+            Err(PackageLoadError::ProgramSchema(_))
+        ));
+    }
+
     fn minimal_program() -> Value {
         json!({
             "entry": {

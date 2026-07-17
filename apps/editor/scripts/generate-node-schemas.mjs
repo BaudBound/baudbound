@@ -23,6 +23,15 @@ const runnerPermissionContractPath = join(
 	"node-permissions.json",
 );
 const runnerPortContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-ports.json");
+const runnerNumericContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-numeric-fields.json");
+const editorKeyboardContractPath = join(appRoot, "data", "nodes", "windows-key-contract.json");
+const runnerKeyboardContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-script",
+	"contracts",
+	"windows-keyboard-keys.json",
+);
 const publicSchemaRoot = "https://schemas.baudbound.app";
 const programSchemaUrl = `${publicSchemaRoot}/program.schema.json`;
 const jsonValueRef = `${programSchemaUrl}#/$defs/jsonValue`;
@@ -41,12 +50,16 @@ const generatedProgramSchema = createProgramSchema(
 const generatedRunnerCapabilityContract = createRunnerCapabilityContract();
 const generatedRunnerPermissionContract = createRunnerPermissionContract();
 const generatedRunnerPortContract = createRunnerPortContract();
+const generatedRunnerNumericContract = createRunnerNumericContract();
+const generatedRunnerKeyboardContract = JSON.parse(readFileSync(editorKeyboardContractPath, "utf8"));
 
 if (checkMode) {
 	assertGeneratedFile(join(schemasRoot, "program.schema.json"), generatedProgramSchema);
 	assertGeneratedFile(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
 	assertGeneratedFile(runnerPermissionContractPath, generatedRunnerPermissionContract);
 	assertGeneratedFile(runnerPortContractPath, generatedRunnerPortContract);
+	assertGeneratedFile(runnerNumericContractPath, generatedRunnerNumericContract);
+	assertGeneratedFile(runnerKeyboardContractPath, generatedRunnerKeyboardContract);
 	for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 		assertGeneratedFile(join(nodeSchemasRoot, fileName), schema);
 	}
@@ -72,6 +85,9 @@ writeJson(runnerCapabilityContractPath, generatedRunnerCapabilityContract);
 writeJson(runnerPermissionContractPath, generatedRunnerPermissionContract);
 mkdirSync(dirname(runnerPortContractPath), { recursive: true });
 writeJson(runnerPortContractPath, generatedRunnerPortContract);
+writeJson(runnerNumericContractPath, generatedRunnerNumericContract);
+mkdirSync(dirname(runnerKeyboardContractPath), { recursive: true });
+writeJson(runnerKeyboardContractPath, generatedRunnerKeyboardContract);
 for (const [fileName, schema] of Object.entries(generatedNodeSchemas)) {
 	writeJson(join(nodeSchemasRoot, fileName), schema);
 }
@@ -102,6 +118,43 @@ function createRunnerPortContract() {
 	return {
 		version: 1,
 		nodes: Object.fromEntries(definitions.map((definition) => [definition.actionType, resolvePortPolicy(definition)])),
+	};
+}
+
+function createRunnerNumericContract() {
+	return {
+		version: 2,
+		nodes: Object.fromEntries(
+			definitions.map((definition) => [
+				definition.actionType,
+				Object.fromEntries(
+					definition.configFields
+						.filter((field) => field.numeric)
+						.map((field) => [
+							field.key,
+							{
+								kind: field.numeric.kind,
+								signed: field.numeric.signed,
+								minimum: field.numeric.minimum,
+								maximum: field.numeric.maximum,
+								minimum_inclusive: field.numeric.minimumInclusive,
+								maximum_inclusive: field.numeric.maximumInclusive,
+								label: field.label,
+								required: field.required !== false,
+								allows_variables: field.usesVariables,
+								...(field.numericWhen
+									? {
+											when: {
+												key: field.numericWhen.key,
+												equals: field.numericWhen.equals,
+											},
+										}
+									: {}),
+							},
+						]),
+				),
+			]),
+		),
 	};
 }
 
@@ -248,12 +301,25 @@ function createConfigFieldSchema(field) {
 			}
 		: {
 				type: "string",
-				pattern: "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+				pattern: numericStringPattern(field.numeric),
 			};
+	const numberSchema = {
+		type: field.numeric.kind === "integer" ? "integer" : "number",
+		[field.numeric.minimumInclusive ? "minimum" : "exclusiveMinimum"]: Number(field.numeric.minimum),
+		[field.numeric.maximumInclusive ? "maximum" : "exclusiveMaximum"]: Number(field.numeric.maximum),
+	};
 
 	return {
-		anyOf: [{ type: "number" }, numberString],
+		anyOf: [numberSchema, numberString],
 	};
+}
+
+function numericStringPattern(contract) {
+	if (contract.kind === "integer") {
+		return contract.signed ? "^-?(?:0|[1-9][0-9]*)$" : "^(?:0|[1-9][0-9]*)$";
+	}
+	const sign = contract.signed ? "-?" : "";
+	return `^${sign}(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`;
 }
 
 function getProgramNodeType(definition) {
@@ -449,21 +515,91 @@ function readConfigFields(initializer, actionType) {
 		throw new Error(`${actionType} configFields must be an array literal for schema generation.`);
 	}
 
-	return initializer.elements.map((element) => {
+	const fields = initializer.elements.map((element) => {
 		if (!ts.isObjectLiteralExpression(element)) {
 			throw new Error(`${actionType} configFields entries must be object literals.`);
 		}
 
 		const key = getRequiredStringProperty(element, "key", actionType);
+		const label = getRequiredStringProperty(element, "label", actionType);
 		const type = getRequiredStringProperty(element, "type", actionType);
+		const numericWhen = readNumericCondition(getPropertyInitializer(element, "numericWhen"), actionType, key);
+		const numeric = readNumericContract(getPropertyInitializer(element, "numeric"), type, numericWhen, actionType, key);
 		return {
 			key,
+			label,
+			numeric,
+			numericWhen,
 			options: readFieldOptions(getPropertyInitializer(element, "options")),
 			required: getOptionalBooleanProperty(element, "required"),
 			type,
 			usesVariables: getOptionalBooleanProperty(element, "usesVariables") === true,
 		};
 	});
+
+	for (const field of fields) {
+		if (!field.numericWhen) continue;
+		const conditionField = fields.find((candidate) => candidate.key === field.numericWhen.key);
+		if (!conditionField) {
+			throw new Error(
+				`${actionType} numeric field ${field.key} references missing condition field ${field.numericWhen.key}.`,
+			);
+		}
+		if (conditionField.type !== "select" || !conditionField.options.includes(field.numericWhen.equals)) {
+			throw new Error(
+				`${actionType} numeric field ${field.key} condition ${field.numericWhen.key}=${field.numericWhen.equals} is not a declared select option.`,
+			);
+		}
+	}
+	return fields;
+}
+
+function readNumericContract(initializer, type, numericWhen, actionType, key) {
+	if (!initializer) {
+		if (type === "number") {
+			throw new Error(`${actionType} numeric config field ${key} must declare numeric constraints.`);
+		}
+		if (numericWhen) {
+			throw new Error(`${actionType} config field ${key} declares numericWhen without numeric constraints.`);
+		}
+		return null;
+	}
+	if (!ts.isObjectLiteralExpression(initializer)) {
+		throw new Error(`${actionType} numeric config field ${key} must declare numeric constraints.`);
+	}
+	if (type !== "number" && (type !== "text" || !numericWhen)) {
+		throw new Error(`${actionType} config field ${key} may only use conditional numeric constraints on text fields.`);
+	}
+	if (type === "number" && numericWhen) {
+		throw new Error(`${actionType} number field ${key} cannot declare a conditional numeric contract.`);
+	}
+
+	const contract = {
+		kind: getRequiredStringProperty(initializer, "kind", `${actionType}.${key}`),
+		signed: getRequiredBooleanProperty(initializer, "signed", `${actionType}.${key}`),
+		minimum: getRequiredStringProperty(initializer, "minimum", `${actionType}.${key}`),
+		maximum: getRequiredStringProperty(initializer, "maximum", `${actionType}.${key}`),
+		minimumInclusive: getRequiredBooleanProperty(initializer, "minimumInclusive", `${actionType}.${key}`),
+		maximumInclusive: getRequiredBooleanProperty(initializer, "maximumInclusive", `${actionType}.${key}`),
+	};
+	if (contract.kind !== "integer" && contract.kind !== "float") {
+		throw new Error(`${actionType} numeric config field ${key} has unsupported kind ${contract.kind}.`);
+	}
+	if (!Number.isFinite(Number(contract.minimum)) || !Number.isFinite(Number(contract.maximum))) {
+		throw new Error(`${actionType} numeric config field ${key} must use finite bounds.`);
+	}
+	return contract;
+}
+
+function readNumericCondition(initializer, actionType, key) {
+	if (!initializer) return null;
+	if (!ts.isObjectLiteralExpression(initializer)) {
+		throw new Error(`${actionType} numeric condition for ${key} must be an object literal.`);
+	}
+	return {
+		key: getRequiredStringProperty(initializer, "key", `${actionType}.${key}.numericWhen`),
+		equals: getRequiredStringProperty(initializer, "equals", `${actionType}.${key}.numericWhen`),
+	};
 }
 
 function readFieldOptions(initializer) {
@@ -638,6 +774,14 @@ function getOptionalBooleanProperty(object, name) {
 		return false;
 	}
 	return undefined;
+}
+
+function getRequiredBooleanProperty(object, name, label) {
+	const value = getOptionalBooleanProperty(object, name);
+	if (value === undefined) {
+		throw new Error(`${label} is missing required boolean property ${name}.`);
+	}
+	return value;
 }
 
 function getPropertyInitializer(object, name) {

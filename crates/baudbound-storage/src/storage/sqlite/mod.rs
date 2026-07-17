@@ -15,8 +15,8 @@ use crate::{
     },
 };
 
+mod application_settings;
 mod conversions;
-mod desktop_settings;
 mod rows;
 mod run_retention;
 mod schema;

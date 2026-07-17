@@ -107,6 +107,7 @@ fn creates_failed_run_record_with_package_identity() {
     assert_eq!(record.status, "failed");
     assert!(record.run_id.starts_with("script-1:n-trigger:"));
     assert_eq!(record.logs[0].message, "permission denied");
+    assert!(record.logs[0].timestamp_unix_ms > 0);
 }
 
 #[test]
@@ -151,6 +152,7 @@ fn cancelled_execution_is_persisted_as_cancelled() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].status, "cancelled");
     assert_eq!(records[0].logs[0].level, "warning");
+    assert!(records[0].logs[0].timestamp_unix_ms > 0);
 }
 
 #[test]

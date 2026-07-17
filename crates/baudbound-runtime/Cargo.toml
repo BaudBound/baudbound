@@ -9,6 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+baudbound-script = { path = "../baudbound-script" }
 getrandom.workspace = true
 regex.workspace = true
 serde.workspace = true

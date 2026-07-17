@@ -2,7 +2,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::json;
 
-use super::ScheduleService;
+use super::{ScheduleService, spec::ScheduleSpec};
 use crate::TriggerRegistration;
 
 #[test]
@@ -22,6 +22,26 @@ fn accepts_fractional_intervals_and_preserves_exact_payload_seconds() {
     let events = service.due_events(start + Duration::from_millis(250), SystemTime::UNIX_EPOCH);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].payload["interval_seconds"], 0.25);
+}
+
+#[test]
+fn accepts_millisecond_intervals() {
+    let start = Instant::now();
+    let mut service = ScheduleService::from_registrations(
+        [registration("n-milliseconds", "25", "milliseconds")],
+        start,
+    )
+    .expect("millisecond schedule should parse");
+
+    assert!(
+        service
+            .due_events(start + Duration::from_millis(24), SystemTime::UNIX_EPOCH)
+            .is_empty()
+    );
+    let events = service.due_events(start + Duration::from_millis(25), SystemTime::UNIX_EPOCH);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].payload["interval_seconds"], 0.025);
+    assert_eq!(events[0].payload["schedule"]["unit"], "milliseconds");
 }
 
 #[test]
@@ -80,15 +100,21 @@ fn reload_preserves_unchanged_deadlines_and_resets_changed_schedules() {
 }
 
 #[test]
-fn rejects_non_finite_zero_sub_nanosecond_and_duplicate_schedules() {
-    for every in ["0", "NaN", "inf", "0.0000000001"] {
+fn rejects_non_finite_zero_sub_millisecond_and_duplicate_schedules() {
+    for (every, unit) in [
+        ("0", "seconds"),
+        ("NaN", "seconds"),
+        ("inf", "seconds"),
+        ("0.0009", "seconds"),
+        ("0.999", "milliseconds"),
+    ] {
         assert!(
             ScheduleService::from_registrations(
-                [registration("n-invalid", every, "seconds")],
+                [registration("n-invalid", every, unit)],
                 Instant::now(),
             )
             .is_err(),
-            "{every} must be rejected"
+            "{every} {unit} must be rejected"
         );
     }
 
@@ -96,6 +122,38 @@ fn rejects_non_finite_zero_sub_nanosecond_and_duplicate_schedules() {
     assert!(
         ScheduleService::from_registrations([duplicate.clone(), duplicate], Instant::now())
             .is_err()
+    );
+}
+
+#[test]
+fn rejects_unknown_units() {
+    let error = ScheduleService::from_registrations(
+        [registration("n-invalid-unit", "1", "fortnights")],
+        Instant::now(),
+    )
+    .expect_err("unknown schedule units must be rejected");
+
+    assert!(error.to_string().contains("unsupported schedule unit"));
+}
+
+#[test]
+fn accepts_duration_boundary_below_rust_limit_and_rejects_the_limit() {
+    let rust_limit = 2_f64.powi(64);
+    let largest_supported = f64::from_bits(rust_limit.to_bits() - 1);
+    ScheduleSpec::from_registration(&registration(
+        "n-largest",
+        &largest_supported.to_string(),
+        "seconds",
+    ))
+    .expect("largest f64 duration below the Rust limit should parse");
+
+    assert!(
+        ScheduleSpec::from_registration(&registration(
+            "n-overflow",
+            &rust_limit.to_string(),
+            "seconds",
+        ))
+        .is_err(),
     );
 }
 

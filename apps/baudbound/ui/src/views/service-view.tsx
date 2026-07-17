@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { DashboardAction } from "@/lib/app-types";
+import { useDesktopTime } from "@/lib/time-format";
 import {
   type DashboardPayload,
   reloadBackgroundRunner,
@@ -43,6 +44,7 @@ function ServiceControlPanel({
   dashboard: DashboardPayload;
   runAction: DashboardAction;
 }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const desktopRunner = dashboard.desktop_background;
   const desktopRunnerRunning =
     desktopRunner.state === "running" || desktopRunner.state === "stopping";
@@ -70,9 +72,9 @@ function ServiceControlPanel({
               <Clock3 className="size-4" />
               <span>
                 {desktopRunner.started_at_unix
-                  ? `Started ${formatUnix(desktopRunner.started_at_unix)}`
+                  ? `Started ${formatUnixSeconds(desktopRunner.started_at_unix)}`
                   : desktopRunner.stopped_at_unix
-                    ? `Stopped ${formatUnix(desktopRunner.stopped_at_unix)}`
+                    ? `Stopped ${formatUnixSeconds(desktopRunner.stopped_at_unix)}`
                     : "No runtime timestamp yet"}
               </span>
             </div>
@@ -111,8 +113,4 @@ function ServiceControlPanel({
       </CardContent>
     </Card>
   );
-}
-
-function formatUnix(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

@@ -108,6 +108,7 @@ fn rejects_invalid_http_configuration_and_connection_failures() {
         json!({"method": "GET", "url": "not a URL", "timeoutSeconds": 1}),
         json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": 0}),
         json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": "NaN"}),
+        json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": 1e308}),
         json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": 1, "headers": "invalid"}),
         json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": 1, "headers": {"bad header": "value"}}),
         json!({"method": "GET", "url": "http://127.0.0.1", "timeoutSeconds": 1, "headers": {"X-Test": "line\nbreak"}}),

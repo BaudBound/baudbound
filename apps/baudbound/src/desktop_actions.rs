@@ -15,13 +15,14 @@ mod keyboard;
 mod mouse;
 mod process;
 mod screen;
+pub(crate) mod screen_tools;
 #[cfg(not(windows))]
 mod unsupported_input;
 #[cfg(windows)]
 mod windows_desktop;
 
 use audio::{run_beep, run_sound_play};
-use clipboard::run_clipboard;
+use clipboard::{run_clipboard_get, run_clipboard_set};
 use dialogs::{run_message_box, run_notification};
 #[cfg(windows)]
 use keyboard::{run_keyboard, run_keyboard_type_text};
@@ -44,12 +45,20 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
         run_beep(request, context)
     }
 
-    fn clipboard(
+    fn clipboard_set(
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_clipboard(request)
+        run_clipboard_set(request)
+    }
+
+    fn clipboard_get(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        run_clipboard_get(request)
     }
 
     fn message_box(

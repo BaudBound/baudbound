@@ -17,6 +17,7 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { windowsKeyboardKeyReference } from "@/data/editor/key-reference";
 import { runtimeErrorFields } from "@/data/nodes/node-definition";
 import { getNodeConfigFields, getPaletteGroups, getRuntimeDataOutputs } from "@/data/nodes/registry";
 import { builtInVariableGroups } from "@/data/project/built-in-variables";
@@ -28,16 +29,16 @@ type HelpModalProps = {
 };
 
 const shortcutRows = [
-	{ keys: "Ctrl / Cmd + S", description: "Save the current project to this browser." },
-	{ keys: "Ctrl / Cmd + Z", description: "Undo the latest project change." },
-	{ keys: "Ctrl / Cmd + Y", description: "Redo the latest undone project change." },
-	{ keys: "Ctrl / Cmd + Shift + Z", description: "Redo using the alternate shortcut." },
-	{ keys: "Ctrl / Cmd + C", description: "Copy the selected nodes and their selected connections." },
+	{ keys: "Ctrl + S", description: "Save the current project to this browser." },
+	{ keys: "Ctrl + Z", description: "Undo the latest project change." },
+	{ keys: "Ctrl + Y", description: "Redo the latest undone project change." },
+	{ keys: "Ctrl + Shift + Z", description: "Redo using the alternate shortcut." },
+	{ keys: "Ctrl + C", description: "Copy the selected nodes and their selected connections." },
 	{
-		keys: "Ctrl / Cmd + V",
+		keys: "Ctrl + V",
 		description: "Paste at the canvas pointer, or at the canvas center when the pointer is elsewhere.",
 	},
-	{ keys: "Ctrl / Cmd + drag", description: "Box-select nodes and comments from empty canvas space." },
+	{ keys: "Ctrl + drag", description: "Box-select nodes and comments from empty canvas space." },
 	{ keys: "Delete / Backspace", description: "Delete the selected node or connection." },
 ];
 
@@ -378,7 +379,7 @@ function ControlsSection() {
 			</div>
 
 			<div className="space-y-3">
-				<SectionTitle icon={Keyboard} title="Hotkeys" />
+				<SectionTitle icon={Keyboard} title="Editor Shortcuts" />
 				<div className="grid gap-2">
 					{shortcutRows.map((row) => (
 						<div
@@ -390,6 +391,19 @@ function ControlsSection() {
 						</div>
 					))}
 				</div>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={Keyboard} title="Windows Node Keys" />
+				<InfoCard>
+					Hotkey and Keyboard nodes share this Windows key contract. Combine any distinct supported keys with{" "}
+					<Code>{"+"}</Code>, or use a single key such as <Code>G</Code> or <Code>F1</Code>. Use the key-reference
+					buttons for browser-reserved shortcuts, and use Type Text for words and arbitrary text.
+				</InfoCard>
+				<DocTable
+					columns={["Group", "Supported names"]}
+					rows={windowsKeyboardKeyReference.map((group) => [group.label, group.keys.join(", ")])}
+				/>
 			</div>
 
 			<div className="space-y-3">

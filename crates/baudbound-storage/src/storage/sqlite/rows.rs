@@ -104,9 +104,16 @@ pub(super) fn row_to_approval(row: &Row<'_>) -> rusqlite::Result<ScriptApproval>
 pub(super) fn row_to_run_record(row: &Row<'_>) -> rusqlite::Result<StoredRunRecord> {
     let logs_json = row.get::<_, String>(5)?;
     let variables_json = row.get::<_, String>(6)?;
-    let logs = serde_json::from_str::<Vec<RunLogEntry>>(&logs_json).map_err(|source| {
+    let completed_at_unix = row_i64_to_u64(4, row.get(4)?)?;
+    let mut logs = serde_json::from_str::<Vec<RunLogEntry>>(&logs_json).map_err(|source| {
         rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(source))
     })?;
+    let fallback_timestamp_unix_ms = completed_at_unix.saturating_mul(1_000);
+    for log in &mut logs {
+        if log.timestamp_unix_ms == 0 {
+            log.timestamp_unix_ms = fallback_timestamp_unix_ms;
+        }
+    }
     let variables = serde_json::from_str(&variables_json).map_err(|source| {
         rusqlite::Error::FromSqlConversionFailure(6, Type::Text, Box::new(source))
     })?;
@@ -115,7 +122,7 @@ pub(super) fn row_to_run_record(row: &Row<'_>) -> rusqlite::Result<StoredRunReco
         script_id: row.get(1)?,
         status: row.get(2)?,
         trigger_node_id: row.get(3)?,
-        completed_at_unix: row_i64_to_u64(4, row.get(4)?)?,
+        completed_at_unix,
         logs,
         variables,
     })

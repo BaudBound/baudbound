@@ -39,7 +39,8 @@
 				"action.application.open",
 				"action.beep",
 				"action.calculate",
-				"action.clipboard",
+				"action.clipboard.get",
+				"action.clipboard.set",
 				"action.delay",
 				"action.file.copy",
 				"action.file.delete",
@@ -68,6 +69,7 @@
 				"action.websocket.write",
 				"action.window.active",
 				"action.window.focus",
+				"control.color_match",
 				"control.for_each",
 				"control.if",
 				"control.loop",
@@ -102,6 +104,7 @@
 		"controlActionType": {
 			"type": "string",
 			"enum": [
+				"control.color_match",
 				"control.for_each",
 				"control.if",
 				"control.loop",
@@ -115,7 +118,8 @@
 				"action.application.open",
 				"action.beep",
 				"action.calculate",
-				"action.clipboard",
+				"action.clipboard.get",
+				"action.clipboard.set",
 				"action.delay",
 				"action.file.copy",
 				"action.file.delete",
@@ -166,6 +170,7 @@
 				"open_application",
 				"beep",
 				"calculate",
+				"get_clipboard",
 				"set_clipboard",
 				"delay",
 				"copy_file",
@@ -200,6 +205,7 @@
 		"controlStepType": {
 			"type": "string",
 			"enum": [
+				"color_match",
 				"for_each",
 				"if",
 				"loop",
@@ -594,6 +600,9 @@
 		"controlStep": {
 			"oneOf": [
 				{
+					"$ref": "https://schemas.baudbound.app/nodes/control-color-match.schema.json"
+				},
+				{
 					"$ref": "https://schemas.baudbound.app/nodes/control-for-each.schema.json"
 				},
 				{
@@ -629,7 +638,10 @@
 					"$ref": "https://schemas.baudbound.app/nodes/action-calculate.schema.json"
 				},
 				{
-					"$ref": "https://schemas.baudbound.app/nodes/action-clipboard.schema.json"
+					"$ref": "https://schemas.baudbound.app/nodes/action-clipboard-get.schema.json"
+				},
+				{
+					"$ref": "https://schemas.baudbound.app/nodes/action-clipboard-set.schema.json"
 				},
 				{
 					"$ref": "https://schemas.baudbound.app/nodes/action-delay.schema.json"

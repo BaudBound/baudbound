@@ -400,19 +400,33 @@ test("one multi-node drag is restored as one history transaction", async ({ page
 		await browser.getByRole("textbox", { name: "Search nodes" }).fill(name);
 		await browser.getByRole("button", { name: new RegExp(name) }).click();
 	};
-	await addNode("Log", paneBox.x + 120, paneBox.y + paneBox.height / 2);
-	await addNode("HTTP Request", paneBox.x + paneBox.width - 120, paneBox.y + paneBox.height / 2);
+	await addNode("Log", paneBox.x + paneBox.width * 0.3, paneBox.y + paneBox.height / 2);
+	await addNode("HTTP Request", paneBox.x + paneBox.width * 0.65, paneBox.y + paneBox.height / 2);
 
 	const logNode = page.locator(".react-flow__node").filter({ hasText: "Log" }).first();
 	const httpNode = page.locator(".react-flow__node").filter({ hasText: "HTTP Request" }).first();
-	await logNode.dispatchEvent("click", { bubbles: true });
-	await page.keyboard.down("Control");
-	await httpNode.dispatchEvent("click", { bubbles: true, ctrlKey: true });
-	await page.keyboard.up("Control");
-	await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
 	const initialLogBox = await logNode.boundingBox();
 	const initialHttpBox = await httpNode.boundingBox();
-	if (!initialLogBox || !initialHttpBox) throw new Error("Selected graph nodes are not visible.");
+	if (!initialLogBox || !initialHttpBox) throw new Error("Graph nodes are not visible.");
+	const selectionStart = {
+		x: Math.min(initialLogBox.x, initialHttpBox.x) - 12,
+		y: Math.min(initialLogBox.y, initialHttpBox.y) - 12,
+	};
+	const selectionEnd = {
+		x: Math.max(initialLogBox.x + initialLogBox.width, initialHttpBox.x + initialHttpBox.width) + 12,
+		y: Math.max(initialLogBox.y + initialLogBox.height, initialHttpBox.y + initialHttpBox.height) + 12,
+	};
+	await page.keyboard.down("Control");
+	await page.mouse.move(selectionStart.x, selectionStart.y);
+	await page.mouse.down();
+	await page.mouse.move(selectionEnd.x, selectionEnd.y, { steps: 10 });
+	await page.mouse.up();
+	await page.keyboard.up("Control");
+	await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
+	const groupSelection = page.locator(".react-flow__nodesselection-rect");
+	await expect(groupSelection).toBeVisible();
+	await expect(groupSelection).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+	await expect(groupSelection).toHaveCSS("border-top-width", "0px");
 
 	const dragStart = { x: initialLogBox.x + initialLogBox.width / 2, y: initialLogBox.y + 24 };
 	await page.mouse.move(dragStart.x, dragStart.y);

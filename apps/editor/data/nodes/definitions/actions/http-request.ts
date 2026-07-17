@@ -16,7 +16,19 @@ export const httpRequestNode = defineNode({
 		{ key: "method", label: "Method", type: "select", options: httpMethodOptions },
 		{ key: "url", label: "URL", type: "text", usesVariables: true },
 		{ key: "userAgent", label: "User-Agent", type: "text", usesVariables: true },
-		{ key: "timeoutSeconds", label: "Timeout seconds", type: "number" },
+		{
+			key: "timeoutSeconds",
+			label: "Timeout seconds",
+			type: "number",
+			numeric: {
+				kind: "float",
+				signed: false,
+				minimum: "0",
+				maximum: "86400",
+				minimumInclusive: false,
+				maximumInclusive: true,
+			},
+		},
 		{ key: "body", label: "Body", type: "textarea", usesVariables: true },
 	],
 	defaultConfig: () => ({

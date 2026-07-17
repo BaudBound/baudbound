@@ -3,7 +3,7 @@ use super::dialogs::message_box_result;
 #[cfg(windows)]
 use super::mouse::{normalize_mouse_button, normalize_mouse_click_type};
 use super::*;
-use super::{audio::beep_config, config::required_u32, screen::pixel_color_map};
+use super::{audio::beep_config, config::required_i32, screen::pixel_color_map};
 use serde_json::{Map, Number, Value};
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, IDNO, IDOK, IDYES};
@@ -148,7 +148,7 @@ fn message_box_is_rejected_without_a_native_cancellable_backend() {
 
 #[test]
 fn builds_pixel_color_metadata() {
-    let output = pixel_color_map(12, 34, 16, 32, 48, 255);
+    let output = pixel_color_map(-12, 34, 16, 32, 48, 255);
 
     assert_eq!(
         output.get("hex"),
@@ -162,21 +162,20 @@ fn builds_pixel_color_metadata() {
         output.get("integer"),
         Some(&Value::Number(Number::from(0x10_20_30_u32)))
     );
+    assert_eq!(output.get("x"), Some(&Value::Number(Number::from(-12))));
+    assert_eq!(output.get("y"), Some(&Value::Number(Number::from(34))));
 }
 
 #[test]
-fn rejects_negative_pixel_coordinates() {
+fn parses_signed_screen_coordinates() {
     let request = RuntimeActionRequest {
         action: None,
         action_type: "action.pixel.get".to_owned(),
-        config: Map::from_iter([("x".to_owned(), Value::String("-1".to_owned()))]),
+        config: Map::from_iter([("x".to_owned(), Value::String("-2147483648".to_owned()))]),
         node_id: "n-pixel".to_owned(),
     };
 
-    let error =
-        required_u32(&request, "x").expect_err("negative pixel coordinate should be rejected");
-
-    assert!(error.to_string().contains("non-negative integer"));
+    assert_eq!(required_i32(&request, "x").unwrap(), i32::MIN);
 }
 
 #[test]

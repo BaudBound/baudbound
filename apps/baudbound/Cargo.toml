@@ -22,6 +22,7 @@ baudbound-runtime = { path = "../../crates/baudbound-runtime" }
 baudbound-script = { path = "../../crates/baudbound-script" }
 baudbound-storage = { path = "../../crates/baudbound-storage" }
 baudbound-triggers = { path = "../../crates/baudbound-triggers" }
+chrono.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 getrandom.workspace = true
@@ -52,8 +53,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 windows-sys = { version = "0.61.2", features = [
 	"Win32_Foundation",
+	"Win32_Graphics_Dwm",
 	"Win32_Graphics_Gdi",
 	"Win32_System_Threading",
+	"Win32_UI_HiDpi",
 	"Win32_UI_WindowsAndMessaging",
 ] }
 

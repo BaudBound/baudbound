@@ -12,10 +12,12 @@ import {
 } from "@/components/ui/select";
 import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
+import { useDesktopTime } from "@/lib/time-format";
 
 const allLevels = "all";
 
 export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
+  const { formatUnixMilliseconds } = useDesktopTime();
   const [levelFilter, setLevelFilter] = useState(allLevels);
   const [query, setQuery] = useState("");
   const levelCounts = useMemo(() => countLogsByLevel(logs), [logs]);
@@ -69,6 +71,7 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2">#</th>
+                <th className="px-3 py-2">Time</th>
                 <th className="px-3 py-2">Level</th>
                 <th className="px-3 py-2">Node</th>
                 <th className="px-3 py-2">Message</th>
@@ -85,6 +88,9 @@ export function RunLogPanel({ logs }: { logs: RunLogEntry[] }) {
                     data-label="#"
                   >
                     {index + 1}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2" data-label="Time">
+                    {formatUnixMilliseconds(log.timestamp_unix_ms)}
                   </td>
                   <td className="px-3 py-2" data-label="Level">
                     <Badge variant={logLevelVariant(log.level)}>{log.level}</Badge>

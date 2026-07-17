@@ -57,6 +57,22 @@ fn desktop_startup_creates_runner_config_automatically() {
 }
 
 #[test]
+fn desktop_cli_reads_and_updates_shared_application_settings() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+
+    let initial = command_json(run_desktop(&runner_home, ["settings", "show", "--json"]));
+    assert_eq!(initial["time_format"], "24-hour");
+
+    assert_success(run_desktop(
+        &runner_home,
+        ["settings", "set", "time-format", "12-hour"],
+    ));
+    let updated = command_json(run_desktop(&runner_home, ["settings", "show", "--json"]));
+    assert_eq!(updated["time_format"], "12-hour");
+}
+
+#[test]
 fn desktop_cli_manages_script_storage_against_isolated_home() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
@@ -381,7 +397,7 @@ fn desktop_cli_dispatches_hotkey_triggers() {
 
     let reports = command_json(run_desktop(
         &runner_home,
-        ["hotkey", "dispatch", "control-option-b", "--json"],
+        ["hotkey", "dispatch", "control-alt-b", "--json"],
     ));
     let reports = reports
         .as_array()
@@ -430,7 +446,7 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
     let output = run_desktop_with_stdin(
         &runner_home,
         ["hotkey", "listen", "--stdin", "--json"],
-        "control-option-b\nCtrl+Alt+C\n\n",
+        "control-alt-b\nCtrl+Alt+C\n\n",
     );
     assert_success_like(&output);
 
@@ -440,7 +456,7 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
         .map(|line| serde_json::from_str::<Value>(line).expect("listener line should be JSON"))
         .collect::<Vec<_>>();
     assert_eq!(events.len(), 2);
-    assert_eq!(events[0]["key"], "control-option-b");
+    assert_eq!(events[0]["key"], "control-alt-b");
     assert_eq!(events[0]["matched"], 1);
     assert_eq!(events[1]["key"], "Ctrl+Alt+C");
     assert_eq!(events[1]["matched"], 0);
@@ -508,7 +524,7 @@ fn desktop_cli_serves_hotkey_stdin_once() {
     let output = run_desktop_with_stdin(
         &runner_home,
         ["serve", "--hotkey-stdin", "--once"],
-        "control-option-b\n",
+        "control-alt-b\n",
     );
     assert_success_like(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);

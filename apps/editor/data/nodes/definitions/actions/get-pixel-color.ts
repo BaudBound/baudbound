@@ -1,17 +1,42 @@
 import { Pipette } from "lucide-react";
 import { defineNode } from "../../node-definition";
 import { fallible } from "../runtime-outputs";
-import { staticNonNegativeNumberConfig } from "../validators";
 
 export const getPixelColorNode = defineNode({
 	actionType: "action.pixel.get",
 	capabilities: ["action.pixel"],
 	configFields: [
-		{ key: "x", label: "Screen X", type: "number", usesVariables: true },
-		{ key: "y", label: "Screen Y", type: "number", usesVariables: true },
+		{
+			key: "x",
+			label: "Screen X",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: true,
+				minimum: "-2147483648",
+				maximum: "2147483647",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
+		{
+			key: "y",
+			label: "Screen Y",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: true,
+				minimum: "-2147483648",
+				maximum: "2147483647",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
 	],
 	defaultConfig: () => ({ x: "100", y: "100" }),
-	description: "Read the screen pixel color at an X/Y coordinate.",
+	description: "Read a Windows virtual-desktop pixel at a signed X/Y coordinate.",
 	desktopOnly: true,
 	fallible: true,
 	group: "actions",
@@ -22,6 +47,8 @@ export const getPixelColorNode = defineNode({
 	risk: "medium",
 	supportedTargetRuntimes: ["Windows Desktop"],
 	runtimeOutputs: fallible([
+		{ name: "x", type: "number", description: "Signed virtual-desktop X coordinate.", example: "n-mr3zyt6f-19.x" },
+		{ name: "y", type: "number", description: "Signed virtual-desktop Y coordinate.", example: "n-mr3zyt6f-19.y" },
 		{ name: "hex", type: "string", description: "Pixel color as a hex string.", example: "n-mr3zyt6f-19.hex" },
 		{
 			name: "rgb",
@@ -53,17 +80,12 @@ export const getPixelColorNode = defineNode({
 		{ name: "integer", type: "number", description: "Packed RGB integer value.", example: "n-mr3zyt6f-19.integer" },
 	]),
 	runnerType: "get_pixel_color",
-	validateConfig: (config) =>
-		[
-			staticNonNegativeNumberConfig(config, "x", "screen X coordinate"),
-			staticNonNegativeNumberConfig(config, "y", "screen Y coordinate"),
-		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => ({
 			failed: false,
 			outputData: api.createPixelColorOutput(
-				Number(api.resolveTemplate(api.getConfigString(node, "x"), context)) || 0,
-				Number(api.resolveTemplate(api.getConfigString(node, "y"), context)) || 0,
+				Number(api.resolveTemplate(api.getConfigString(node, "x"), context)),
+				Number(api.resolveTemplate(api.getConfigString(node, "y"), context)),
 			),
 		}),
 		describe: ({ api, context, node }) => {

@@ -55,14 +55,28 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         })
     }
 
-    fn clipboard(
+    fn clipboard_set(
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
     ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
-            output_data: Map::from_iter([("handled".to_owned(), json!("clipboard"))]),
+            output_data: Map::from_iter([("handled".to_owned(), json!("clipboard_set"))]),
+        })
+    }
+
+    fn clipboard_get(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+        self.record(request);
+        Ok(baudbound_runtime::RuntimeActionResult {
+            output_data: Map::from_iter([
+                ("handled".to_owned(), json!("clipboard_get")),
+                ("text".to_owned(), json!("clipboard text")),
+            ]),
         })
     }
 
@@ -514,6 +528,8 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
 
     for (action_type, expected) in [
         ("action.beep", "beep"),
+        ("action.clipboard.get", "clipboard_get"),
+        ("action.clipboard.set", "clipboard_set"),
         ("action.keyboard", "keyboard"),
         ("action.keyboard.type_text", "keyboard_type_text"),
         ("action.mouse", "mouse_click"),
@@ -525,6 +541,12 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
         let result = execute_with_handler(&handler, action_type, json!({}), Value::Null)
             .expect("desktop action should route to adapter");
         assert_eq!(result.output_data.get("handled"), Some(&json!(expected)));
+        if action_type == "action.clipboard.get" {
+            assert_eq!(
+                result.output_data.get("text"),
+                Some(&json!("clipboard text"))
+            );
+        }
     }
 
     assert_eq!(
@@ -536,6 +558,8 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
             .as_slice(),
         &[
             "action.beep".to_owned(),
+            "action.clipboard.get".to_owned(),
+            "action.clipboard.set".to_owned(),
             "action.keyboard".to_owned(),
             "action.keyboard.type_text".to_owned(),
             "action.mouse".to_owned(),

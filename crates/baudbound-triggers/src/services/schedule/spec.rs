@@ -35,11 +35,11 @@ impl ScheduleSpec {
         let seconds = every * schedule_unit_seconds(normalized_unit);
         let interval = Duration::try_from_secs_f64(seconds)
             .ok()
-            .filter(|interval| !interval.is_zero())
+            .filter(|interval| *interval >= Duration::from_millis(1))
             .ok_or_else(|| {
                 TriggerError::Failed(
                     registration.node_id.clone(),
-                    "schedule interval must fit the supported duration range and be at least one nanosecond"
+                    "schedule interval must fit the supported duration range and be at least one millisecond"
                         .to_owned(),
                 )
             })?;
@@ -63,6 +63,7 @@ fn schedule_every(config: &Value) -> Option<f64> {
 
 fn schedule_unit_seconds(unit: &str) -> f64 {
     match unit {
+        "milliseconds" => 0.001,
         "seconds" => 1.0,
         "minutes" => 60.0,
         "hours" => 60.0 * 60.0,
@@ -73,6 +74,7 @@ fn schedule_unit_seconds(unit: &str) -> f64 {
 
 fn normalize_schedule_unit(unit: &str) -> Option<&'static str> {
     match unit.trim().to_ascii_lowercase().as_str() {
+        "ms" | "millisecond" | "milliseconds" => Some("milliseconds"),
         "s" | "sec" | "second" | "seconds" => Some("seconds"),
         "m" | "min" | "minute" | "minutes" => Some("minutes"),
         "h" | "hr" | "hour" | "hours" => Some("hours"),

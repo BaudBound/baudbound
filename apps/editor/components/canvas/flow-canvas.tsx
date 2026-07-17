@@ -346,12 +346,7 @@ function FlowCanvasContent({
 
 	useEffect(() => {
 		const handlePasteShortcut = (event: KeyboardEvent) => {
-			if (
-				!canPaste ||
-				isEditableShortcutTarget(event.target) ||
-				!(event.ctrlKey || event.metaKey) ||
-				event.key.toLowerCase() !== "v"
-			) {
+			if (!canPaste || isEditableShortcutTarget(event.target) || !event.ctrlKey || event.key.toLowerCase() !== "v") {
 				return;
 			}
 
@@ -482,9 +477,9 @@ function FlowCanvasContent({
 					deleteKeyCode={["Backspace", "Delete"]}
 					edgesFocusable
 					elementsSelectable
-					multiSelectionKeyCode={["Control", "Meta"]}
+					multiSelectionKeyCode="Control"
 					nodesFocusable
-					selectionKeyCode={["Control", "Meta"]}
+					selectionKeyCode="Control"
 					selectionMode={SelectionMode.Partial}
 					minZoom={0.02}
 					fitViewOptions={{ padding: 0.25 }}

@@ -28,7 +28,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
             config_path.clone(),
         )),
         background_runner: DesktopRunnerSupervisor::default(),
-        desktop_settings: Mutex::new(DesktopSettings::default()),
+        application_settings: Mutex::new(ApplicationSettings::default()),
         config_path: config_path.clone(),
         runner_config: Mutex::new(runner_config.clone()),
         core: Mutex::new(build_runner_core(
@@ -40,6 +40,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         operation_lock: Mutex::new(()),
     };
     let app = test::mock_builder()
+        .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(state)
         .invoke_handler(desktop_command_handler!())
         .build(test::mock_context(test::noop_assets()))
@@ -85,6 +86,11 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         run["dashboard"]["recent_runs"][0]["logs"][1]["message"],
         "desktop bridge"
     );
+    assert!(
+        run["dashboard"]["recent_runs"][0]["logs"][1]["timestamp_unix_ms"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+    );
 
     let disabled = invoke(
         &webview,
@@ -117,6 +123,52 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 
     let serial_ports = invoke(&webview, "scan_serial_ports", json!({}));
     assert!(serial_ports.is_array());
+
+    let monitor_discovery = invoke(&webview, "discover_monitors", json!({}));
+    assert_eq!(monitor_discovery["supported"], cfg!(windows));
+    if cfg!(windows) {
+        assert!(
+            monitor_discovery["monitors"]
+                .as_array()
+                .is_some_and(|monitors| !monitors.is_empty())
+        );
+        assert!(monitor_discovery["virtual_bounds"].is_object());
+    } else {
+        assert!(
+            monitor_discovery["monitors"]
+                .as_array()
+                .is_some_and(Vec::is_empty)
+        );
+        assert!(monitor_discovery["unavailable_reason"].is_string());
+    }
+
+    #[cfg(windows)]
+    {
+        let picker = invoke(&webview, "start_coordinate_picker", json!({}));
+        assert!(
+            picker["monitor_count"]
+                .as_u64()
+                .is_some_and(|count| count > 0)
+        );
+        let picker_session = picker["session_id"]
+            .as_str()
+            .expect("picker session ID should be returned");
+        invoke(
+            &webview,
+            "select_coordinate_picker",
+            json!({"sessionId": picker_session}),
+        );
+
+        let cancellable_picker = invoke(&webview, "start_coordinate_picker", json!({}));
+        let cancellable_session = cancellable_picker["session_id"]
+            .as_str()
+            .expect("second picker session ID should be returned");
+        invoke(
+            &webview,
+            "cancel_coordinate_picker",
+            json!({"sessionId": cancellable_session}),
+        );
+    }
 
     let started = invoke(&webview, "start_background_runner", json!({}));
     assert_eq!(started["dashboard"]["desktop_background"]["running"], true);

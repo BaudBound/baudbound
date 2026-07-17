@@ -61,7 +61,8 @@ test("help modal exposes controls, references, expressions, and node docs", asyn
 
 	await page.getByRole("button", { name: "Open help" }).click();
 	await expect(page.getByRole("heading", { name: "Editor Help" })).toBeVisible();
-	await expect(page.getByRole("heading", { name: "Hotkeys" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Editor Shortcuts" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Windows Node Keys" })).toBeVisible();
 
 	await page.getByRole("button", { name: "References" }).click();
 	await expect(page.getByRole("heading", { name: "Reference Formats" })).toBeVisible();
@@ -113,6 +114,202 @@ test("text transform accepts a default variable with inactive optional numeric f
 	await expect(page.getByText(/Invalid value for length/)).toHaveCount(0);
 });
 
+test("coordinate verification rejects values outside the signed i32 contract", async ({ page }) => {
+	await openEditor(page);
+	await page.getByRole("button", { name: "Open project settings" }).click();
+	await page.getByRole("button", { name: "Target runtime" }).click();
+	await page.getByRole("option", { name: "Windows Desktop" }).click();
+	await page.getByRole("button", { name: "Save Settings" }).click();
+
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Get Pixel Color");
+	await page.getByRole("button", { name: /Get Pixel Color medium/ }).click();
+	await page.getByRole("textbox", { name: "Screen X" }).fill("2147483648");
+	await page.getByRole("textbox", { name: "Screen Y" }).fill("-2147483649");
+	await page.getByRole("button", { name: "Verify script" }).click();
+
+	await expect(
+		page.getByText(/Invalid value for x: must be at least -2147483648 and at most 2147483647/),
+	).toBeVisible();
+	await expect(
+		page.getByText(/Invalid value for y: must be at least -2147483648 and at most 2147483647/),
+	).toBeVisible();
+});
+
+test("negative screen coordinates verify, simulate, export, and import", async ({ page }, testInfo) => {
+	await openEditor(page);
+	await page.getByRole("button", { name: "Open project settings" }).click();
+	await page.getByRole("button", { name: "Target runtime" }).click();
+	await page.getByRole("option", { name: "Windows Desktop" }).click();
+	await page.getByRole("button", { name: "Save Settings" }).click();
+
+	await page.getByRole("button", { name: "Manual" }).click();
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Get Pixel Color");
+	await page.getByRole("button", { name: /Get Pixel Color medium/ }).click();
+	await page.getByRole("textbox", { name: "Screen X" }).fill("-1920");
+	await page.getByRole("textbox", { name: "Screen Y" }).fill("-120");
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Move Mouse");
+	await page.getByRole("button", { name: /Move Mouse high/ }).click();
+	await page.getByRole("textbox", { name: "X", exact: true }).fill("-1600");
+	await page.getByRole("textbox", { name: "Y", exact: true }).fill("-80");
+
+	const manualNode = page.locator(".react-flow__node").filter({ hasText: "Manual Trigger" });
+	const pixelNode = page.locator(".react-flow__node").filter({ hasText: "Get Pixel Color" });
+	const mouseNode = page.locator(".react-flow__node").filter({ hasText: "Move Mouse" });
+	await manualNode.locator(".react-flow__handle.source").first().dispatchEvent("click", { bubbles: true });
+	await pixelNode.locator(".react-flow__handle.target").first().dispatchEvent("click", { bubbles: true });
+	await pixelNode.locator(".react-flow__handle.source").first().dispatchEvent("click", { bubbles: true });
+	await mouseNode.locator(".react-flow__handle.target").first().dispatchEvent("click", { bubbles: true });
+
+	await page.getByRole("button", { name: "Verify script" }).click();
+	await expect(page.getByText("Variable writes, calculations, and action configs are valid.")).toBeVisible();
+	await expect(page.getByText(/Invalid value for [xy]/)).toHaveCount(0);
+	await page.getByRole("button", { name: "Close verification" }).click();
+
+	await page.getByRole("button", { name: "Simulator" }).click();
+	await page.getByRole("button", { name: "Simulation speed" }).click();
+	await page.getByRole("option", { name: "Instant" }).click();
+	await page.getByRole("button", { name: "Trigger", exact: true }).click();
+	await page.getByRole("button", { name: "Simulation", exact: true }).click();
+	await expect(page.getByText(/Get Pixel Color .* x=-1920, y=-120/)).toBeVisible();
+	await expect(page.getByText(/move mouse to x=-1600, y=-80/i)).toBeVisible();
+
+	await page.getByRole("button", { name: "Export package" }).click();
+	await page.getByRole("button", { name: "Next" }).click();
+	await page.getByRole("button", { name: "Next" }).click();
+	await expect(page.getByText("Verification passed. The download button is now available.")).toBeVisible();
+	const downloadPromise = page.waitForEvent("download");
+	await page.getByRole("button", { name: "Download .bbs" }).click();
+	const download = await downloadPromise;
+	const packagePath = testInfo.outputPath(download.suggestedFilename());
+	await download.saveAs(packagePath);
+	await page.getByRole("button", { name: "Cancel export" }).click();
+
+	const zip = await JSZip.loadAsync(readFileSync(packagePath));
+	const programEntry = zip.file("program.json");
+	if (!programEntry) throw new Error("Exported package is missing program.json.");
+	const program = JSON.parse(await programEntry.async("text"));
+	const exportedSteps = program.entry.program.steps as Array<{
+		action_type: string;
+		config: Record<string, unknown>;
+	}>;
+	expect(exportedSteps.find((step) => step.action_type === "action.pixel.get")?.config).toMatchObject({
+		x: "-1920",
+		y: "-120",
+	});
+	expect(exportedSteps.find((step) => step.action_type === "action.mouse.move")?.config).toMatchObject({
+		relative: false,
+		x: "-1600",
+		y: "-80",
+	});
+
+	await page.getByRole("button", { name: "Return to projects" }).click();
+	await page.getByRole("button", { name: "Discard" }).click();
+	await page.locator('input[type="file"]').setInputFiles(packagePath);
+	await expect(page.getByRole("heading", { name: "Project already exists" })).toBeVisible();
+	await page.getByRole("button", { name: "Replace" }).click();
+	await expect(page.locator(".react-flow__node").filter({ hasText: "Get Pixel Color" })).toHaveCount(1);
+	await expect(page.locator(".react-flow__node").filter({ hasText: "Move Mouse" })).toHaveCount(1);
+	await page
+		.locator(".react-flow__node")
+		.filter({ hasText: "Get Pixel Color" })
+		.dispatchEvent("click", { bubbles: true });
+	await expect(page.getByRole("textbox", { name: "Screen X" })).toHaveValue("-1920");
+	await expect(page.getByRole("textbox", { name: "Screen Y" })).toHaveValue("-120");
+});
+
+test("hotkey capture accepts plain and modified keys from the shared Windows catalog", async ({ page }) => {
+	await openEditor(page);
+	await page.getByRole("button", { name: "Open project settings" }).click();
+	await page.getByRole("button", { name: "Target runtime" }).click();
+	await page.getByRole("option", { name: "Windows Desktop" }).click();
+	await page.getByRole("button", { name: "Save Settings" }).click();
+
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Hotkey");
+	await page.getByRole("button", { name: /Hotkey medium/ }).click();
+	const keyInput = page.getByRole("textbox", { name: "Key" });
+
+	await keyInput.press("a");
+	await expect(keyInput).toHaveValue("A");
+	await keyInput.press("Control+Shift+b");
+	await expect(keyInput).toHaveValue("Ctrl+Shift+B");
+	await keyInput.press(";");
+	await expect(keyInput).toHaveValue("Semicolon");
+	await keyInput.press("F1");
+	await expect(keyInput).toHaveValue("F1");
+
+	await page.keyboard.down("k");
+	await page.keyboard.down("l");
+	await expect(keyInput).toHaveValue("K+L");
+	await page.keyboard.up("l");
+	await page.keyboard.up("k");
+
+	await page.keyboard.down("F1");
+	await page.keyboard.down("t");
+	await expect(keyInput).toHaveValue("F1+T");
+	await page.keyboard.up("t");
+	await page.keyboard.up("F1");
+	await page.keyboard.down("Meta");
+	await page.keyboard.down("Space");
+	await expect(keyInput).toHaveValue("Windows+Space");
+	await page.keyboard.up("Space");
+	await page.keyboard.up("Meta");
+
+	await page.getByRole("button", { name: "Verify script" }).click();
+	await expect(page.getByText("Variable writes, calculations, and action configs are valid.")).toBeVisible();
+});
+
+test("Windows key reference buttons build a key expression", async ({ page }) => {
+	await openEditor(page);
+	await page.getByRole("button", { name: "Open project settings" }).click();
+	await page.getByRole("button", { name: "Target runtime" }).click();
+	await page.getByRole("option", { name: "Windows Desktop" }).click();
+	await page.getByRole("button", { name: "Save Settings" }).click();
+
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Hotkey");
+	await page.getByRole("button", { name: /Hotkey medium/ }).click();
+	const keyInput = page.getByRole("textbox", { name: "Key" });
+	await keyInput.fill("");
+
+	const keyReference = page.locator("details").filter({ hasText: "Supported key reference" });
+	await keyReference.getByText("Supported key reference", { exact: true }).click();
+	await keyReference.getByRole("button", { name: "Add Ctrl to key expression" }).click();
+	await expect(keyInput).toHaveValue("Ctrl");
+	await keyReference.getByRole("button", { name: "Add Shift to key expression" }).click();
+	await expect(keyInput).toHaveValue("Ctrl+Shift");
+	await keyReference.getByRole("button", { name: "Add F8 to key expression" }).click();
+	await expect(keyInput).toHaveValue("Ctrl+Shift+F8");
+});
+
+test("Color Match fields combine a manual input with an anchored color picker", async ({ page }) => {
+	await openEditor(page);
+
+	await page.getByRole("button", { name: /Color Match low/ }).click();
+	const actualColor = page.getByRole("textbox", { name: "Actual color" });
+	const colorSwatch = page.getByRole("button", { name: "Open actual color color picker" });
+
+	await expect(actualColor).toHaveValue("#000000");
+	await expect(colorSwatch).toHaveCSS("background-color", "rgb(0, 0, 0)");
+	const swatchBounds = await colorSwatch.boundingBox();
+	const inputBounds = await actualColor.boundingBox();
+	if (!swatchBounds || !inputBounds) throw new Error("Color Match input group is not visible.");
+	expect(Math.abs(swatchBounds.height - inputBounds.height)).toBeLessThanOrEqual(1);
+	expect(Math.abs(swatchBounds.x + swatchBounds.width - inputBounds.x)).toBeLessThanOrEqual(1);
+
+	await colorSwatch.click();
+	const picker = page.locator("[data-slot='popover-content']");
+	await expect(picker).toBeVisible();
+	const selection = picker.getByLabel("Actual color saturation and lightness");
+	const selectionBounds = await selection.boundingBox();
+	if (!selectionBounds) throw new Error("Color picker selection area is not visible.");
+	await selection.click({
+		position: { x: selectionBounds.width * 0.75, y: selectionBounds.height * 0.25 },
+	});
+	await expect(actualColor).not.toHaveValue("#000000");
+
+	await actualColor.fill("rgb(1, 2, 3)");
+	await expect(colorSwatch).toHaveCSS("background-color", "rgb(1, 2, 3)");
+});
+
 test("verification reports graph errors when the script has no trigger", async ({ page }) => {
 	await openEditor(page);
 
@@ -138,7 +335,7 @@ test("verification warns for medium risk nodes", async ({ page }) => {
 
 	await page.getByRole("button", { name: "Manual" }).click();
 	await page.getByRole("textbox", { name: "Search blocks" }).fill("Clipboard");
-	await page.getByRole("button", { name: /Clipboard medium/ }).click();
+	await page.getByRole("button", { name: "Set Clipboard medium" }).click();
 	await page.getByRole("button", { name: "Verify script" }).click();
 
 	await expect(page.getByRole("heading", { name: "Verification" })).toBeVisible();

@@ -53,7 +53,8 @@
 					"enum": [
 						"process_name",
 						"executable_path",
-						"window_title"
+						"window_title",
+						"pid"
 					]
 				},
 				"target": {

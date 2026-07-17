@@ -12,7 +12,15 @@ impl NativeHotkeyService {
 
     pub fn start(
         registrations: impl IntoIterator<Item = TriggerRegistration>,
+        sender: SyncSender<TriggerEvent>,
+    ) -> Result<Self, TriggerError> {
+        Self::start_or_reconfigure(registrations, sender, None)
+    }
+
+    pub fn start_or_reconfigure(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
         _sender: SyncSender<TriggerEvent>,
+        _previous: Option<Self>,
     ) -> Result<Self, TriggerError> {
         if registrations
             .into_iter()

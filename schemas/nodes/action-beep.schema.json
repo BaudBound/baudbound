@@ -51,7 +51,9 @@
 				"durationMs": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "number",
+							"minimum": 10,
+							"maximum": 5000
 						},
 						{
 							"type": "string",
@@ -62,7 +64,9 @@
 				"frequencyHz": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "number",
+							"minimum": 20,
+							"maximum": 20000
 						},
 						{
 							"type": "string",

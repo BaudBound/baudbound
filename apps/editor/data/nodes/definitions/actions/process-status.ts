@@ -1,6 +1,6 @@
 import { BadgeInfo } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { processMatchModeOptions } from "../options";
+import { killProcessMatchModeOptions } from "../options";
 import { fallible, processStatusRuntimeOutputs } from "../runtime-outputs";
 import { actionProcess } from "../shared";
 import { requiredConfig, windowsDesktopOnlyConfigValue } from "../validators";
@@ -9,8 +9,22 @@ export const processStatusNode = defineNode({
 	actionType: "action.process.status",
 	capabilities: actionProcess,
 	configFields: [
-		{ key: "matchMode", label: "Match by", type: "select", options: processMatchModeOptions },
-		{ key: "target", label: "Target", type: "text", usesVariables: true },
+		{ key: "matchMode", label: "Match by", type: "select", options: killProcessMatchModeOptions },
+		{
+			key: "target",
+			label: "Target",
+			type: "text",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: false,
+				minimum: "0",
+				maximum: "4294967295",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+			numericWhen: { key: "matchMode", equals: "pid" },
+		},
 	],
 	defaultConfig: () => ({ matchMode: "process_name", target: "app.exe" }),
 	description: "Read process status and state.",

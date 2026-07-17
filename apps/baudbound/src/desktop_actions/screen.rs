@@ -6,16 +6,37 @@ use serde_json::Number;
 
 #[cfg(not(windows))]
 use super::config::failed_error;
-use super::config::{config_string, required_string, required_u32};
+use super::config::{config_string, required_i32, required_string};
 
 pub(super) fn run_pixel_get(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
-    let x = required_u32(request, "x")?;
-    let y = required_u32(request, "y")?;
+    let x = required_i32(request, "x")?;
+    let y = required_i32(request, "y")?;
+    validate_native_coordinate(request, x, y)?;
     let color = native_pixel_color(request, x, y)?;
 
     Ok(RuntimeActionResult { output_data: color })
+}
+
+#[cfg(windows)]
+fn validate_native_coordinate(
+    request: &RuntimeActionRequest,
+    x: i32,
+    y: i32,
+) -> Result<(), RuntimeActionError> {
+    super::screen_tools::validate_coordinate(x, y)
+        .map(|_| ())
+        .map_err(|error| super::config::failed_error(request, error))
+}
+
+#[cfg(not(windows))]
+fn validate_native_coordinate(
+    _request: &RuntimeActionRequest,
+    _x: i32,
+    _y: i32,
+) -> Result<(), RuntimeActionError> {
+    Ok(())
 }
 
 pub(super) fn run_active_window(
@@ -46,17 +67,19 @@ pub(super) fn run_window_focus(
 #[cfg(windows)]
 pub(super) fn native_pixel_color(
     request: &RuntimeActionRequest,
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
 ) -> Result<Map<String, Value>, RuntimeActionError> {
-    super::windows_desktop::pixel_color(request, x, y)
+    super::screen_tools::sample_pixel(x, y)
+        .map(|pixel| pixel_color_map(x, y, pixel.red, pixel.green, pixel.blue, pixel.alpha))
+        .map_err(|error| super::config::failed_error(request, error))
 }
 
 #[cfg(not(windows))]
 pub(super) fn native_pixel_color(
     request: &RuntimeActionRequest,
-    _x: u32,
-    _y: u32,
+    _x: i32,
+    _y: i32,
 ) -> Result<Map<String, Value>, RuntimeActionError> {
     unsupported_native(request, "screen pixel capture")
 }
@@ -95,8 +118,8 @@ pub(super) fn native_window_focus(
 
 #[cfg(any(windows, test))]
 pub(in crate::desktop_actions) fn pixel_color_map(
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
     red: u8,
     green: u8,
     blue: u8,

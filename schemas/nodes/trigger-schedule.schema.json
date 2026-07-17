@@ -47,17 +47,20 @@
 				"every": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "number",
+							"exclusiveMinimum": 0,
+							"maximum": 1.7976931348623157e+308
 						},
 						{
 							"type": "string",
-							"pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+							"pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
 						}
 					]
 				},
 				"unit": {
 					"type": "string",
 					"enum": [
+						"milliseconds",
 						"seconds",
 						"minutes",
 						"hours",

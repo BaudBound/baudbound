@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use baudbound_core::RunnerCore;
 use baudbound_storage::{ScriptStore, SqliteRunnerStore};
 
-use crate::output::print_approval_permissions;
+use crate::{output::print_approval_permissions, time_format::CliTimeFormatter};
 
 pub(super) fn print_approval(store: &SqliteRunnerStore, script: String, json: bool) -> Result<()> {
     let approval = store
@@ -15,7 +15,11 @@ pub(super) fn print_approval(store: &SqliteRunnerStore, script: String, json: bo
         (Some(approval), false) => {
             println!("Approved script: {}", approval.script_id);
             println!("Package hash: {}", approval.package_hash);
-            println!("Approved at: {}", approval.approved_at_unix);
+            println!(
+                "Approved at: {}",
+                CliTimeFormatter::from_store(store)?
+                    .format_unix_seconds(approval.approved_at_unix)?
+            );
             print_approval_permissions(&approval);
         }
         (None, true) => println!("null"),

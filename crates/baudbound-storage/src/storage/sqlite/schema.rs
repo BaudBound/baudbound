@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -42,8 +42,9 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
         return Ok(());
     }
 
-    connection
-        .execute_batch(
+    if version < 3 {
+        connection
+            .execute_batch(
             r#"
             BEGIN;
 
@@ -136,11 +137,81 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
             PRAGMA user_version = 3;
             COMMIT;
             "#,
-        )
-        .map_err(|source| StorageError::Sqlite {
-            path: path.to_path_buf(),
-            source,
-        })
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 4 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE desktop_settings
+                    ADD COLUMN time_format TEXT NOT NULL DEFAULT '24-hour'
+                    CHECK (time_format IN ('12-hour', '24-hour'));
+                PRAGMA user_version = 4;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 5 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                CREATE TABLE application_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    time_format TEXT NOT NULL DEFAULT '24-hour'
+                        CHECK (time_format IN ('12-hour', '24-hour')),
+                    automatic_update_checks INTEGER NOT NULL DEFAULT 1
+                        CHECK (automatic_update_checks IN (0, 1)),
+                    keep_running_on_close INTEGER NOT NULL DEFAULT 1
+                        CHECK (keep_running_on_close IN (0, 1)),
+                    launch_at_login INTEGER NOT NULL DEFAULT 0
+                        CHECK (launch_at_login IN (0, 1)),
+                    start_background_runner_on_launch INTEGER NOT NULL DEFAULT 0
+                        CHECK (start_background_runner_on_launch IN (0, 1)),
+                    start_minimized_to_tray INTEGER NOT NULL DEFAULT 0
+                        CHECK (start_minimized_to_tray IN (0, 1))
+                );
+                INSERT INTO application_settings (
+                    id,
+                    time_format,
+                    automatic_update_checks,
+                    keep_running_on_close,
+                    launch_at_login,
+                    start_background_runner_on_launch,
+                    start_minimized_to_tray
+                )
+                SELECT
+                    id,
+                    time_format,
+                    automatic_update_checks,
+                    keep_running_on_close,
+                    launch_at_login,
+                    start_background_runner_on_launch,
+                    start_minimized_to_tray
+                FROM desktop_settings;
+                DROP TABLE desktop_settings;
+                PRAGMA user_version = 5;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    Ok(())
 }
 
 pub(super) fn query_schema_version(

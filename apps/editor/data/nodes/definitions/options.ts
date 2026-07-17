@@ -11,6 +11,7 @@ export type SelectOption = {
 };
 
 export const timeUnitOptions: SelectOption[] = [
+	{ label: "Milliseconds", value: "milliseconds" },
 	{ label: "Seconds", value: "seconds" },
 	{ label: "Minutes", value: "minutes" },
 	{ label: "Hours", value: "hours" },

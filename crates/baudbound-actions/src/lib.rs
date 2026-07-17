@@ -22,7 +22,8 @@ use actions::{
 pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
     "action.application.open",
     "action.beep",
-    "action.clipboard",
+    "action.clipboard.get",
+    "action.clipboard.set",
     "action.file.copy",
     "action.file.delete",
     "action.file.download",
@@ -52,7 +53,8 @@ pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
 
 pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
     "action.beep",
-    "action.clipboard",
+    "action.clipboard.get",
+    "action.clipboard.set",
     "action.keyboard",
     "action.keyboard.type_text",
     "action.message_box",
@@ -82,7 +84,13 @@ pub trait DesktopActionAdapter: Send + Sync {
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
-    fn clipboard(
+    fn clipboard_set(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn clipboard_get(
         &self,
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
@@ -177,12 +185,20 @@ impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
         desktop_only_action(request, "audio tone playback")
     }
 
-    fn clipboard(
+    fn clipboard_set(
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        desktop_only_action(request, "clipboard access")
+        desktop_only_action(request, "clipboard writes")
+    }
+
+    fn clipboard_get(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "clipboard reads")
     }
 
     fn message_box(
@@ -289,7 +305,8 @@ where
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         match request.action_type.as_str() {
             "action.beep" => self.adapter.beep(request, context),
-            "action.clipboard" => self.adapter.clipboard(request, context),
+            "action.clipboard.get" => self.adapter.clipboard_get(request, context),
+            "action.clipboard.set" => self.adapter.clipboard_set(request, context),
             "action.keyboard" => self.adapter.keyboard(request, context),
             "action.keyboard.type_text" => self.adapter.keyboard_type_text(request, context),
             "action.message_box" => self.adapter.message_box(request, context),
@@ -347,7 +364,8 @@ impl RuntimeActionHandler for HeadlessActionHandler {
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         match request.action_type.as_str() {
             "action.beep" => desktop_only_action(request, "audio tone playback"),
-            "action.clipboard" => desktop_only_action(request, "clipboard access"),
+            "action.clipboard.get" => desktop_only_action(request, "clipboard reads"),
+            "action.clipboard.set" => desktop_only_action(request, "clipboard writes"),
             "action.file.copy" => copy_file_action(request),
             "action.file.delete" => delete_file_action(request),
             "action.file.download" => download_file_action(request),
@@ -504,7 +522,10 @@ pub(crate) fn timeout_duration(
     if !seconds.is_finite() || seconds <= 0.0 {
         return failed(request, "timeoutSeconds must be a positive number");
     }
-    Ok(Duration::from_secs_f64(seconds))
+    Duration::try_from_secs_f64(seconds).map_err(|source| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!("timeoutSeconds is outside the supported duration range: {source}"),
+    })
 }
 
 pub(crate) fn number_from_config(config: &Map<String, Value>, key: &str) -> Option<f64> {

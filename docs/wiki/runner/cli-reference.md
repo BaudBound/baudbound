@@ -65,6 +65,19 @@ baudbound config path
 | `baudbound doctor --json` | Prints diagnostic results as JSON. |
 | `baudbound ui` | Explicitly opens the desktop application. |
 
+### Shared settings
+
+The application settings store contains shared runner preferences and desktop-only behavior. The CLI exposes only settings that also affect command-line output.
+
+| Command | Behavior |
+| --- | --- |
+| `baudbound settings show` | Shows the current shared settings. |
+| `baudbound settings show --json` | Prints shared settings as machine-readable JSON. |
+| `baudbound settings set time-format 12-hour` | Uses a 12-hour clock for human-readable desktop and CLI timestamps. |
+| `baudbound settings set time-format 24-hour` | Uses a 24-hour clock for human-readable desktop and CLI timestamps. |
+
+Changing the time format does not alter stored Unix timestamps or any JSON command output. Desktop-only choices such as login startup, tray behavior, and update checks remain in the desktop Settings tab.
+
 ### Package files
 
 These commands operate directly on a `.bbs` file and do not install it:
@@ -128,6 +141,8 @@ baudbound script logs [--script SCRIPT] [--limit NUMBER] [--json]
 
 Without filters, this prints the 20 most recent stored runs. `--script` selects one installed script and `--limit` changes the maximum result count.
 
+Human-readable run and log timestamps follow the shared time format. `--json` continues to return Unix timestamps for stable automation.
+
 ## Background service
 
 ```text
@@ -164,7 +179,7 @@ Command-line overrides apply to that service process only and do not rewrite `co
 | `baudbound hotkey dispatch KEY [--json]` | Dispatches one expression, such as `Ctrl+Alt+B`, to matching enabled scripts. |
 | `baudbound hotkey listen --stdin [--json]` | Reads newline-delimited expressions from standard input and dispatches each one. |
 
-The CLI `listen` command currently requires `--stdin`; it does not install a native operating-system hotkey hook. With `--json`, it prints one JSON object per input event.
+The CLI `listen` command requires `--stdin` and accepts explicit test input. It does not install an operating-system hook. The Windows desktop background runner installs and reloads the native hotkey listener automatically. With `--json`, the CLI prints one JSON object per input event.
 
 ## Secret commands
 

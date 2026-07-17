@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(name = "baudbound")]
@@ -115,6 +115,40 @@ pub enum Command {
         #[command(subcommand)]
         command: SecretCommand,
     },
+    /// View or change runner-wide application settings.
+    Settings {
+        #[command(subcommand)]
+        command: SettingsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SettingsCommand {
+    /// Show settings shared by the desktop app and CLI.
+    Show {
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Change a shared setting.
+    Set {
+        #[command(subcommand)]
+        command: SetSettingCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SetSettingCommand {
+    /// Choose the clock format used for human-readable timestamps.
+    TimeFormat { value: TimeFormatValue },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TimeFormatValue {
+    #[value(name = "12-hour")]
+    TwelveHour,
+    #[value(name = "24-hour")]
+    TwentyFourHour,
 }
 
 #[derive(Debug, Subcommand)]
@@ -327,7 +361,10 @@ mod tests {
 
     #[cfg(windows)]
     use super::default_command;
-    use super::{Cli, Command, SecretCommand, default_command_for_session, parse_positive_usize};
+    use super::{
+        Cli, Command, SecretCommand, SetSettingCommand, SettingsCommand, TimeFormatValue,
+        default_command_for_session, parse_positive_usize,
+    };
 
     #[test]
     fn positive_size_parser_rejects_zero_and_invalid_values() {
@@ -353,6 +390,22 @@ mod tests {
         let cli = Cli::try_parse_from(["baudbound", "ui", "--autostart"])
             .expect("desktop autostart marker should parse");
         assert!(matches!(cli.command, Some(Command::Ui { autostart: true })));
+    }
+
+    #[test]
+    fn parses_shared_time_format_setting() {
+        let cli = Cli::try_parse_from(["baudbound", "settings", "set", "time-format", "12-hour"])
+            .expect("time format command should parse");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Settings {
+                command: SettingsCommand::Set {
+                    command: SetSettingCommand::TimeFormat {
+                        value: TimeFormatValue::TwelveHour
+                    }
+                }
+            })
+        ));
     }
 
     #[test]

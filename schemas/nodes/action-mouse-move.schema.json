@@ -55,7 +55,9 @@
 				"x": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": -2147483648,
+							"maximum": 2147483647
 						},
 						{
 							"type": "string",
@@ -66,7 +68,9 @@
 				"y": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": -2147483648,
+							"maximum": 2147483647
 						},
 						{
 							"type": "string",

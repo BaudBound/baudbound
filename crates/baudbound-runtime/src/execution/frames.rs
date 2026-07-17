@@ -76,6 +76,23 @@ impl RuntimeExecutor<'_> {
 
         let node = self.graph.node(node_id)?.clone();
         match node.action_type.as_str() {
+            "control.color_match" => {
+                let branch = if self.evaluate_color_match(&node)? {
+                    "match"
+                } else {
+                    "no_match"
+                };
+                self.push_runtime_log(
+                    "info",
+                    format!("Color Match {} selected \"{}\" output.", node.id, branch),
+                    Some(node.id.clone()),
+                );
+                frames.push(RuntimeFrame::Follow {
+                    source_node_id: node.id,
+                    handle: branch.to_owned(),
+                    stop_at_node_id: None,
+                });
+            }
             "control.if" => {
                 let branch = if self.evaluate_conditions(&node)? {
                     "true"

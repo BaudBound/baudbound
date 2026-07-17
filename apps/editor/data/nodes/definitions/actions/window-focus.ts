@@ -1,6 +1,6 @@
 import { AppWindow } from "lucide-react";
 import { defineNode } from "../../node-definition";
-import { processMatchModeOptions } from "../options";
+import { killProcessMatchModeOptions } from "../options";
 import { actionWindow } from "../shared";
 import { requiredConfig } from "../validators";
 
@@ -8,8 +8,22 @@ export const windowFocusNode = defineNode({
 	actionType: "action.window.focus",
 	capabilities: actionWindow,
 	configFields: [
-		{ key: "matchMode", label: "Match by", type: "select", options: processMatchModeOptions },
-		{ key: "target", label: "Target", type: "text", usesVariables: true },
+		{ key: "matchMode", label: "Match by", type: "select", options: killProcessMatchModeOptions },
+		{
+			key: "target",
+			label: "Target",
+			type: "text",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: false,
+				minimum: "0",
+				maximum: "4294967295",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+			numericWhen: { key: "matchMode", equals: "pid" },
+		},
 	],
 	defaultConfig: () => ({ matchMode: "window_title", target: "Untitled" }),
 	description: "Focus a target window.",

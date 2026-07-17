@@ -7,11 +7,10 @@ use std::{
 use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
-use baudbound_storage::{DesktopSettings, ScriptStore, SqliteRunnerStore, StoredRunRecord};
+use baudbound_storage::{ApplicationSettings, ScriptStore, SqliteRunnerStore, StoredRunRecord};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
 use serde_json::Value;
-use serialport::SerialPortType;
 use tauri::{Manager, State};
 
 use crate::commands::{
@@ -22,18 +21,22 @@ use crate::desktop_actions::SystemDesktopActionAdapter;
 use crate::service::{ServeOptions, ServeOverrides};
 
 mod background;
+mod coordinate_picker;
 mod lifecycle;
 mod settings;
+mod tools;
 
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
-use settings::{DesktopSettingsPayload, SettingsActionPayload};
+use settings::{ApplicationSettingsPayload, SettingsActionPayload};
 
 macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
             dashboard_state,
-            read_desktop_settings,
+            coordinate_picker::cancel_coordinate_picker,
+            tools::discover_monitors,
+            read_application_settings,
             import_script_package,
             prepare_for_update,
             remove_script,
@@ -43,13 +46,15 @@ macro_rules! desktop_command_handler {
             run_script,
             save_runner_config,
             save_runner_config_model,
-            save_desktop_settings,
-            scan_serial_ports,
+            save_application_settings,
+            coordinate_picker::select_coordinate_picker,
+            tools::scan_serial_ports,
             set_script_secret,
             remove_script_secret,
             select_package_file,
             set_script_enabled,
             start_background_runner,
+            coordinate_picker::start_coordinate_picker,
             stop_background_runner,
             update_script_package,
         ]
@@ -70,9 +75,9 @@ pub fn run_desktop_ui(
         config_path.clone(),
     );
     let background_runner = DesktopRunnerSupervisor::default();
-    let desktop_settings = store
-        .read_desktop_settings()
-        .map_err(|error| anyhow!("failed to load desktop settings: {error}"))?;
+    let application_settings = store
+        .read_application_settings()
+        .map_err(|error| anyhow!("failed to load application settings: {error}"))?;
     tauri::Builder::default()
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -82,10 +87,11 @@ pub fn run_desktop_ui(
         )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             background_runner: background_runner.clone(),
-            desktop_settings: Mutex::new(desktop_settings),
+            application_settings: Mutex::new(application_settings),
             config_path,
             runner_config: Mutex::new(runner_config),
             core: Mutex::new(core),
@@ -112,7 +118,7 @@ pub fn run_desktop_ui(
 pub(super) struct DesktopUiState {
     background_options: Mutex<ServeOptions>,
     background_runner: DesktopRunnerSupervisor,
-    desktop_settings: Mutex<DesktopSettings>,
+    application_settings: Mutex<ApplicationSettings>,
     config_path: PathBuf,
     runner_config: Mutex<RunnerConfig>,
     core: Mutex<RunnerCore>,
@@ -122,17 +128,17 @@ pub(super) struct DesktopUiState {
 }
 
 #[tauri::command]
-fn read_desktop_settings(
+fn read_application_settings(
     autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
     state: State<'_, DesktopUiState>,
-) -> Result<DesktopSettingsPayload, String> {
+) -> Result<ApplicationSettingsPayload, String> {
     settings::read_settings_payload(&autostart, &state).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn save_desktop_settings(
+fn save_application_settings(
     autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
-    settings: DesktopSettings,
+    settings: ApplicationSettings,
     state: State<'_, DesktopUiState>,
 ) -> Result<SettingsActionPayload, String> {
     settings::save_settings(&autostart, &state, settings).map_err(|error| error.to_string())
@@ -149,18 +155,6 @@ fn select_package_file() -> Option<String> {
         .add_filter("BaudBound package", &["bbs"])
         .pick_file()
         .map(|path| path.display().to_string())
-}
-
-#[tauri::command]
-fn scan_serial_ports() -> Result<Vec<SerialPortScanPayload>, String> {
-    serialport::available_ports()
-        .map_err(|source| format!("failed to scan serial ports: {source}"))
-        .map(|ports| {
-            ports
-                .into_iter()
-                .map(serial_port_scan_payload)
-                .collect::<Vec<_>>()
-        })
 }
 
 #[tauri::command]
@@ -472,17 +466,6 @@ struct SerialDevicePayload {
 }
 
 #[derive(Serialize)]
-struct SerialPortScanPayload {
-    manufacturer: Option<String>,
-    port: String,
-    port_type: String,
-    product: Option<String>,
-    product_id: Option<String>,
-    serial_number: Option<String>,
-    vendor_id: Option<String>,
-}
-
-#[derive(Serialize)]
 struct ActionPayload {
     dashboard: DashboardPayload,
     message: String,
@@ -654,47 +637,6 @@ fn serial_device_payload(device_id: &str, settings: &SerialDeviceSettings) -> Se
         stop_bits: settings.stop_bits.clone(),
         validate_usb_identity: settings.validate_usb_identity,
         vendor_id: settings.vendor_id.clone(),
-    }
-}
-
-fn serial_port_scan_payload(port: serialport::SerialPortInfo) -> SerialPortScanPayload {
-    match port.port_type {
-        SerialPortType::UsbPort(info) => SerialPortScanPayload {
-            manufacturer: info.manufacturer,
-            port: port.port_name,
-            port_type: "usb".to_owned(),
-            product: info.product,
-            product_id: Some(format!("{:04X}", info.pid)),
-            serial_number: info.serial_number,
-            vendor_id: Some(format!("{:04X}", info.vid)),
-        },
-        SerialPortType::BluetoothPort => SerialPortScanPayload {
-            manufacturer: None,
-            port: port.port_name,
-            port_type: "bluetooth".to_owned(),
-            product: None,
-            product_id: None,
-            serial_number: None,
-            vendor_id: None,
-        },
-        SerialPortType::PciPort => SerialPortScanPayload {
-            manufacturer: None,
-            port: port.port_name,
-            port_type: "pci".to_owned(),
-            product: None,
-            product_id: None,
-            serial_number: None,
-            vendor_id: None,
-        },
-        SerialPortType::Unknown => SerialPortScanPayload {
-            manufacturer: None,
-            port: port.port_name,
-            port_type: "unknown".to_owned(),
-            product: None,
-            product_id: None,
-            serial_number: None,
-            vendor_id: None,
-        },
     }
 }
 

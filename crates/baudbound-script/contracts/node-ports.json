@@ -31,7 +31,17 @@
 				"failed"
 			]
 		},
-		"action.clipboard": {
+		"action.clipboard.get": {
+			"kind": "fixed",
+			"inputs": [
+				"input"
+			],
+			"outputs": [
+				"success",
+				"failed"
+			]
+		},
+		"action.clipboard.set": {
 			"kind": "fixed",
 			"inputs": [
 				"input"
@@ -316,6 +326,16 @@
 			"outputs": [
 				"success",
 				"failed"
+			]
+		},
+		"control.color_match": {
+			"kind": "fixed",
+			"inputs": [
+				"input"
+			],
+			"outputs": [
+				"match",
+				"no_match"
 			]
 		},
 		"control.for_each": {

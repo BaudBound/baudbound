@@ -1,22 +1,11 @@
 import {
   Activity,
-  Cable,
-  ClipboardCheck,
-  FileClock,
-  FileCog,
-  Gauge,
   HeartPulse,
-  ListTree,
-  MonitorCog,
-  ScrollText,
-  Settings,
   ShieldCheck,
-  Stethoscope,
 } from "lucide-react";
 import {
   lazy,
   Suspense,
-  type ComponentType,
   useCallback,
   useEffect,
   useMemo,
@@ -27,19 +16,27 @@ import { toast } from "sonner";
 
 import { EmptyState } from "@/components/empty-state";
 import { AppUpdateDialog } from "@/components/app-update-dialog";
+import { DashboardLoadState } from "@/components/dashboard-load-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import type { DashboardAction, Notice, TabId } from "@/lib/app-types";
 import {
+  navigationGroups,
+  navigationItems,
+  pageSubtitle,
+  pageTitle,
+  settingsNavigationItem,
+} from "@/lib/navigation";
+import {
   type ActionPayload,
   type DashboardPayload,
-  type DesktopSettingsPayload,
+  type ApplicationSettingsPayload,
   getDashboardState,
-  readDesktopSettings,
+  readApplicationSettings,
 } from "@/lib/runner-api";
+import { createDesktopTimeFormatter, DesktopTimeProvider } from "@/lib/time-format";
 import { DashboardView } from "@/views/dashboard-view";
-import { DevicesView } from "@/views/devices-view";
 import { DiagnosticsView } from "@/views/diagnostics-view";
 import { LogsView } from "@/views/logs-view";
 import { RunsView } from "@/views/runs-view";
@@ -47,6 +44,7 @@ import { SecurityView } from "@/views/security-view";
 import { ScriptsView } from "@/views/scripts-view";
 import { ServiceView } from "@/views/service-view";
 import { TriggersView } from "@/views/triggers-view";
+import { ToolsView } from "@/views/tools-view";
 
 const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
@@ -55,56 +53,14 @@ const SettingsView = lazy(() =>
   import("@/views/settings-view").then((module) => ({ default: module.SettingsView })),
 );
 
-type NavigationItem = {
-  icon: ComponentType<{ className?: string }>;
-  id: TabId;
-  label: string;
-};
-
-const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
-  {
-    label: "Operate",
-    items: [
-      { icon: Gauge, id: "dashboard", label: "Dashboard" },
-      { icon: ScrollText, id: "scripts", label: "Scripts" },
-      { icon: MonitorCog, id: "service", label: "Service" },
-    ],
-  },
-  {
-    label: "Inspect",
-    items: [
-      { icon: ShieldCheck, id: "security", label: "Security" },
-      { icon: ListTree, id: "triggers", label: "Triggers" },
-      { icon: Cable, id: "devices", label: "Devices" },
-      { icon: FileClock, id: "runs", label: "Runs" },
-      { icon: ClipboardCheck, id: "logs", label: "Logs" },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { icon: FileCog, id: "config", label: "Config" },
-      { icon: Stethoscope, id: "diagnostics", label: "Doctor" },
-    ],
-  },
-];
-
-const settingsNavigationItem: NavigationItem = {
-  icon: Settings,
-  id: "settings",
-  label: "Settings",
-};
-const navigationItems = [
-  ...navigationGroups.flatMap((group) => group.items),
-  settingsNavigationItem,
-];
-
 const liveRefreshIntervalMs = 4_000;
+const SettingsIcon = settingsNavigationItem.icon;
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
-  const [desktopSettings, setDesktopSettings] = useState<DesktopSettingsPayload | null>(null);
+  const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
+  const [applicationSettings, setApplicationSettings] = useState<ApplicationSettingsPayload | null>(null);
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const refreshInFlight = useRef(false);
@@ -125,12 +81,18 @@ export function App() {
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
     const silent = options?.silent ?? false;
+    if (!silent) {
+      setDashboardLoadError(null);
+    }
     try {
       setDashboard(await getDashboardState());
+      setDashboardLoadError(null);
       setLastUpdatedAt(new Date());
     } catch (error) {
       if (!silent) {
-        pushNotice({ kind: "error", message: String(error) });
+        const message = String(error);
+        setDashboardLoadError(message);
+        pushNotice({ kind: "error", message });
       }
     } finally {
       refreshInFlight.current = false;
@@ -142,8 +104,8 @@ export function App() {
   }, [refresh]);
 
   useEffect(() => {
-    readDesktopSettings()
-      .then(setDesktopSettings)
+    readApplicationSettings()
+      .then(setApplicationSettings)
       .catch((error) => pushNotice({ kind: "error", message: String(error) }));
   }, [pushNotice]);
 
@@ -193,9 +155,12 @@ export function App() {
 
   const activePageLabel = useMemo(() => pageTitle(activeTab), [activeTab]);
   const subtitle = useMemo(() => pageSubtitle(activeTab, dashboard), [activeTab, dashboard]);
+  const timeFormat = applicationSettings?.settings.shared.time_format ?? "24-hour";
+  const desktopTime = useMemo(() => createDesktopTimeFormatter(timeFormat), [timeFormat]);
 
   return (
-    <div className="grid h-screen min-h-screen grid-cols-[244px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(0,1fr)]">
+    <DesktopTimeProvider timeFormat={timeFormat}>
+      <div className="grid h-screen min-h-screen grid-cols-[244px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(0,1fr)]">
       <aside className="flex h-screen min-h-screen flex-col border-r border-border bg-[#0a0f1a] p-3 max-lg:h-auto max-lg:min-h-0 max-lg:min-w-0 max-lg:border-b max-lg:border-r-0">
         <div className="mb-5 flex shrink-0 items-center gap-2.5 max-lg:mb-3">
           <img alt="" className="size-9 rounded-md" draggable={false} src="/logo-notext.svg" />
@@ -235,7 +200,7 @@ export function App() {
             onClick={() => setActiveTab(settingsNavigationItem.id)}
             variant="tab"
           >
-            <Settings className="size-4" />
+            <SettingsIcon className="size-4" />
             {settingsNavigationItem.label}
           </Button>
         </div>
@@ -274,7 +239,7 @@ export function App() {
             {lastUpdatedAt ? (
               <Badge variant="muted">
                 <HeartPulse className="mr-1 size-3" />
-                Updated {lastUpdatedAt.toLocaleTimeString()}
+                Updated {desktopTime.formatTime(lastUpdatedAt)}
               </Badge>
             ) : null}
           </div>
@@ -294,7 +259,10 @@ export function App() {
 
         <section className="min-h-0 flex-1 overflow-auto p-5 max-md:p-3">
           {!dashboard ? (
-            <EmptyState>Loading runner state...</EmptyState>
+            <DashboardLoadState
+              error={dashboardLoadError}
+              onRetry={() => void refresh()}
+            />
           ) : activeTab === "dashboard" ? (
             <DashboardView dashboard={dashboard} />
           ) : activeTab === "scripts" ? (
@@ -307,8 +275,8 @@ export function App() {
             <SecurityView busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
           ) : activeTab === "triggers" ? (
             <TriggersView dashboard={dashboard} />
-          ) : activeTab === "devices" ? (
-            <DevicesView
+          ) : activeTab === "tools" ? (
+            <ToolsView
               busyActions={busyActions}
               dashboard={dashboard}
               runAction={runAction}
@@ -332,9 +300,9 @@ export function App() {
               />
             </Suspense>
           ) : activeTab === "settings" ? (
-            desktopSettings ? (
+            applicationSettings ? (
               <Suspense fallback={<EmptyState>Loading desktop settings...</EmptyState>}>
-                <SettingsView payload={desktopSettings} onSaved={setDesktopSettings} />
+                <SettingsView payload={applicationSettings} onSaved={setApplicationSettings} />
               </Suspense>
             ) : (
               <EmptyState>Loading desktop settings...</EmptyState>
@@ -344,63 +312,12 @@ export function App() {
           )}
         </section>
       </main>
-      <AppUpdateDialog
-        automaticCheck={desktopSettings?.settings.automatic_update_checks ?? false}
-        onError={reportUpdateError}
-      />
-      <Toaster closeButton position="top-center" richColors />
-    </div>
+        <AppUpdateDialog
+          automaticCheck={applicationSettings?.settings.desktop.automatic_update_checks ?? false}
+          onError={reportUpdateError}
+        />
+        <Toaster closeButton position="top-center" richColors />
+      </div>
+    </DesktopTimeProvider>
   );
-}
-
-function pageTitle(activeTab: TabId) {
-  const labels: Record<TabId, string> = {
-    config: "Config",
-    dashboard: "Dashboard",
-    devices: "Devices",
-    diagnostics: "Doctor",
-    logs: "Logs",
-    runs: "Runs",
-    scripts: "Scripts",
-    security: "Security",
-    service: "Service",
-    settings: "Settings",
-    triggers: "Triggers",
-  };
-  return labels[activeTab];
-}
-
-function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | null) {
-  if (!dashboard) return "Loading runner state...";
-  if (activeTab === "scripts") {
-    return `${dashboard.runner.total_script_count} installed scripts`;
-  }
-  if (activeTab === "security") {
-    return `${dashboard.runner.problem_count} scripts need attention`;
-  }
-  if (activeTab === "triggers") {
-    return `${dashboard.runner.trigger_count} trigger registrations`;
-  }
-  if (activeTab === "devices") {
-    return "Serial and device-facing runner configuration";
-  }
-  if (activeTab === "service") {
-    return `Desktop runner: ${dashboard.desktop_background.state}`;
-  }
-  if (activeTab === "config") {
-    return dashboard.config_path;
-  }
-  if (activeTab === "settings") {
-    return "Desktop startup, background behavior, and updates";
-  }
-  if (activeTab === "runs") {
-    return `${dashboard.recent_runs.length} recent run records`;
-  }
-  if (activeTab === "logs") {
-    return "Recent run output and action messages";
-  }
-  if (activeTab === "diagnostics") {
-    return "Readiness checks and troubleshooting signals";
-  }
-  return `${dashboard.runner.runner_name} at ${dashboard.storage_root}`;
 }

@@ -1,0 +1,735 @@
+{
+	"version": 1,
+	"modifiers": [
+		{
+			"canonical": "Ctrl",
+			"aliases": [
+				"control"
+			],
+			"virtual_keys": [
+				17,
+				162,
+				163
+			]
+		},
+		{
+			"canonical": "Alt",
+			"aliases": [],
+			"virtual_keys": [
+				18,
+				164,
+				165
+			]
+		},
+		{
+			"canonical": "Shift",
+			"aliases": [],
+			"virtual_keys": [
+				16,
+				160,
+				161
+			]
+		},
+		{
+			"canonical": "Windows",
+			"aliases": [
+				"win"
+			],
+			"virtual_keys": [
+				91,
+				92
+			]
+		}
+	],
+	"keys": [
+		{
+			"canonical": "A",
+			"virtual_key": 65,
+			"aliases": []
+		},
+		{
+			"canonical": "B",
+			"virtual_key": 66,
+			"aliases": []
+		},
+		{
+			"canonical": "C",
+			"virtual_key": 67,
+			"aliases": []
+		},
+		{
+			"canonical": "D",
+			"virtual_key": 68,
+			"aliases": []
+		},
+		{
+			"canonical": "E",
+			"virtual_key": 69,
+			"aliases": []
+		},
+		{
+			"canonical": "F",
+			"virtual_key": 70,
+			"aliases": []
+		},
+		{
+			"canonical": "G",
+			"virtual_key": 71,
+			"aliases": []
+		},
+		{
+			"canonical": "H",
+			"virtual_key": 72,
+			"aliases": []
+		},
+		{
+			"canonical": "I",
+			"virtual_key": 73,
+			"aliases": []
+		},
+		{
+			"canonical": "J",
+			"virtual_key": 74,
+			"aliases": []
+		},
+		{
+			"canonical": "K",
+			"virtual_key": 75,
+			"aliases": []
+		},
+		{
+			"canonical": "L",
+			"virtual_key": 76,
+			"aliases": []
+		},
+		{
+			"canonical": "M",
+			"virtual_key": 77,
+			"aliases": []
+		},
+		{
+			"canonical": "N",
+			"virtual_key": 78,
+			"aliases": []
+		},
+		{
+			"canonical": "O",
+			"virtual_key": 79,
+			"aliases": []
+		},
+		{
+			"canonical": "P",
+			"virtual_key": 80,
+			"aliases": []
+		},
+		{
+			"canonical": "Q",
+			"virtual_key": 81,
+			"aliases": []
+		},
+		{
+			"canonical": "R",
+			"virtual_key": 82,
+			"aliases": []
+		},
+		{
+			"canonical": "S",
+			"virtual_key": 83,
+			"aliases": []
+		},
+		{
+			"canonical": "T",
+			"virtual_key": 84,
+			"aliases": []
+		},
+		{
+			"canonical": "U",
+			"virtual_key": 85,
+			"aliases": []
+		},
+		{
+			"canonical": "V",
+			"virtual_key": 86,
+			"aliases": []
+		},
+		{
+			"canonical": "W",
+			"virtual_key": 87,
+			"aliases": []
+		},
+		{
+			"canonical": "X",
+			"virtual_key": 88,
+			"aliases": []
+		},
+		{
+			"canonical": "Y",
+			"virtual_key": 89,
+			"aliases": []
+		},
+		{
+			"canonical": "Z",
+			"virtual_key": 90,
+			"aliases": []
+		},
+		{
+			"canonical": "0",
+			"virtual_key": 48,
+			"aliases": []
+		},
+		{
+			"canonical": "1",
+			"virtual_key": 49,
+			"aliases": []
+		},
+		{
+			"canonical": "2",
+			"virtual_key": 50,
+			"aliases": []
+		},
+		{
+			"canonical": "3",
+			"virtual_key": 51,
+			"aliases": []
+		},
+		{
+			"canonical": "4",
+			"virtual_key": 52,
+			"aliases": []
+		},
+		{
+			"canonical": "5",
+			"virtual_key": 53,
+			"aliases": []
+		},
+		{
+			"canonical": "6",
+			"virtual_key": 54,
+			"aliases": []
+		},
+		{
+			"canonical": "7",
+			"virtual_key": 55,
+			"aliases": []
+		},
+		{
+			"canonical": "8",
+			"virtual_key": 56,
+			"aliases": []
+		},
+		{
+			"canonical": "9",
+			"virtual_key": 57,
+			"aliases": []
+		},
+		{
+			"canonical": "F1",
+			"virtual_key": 112,
+			"aliases": []
+		},
+		{
+			"canonical": "F2",
+			"virtual_key": 113,
+			"aliases": []
+		},
+		{
+			"canonical": "F3",
+			"virtual_key": 114,
+			"aliases": []
+		},
+		{
+			"canonical": "F4",
+			"virtual_key": 115,
+			"aliases": []
+		},
+		{
+			"canonical": "F5",
+			"virtual_key": 116,
+			"aliases": []
+		},
+		{
+			"canonical": "F6",
+			"virtual_key": 117,
+			"aliases": []
+		},
+		{
+			"canonical": "F7",
+			"virtual_key": 118,
+			"aliases": []
+		},
+		{
+			"canonical": "F8",
+			"virtual_key": 119,
+			"aliases": []
+		},
+		{
+			"canonical": "F9",
+			"virtual_key": 120,
+			"aliases": []
+		},
+		{
+			"canonical": "F10",
+			"virtual_key": 121,
+			"aliases": []
+		},
+		{
+			"canonical": "F11",
+			"virtual_key": 122,
+			"aliases": []
+		},
+		{
+			"canonical": "F12",
+			"virtual_key": 123,
+			"aliases": []
+		},
+		{
+			"canonical": "F13",
+			"virtual_key": 124,
+			"aliases": []
+		},
+		{
+			"canonical": "F14",
+			"virtual_key": 125,
+			"aliases": []
+		},
+		{
+			"canonical": "F15",
+			"virtual_key": 126,
+			"aliases": []
+		},
+		{
+			"canonical": "F16",
+			"virtual_key": 127,
+			"aliases": []
+		},
+		{
+			"canonical": "F17",
+			"virtual_key": 128,
+			"aliases": []
+		},
+		{
+			"canonical": "F18",
+			"virtual_key": 129,
+			"aliases": []
+		},
+		{
+			"canonical": "F19",
+			"virtual_key": 130,
+			"aliases": []
+		},
+		{
+			"canonical": "F20",
+			"virtual_key": 131,
+			"aliases": []
+		},
+		{
+			"canonical": "F21",
+			"virtual_key": 132,
+			"aliases": []
+		},
+		{
+			"canonical": "F22",
+			"virtual_key": 133,
+			"aliases": []
+		},
+		{
+			"canonical": "F23",
+			"virtual_key": 134,
+			"aliases": []
+		},
+		{
+			"canonical": "F24",
+			"virtual_key": 135,
+			"aliases": []
+		},
+		{
+			"canonical": "Escape",
+			"virtual_key": 27,
+			"aliases": [
+				"esc"
+			]
+		},
+		{
+			"canonical": "Enter",
+			"virtual_key": 13,
+			"aliases": [
+				"return"
+			]
+		},
+		{
+			"canonical": "Space",
+			"virtual_key": 32,
+			"aliases": [
+				"spacebar"
+			]
+		},
+		{
+			"canonical": "Tab",
+			"virtual_key": 9,
+			"aliases": []
+		},
+		{
+			"canonical": "Backspace",
+			"virtual_key": 8,
+			"aliases": []
+		},
+		{
+			"canonical": "Delete",
+			"virtual_key": 46,
+			"aliases": [
+				"del"
+			]
+		},
+		{
+			"canonical": "Insert",
+			"virtual_key": 45,
+			"aliases": [
+				"ins"
+			]
+		},
+		{
+			"canonical": "Home",
+			"virtual_key": 36,
+			"aliases": []
+		},
+		{
+			"canonical": "End",
+			"virtual_key": 35,
+			"aliases": []
+		},
+		{
+			"canonical": "PageUp",
+			"virtual_key": 33,
+			"aliases": [
+				"page up",
+				"page_up"
+			]
+		},
+		{
+			"canonical": "PageDown",
+			"virtual_key": 34,
+			"aliases": [
+				"page down",
+				"page_down"
+			]
+		},
+		{
+			"canonical": "ArrowUp",
+			"virtual_key": 38,
+			"aliases": [
+				"up",
+				"arrow up"
+			]
+		},
+		{
+			"canonical": "ArrowDown",
+			"virtual_key": 40,
+			"aliases": [
+				"down",
+				"arrow down"
+			]
+		},
+		{
+			"canonical": "ArrowLeft",
+			"virtual_key": 37,
+			"aliases": [
+				"left",
+				"arrow left"
+			]
+		},
+		{
+			"canonical": "ArrowRight",
+			"virtual_key": 39,
+			"aliases": [
+				"right",
+				"arrow right"
+			]
+		},
+		{
+			"canonical": "CapsLock",
+			"virtual_key": 20,
+			"aliases": []
+		},
+		{
+			"canonical": "NumLock",
+			"virtual_key": 144,
+			"aliases": []
+		},
+		{
+			"canonical": "ScrollLock",
+			"virtual_key": 145,
+			"aliases": []
+		},
+		{
+			"canonical": "PrintScreen",
+			"virtual_key": 44,
+			"aliases": [
+				"print screen"
+			]
+		},
+		{
+			"canonical": "Pause",
+			"virtual_key": 19,
+			"aliases": []
+		},
+		{
+			"canonical": "ContextMenu",
+			"virtual_key": 93,
+			"aliases": [
+				"menu"
+			]
+		},
+		{
+			"canonical": "Semicolon",
+			"virtual_key": 186,
+			"aliases": []
+		},
+		{
+			"canonical": "Equal",
+			"virtual_key": 187,
+			"aliases": []
+		},
+		{
+			"canonical": "Comma",
+			"virtual_key": 188,
+			"aliases": []
+		},
+		{
+			"canonical": "Minus",
+			"virtual_key": 189,
+			"aliases": []
+		},
+		{
+			"canonical": "Period",
+			"virtual_key": 190,
+			"aliases": []
+		},
+		{
+			"canonical": "Slash",
+			"virtual_key": 191,
+			"aliases": []
+		},
+		{
+			"canonical": "Backquote",
+			"virtual_key": 192,
+			"aliases": [
+				"grave"
+			]
+		},
+		{
+			"canonical": "BracketLeft",
+			"virtual_key": 219,
+			"aliases": [
+				"left bracket"
+			]
+		},
+		{
+			"canonical": "Backslash",
+			"virtual_key": 220,
+			"aliases": []
+		},
+		{
+			"canonical": "BracketRight",
+			"virtual_key": 221,
+			"aliases": [
+				"right bracket"
+			]
+		},
+		{
+			"canonical": "Quote",
+			"virtual_key": 222,
+			"aliases": [
+				"apostrophe"
+			]
+		},
+		{
+			"canonical": "IntlBackslash",
+			"virtual_key": 226,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad0",
+			"virtual_key": 96,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad1",
+			"virtual_key": 97,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad2",
+			"virtual_key": 98,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad3",
+			"virtual_key": 99,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad4",
+			"virtual_key": 100,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad5",
+			"virtual_key": 101,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad6",
+			"virtual_key": 102,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad7",
+			"virtual_key": 103,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad8",
+			"virtual_key": 104,
+			"aliases": []
+		},
+		{
+			"canonical": "Numpad9",
+			"virtual_key": 105,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadMultiply",
+			"virtual_key": 106,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadAdd",
+			"virtual_key": 107,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadSeparator",
+			"virtual_key": 108,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadSubtract",
+			"virtual_key": 109,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadDecimal",
+			"virtual_key": 110,
+			"aliases": []
+		},
+		{
+			"canonical": "NumpadDivide",
+			"virtual_key": 111,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserBack",
+			"virtual_key": 166,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserForward",
+			"virtual_key": 167,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserRefresh",
+			"virtual_key": 168,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserStop",
+			"virtual_key": 169,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserSearch",
+			"virtual_key": 170,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserFavorites",
+			"virtual_key": 171,
+			"aliases": []
+		},
+		{
+			"canonical": "BrowserHome",
+			"virtual_key": 172,
+			"aliases": []
+		},
+		{
+			"canonical": "VolumeMute",
+			"virtual_key": 173,
+			"aliases": [
+				"AudioVolumeMute"
+			]
+		},
+		{
+			"canonical": "VolumeDown",
+			"virtual_key": 174,
+			"aliases": [
+				"AudioVolumeDown"
+			]
+		},
+		{
+			"canonical": "VolumeUp",
+			"virtual_key": 175,
+			"aliases": [
+				"AudioVolumeUp"
+			]
+		},
+		{
+			"canonical": "MediaNext",
+			"virtual_key": 176,
+			"aliases": [
+				"media next track",
+				"MediaTrackNext"
+			]
+		},
+		{
+			"canonical": "MediaPrevious",
+			"virtual_key": 177,
+			"aliases": [
+				"media previous track",
+				"MediaTrackPrevious"
+			]
+		},
+		{
+			"canonical": "MediaStop",
+			"virtual_key": 178,
+			"aliases": []
+		},
+		{
+			"canonical": "MediaPlayPause",
+			"virtual_key": 179,
+			"aliases": [
+				"media play pause"
+			]
+		},
+		{
+			"canonical": "LaunchMail",
+			"virtual_key": 180,
+			"aliases": []
+		},
+		{
+			"canonical": "LaunchMedia",
+			"virtual_key": 181,
+			"aliases": []
+		},
+		{
+			"canonical": "LaunchApp1",
+			"virtual_key": 182,
+			"aliases": []
+		},
+		{
+			"canonical": "LaunchApp2",
+			"virtual_key": 183,
+			"aliases": []
+		}
+	]
+}

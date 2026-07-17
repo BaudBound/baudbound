@@ -3,10 +3,7 @@ use crate::runtime::{
     number_value, render_template, resolve_config_map, value_to_string,
 };
 
-use super::{
-    RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor, RuntimeLogEntry,
-    RuntimeNode,
-};
+use super::{RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor, RuntimeNode};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
@@ -27,20 +24,23 @@ impl RuntimeExecutor<'_> {
         let level = config_string(&node.config, "level").unwrap_or_else(|| "info".to_owned());
         let message_template = config_string(&node.config, "message").unwrap_or_default();
         let message = render_template(&message_template, &self.context.variables);
-        self.logs.push(RuntimeLogEntry {
-            level,
-            message,
-            node_id: Some(node.id.clone()),
-        });
+        self.push_runtime_log(&level, message, Some(node.id.clone()));
         Ok(())
     }
 
     fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
         self.ensure_not_cancelled()?;
+        let config = resolve_config_map(&node.config, &self.context.variables);
+        baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
+            |message| RuntimeError::Action {
+                node_id: node.id.clone(),
+                message,
+            },
+        )?;
         let request = RuntimeActionRequest {
             action: node.action.clone(),
             action_type: node.action_type.clone(),
-            config: resolve_config_map(&node.config, &self.context.variables),
+            config,
             node_id: node.id.clone(),
         };
 
@@ -69,11 +69,22 @@ impl RuntimeExecutor<'_> {
     }
 
     fn execute_delay(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
-        let amount = number_from_value(node.config.get("amount"))
-            .or_else(|| number_from_value(node.config.get("every")))
+        let config = resolve_config_map(&node.config, &self.context.variables);
+        baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
+            |message| RuntimeError::Action {
+                node_id: node.id.clone(),
+                message,
+            },
+        )?;
+        let amount = number_from_value(config.get("amount"))
+            .or_else(|| number_from_value(config.get("every")))
             .unwrap_or(0.0);
-        let unit = config_string(&node.config, "unit").unwrap_or_else(|| "seconds".to_owned());
-        let duration = duration_from_amount(amount, &unit);
+        let unit = config_string(&config, "unit").unwrap_or_else(|| "seconds".to_owned());
+        let duration =
+            duration_from_amount(amount, &unit).map_err(|message| RuntimeError::Action {
+                node_id: node.id.clone(),
+                message,
+            })?;
         self.push_runtime_log(
             "info",
             format!("Delay started for {} ms.", duration.as_millis()),

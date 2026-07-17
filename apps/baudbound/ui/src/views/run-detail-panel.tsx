@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { StoredRunRecord } from "@/lib/runner-api";
 import { runStatusVariant } from "@/lib/run-inspection";
 import { countLogsByLevel } from "@/lib/run-inspection";
+import { useDesktopTime } from "@/lib/time-format";
 import { RunLogPanel } from "@/views/run-log-panel";
 import { RunVariablePanel } from "@/views/run-variable-panel";
 
@@ -14,6 +15,7 @@ export function RunDetailPanel({
   run: StoredRunRecord;
   scriptName: string;
 }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const logCounts = countLogsByLevel(run.logs);
   const errorCount = logCounts.error ?? 0;
   const warningCount = (logCounts.warn ?? 0) + (logCounts.warning ?? 0);
@@ -30,7 +32,7 @@ export function RunDetailPanel({
                 ["Script", scriptName],
                 ["Script ID", run.script_id],
                 ["Trigger", run.trigger_node_id],
-                ["Completed", formatUnixTime(run.completed_at_unix)],
+                ["Completed", formatUnixSeconds(run.completed_at_unix)],
               ]}
             />
           </section>
@@ -65,8 +67,4 @@ export function RunDetailPanel({
       </CardContent>
     </Card>
   );
-}
-
-function formatUnixTime(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

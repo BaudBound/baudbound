@@ -17,6 +17,7 @@ export type ActionType =
 	| "trigger.startup"
 	| "trigger.process_started"
 	| "control.if"
+	| "control.color_match"
 	| "control.switch"
 	| "control.loop"
 	| "control.while"
@@ -52,7 +53,8 @@ export type ActionType =
 	| "action.window.active"
 	| "action.window.focus"
 	| "action.beep"
-	| "action.clipboard"
+	| "action.clipboard.set"
+	| "action.clipboard.get"
 	| "action.shell";
 
 export type TriggerActionType = Extract<ActionType, `trigger.${string}`>;

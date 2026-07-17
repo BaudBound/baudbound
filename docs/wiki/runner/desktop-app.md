@@ -18,12 +18,12 @@ The interface refreshes automatically while it is open and when the window regai
 | **Service** | Controlling the desktop-owned background runner and inspecting listeners |
 | **Security** | Approval, risk, permissions, package integrity, and secret readiness |
 | **Triggers** | Registration state and listener-family diagnostics |
-| **Devices** | Serial discovery, logical mappings, identity, and active readers |
+| **Tools** | Screen-coordinate inspection and serial-port discovery |
 | **Runs** | Per-run status, logs, results, and variable snapshots |
 | **Logs** | Searching recent log messages across runs |
 | **Config** | Validated runner and device configuration |
 | **Doctor** | Native support, paths, runtime facts, and corrective diagnostics |
-| **Settings** | Desktop login startup, window behavior, background startup, and update checks |
+| **Settings** | Clock format, desktop login startup, window behavior, background startup, and update checks |
 
 ## Dashboard
 <!-- desktop-tab:dashboard -->
@@ -96,14 +96,26 @@ Trigger registrations refresh automatically after importing, updating, removing,
 
 A registered trigger is not necessarily receiving events. Inspect listener state, the script's approval and enablement, and family-specific prerequisites. [Background Service and Triggers](service-triggers.md) describes each family.
 
-## Devices
-<!-- desktop-tab:devices -->
+## Tools
+<!-- desktop-tab:tools -->
 
-The top metrics distinguish configured logical devices, devices referenced by scripts, serial triggers, connected readers, and missing mappings.
+### Screen coordinates
+
+Choose **Detect monitors** on Windows to inspect the native virtual desktop. The summary shows its total size with separate X and Y coordinate ranges. Each monitor shows its device name, dimensions, separate X and Y ranges, DPI scale, and primary-display state.
+
+Monitors placed to the left of or above the primary display have negative coordinates. The displayed maximum X and Y values are inclusive and can be entered directly into Get Pixel Color or absolute Move Mouse nodes. A coordinate in empty space between monitors is invalid even when it is inside the outer virtual-desktop rectangle.
+
+Choose **Pick coordinate** to select a point directly from the screen. BaudBound opens a transparent selection overlay on every connected monitor. Click the required point or press Escape to cancel. After selection, Tools shows X, Y, the monitor name, and the original pixel color. Copy buttons let you copy either coordinate, the coordinate pair, or the color. Picker results are not saved automatically.
+
+The picker closes its overlays before reading the pixel color. The overlay therefore does not change the returned color. Mixed-DPI layouts use native physical monitor bounds, so the selected coordinate uses the same coordinate system as Get Pixel Color and Move Mouse.
+
+Screen-coordinate discovery and the related input actions are unavailable on Linux until native Linux desktop backends meet the same contract.
+
+### Serial device scanner
 
 Choose **Scan** to enumerate serial ports through the native serial library. Cards display available USB identity fields. Choose **Add**, provide the logical device ID used in editor nodes, and save the generated mapping.
 
-Configured-device cards show protocol settings, reconnect and rebind options, identity fields, script references, active readers, last events, and errors. Scanner results are observations, not proof that a similarly named device is safe to use.
+The scanner adds configuration but does not own it. Edit complete serial settings under Config. Inspect active readers beside Serial Input registrations under Triggers. Use Doctor for missing logical device references and invalid configuration.
 
 Enable USB identity validation when vendor and product IDs are available. Auto rebind requires identity validation and refuses ambiguous matches. See [Configuration and Serial Devices](configuration.md).
 
@@ -117,7 +129,7 @@ Expand a run to inspect:
 - run and script identity;
 - trigger node and timestamps;
 - terminal result and error context;
-- ordered node log entries; and
+- ordered node log entries with their individual emission times; and
 - captured variable snapshots.
 
 Use the run ID when correlating an entry with Logs or CLI output. Secret plaintext should not be intentionally stored in logs or variable snapshots; report a redaction failure as a security issue.
@@ -125,7 +137,7 @@ Use the run ID when correlating an entry with Logs or CLI output. Secret plainte
 ## Logs
 <!-- desktop-tab:logs -->
 
-Logs searches recent messages across scripts, nodes, and runs. Each entry includes time, level, script, node, message, and run ID.
+Logs searches recent messages across scripts, nodes, and runs. Each entry includes the time when that message was emitted, level, script, node, message, and run ID. Two messages can have the same displayed time and still retain their original execution order.
 
 The **Clear** button clears the current search text; it does not delete durable run history. Open the related run for ordered context and variable state.
 
@@ -155,13 +167,16 @@ Treat a failed check as blocking for the related feature. A warning describes a 
 ## Settings
 <!-- desktop-tab:settings -->
 
-Settings control the desktop application itself. They are stored in the runner database and are separate from the runner TOML shown under Config.
+Settings are stored in the runner database and are separate from the runner TOML shown under Config. The page combines settings shared with the CLI and behavior that applies only to the desktop app.
 
 - **Launch at login** registers BaudBound with the current Windows or Linux desktop session. It starts after that user signs in. It does not create a system service or start on a headless machine.
 - **Start background runner on launch** starts trigger listeners whenever the desktop application opens.
 - **Start login launch in the tray** keeps the main window hidden when the operating system launches BaudBound after login. Opening BaudBound manually still shows the window.
 - **Keep running when the window closes** hides the window in the tray. When disabled, closing the window stops the desktop background runner and exits the application.
+- **Clock format** changes human-readable desktop and CLI timestamps between 12-hour and 24-hour notation. The same preference can be changed with `baudbound settings set time-format`.
 - **Automatically check for updates** checks the signed release feed once after the desktop application starts.
+
+The clock setting changes only how time is displayed. Stored run and log timestamps remain UTC Unix values, and CLI JSON output does not change when the setting changes.
 
 Linux login startup uses the current user's desktop-session autostart directory. It works only after a graphical login. Use [Linux Background Service](linux-background-service.md) when triggers must start before login or on a headless machine.
 

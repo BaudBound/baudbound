@@ -58,7 +58,9 @@
 				"timeoutSeconds": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "number",
+							"minimum": 1,
+							"maximum": 86400
 						},
 						{
 							"type": "string",

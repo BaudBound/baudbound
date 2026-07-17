@@ -37,6 +37,7 @@ import { readFileNode } from "./definitions/actions/file-read";
 import { writeFileNode } from "./definitions/actions/file-write";
 import { formatTextNode } from "./definitions/actions/format-text";
 import { getActiveWindowNode } from "./definitions/actions/get-active-window";
+import { getClipboardNode } from "./definitions/actions/get-clipboard";
 import { getPixelColorNode } from "./definitions/actions/get-pixel-color";
 import { httpRequestNode } from "./definitions/actions/http-request";
 import { keyboardNode } from "./definitions/actions/keyboard";
@@ -58,6 +59,7 @@ import { variableOperationNode } from "./definitions/actions/variable-operation"
 import { webhookResponseNode } from "./definitions/actions/webhook-response";
 import { websocketWriteNode } from "./definitions/actions/websocket-write";
 import { windowFocusNode } from "./definitions/actions/window-focus";
+import { colorMatchNode } from "./definitions/control/color-match";
 import { forEachNode } from "./definitions/control/for-each";
 import { ifElseNode } from "./definitions/control/if-else";
 import { loopNode } from "./definitions/control/loop";
@@ -83,6 +85,7 @@ import {
 	type NodeDefinitionGroupId,
 	triggerOutputPort,
 } from "./node-definition";
+import { numericContractApplies, validateNumericConfigValue } from "./numeric-validation";
 
 const nodeDefinitions: NodeDefinition[] = [
 	manualTriggerNode,
@@ -94,6 +97,7 @@ const nodeDefinitions: NodeDefinition[] = [
 	serialInputTriggerNode,
 	startupTriggerNode,
 	processStartedTriggerNode,
+	colorMatchNode,
 	ifElseNode,
 	switchNode,
 	loopNode,
@@ -131,6 +135,7 @@ const nodeDefinitions: NodeDefinition[] = [
 	moveMouseNode,
 	beepNode,
 	clipboardNode,
+	getClipboardNode,
 	shellCommandNode,
 ];
 
@@ -209,7 +214,8 @@ const actionPaletteCategories = [
 		label: "Input Control",
 		icon: Keyboard,
 		actionTypes: [
-			"action.clipboard",
+			"action.clipboard.set",
+			"action.clipboard.get",
 			"action.keyboard",
 			"action.keyboard.type_text",
 			"action.mouse",
@@ -599,10 +605,17 @@ function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<
 			return [`Invalid value for ${field.key}: expected string.`];
 		}
 
-		if (field.type === "number" && !isValidNumberConfigValue(value, field.usesVariables === true)) {
-			return [
-				`Invalid value for ${field.key}: expected a finite number${field.usesVariables ? " or variable expression" : ""}.`,
-			];
+		if (numericContractApplies(field, config)) {
+			if (!field.numeric) {
+				throw new Error(`Numeric contract metadata is missing for ${field.key}.`);
+			}
+			if (field.usesVariables === true && typeof value === "string" && /\{\{[^}]+\}\}/.test(value)) {
+				return [];
+			}
+			const error = validateNumericConfigValue(value, field.numeric);
+			if (error) {
+				return [`Invalid value for ${field.key}: ${error}.`];
+			}
 		}
 
 		if (field.type === "switch" && typeof value !== "boolean") {
@@ -611,27 +624,6 @@ function validateDeclaredConfigFields(fields: NodeConfigField[], config: Record<
 
 		return [];
 	});
-}
-
-function isValidNumberConfigValue(value: JsonValue, allowsVariables: boolean) {
-	if (typeof value === "number") {
-		return Number.isFinite(value);
-	}
-
-	if (typeof value !== "string") {
-		return false;
-	}
-
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return false;
-	}
-
-	if (allowsVariables && /\{\{[^}]+\}\}/.test(trimmed)) {
-		return true;
-	}
-
-	return Number.isFinite(Number(trimmed));
 }
 
 function getRequiredRunnerType(actionType: ActionType) {

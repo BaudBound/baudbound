@@ -1,3 +1,4 @@
+import { runtimeNumberContract, validateNumericConfigValue } from "@/data/nodes/numeric-validation";
 import {
 	getClearedVariableValue,
 	getDefaultVariableValue,
@@ -27,8 +28,8 @@ export function parseDefaultValue(type: VariableType, rawValue: string): JsonVal
 		return rawValue;
 	}
 	if (type === "number") {
-		const value = Number(rawValue.trim());
-		return rawValue.trim() && Number.isFinite(value) ? value : undefined;
+		const trimmed = rawValue.trim();
+		return trimmed && !validateNumericConfigValue(trimmed, runtimeNumberContract) ? Number(trimmed) : undefined;
 	}
 	if (type === "boolean") {
 		return rawValue === "true" ? true : rawValue === "false" ? false : undefined;

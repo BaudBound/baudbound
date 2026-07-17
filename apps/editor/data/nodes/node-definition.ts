@@ -24,15 +24,36 @@ import type {
 } from "@/utils/simulation-types";
 import type { SelectOption } from "./definitions/options";
 
-export type NodeConfigField = {
+export type NumericConfigContract = {
+	kind: "float" | "integer";
+	signed: boolean;
+	minimum: string;
+	maximum: string;
+	minimumInclusive: boolean;
+	maximumInclusive: boolean;
+};
+
+export type NumericConfigCondition = {
+	key: string;
+	equals: string;
+};
+
+type NodeConfigFieldBase = {
+	colorPicker?: boolean;
 	key: string;
 	label: string;
-	type: "text" | "number" | "textarea" | "select" | "switch";
 	options?: SelectOption[];
 	required?: boolean;
 	usesVariables?: boolean;
 	help?: string;
 };
+
+export type NodeConfigField = NodeConfigFieldBase &
+	(
+		| { numeric: NumericConfigContract; numericWhen?: never; type: "number" }
+		| { numeric: NumericConfigContract; numericWhen: NumericConfigCondition; type: "text" }
+		| { numeric?: never; numericWhen?: never; type: "select" | "switch" | "text" | "textarea" }
+	);
 
 export type NodeDefinitionGroupId = "triggers" | "control" | "actions";
 
@@ -51,7 +72,6 @@ export type NodePermissionPathRule = {
 };
 
 export type NodeSimulationApi = {
-	clampNumber: (value: number, min: number, max: number) => number;
 	createError: (
 		message: string,
 		code: string,

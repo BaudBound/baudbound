@@ -35,9 +35,9 @@ fn configure_close_to_tray(app: &App) {
             api.prevent_close();
             let state = app_handle.state::<super::DesktopUiState>();
             let keep_running = state
-                .desktop_settings
+                .application_settings
                 .lock()
-                .map(|settings| settings.keep_running_on_close)
+                .map(|settings| settings.desktop.keep_running_on_close)
                 .unwrap_or(true);
             if keep_running {
                 let _ = window_to_hide.hide();
@@ -58,9 +58,9 @@ fn configure_initial_window_visibility(app: &App, launched_from_autostart: bool)
     let state = app.state::<super::DesktopUiState>();
     let start_hidden = launched_from_autostart
         && state
-            .desktop_settings
+            .application_settings
             .lock()
-            .map(|settings| settings.start_minimized_to_tray)
+            .map(|settings| settings.desktop.start_minimized_to_tray)
             .unwrap_or(false);
     if start_hidden {
         return;

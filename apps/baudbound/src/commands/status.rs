@@ -6,6 +6,7 @@ use crate::{
     commands::service_health::service_health_document,
     output::{print_runner_status, print_service_status, print_trigger_registrations},
     service::redact_service_control,
+    time_format::CliTimeFormatter,
 };
 
 pub fn runner_status(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<RunnerStatus> {
@@ -52,7 +53,11 @@ pub fn print_app_status(core: &RunnerCore, store: &SqliteRunnerStore, json: bool
         "Desktop action adapter: system native backends (run `baudbound doctor` for availability)."
     );
     println!("Native tray/UI: not started yet");
-    print_service_status(public_service_status.as_ref(), Some(&service_health));
+    print_service_status(
+        public_service_status.as_ref(),
+        Some(&service_health),
+        CliTimeFormatter::from_store(store)?,
+    )?;
     println!();
     print_runner_status(&status, store.root());
     Ok(())

@@ -6,7 +6,6 @@ use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest};
 use serde_json::{Map, Number, Value};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HWND, LPARAM},
-    Graphics::Gdi::{GetDC, GetPixel, ReleaseDC},
     System::Threading::{
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     },
@@ -16,32 +15,9 @@ use windows_sys::Win32::{
     },
 };
 
-use super::{config::failed_error, screen::pixel_color_map};
+use super::config::failed_error;
 
 pub(in crate::desktop_actions) mod process;
-
-pub(super) fn pixel_color(
-    request: &RuntimeActionRequest,
-    x: u32,
-    y: u32,
-) -> Result<Map<String, Value>, RuntimeActionError> {
-    unsafe {
-        let device_context = GetDC(std::ptr::null_mut());
-        if device_context.is_null() {
-            return Err(failed_error(request, "failed to get screen device context"));
-        }
-        let pixel = GetPixel(device_context, x as i32, y as i32);
-        ReleaseDC(std::ptr::null_mut(), device_context);
-        if pixel == u32::MAX {
-            return Err(failed_error(request, "failed to read screen pixel color"));
-        }
-
-        let red = (pixel & 0x0000_00ff) as u8;
-        let green = ((pixel & 0x0000_ff00) >> 8) as u8;
-        let blue = ((pixel & 0x00ff_0000) >> 16) as u8;
-        Ok(pixel_color_map(x, y, red, green, blue, 255))
-    }
-}
 
 pub(super) fn active_window(
     request: &RuntimeActionRequest,

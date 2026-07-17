@@ -10,7 +10,10 @@
 		"action.calculate": [
 			"action.calculate"
 		],
-		"action.clipboard": [
+		"action.clipboard.get": [
+			"action.clipboard"
+		],
+		"action.clipboard.set": [
 			"action.clipboard"
 		],
 		"action.delay": [
@@ -96,6 +99,9 @@
 		],
 		"action.window.focus": [
 			"action.window"
+		],
+		"control.color_match": [
+			"runtime.color_match"
 		],
 		"control.for_each": [
 			"runtime.for_each"

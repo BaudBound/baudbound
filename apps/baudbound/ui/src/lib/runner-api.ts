@@ -111,6 +111,59 @@ export type SerialPortScanResult = {
   vendor_id: string | null;
 };
 
+export type MonitorBounds = {
+  bottom: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  width: number;
+};
+
+export type MonitorInfo = {
+  bounds: MonitorBounds;
+  device_name: string;
+  dpi_x: number | null;
+  dpi_y: number | null;
+  id: string;
+  is_primary: boolean;
+  scale_factor: number | null;
+  work_area: MonitorBounds;
+};
+
+export type MonitorDiscoveryResult = {
+  monitors: MonitorInfo[];
+  supported: boolean;
+  unavailable_reason: string | null;
+  virtual_bounds: MonitorBounds | null;
+};
+
+export type ScreenPixel = {
+  alpha: number;
+  blue: number;
+  green: number;
+  hex: string;
+  integer: number;
+  red: number;
+};
+
+export type CoordinatePickerResult = {
+  color: ScreenPixel;
+  monitor: MonitorInfo;
+  x: number;
+  y: number;
+};
+
+export type CoordinatePickerEvent =
+  | { result: CoordinatePickerResult; status: "selected" }
+  | { status: "cancelled" }
+  | { message: string; status: "failed" };
+
+export type CoordinatePickerStartPayload = {
+  monitor_count: number;
+  session_id: string;
+};
+
 export type ServiceStatusService = {
   active: boolean;
   diagnostics?: TriggerServiceDiagnostics;
@@ -191,6 +244,7 @@ export type RunLogEntry = {
   level: string;
   message: string;
   node_id?: string | null;
+  timestamp_unix_ms: number;
 };
 
 export type StoredRunRecord = {
@@ -230,6 +284,12 @@ export type ActionPayload = {
   message: string;
 };
 
+export type TimeFormat = "12-hour" | "24-hour";
+
+export type SharedSettings = {
+  time_format: TimeFormat;
+};
+
 export type DesktopSettings = {
   automatic_update_checks: boolean;
   keep_running_on_close: boolean;
@@ -238,14 +298,19 @@ export type DesktopSettings = {
   start_minimized_to_tray: boolean;
 };
 
-export type DesktopSettingsPayload = {
+export type ApplicationSettings = {
+  desktop: DesktopSettings;
+  shared: SharedSettings;
+};
+
+export type ApplicationSettingsPayload = {
   launch_at_login_registered: boolean;
-  settings: DesktopSettings;
+  settings: ApplicationSettings;
 };
 
 export type SettingsActionPayload = {
   message: string;
-  payload: DesktopSettingsPayload;
+  payload: ApplicationSettingsPayload;
 };
 
 export type RunnerConfig = {
@@ -319,12 +384,12 @@ export function getDashboardState() {
   return invoke<DashboardPayload>("dashboard_state");
 }
 
-export function readDesktopSettings() {
-  return invoke<DesktopSettingsPayload>("read_desktop_settings");
+export function readApplicationSettings() {
+  return invoke<ApplicationSettingsPayload>("read_application_settings");
 }
 
-export function saveDesktopSettings(settings: DesktopSettings) {
-  return invoke<SettingsActionPayload>("save_desktop_settings", { settings });
+export function saveApplicationSettings(settings: ApplicationSettings) {
+  return invoke<SettingsActionPayload>("save_application_settings", { settings });
 }
 
 export function readRunnerConfig() {
@@ -349,6 +414,38 @@ export function scanSerialPorts() {
     }
     throw error;
   });
+}
+
+export function discoverMonitors() {
+  return invoke<MonitorDiscoveryResult>("discover_monitors").catch((error) => {
+    const message = String(error);
+    if (message.includes("Command discover_monitors not found")) {
+      throw new Error(
+        "Monitor discovery requires the latest desktop backend. Close BaudBound and start the desktop app again so the new Rust command is available.",
+      );
+    }
+    throw error;
+  });
+}
+
+export function startCoordinatePicker() {
+  return invoke<CoordinatePickerStartPayload>("start_coordinate_picker").catch((error) => {
+    const message = String(error);
+    if (message.includes("Command start_coordinate_picker not found")) {
+      throw new Error(
+        "The coordinate picker requires the latest desktop backend. Close BaudBound and start the desktop app again so the new Rust command is available.",
+      );
+    }
+    throw error;
+  });
+}
+
+export function selectCoordinatePicker(sessionId: string) {
+  return invoke<void>("select_coordinate_picker", { sessionId });
+}
+
+export function cancelCoordinatePicker(sessionId: string) {
+  return invoke<void>("cancel_coordinate_picker", { sessionId });
 }
 
 export function selectPackageFile() {

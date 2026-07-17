@@ -33,10 +33,10 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Schedule
 
 - **Action type:** `trigger.schedule`; capability `trigger.schedule`; low risk.
-- **Configuration:** **Every** positive number, default `5`; **Unit** `seconds`, `minutes`, `hours`, or `days`, default `minutes`.
+- **Configuration:** **Every** positive number, default `5`; **Unit** `milliseconds`, `seconds`, `minutes`, `hours`, or `days`, default `minutes`. The resulting interval must be at least one millisecond.
 - **Output:** runner payload includes interval and due-time information; graph continues through `out`.
 - **Use:** recurring work while a background service is active.
-- **Runtime:** unchanged registrations preserve due timing across reload; missed intervals are counted without dispatching every missed occurrence.
+- **Runtime:** unchanged registrations preserve due timing across reload; missed intervals are counted without dispatching every missed occurrence. Millisecond schedules use operating-system timers and are not hard real-time guarantees.
 - **Simulation:** fires automatically while simulation remains active.
 
 ### File Watch
@@ -69,10 +69,11 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Hotkey
 
 - **Action type:** `trigger.hotkey`; capability `trigger.hotkey`; medium risk; Windows Desktop only.
-- **Configuration:** captured **Key** expression, default `Ctrl+Alt+B`.
-- **Output:** `key`.
-- **Use:** start a script from a Windows desktop key combination while the desktop listener is active.
-- **Platform:** Windows Desktop only.
+- **Configuration:** captured **Key** expression, default `Ctrl+Alt+B`. A single key such as `G`, `F1`, or `MediaPlayPause` is valid. Any distinct supported keys can form a chord, including `K+L`, `F1+T`, and `Ctrl+Shift+B`. See [Supported Windows node keys](#supported-windows-node-keys) for the exact names.
+- **Output:** canonical `key` expression and timestamp.
+- **Use:** start a script when the complete physical key chord is held while the Windows desktop background runner is active.
+- **Matching:** the held keys must match the configured chord exactly. The run starts when the final required key is pressed, regardless of the order in which the keys were pressed. Holding the chord does not repeatedly start runs.
+- **Platform:** Windows Desktop only. Firmware-only `Fn` keys and Windows secure-attention input such as `Ctrl+Alt+Delete` are not available.
 - **Simulation:** uses the supplied or configured expression; it does not register a global OS hook.
 
 ### Serial Input
@@ -111,6 +112,19 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, and null checks.
 - **Simulation/runtime:** values are resolved with their types before comparison. Inversion applies to one row before combinators.
 - **Example:** `{{status_code}} >= 400` routes errors to `true`.
+
+### Color Match
+
+- **Action type:** `control.color_match`. It uses capability `runtime.color_match`, has low risk, and does not request a permission.
+- **Configuration:** **Actual color**, **Expected color**, **Comparison mode**, and a variable-aware **Tolerance** from `0` through `100` percent.
+- **Accepted colors:** canonical hex such as `#2F80ED`, RGB text such as `rgb(47, 128, 237)`, or a typed RGB object with exactly `r`, `g`, and `b` integer channels from `0` through `255`.
+- **Flow:** `match` runs when the measured difference is less than or equal to the tolerance. `no match` runs for any valid pair outside the tolerance. Exactly one branch runs.
+- **Per channel mode:** compares the largest red, green, or blue channel difference against the percentage tolerance. This is useful when no individual channel may drift too far.
+- **Total RGB distance mode:** compares the normalized three-dimensional distance between the colors. This allows channel differences to contribute to one overall similarity value.
+- **Outputs:** `matches`, `difference_percent`, `red_difference`, `green_difference`, and `blue_difference` remain available to later nodes through the Color Match node ID.
+- **Validation:** `0` percent requires exact equality. `100` percent accepts every pair of valid RGB colors. Invalid or dynamically resolved malformed colors stop the node with an execution error instead of following `no match`.
+- **Get Pixel Color example:** set **Actual color** to `{{n-pixel.rgb}}`, set **Expected color** to `#2F80ED`, choose a comparison mode, and enter the acceptable tolerance. The RGB object is passed directly without converting it to text.
+- **Other examples:** compare two literals such as `#101820` and `rgb(16, 24, 32)`, or compare RGB object variables from any source. Color Match is available on every target runtime because it only compares data and does not read the screen.
 
 ### Switch
 
@@ -184,9 +198,9 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Delay
 
 - **Action type:** `action.delay`; capability `action.delay`; permission `delay`; low risk.
-- **Configuration:** variable-aware positive **Amount** and unit seconds, minutes, hours, or days.
+- **Configuration:** variable-aware positive **Amount** and unit milliseconds, seconds, minutes, hours, or days. The resolved duration must be at least one millisecond.
 - **Output:** none; continues after the cancellable wait.
-- **Simulation:** uses editor step timing plus the configured delay behavior without blocking the UI thread.
+- **Simulation:** validates the resolved duration and records the simulated delay without blocking the UI thread.
 
 ### Beep
 
@@ -346,26 +360,56 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Get Pixel Color
 
 - **Action type:** `action.pixel.get`; capability `action.pixel`; permission `screen_pixel_read`; medium risk; Windows Desktop only; fallible.
-- **Configuration:** variable-aware screen X and Y coordinates.
+- **Configuration:** variable-aware signed integer screen X and Y coordinates from `-2147483648` through `2147483647`.
 - **Outputs:** coordinates, RGB channels, hex color, and error on failure.
 - **Simulation:** deterministic sample color derived for testing, not a real screenshot read.
+- **Runtime:** coordinates use the Windows virtual desktop. Negative values address monitors to the left of or above the primary display. Points in gaps between monitors are rejected.
+- **Tools:** use the desktop runner coordinate picker to select a point and copy its X coordinate, Y coordinate, pair, or sampled color.
 
 ## Input Control
 
-### Clipboard
+### Set Clipboard
 
-- **Action type:** `action.clipboard`; capability `action.clipboard`; permission `write_clipboard`; medium risk; Desktop only; fallible.
+- **Action type:** `action.clipboard.set`; capability `action.clipboard`; permission `write_clipboard`; medium risk; Desktop only; fallible.
 - **Configuration:** variable-aware value to write.
-- **Output:** written length/status or error.
+- **Output:** written text, its UTF-8 byte length, or an error.
 - **Review:** replaces the user's current clipboard and may expose data to other applications.
+
+### Get Clipboard
+
+- **Action type:** `action.clipboard.get`; capability `action.clipboard`; permission `read_clipboard`; medium risk; Desktop only; fallible.
+- **Configuration:** none.
+- **Output:** clipboard text or an error when text is unavailable.
+- **Review:** clipboard text can contain passwords or other sensitive data. Avoid sending it to logs or external services unless that is intentional.
+- **Platform:** requires a signed-in Windows or Linux desktop session with a working native clipboard provider.
 
 ### Keyboard
 
 - **Action type:** `action.keyboard`; capability `action.keyboard`; permission `keyboard_control`; high risk; Windows Desktop only; fallible.
-- **Configuration:** key or combination captured by the editor.
+- **Configuration:** one or more distinct supported keys captured by the editor or added with the key-reference buttons. Separate chord members with `+`, for example `G`, `F1`, `K+L`, or `Ctrl+Shift+S`.
+- **Supported keys:** uses the same [Supported Windows node keys](#supported-windows-node-keys) as the Hotkey trigger. Unsupported names are rejected instead of being guessed.
 - **Platform:** Windows Desktop only.
 - **Output:** sent key/status or error.
-- **Review:** ensure the intended application has focus.
+- **Review:** ensure the intended application has focus. Use Type Text for words and arbitrary text.
+
+#### Supported Windows node keys
+
+Hotkey and Keyboard nodes use one shared Windows key contract. The editor, exported package checks, global hotkey service, and native Keyboard action all validate the same names. The editor captures held keys and also provides a button for every canonical key name.
+
+| Group | Supported canonical names |
+| --- | --- |
+| Modifiers | `Ctrl`, `Alt`, `Shift`, `Windows` |
+| Letters and digits | `A` through `Z`, `0` through `9` |
+| Function | `F1` through `F24` |
+| Navigation and editing | `Escape`, `Enter`, `Space`, `Tab`, `Backspace`, `Delete`, `Insert`, `Home`, `End`, `PageUp`, `PageDown`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight` |
+| System and lock | `CapsLock`, `NumLock`, `ScrollLock`, `PrintScreen`, `Pause`, `ContextMenu` |
+| Punctuation | `Semicolon`, `Equal`, `Comma`, `Minus`, `Period`, `Slash`, `Backquote`, `BracketLeft`, `Backslash`, `BracketRight`, `Quote`, `IntlBackslash` |
+| Numpad | `Numpad0` through `Numpad9`, `NumpadMultiply`, `NumpadAdd`, `NumpadSeparator`, `NumpadSubtract`, `NumpadDecimal`, `NumpadDivide` |
+| Browser | `BrowserBack`, `BrowserForward`, `BrowserRefresh`, `BrowserStop`, `BrowserSearch`, `BrowserFavorites`, `BrowserHome` |
+| Media and volume | `VolumeMute`, `VolumeDown`, `VolumeUp`, `MediaNext`, `MediaPrevious`, `MediaStop`, `MediaPlayPause` |
+| Application launch | `LaunchMail`, `LaunchMedia`, `LaunchApp1`, `LaunchApp2` |
+
+Firmware-managed keys such as `Fn` and Windows secure-attention input such as `Ctrl+Alt+Delete` cannot be captured or generated. Browser, media, and Windows-key combinations may also be reserved by the browser, Windows, or another application. Build those combinations with the key-reference buttons when the browser cannot capture them. For example, pressing `Ctrl+W` normally asks the browser to close the tab, so use the `Ctrl` and `W` buttons instead.
 
 ### Type Text
 
@@ -386,10 +430,11 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Move Mouse
 
 - **Action type:** `action.mouse.move`; capability `action.mouse`; permission `mouse_control`; high risk; Windows Desktop only; fallible.
-- **Configuration:** variable-aware X/Y and relative switch.
+- **Configuration:** variable-aware signed integer X/Y and relative switch.
 - **Output:** final coordinates/movement details or error.
 - **Platform:** Windows Desktop only.
-- **Review:** display scaling and monitor layout affect absolute coordinates.
+- **Runtime:** absolute coordinates use the Windows virtual desktop and must belong to a connected monitor. Relative values remain signed offsets from the current pointer position.
+- **Review:** use the runner Tools tab to inspect monitor ranges and display scaling or select an exact point with the coordinate picker.
 
 ## Scripts and System
 

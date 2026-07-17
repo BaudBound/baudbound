@@ -7,7 +7,19 @@ export const scheduleTriggerNode = defineNode({
 	actionType: "trigger.schedule",
 	capabilities: ["trigger.schedule"],
 	configFields: [
-		{ key: "every", label: "Every", type: "number" },
+		{
+			key: "every",
+			label: "Every",
+			type: "number",
+			numeric: {
+				kind: "float",
+				signed: false,
+				minimum: "0",
+				maximum: "1.7976931348623157e308",
+				minimumInclusive: false,
+				maximumInclusive: true,
+			},
+		},
 		{ key: "unit", label: "Unit", type: "select", options: timeUnitOptions },
 	],
 	defaultConfig: () => ({ every: "5", unit: "minutes" }),

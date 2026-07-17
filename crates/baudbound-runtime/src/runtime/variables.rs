@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 
 use serde_json::{Map, Number, Value};
 
@@ -297,17 +297,6 @@ pub(crate) fn number_value(node: &RuntimeNode, value: f64) -> Result<Value, Runt
             node_id: node.id.clone(),
             message: format!("{value} cannot be represented as a JSON number"),
         })
-}
-
-pub(crate) fn duration_from_amount(amount: f64, unit: &str) -> Duration {
-    let milliseconds = match unit {
-        "millisecond" | "milliseconds" | "ms" => amount,
-        "minute" | "minutes" => amount * 60_000.0,
-        "hour" | "hours" => amount * 3_600_000.0,
-        _ => amount * 1_000.0,
-    };
-
-    Duration::from_millis(milliseconds.max(0.0).round() as u64)
 }
 
 pub(crate) fn value_to_string(value: &Value) -> String {

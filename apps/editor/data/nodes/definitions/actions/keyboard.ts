@@ -1,14 +1,15 @@
 import { Keyboard } from "lucide-react";
 import { defineNode } from "../../node-definition";
+import { validateWindowsKeyExpression } from "../../windows-key-contract";
 import { actionKeyboard } from "../shared";
-import { requiredConfig } from "../validators";
+import { configString, requiredStaticConfig } from "../validators";
 
 export const keyboardNode = defineNode({
 	actionType: "action.keyboard",
 	capabilities: actionKeyboard,
 	configFields: [{ key: "key", label: "Key", type: "text" }],
 	defaultConfig: () => ({ key: "Enter" }),
-	description: "Send keyboard input.",
+	description: "Send a Windows key or key chord.",
 	desktopOnly: true,
 	fallible: true,
 	group: "actions",
@@ -19,7 +20,15 @@ export const keyboardNode = defineNode({
 	risk: "high",
 	runnerType: "press_key",
 	supportedTargetRuntimes: ["Windows Desktop"],
-	validateConfig: (config) => [requiredConfig(config, "key", "keyboard key")].filter(Boolean),
+	validateConfig: (config) => {
+		const requiredError = requiredStaticConfig(config, "key", "keyboard key");
+		if (requiredError) {
+			return [requiredError];
+		}
+
+		const error = validateWindowsKeyExpression(configString(config, "key"));
+		return error ? [error] : [];
+	},
 	simulation: {
 		describe: ({ api, node }) => [
 			{

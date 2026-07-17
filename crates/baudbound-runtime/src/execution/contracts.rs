@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
     RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeSecretDeclaration, RuntimeStateStore,
@@ -8,6 +12,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 pub const SUPPORTED_CONTROL_ACTION_TYPES: &[&str] = &[
+    "control.color_match",
     "control.for_each",
     "control.if",
     "control.loop",
@@ -52,6 +57,16 @@ pub struct RuntimeLogEntry {
     pub level: String,
     pub message: String,
     pub node_id: Option<String>,
+    pub timestamp_unix_ms: u64,
+}
+
+#[must_use]
+pub fn unix_timestamp_millis_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

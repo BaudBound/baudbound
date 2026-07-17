@@ -12,6 +12,45 @@ pub use storage::{
     sqlite::{CURRENT_SCHEMA_VERSION, RunRetentionPolicy, SqliteRunnerStore},
 };
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ApplicationSettings {
+    pub shared: SharedSettings,
+    pub desktop: DesktopSettings,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SharedSettings {
+    pub time_format: TimeFormat,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum TimeFormat {
+    #[serde(rename = "12-hour")]
+    TwelveHour,
+    #[default]
+    #[serde(rename = "24-hour")]
+    TwentyFourHour,
+}
+
+impl TimeFormat {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TwelveHour => "12-hour",
+            Self::TwentyFourHour => "24-hour",
+        }
+    }
+
+    #[must_use]
+    pub fn from_storage(value: &str) -> Option<Self> {
+        match value {
+            "12-hour" => Some(Self::TwelveHour),
+            "24-hour" => Some(Self::TwentyFourHour),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DesktopSettings {
     pub automatic_update_checks: bool,
@@ -102,6 +141,8 @@ pub struct RunLogEntry {
     pub message: String,
     #[serde(default)]
     pub node_id: Option<String>,
+    #[serde(default)]
+    pub timestamp_unix_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

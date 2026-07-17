@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Input } from "@/components/ui/input";
+import { canonicalWindowsKey } from "@/data/nodes/windows-key-contract";
 
 type KeyCaptureInputProps = {
 	label: string;
@@ -10,14 +11,24 @@ type KeyCaptureInputProps = {
 
 export function KeyCaptureInput({ label, value, onChange }: KeyCaptureInputProps) {
 	const inputId = useId();
+	const pressedKeys = useRef<string[]>([]);
 	const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-		const capturedKey = getCapturedKey(event, value);
-		if (!capturedKey) {
+		if ((event.key === "Backspace" || event.key === "Delete") && pressedKeys.current.length === 0 && value.length > 0) {
 			return;
 		}
 
+		const keyName = canonicalWindowsKey(event.key, event.code);
+		if (!keyName) return;
 		event.preventDefault();
-		onChange(capturedKey);
+		if (event.repeat || pressedKeys.current.includes(keyName)) return;
+
+		pressedKeys.current = [...pressedKeys.current, keyName];
+		onChange(formatCapturedKeys(pressedKeys.current));
+	};
+	const handleKeyUp = (event: KeyboardEvent<HTMLInputElement>) => {
+		const keyName = canonicalWindowsKey(event.key, event.code);
+		if (!keyName) return;
+		pressedKeys.current = pressedKeys.current.filter((pressedKey) => pressedKey !== keyName);
 	};
 
 	return (
@@ -30,63 +41,24 @@ export function KeyCaptureInput({ label, value, onChange }: KeyCaptureInputProps
 				value={value}
 				onChange={(event) => onChange(normalizeManualKeyInput(event.target.value))}
 				onKeyDown={handleKeyDown}
-				placeholder="Press a shortcut or type one manually"
+				onKeyUp={handleKeyUp}
+				onBlur={() => {
+					pressedKeys.current = [];
+				}}
+				placeholder="Press a key combination or use the buttons below"
 			/>
 		</div>
 	);
 }
 
-function getCapturedKey(event: KeyboardEvent<HTMLInputElement>, currentValue: string) {
-	if (isModifierKey(event.key)) {
-		return "";
-	}
-
-	if ((event.key === "Backspace" || event.key === "Delete") && currentValue.length > 0) {
-		return "";
-	}
-
-	const keyName = normalizePressedKey(event.key, event.code);
-	const hasModifier = event.ctrlKey || event.altKey || event.shiftKey || event.metaKey;
-	const shouldCapture = hasModifier || isSpecialKey(keyName);
-	if (!shouldCapture) {
-		return "";
-	}
-
-	const parts = [
-		event.ctrlKey ? "Ctrl" : "",
-		event.altKey ? "Alt" : "",
-		event.shiftKey ? "Shift" : "",
-		event.metaKey ? "Meta" : "",
-		keyName,
-	].filter(Boolean);
-
-	return parts.join("+");
-}
-
-function normalizePressedKey(key: string, code: string) {
-	if (code.startsWith("Numpad")) {
-		return code;
-	}
-
-	if (key === " ") {
-		return "Space";
-	}
-
-	if (key.length === 1) {
-		return key.toUpperCase();
-	}
-
-	return key;
+function formatCapturedKeys(keys: string[]) {
+	const modifiers = ["Ctrl", "Alt", "Shift", "Windows"];
+	return [
+		...modifiers.filter((modifier) => keys.includes(modifier)),
+		...keys.filter((key) => !modifiers.includes(key)),
+	].join("+");
 }
 
 function normalizeManualKeyInput(value: string) {
 	return value.length === 1 ? value.toUpperCase() : value;
-}
-
-function isModifierKey(key: string) {
-	return key === "Control" || key === "Alt" || key === "Shift" || key === "Meta";
-}
-
-function isSpecialKey(key: string) {
-	return key.length > 1;
 }

@@ -9,8 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload } from "@/lib/runner-api";
 import { runStatusVariant } from "@/lib/run-inspection";
 import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
+import { useDesktopTime } from "@/lib/time-format";
 
 export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const latestRuns = dashboard.recent_runs.slice(0, 5);
   const scriptsNeedingReview = dashboard.runner.scripts.filter(
     (script) => !isApprovalCurrent(script.approval_status) || script.package_error,
@@ -119,7 +121,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
                 >
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Clock3 className="size-4" />
-                    {formatUnix(run.completed_at_unix)}
+                    {formatUnixSeconds(run.completed_at_unix)}
                   </div>
                   <div className="min-w-0">
                     <div className="truncate font-medium">{scriptName(dashboard, run.script_id)}</div>
@@ -168,8 +170,4 @@ function scriptName(dashboard: DashboardPayload, scriptId: string) {
     dashboard.runner.scripts.find((script) => script.installed.id === scriptId)?.installed.name ??
     scriptId
   );
-}
-
-function formatUnix(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

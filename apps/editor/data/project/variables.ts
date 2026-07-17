@@ -1,4 +1,5 @@
 import type { Node } from "@xyflow/react";
+import { runtimeNumberContract, validateNumericConfigValue } from "@/data/nodes/numeric-validation";
 import type { JsonValue, RuntimeDataType, ScriptNodeData } from "@/lib/types";
 
 export const variableTypes = [
@@ -269,7 +270,9 @@ export function validateVariableValue(type: VariableType, value: string) {
 	}
 
 	if (type === "number") {
-		return Number.isFinite(Number(trimmed)) ? "" : "Number variables must be a finite number, for example 42.";
+		return validateNumericConfigValue(trimmed, runtimeNumberContract)
+			? "Number variables must be a finite decimal number within the supported runtime range, for example 42."
+			: "";
 	}
 
 	if (type === "boolean") {

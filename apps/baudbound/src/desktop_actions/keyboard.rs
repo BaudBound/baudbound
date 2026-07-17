@@ -2,6 +2,10 @@ use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionR
 use enigo::{Direction, Enigo, Key, Keyboard};
 use serde_json::{Map, Number, Value};
 
+mod keymap;
+
+use keymap::{ParsedKeyCombo, parse_key_combo};
+
 use super::{
     config::{failed_error, required_string},
     input::native_input,
@@ -11,11 +15,17 @@ pub(super) fn run_keyboard(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let key = required_string(request, "key")?;
+    let combo = parse_key_combo(&key).map_err(|message| {
+        failed_error(
+            request,
+            format!("invalid keyboard key expression: {message}"),
+        )
+    })?;
     let mut enigo = native_input(request)?;
-    press_key_combo(request, &mut enigo, &key)?;
+    press_key_combo(request, &mut enigo, &combo)?;
 
     Ok(RuntimeActionResult {
-        output_data: Map::from_iter([("key".to_owned(), Value::String(key))]),
+        output_data: Map::from_iter([("key".to_owned(), Value::String(combo.expression.clone()))]),
     })
 }
 
@@ -42,73 +52,54 @@ pub(super) fn run_keyboard_type_text(
 fn press_key_combo(
     request: &RuntimeActionRequest,
     enigo: &mut Enigo,
-    combo: &str,
+    combo: &ParsedKeyCombo,
 ) -> Result<(), RuntimeActionError> {
-    let parts = combo
-        .split('+')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    let Some((key, modifiers)) = parts.split_last() else {
-        return Err(failed_error(request, "keyboard key cannot be empty"));
+    let Some((last_key, held_keys)) = combo.keys.split_last() else {
+        return Err(failed_error(request, "key chord is empty"));
     };
+    let mut pressed_keys = Vec::new();
+    for key in held_keys {
+        if let Err(source) = enigo.key(*key, Direction::Press) {
+            let release_error = release_keys(enigo, &pressed_keys);
+            let detail = release_error.map_or_else(
+                || source.to_string(),
+                |release| format!("{source}; key cleanup also failed: {release}"),
+            );
+            return Err(failed_error(request, format!("key press failed: {detail}")));
+        }
+        pressed_keys.push(*key);
+    }
 
-    for modifier in modifiers {
-        enigo
-            .key(key_token(modifier), Direction::Press)
-            .map_err(|source| failed_error(request, format!("modifier press failed: {source}")))?;
+    let key_error = enigo
+        .key(*last_key, Direction::Click)
+        .err()
+        .map(|source| source.to_string());
+    let release_error = release_keys(enigo, &pressed_keys);
+
+    if let Some(source) = key_error {
+        let detail = release_error.map_or(source.clone(), |release| {
+            format!("{source}; key cleanup also failed: {release}")
+        });
+        return Err(failed_error(request, format!("key press failed: {detail}")));
     }
-    enigo
-        .key(key_token(key), Direction::Click)
-        .map_err(|source| failed_error(request, format!("key press failed: {source}")))?;
-    for modifier in modifiers.iter().rev() {
-        enigo
-            .key(key_token(modifier), Direction::Release)
-            .map_err(|source| {
-                failed_error(request, format!("modifier release failed: {source}"))
-            })?;
+    if let Some(source) = release_error {
+        return Err(failed_error(
+            request,
+            format!("key release failed: {source}"),
+        ));
     }
+
     Ok(())
 }
 
-fn key_token(value: &str) -> Key {
-    match value.trim() {
-        "Alt" | "AltLeft" | "AltRight" => Key::Alt,
-        "Backspace" => Key::Backspace,
-        "CapsLock" => Key::CapsLock,
-        "Control" | "Ctrl" | "ControlLeft" | "ControlRight" => Key::Control,
-        "Delete" => Key::Delete,
-        "Down" | "ArrowDown" => Key::DownArrow,
-        "Enter" | "NumpadEnter" => Key::Return,
-        "Escape" => Key::Escape,
-        "F1" => Key::F1,
-        "F2" => Key::F2,
-        "F3" => Key::F3,
-        "F4" => Key::F4,
-        "F5" => Key::F5,
-        "F6" => Key::F6,
-        "F7" => Key::F7,
-        "F8" => Key::F8,
-        "F9" => Key::F9,
-        "F10" => Key::F10,
-        "F11" => Key::F11,
-        "F12" => Key::F12,
-        "Home" => Key::Home,
-        "Left" | "ArrowLeft" => Key::LeftArrow,
-        "Meta" | "Super" | "Windows" | "Command" => Key::Meta,
-        "PageDown" => Key::PageDown,
-        "PageUp" => Key::PageUp,
-        "Right" | "ArrowRight" => Key::RightArrow,
-        "Shift" | "ShiftLeft" | "ShiftRight" => Key::Shift,
-        "Space" => Key::Space,
-        "Tab" => Key::Tab,
-        "Up" | "ArrowUp" => Key::UpArrow,
-        other => {
-            let mut chars = other.chars();
-            match (chars.next(), chars.next()) {
-                (Some(character), None) => Key::Unicode(character),
-                _ => Key::Unicode(other.chars().next().unwrap_or_default()),
-            }
+fn release_keys(enigo: &mut Enigo, keys: &[Key]) -> Option<String> {
+    let mut first_error = None;
+    for key in keys.iter().rev() {
+        if let Err(source) = enigo.key(*key, Direction::Release)
+            && first_error.is_none()
+        {
+            first_error = Some(source.to_string());
         }
     }
+    first_error
 }

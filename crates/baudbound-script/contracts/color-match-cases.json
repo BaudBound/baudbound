@@ -1,0 +1,56 @@
+[
+	{
+		"name": "exact hex colors",
+		"actual": "#102030",
+		"expected": "#102030",
+		"mode": "per_channel",
+		"tolerance_percent": 0,
+		"difference_percent": 0,
+		"matches": true
+	},
+	{
+		"name": "per-channel threshold inclusive",
+		"actual": "rgb(255, 20, 30)",
+		"expected": { "r": 230, "g": 20, "b": 30 },
+		"mode": "per_channel",
+		"tolerance_percent": 9.803921568627452,
+		"difference_percent": 9.803921568627452,
+		"matches": true
+	},
+	{
+		"name": "per-channel threshold exceeded",
+		"actual": { "r": 255, "g": 20, "b": 30 },
+		"expected": "#E6141E",
+		"mode": "per_channel",
+		"tolerance_percent": 9.8,
+		"difference_percent": 9.803921568627452,
+		"matches": false
+	},
+	{
+		"name": "total-distance red channel",
+		"actual": "#FF0000",
+		"expected": "rgb(0, 0, 0)",
+		"mode": "total_distance",
+		"tolerance_percent": 57.73502691896258,
+		"difference_percent": 57.73502691896258,
+		"matches": true
+	},
+	{
+		"name": "total-distance threshold exceeded",
+		"actual": "#FF0000",
+		"expected": { "r": 0, "g": 0, "b": 0 },
+		"mode": "total_distance",
+		"tolerance_percent": 57.7,
+		"difference_percent": 57.73502691896258,
+		"matches": false
+	},
+	{
+		"name": "maximum total distance",
+		"actual": "#FFFFFF",
+		"expected": "#000000",
+		"mode": "total_distance",
+		"tolerance_percent": 100,
+		"difference_percent": 100,
+		"matches": true
+	}
+]

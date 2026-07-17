@@ -1,5 +1,10 @@
-use std::{collections::BTreeMap, time::SystemTime};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::OnceLock,
+    time::SystemTime,
+};
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -144,118 +149,234 @@ impl HotkeySpec {
 }
 
 fn normalize_hotkey(input: &str) -> Result<String, String> {
-    let mut ctrl = false;
-    let mut alt = false;
-    let mut shift = false;
-    let mut meta = false;
-    let mut primary_key = None::<String>;
+    parse_hotkey(input).map(|hotkey| hotkey.expression)
+}
 
-    for part in input
-        .split(['+', '-'])
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-    {
-        match normalized_hotkey_token(part).as_str() {
-            "Ctrl" => ctrl = true,
-            "Alt" => alt = true,
-            "Shift" => shift = true,
-            "Meta" => meta = true,
-            token if primary_key.is_none() => primary_key = Some(token.to_owned()),
-            token => {
-                return Err(format!(
-                    "hotkey {input:?} contains multiple primary keys ({:?} and {token:?})",
-                    primary_key.unwrap_or_default()
-                ));
-            }
-        }
-    }
+pub(crate) const MODIFIER_CTRL: u8 = 1;
+pub(crate) const MODIFIER_ALT: u8 = 2;
+pub(crate) const MODIFIER_SHIFT: u8 = 4;
+pub(crate) const MODIFIER_WINDOWS: u8 = 8;
 
-    let primary_key =
-        primary_key.ok_or_else(|| format!("hotkey {input:?} must include a primary key"))?;
-    if !is_supported_primary_key(&primary_key) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedHotkey {
+    pub(crate) expression: String,
+    pub(crate) modifiers: u8,
+    pub(crate) virtual_keys: Vec<u32>,
+}
+
+pub(crate) fn parse_hotkey(input: &str) -> Result<ParsedHotkey, String> {
+    let catalog = hotkey_catalog()?;
+    let parts = input.split(['+', '-']).map(str::trim).collect::<Vec<_>>();
+    if parts.is_empty() || parts.iter().any(|part| part.is_empty()) {
         return Err(format!(
-            "hotkey key {primary_key:?} is not supported; use A-Z, 0-9, F1-F24, or a supported navigation key"
+            "hotkey {input:?} must contain at least one supported key"
         ));
     }
-    let mut parts = Vec::new();
-    if ctrl {
-        parts.push("Ctrl".to_owned());
-    }
-    if alt {
-        parts.push("Alt".to_owned());
-    }
-    if shift {
-        parts.push("Shift".to_owned());
-    }
-    if meta {
-        parts.push("Meta".to_owned());
-    }
-    parts.push(primary_key);
+    let mut modifiers = 0;
+    let mut selected_keys = BTreeMap::<String, u32>::new();
 
-    Ok(parts.join("+"))
-}
-
-fn is_supported_primary_key(key: &str) -> bool {
-    if key.len() == 1 {
-        let byte = key.as_bytes()[0];
-        return byte.is_ascii_uppercase() || byte.is_ascii_digit();
-    }
-
-    if let Some(number) = key
-        .strip_prefix('F')
-        .and_then(|value| value.parse::<u8>().ok())
-    {
-        return (1..=24).contains(&number);
-    }
-
-    matches!(
-        key,
-        "Escape"
-            | "Enter"
-            | "Space"
-            | "Tab"
-            | "Backspace"
-            | "Delete"
-            | "Insert"
-            | "Home"
-            | "End"
-            | "PageUp"
-            | "PageDown"
-            | "ArrowUp"
-            | "ArrowDown"
-            | "ArrowLeft"
-            | "ArrowRight"
-    )
-}
-
-fn normalized_hotkey_token(input: &str) -> String {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "ctrl" | "control" => "Ctrl".to_owned(),
-        "alt" | "option" => "Alt".to_owned(),
-        "shift" => "Shift".to_owned(),
-        "meta" | "cmd" | "command" | "win" | "windows" | "super" => "Meta".to_owned(),
-        "esc" | "escape" => "Escape".to_owned(),
-        "return" | "enter" => "Enter".to_owned(),
-        "space" | "spacebar" => "Space".to_owned(),
-        "tab" => "Tab".to_owned(),
-        "backspace" => "Backspace".to_owned(),
-        "delete" | "del" => "Delete".to_owned(),
-        "insert" | "ins" => "Insert".to_owned(),
-        "home" => "Home".to_owned(),
-        "end" => "End".to_owned(),
-        "pageup" | "page_up" | "page up" => "PageUp".to_owned(),
-        "pagedown" | "page_down" | "page down" => "PageDown".to_owned(),
-        "up" | "arrowup" | "arrow up" => "ArrowUp".to_owned(),
-        "down" | "arrowdown" | "arrow down" => "ArrowDown".to_owned(),
-        "left" | "arrowleft" | "arrow left" => "ArrowLeft".to_owned(),
-        "right" | "arrowright" | "arrow right" => "ArrowRight".to_owned(),
-        token if token.len() == 1 => token.to_ascii_uppercase(),
-        token => {
-            let mut chars = token.chars();
-            let Some(first) = chars.next() else {
-                return String::new();
-            };
-            format!("{}{}", first.to_uppercase(), chars.as_str())
+    for part in parts {
+        let token = normalize_contract_token(part);
+        if let Some(modifier) = catalog.modifiers_by_alias.get(&token) {
+            if modifiers & modifier.mask != 0 {
+                return Err(format!(
+                    "hotkey {input:?} contains modifier {:?} more than once",
+                    modifier.canonical
+                ));
+            }
+            modifiers |= modifier.mask;
+            continue;
+        }
+        let key = catalog.keys_by_alias.get(&token).ok_or_else(|| {
+            format!("hotkey key {part:?} is not supported by the Windows key contract")
+        })?;
+        if selected_keys
+            .insert(key.canonical.clone(), key.virtual_key)
+            .is_some()
+        {
+            return Err(format!(
+                "hotkey {input:?} contains key {:?} more than once",
+                key.canonical
+            ));
         }
     }
+
+    let mut expression = Vec::new();
+    for modifier in &catalog.modifiers {
+        if modifiers & modifier.mask != 0 {
+            expression.push(modifier.canonical.clone());
+        }
+    }
+    expression.extend(selected_keys.keys().cloned());
+
+    let mut virtual_keys = selected_keys.into_values().collect::<Vec<_>>();
+    virtual_keys.sort_unstable();
+
+    Ok(ParsedHotkey {
+        expression: expression.join("+"),
+        modifiers,
+        virtual_keys,
+    })
+}
+
+pub(crate) fn modifier_virtual_keys() -> Result<&'static BTreeMap<u32, u8>, String> {
+    hotkey_catalog().map(|catalog| &catalog.modifier_virtual_keys)
+}
+
+#[derive(Debug, Deserialize)]
+struct HotkeyContract {
+    version: u32,
+    modifiers: Vec<ContractModifier>,
+    keys: Vec<ContractKey>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContractModifier {
+    canonical: String,
+    aliases: Vec<String>,
+    virtual_keys: Vec<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContractKey {
+    canonical: String,
+    aliases: Vec<String>,
+    virtual_key: u32,
+}
+
+#[derive(Debug)]
+struct CatalogModifier {
+    canonical: String,
+    mask: u8,
+}
+
+#[derive(Debug)]
+struct HotkeyCatalog {
+    modifiers: Vec<CatalogModifier>,
+    modifiers_by_alias: BTreeMap<String, CatalogModifier>,
+    modifier_virtual_keys: BTreeMap<u32, u8>,
+    keys_by_alias: BTreeMap<String, ContractKey>,
+}
+
+fn hotkey_catalog() -> Result<&'static HotkeyCatalog, String> {
+    static CATALOG: OnceLock<Result<HotkeyCatalog, String>> = OnceLock::new();
+    CATALOG
+        .get_or_init(build_hotkey_catalog)
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn build_hotkey_catalog() -> Result<HotkeyCatalog, String> {
+    let contract: HotkeyContract = serde_json::from_str(include_str!(
+        "../../../baudbound-script/contracts/windows-keyboard-keys.json"
+    ))
+    .map_err(|error| format!("Windows hotkey key contract is invalid: {error}"))?;
+    if contract.version != 1 {
+        return Err(format!(
+            "Windows hotkey key contract version {} is not supported",
+            contract.version
+        ));
+    }
+
+    if contract.modifiers.len() != 4 {
+        return Err("Windows hotkey key contract must define four modifiers".to_owned());
+    }
+    let mut modifiers = Vec::new();
+    let mut modifiers_by_alias = BTreeMap::new();
+    let mut modifier_virtual_keys = BTreeMap::new();
+    let mut declared_modifier_masks = BTreeSet::new();
+    for modifier in contract.modifiers {
+        let mask = match modifier.canonical.as_str() {
+            "Ctrl" => MODIFIER_CTRL,
+            "Alt" => MODIFIER_ALT,
+            "Shift" => MODIFIER_SHIFT,
+            "Windows" => MODIFIER_WINDOWS,
+            unsupported => {
+                return Err(format!(
+                    "Windows hotkey contract contains unsupported modifier {unsupported:?}"
+                ));
+            }
+        };
+        if !declared_modifier_masks.insert(mask) {
+            return Err(format!(
+                "Windows hotkey contract contains duplicate modifier {:?}",
+                modifier.canonical
+            ));
+        }
+        let catalog_modifier = CatalogModifier {
+            canonical: modifier.canonical.clone(),
+            mask,
+        };
+        for alias in std::iter::once(&modifier.canonical).chain(&modifier.aliases) {
+            insert_unique(
+                &mut modifiers_by_alias,
+                normalize_contract_token(alias),
+                CatalogModifier {
+                    canonical: modifier.canonical.clone(),
+                    mask,
+                },
+                "modifier alias",
+            )?;
+        }
+        for virtual_key in modifier.virtual_keys {
+            insert_unique(
+                &mut modifier_virtual_keys,
+                virtual_key,
+                mask,
+                "modifier virtual key",
+            )?;
+        }
+        modifiers.push(catalog_modifier);
+    }
+    modifiers.sort_by_key(|modifier| modifier.mask);
+
+    let mut keys_by_alias = BTreeMap::new();
+    for key in contract.keys {
+        let aliases = std::iter::once(&key.canonical)
+            .chain(&key.aliases)
+            .map(|alias| normalize_contract_token(alias))
+            .collect::<BTreeSet<_>>();
+        for alias in aliases {
+            insert_unique(
+                &mut keys_by_alias,
+                alias,
+                ContractKey {
+                    canonical: key.canonical.clone(),
+                    aliases: Vec::new(),
+                    virtual_key: key.virtual_key,
+                },
+                "key alias",
+            )?;
+        }
+    }
+
+    Ok(HotkeyCatalog {
+        modifiers,
+        modifiers_by_alias,
+        modifier_virtual_keys,
+        keys_by_alias,
+    })
+}
+
+fn insert_unique<K: Ord, V>(
+    values: &mut BTreeMap<K, V>,
+    key: K,
+    value: V,
+    label: &str,
+) -> Result<(), String> {
+    if values.insert(key, value).is_some() {
+        return Err(format!(
+            "Windows hotkey contract contains a duplicate {label}"
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_contract_token(input: &str) -> String {
+    input
+        .trim()
+        .chars()
+        .filter(|character| !matches!(character, ' ' | '_'))
+        .flat_map(char::to_lowercase)
+        .collect()
 }

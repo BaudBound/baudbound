@@ -16,6 +16,7 @@ mod output;
 mod paths;
 mod secrets;
 mod service;
+mod time_format;
 
 use cli::{Cli, Command};
 
@@ -152,6 +153,9 @@ fn dispatch_command(
         }
         Command::Secret { command } => {
             commands::secret::handle_secret_command(core, store, command)
+        }
+        Command::Settings { command } => {
+            commands::settings::handle_settings_command(store, command)
         }
     }
 }

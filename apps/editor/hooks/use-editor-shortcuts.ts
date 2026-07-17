@@ -16,7 +16,7 @@ export function useEditorShortcuts({
 }) {
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (!(event.ctrlKey || event.metaKey)) return;
+			if (!event.ctrlKey) return;
 
 			const key = event.key.toLowerCase();
 			if (key === "s") {

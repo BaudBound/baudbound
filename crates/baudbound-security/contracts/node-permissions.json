@@ -22,7 +22,14 @@
 			},
 			"path_rules": []
 		},
-		"action.clipboard": {
+		"action.clipboard.get": {
+			"permission": {
+				"name": "read_clipboard",
+				"risk": "medium"
+			},
+			"path_rules": []
+		},
+		"action.clipboard.set": {
 			"permission": {
 				"name": "write_clipboard",
 				"risk": "medium"
@@ -256,6 +263,10 @@
 				"name": "window_focus",
 				"risk": "high"
 			},
+			"path_rules": []
+		},
+		"control.color_match": {
+			"permission": null,
 			"path_rules": []
 		},
 		"control.for_each": {

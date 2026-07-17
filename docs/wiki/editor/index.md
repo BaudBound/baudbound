@@ -71,13 +71,13 @@ Keyboard copy and paste use `Ctrl+C` and `Ctrl+V`. When the pointer is over the 
 
 Deleting an executable node also removes connected edges. Deleting a comment does not affect executable flow.
 
-Use `Ctrl+Z` to undo and `Ctrl+Y` or `Ctrl+Shift+Z` to redo project changes. The toolbar provides the same commands and disables them when no matching history entry exists. Changes inside a focused text or code field keep the browser control's normal text-level undo behavior.
+Use `Ctrl+Z` to undo and `Ctrl+Y` or `Ctrl+Shift+Z` to redo project changes. Use `Ctrl+S` to save. The toolbar provides the same commands and disables them when no matching history entry exists. Changes inside a focused text or code field keep the browser control's normal text-level undo behavior.
 
 ## Context menus and key capture
 
 Canvas context menus apply to the object under the pointer. `Escape` closes an open canvas menu.
 
-Hotkey and Keyboard node fields use a key-capture control. Focus that control before pressing the intended combination. Ordinary editor shortcuts are suppressed while an editable field has focus, preventing a captured `Ctrl+C` from copying a node.
+Hotkey and Keyboard node fields use a key-capture control. Focus that control before pressing the intended combination. Ordinary editor shortcuts are suppressed while an editable field has focus, preventing a captured `Ctrl+C` from copying a node. Both nodes use the exact Windows names documented in the [node key reference](node-reference.md#supported-windows-node-keys).
 
 ## Comments
 

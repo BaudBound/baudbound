@@ -36,6 +36,7 @@ struct TriggerRegistrationSet {
 }
 
 struct ReusableTriggerServices {
+    native_hotkey: Option<NativeHotkeyService>,
     process_started: Option<ProcessStartedService>,
     schedules: Option<ScheduleService>,
     webhook: Option<WebhookHost>,
@@ -45,6 +46,7 @@ struct ReusableTriggerServices {
 impl ReusableTriggerServices {
     fn empty() -> Self {
         Self {
+            native_hotkey: None,
             process_started: None,
             schedules: None,
             webhook: None,
@@ -54,6 +56,10 @@ impl ReusableTriggerServices {
 
     fn take_from(current: &mut TriggerServices, options: &ServeOptions) -> Self {
         Self {
+            native_hotkey: Some(std::mem::replace(
+                &mut current.native_hotkey_service,
+                NativeHotkeyService::empty(),
+            )),
             process_started: Some(std::mem::replace(
                 &mut current.process_started_service,
                 ProcessStartedService::empty(),
@@ -165,10 +171,6 @@ pub(super) fn reload_trigger_services_if_changed(
         &mut current.file_watch_service,
         FileWatchService::empty(),
     ));
-    drop(std::mem::replace(
-        &mut current.native_hotkey_service,
-        NativeHotkeyService::empty(),
-    ));
     let reusable = ReusableTriggerServices::take_from(&mut current, options);
     let mut services = build_trigger_services(
         core,
@@ -193,6 +195,7 @@ fn build_trigger_services(
     reusable: ReusableTriggerServices,
 ) -> Result<TriggerServices> {
     let ReusableTriggerServices {
+        native_hotkey: previous_native_hotkey_service,
         process_started: previous_process_started_service,
         schedules: previous_schedules,
         webhook: previous_webhook_host,
@@ -250,9 +253,12 @@ fn build_trigger_services(
     } else {
         HotkeyService::empty()
     };
-    let native_hotkey_service =
-        NativeHotkeyService::start(registrations.clone(), trigger_sender.clone())
-            .context("failed to register native hotkey triggers")?;
+    let native_hotkey_service = NativeHotkeyService::start_or_reconfigure(
+        registrations.clone(),
+        trigger_sender.clone(),
+        previous_native_hotkey_service,
+    )
+    .context("failed to register native hotkey triggers")?;
     let websocket_service = if options.websockets_enabled {
         WebSocketService::start_or_reconfigure(
             registrations.clone(),

@@ -1,3 +1,4 @@
+import { runtimeNumberContract, validateNumericConfigValue } from "@/data/nodes/numeric-validation";
 import { type VariableType, validateVariableName } from "@/data/project/variables";
 import type { JsonValue, SecretDeclaration } from "@/lib/types";
 
@@ -28,8 +29,7 @@ export function parseSecretSimulationValue(type: VariableType, rawValue: string)
 		return rawValue;
 	}
 	if (type === "number") {
-		const value = Number(rawValue);
-		return Number.isFinite(value) ? value : undefined;
+		return validateNumericConfigValue(rawValue, runtimeNumberContract) ? undefined : Number(rawValue);
 	}
 	if (type === "boolean") {
 		return rawValue === "true" ? true : rawValue === "false" ? false : undefined;

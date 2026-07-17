@@ -17,6 +17,7 @@ mod variable_operations;
 
 #[test]
 fn executes_manual_log_and_variable_operation() {
+    let started_at_unix_ms = unix_timestamp_millis_now();
     let report = execute_manual_program(
             &json!({
                 "entry": {
@@ -74,6 +75,7 @@ fn executes_manual_log_and_variable_operation() {
             "script-1",
         )
         .expect("program should execute");
+    let completed_at_unix_ms = unix_timestamp_millis_now();
 
     assert_eq!(
         report.variables.get("foo"),
@@ -85,6 +87,9 @@ fn executes_manual_log_and_variable_operation() {
             .iter()
             .any(|log| log.message == "foo=bar length=3")
     );
+    assert!(report.logs.iter().all(|log| {
+        log.timestamp_unix_ms >= started_at_unix_ms && log.timestamp_unix_ms <= completed_at_unix_ms
+    }));
 }
 
 #[test]
@@ -469,6 +474,40 @@ fn executes_fixed_count_loop_body_and_done_branch() {
 }
 
 #[test]
+fn rejects_fractional_loop_count_resolved_from_a_variable() {
+    let error = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-count", "count", "set", "number", 1.5),
+                        {
+                            "id": "n-loop",
+                            "action_type": "control.loop",
+                            "type": "loop",
+                            "config": { "count": "{{count}}" },
+                            "runtime_outputs": []
+                        },
+                        log_node("n-body", "must not execute")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-count"),
+                        edge("n-count", "out", "n-loop"),
+                        edge("n-loop", "loop", "n-body")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect_err("fractional loop count must not be truncated");
+
+    assert!(error.to_string().contains("whole non-negative integer"));
+}
+
+#[test]
 fn executes_while_until_condition_fails() {
     let report = execute_manual_program(
         &json!({
@@ -708,6 +747,194 @@ fn executes_external_action_handler_and_exposes_output_reference() {
             .logs
             .iter()
             .any(|log| log.message == "external=hello")
+    );
+}
+
+#[test]
+fn rejects_out_of_range_resolved_numeric_config_before_action_dispatch() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[derive(Debug)]
+    struct TrackingActionHandler(AtomicBool);
+
+    impl RuntimeActionHandler for TrackingActionHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(RuntimeActionResult {
+                output_data: Map::new(),
+            })
+        }
+    }
+
+    let handler = TrackingActionHandler(AtomicBool::new(false));
+    let error = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-frequency", "frequency", "set", "number", 25_000),
+                        {
+                            "id": "n-beep",
+                            "action_type": "action.beep",
+                            "type": "action",
+                            "action": "beep",
+                            "config": {
+                                "frequencyHz": "{{frequency}}",
+                                "durationMs": "200"
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-frequency"),
+                        edge("n-frequency", "out", "n-beep")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+        &handler,
+    )
+    .expect_err("resolved frequency outside the contract must fail");
+
+    assert!(error.to_string().contains("at most 20000"));
+    assert!(!handler.0.load(Ordering::SeqCst));
+}
+
+#[test]
+fn rejects_out_of_range_resolved_screen_coordinate_before_action_dispatch() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[derive(Debug)]
+    struct TrackingActionHandler(AtomicBool);
+
+    impl RuntimeActionHandler for TrackingActionHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(RuntimeActionResult {
+                output_data: Map::new(),
+            })
+        }
+    }
+
+    let handler = TrackingActionHandler(AtomicBool::new(false));
+    let error = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-x", "screen_x", "set", "string", "2147483648"),
+                        {
+                            "id": "n-pixel",
+                            "action_type": "action.pixel.get",
+                            "type": "action",
+                            "action": "get_pixel_color",
+                            "config": {
+                                "x": "{{screen_x}}",
+                                "y": "-120"
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-x"),
+                        edge("n-x", "out", "n-pixel")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+        &handler,
+    )
+    .expect_err("resolved coordinate outside i32 must fail");
+
+    assert!(error.to_string().contains("at most 2147483647"));
+    assert!(!handler.0.load(Ordering::SeqCst));
+}
+
+#[test]
+fn preserves_negative_screen_coordinates_through_runtime_dispatch() {
+    use std::sync::Mutex;
+
+    #[derive(Debug, Default)]
+    struct RecordingActionHandler(Mutex<Vec<RuntimeActionRequest>>);
+
+    impl RuntimeActionHandler for RecordingActionHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            self.0
+                .lock()
+                .expect("request recorder should lock")
+                .push(request.clone());
+            Ok(RuntimeActionResult {
+                output_data: Map::new(),
+            })
+        }
+    }
+
+    let handler = RecordingActionHandler::default();
+    execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-pixel",
+                            "action_type": "action.pixel.get",
+                            "type": "action",
+                            "action": "get_pixel_color",
+                            "config": { "x": "-1920", "y": "-120" },
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-mouse",
+                            "action_type": "action.mouse.move",
+                            "type": "action",
+                            "action": "move_mouse",
+                            "config": { "relative": false, "x": "-1600", "y": "-80" },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-pixel"),
+                        edge("n-pixel", "success", "n-mouse")
+                    ]
+                }
+            }
+        }),
+        "script-negative-coordinates",
+        &handler,
+    )
+    .expect("negative signed coordinates should reach the action dispatcher");
+
+    let requests = handler.0.lock().expect("request recorder should lock");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].action_type, "action.pixel.get");
+    assert_eq!(requests[0].config.get("x"), Some(&json!("-1920")));
+    assert_eq!(requests[0].config.get("y"), Some(&json!("-120")));
+    assert_eq!(requests[1].action_type, "action.mouse.move");
+    assert_eq!(requests[1].config.get("x"), Some(&json!("-1600")));
+    assert_eq!(requests[1].config.get("y"), Some(&json!("-80")));
+    assert_eq!(
+        requests[1].config.get("relative"),
+        Some(&Value::Bool(false))
     );
 }
 

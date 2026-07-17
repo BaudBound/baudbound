@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 import { GripVertical, Info, Plus, Trash2, X } from "lucide-react";
 import { Fragment, type ReactNode, type PointerEvent as ReactPointerEvent, useEffect, useId, useState } from "react";
 import { CopyTextButton } from "@/components/common/copy-text-button";
+import { ColorConfigInput } from "@/components/inspector/color-config-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OptionCombobox } from "@/components/ui/option-combobox";
@@ -359,7 +360,12 @@ function PropertiesPanel({
 
 			<RuntimeDataPanel selectedNode={selectedNode} />
 
-			{showsKeyReference && <KeyReferencePanel />}
+			{showsKeyReference && (
+				<KeyReferencePanel
+					value={getConfiguredKey(selectedNode.data.config)}
+					onChange={(value) => onUpdateNodeConfig(selectedNode.id, "key", value)}
+				/>
+			)}
 
 			<div className="rounded border border-baud-border bg-baud-soft p-3 text-xs leading-5 text-baud-muted">
 				{selectedNode.data.kind === "trigger" && "Entry point. Defines when the script starts."}
@@ -386,7 +392,9 @@ function ConfigField({
 	return (
 		<div>
 			<span className="mb-1 block font-mono text-sm text-baud-muted">{field.label}</span>
-			{field.type === "select" ? (
+			{field.colorPicker ? (
+				<ColorConfigInput label={field.label} value={inputValue} variables={variableCompletions} onChange={onChange} />
+			) : field.type === "select" ? (
 				<ComboboxField value={inputValue} options={field.options ?? []} onChange={onChange} />
 			) : field.type === "switch" ? (
 				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg border border-baud-border bg-baud-panel/70 px-3 py-2 transition-colors hover:border-baud-line">
@@ -1127,8 +1135,21 @@ function NodeSpecificHelp({ actionType }: { actionType: ActionType }) {
 		);
 	}
 
-	if (actionType === "trigger.hotkey" || actionType === "action.keyboard") {
-		return null;
+	if (actionType === "trigger.hotkey") {
+		return (
+			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
+				Press any supported keys together to create a global chord. Windows Desktop supports letters, digits, function,
+				navigation, punctuation, numpad, media, browser, and application-launch keys.
+			</p>
+		);
+	}
+
+	if (actionType === "action.keyboard") {
+		return (
+			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
+				Presses any supported Windows key chord. Use Type Text when you need to enter words or arbitrary text.
+			</p>
+		);
 	}
 
 	if (actionType === "control.loop") {

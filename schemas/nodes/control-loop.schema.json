@@ -43,7 +43,9 @@
 				"count": {
 					"anyOf": [
 						{
-							"type": "number"
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 18446744073709552000
 						},
 						{
 							"type": "string",

@@ -1,13 +1,86 @@
 use crate::runtime::{
     RuntimeConditionRow, RuntimeSwitchCaseRow, compare_condition_values, config_string,
-    number_from_value, required_config_string, resolve_template_value, value_kind,
+    required_config_string, resolve_config_map, resolve_template_value, value_kind,
     values_equal_for_condition,
 };
+use serde_json::Number;
 use serde_json::Value;
 
 use super::{RuntimeError, RuntimeExecutor, RuntimeNode};
 
 impl RuntimeExecutor<'_> {
+    pub(super) fn evaluate_color_match(
+        &mut self,
+        node: &RuntimeNode,
+    ) -> Result<bool, RuntimeError> {
+        let config = resolve_config_map(&node.config, &self.context.variables);
+        baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
+            |message| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message,
+            },
+        )?;
+        let actual = config
+            .get("actualColor")
+            .ok_or_else(|| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message: "actual color is required".to_owned(),
+            })?;
+        let expected = config
+            .get("expectedColor")
+            .ok_or_else(|| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message: "expected color is required".to_owned(),
+            })?;
+        let mode = config
+            .get("comparisonMode")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message: "comparison mode is required".to_owned(),
+            })
+            .and_then(|value| {
+                baudbound_script::ColorComparisonMode::parse(value).map_err(|message| {
+                    RuntimeError::ControlFlow {
+                        node_id: node.id.clone(),
+                        message,
+                    }
+                })
+            })?;
+        let tolerance = crate::runtime::number_from_value(config.get("tolerancePercent"))
+            .ok_or_else(|| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message: "tolerance must be a finite percentage from 0 through 100".to_owned(),
+            })?;
+        let evaluation = baudbound_script::evaluate_color_match(actual, expected, mode, tolerance)
+            .map_err(|message| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message,
+            })?;
+
+        self.set_variable(
+            format!("{}.matches", node.id),
+            Value::Bool(evaluation.matches),
+        );
+        self.set_variable(
+            format!("{}.difference_percent", node.id),
+            color_match_number(node, evaluation.difference_percent)?,
+        );
+        self.set_variable(
+            format!("{}.red_difference", node.id),
+            Value::from(evaluation.red_difference),
+        );
+        self.set_variable(
+            format!("{}.green_difference", node.id),
+            Value::from(evaluation.green_difference),
+        );
+        self.set_variable(
+            format!("{}.blue_difference", node.id),
+            Value::from(evaluation.blue_difference),
+        );
+        Ok(evaluation.matches)
+    }
+
     pub(super) fn evaluate_conditions(&self, node: &RuntimeNode) -> Result<bool, RuntimeError> {
         let conditions = node
             .config
@@ -106,13 +179,22 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn loop_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
-        let raw_count = node.config.get("count").cloned().unwrap_or(Value::Null);
-        let value = match raw_count {
-            Value::String(template) => resolve_template_value(&template, &self.context.variables),
-            other => other,
-        };
-        let count = number_from_value(Some(&value)).unwrap_or(0.0);
-        Ok(count.max(0.0).trunc() as u64)
+        let config = resolve_config_map(&node.config, &self.context.variables);
+        baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
+            |message| RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message,
+            },
+        )?;
+        match config.get("count") {
+            Some(Value::Number(value)) => value.as_u64(),
+            Some(Value::String(value)) => value.trim().parse::<u64>().ok(),
+            _ => None,
+        }
+        .ok_or_else(|| RuntimeError::ControlFlow {
+            node_id: node.id.clone(),
+            message: "loop count must be an exact unsigned 64-bit integer".to_owned(),
+        })
     }
 
     pub(super) fn for_each_items(&self, node: &RuntimeNode) -> Result<Vec<Value>, RuntimeError> {
@@ -139,4 +221,13 @@ impl RuntimeExecutor<'_> {
         self.graph
             .first_available_output_handle(&node.id, &["success", "out"])
     }
+}
+
+fn color_match_number(node: &RuntimeNode, value: f64) -> Result<Value, RuntimeError> {
+    Number::from_f64(value)
+        .map(Value::Number)
+        .ok_or_else(|| RuntimeError::ControlFlow {
+            node_id: node.id.clone(),
+            message: "color difference could not be represented as a finite JSON number".to_owned(),
+        })
 }

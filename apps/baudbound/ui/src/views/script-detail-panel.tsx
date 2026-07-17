@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ScriptStatus, type StoredRunRecord } from "@/lib/runner-api";
 import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
+import { useDesktopTime } from "@/lib/time-format";
 
 export function ScriptDetailPanel({
   recentRuns,
@@ -12,6 +13,7 @@ export function ScriptDetailPanel({
   recentRuns: StoredRunRecord[];
   script: ScriptStatus;
 }) {
+  const { formatUnixSeconds } = useDesktopTime();
   const scriptRuns = recentRuns
     .filter((run) => run.script_id === script.installed.id)
     .slice(0, 5);
@@ -32,7 +34,7 @@ export function ScriptDetailPanel({
                 ["Assets", script.installed.asset_count.toString()],
                 ["Package version", script.installed.package_format_version.toString()],
                 ["Runtime version", script.installed.script_language_version.toString()],
-                ["Imported", formatUnixTime(script.installed.imported_at_unix)],
+                ["Imported", formatUnixSeconds(script.installed.imported_at_unix)],
               ]}
             />
           </section>
@@ -129,7 +131,7 @@ export function ScriptDetailPanel({
                   {scriptRuns.map((run) => (
                     <tr className="border-b border-border last:border-b-0" key={run.run_id}>
                       <td className="px-3 py-2" data-label="Completed">
-                        {formatUnixTime(run.completed_at_unix)}
+                        {formatUnixSeconds(run.completed_at_unix)}
                       </td>
                       <td className="px-3 py-2" data-label="Trigger">
                         {run.trigger_node_id}
@@ -153,8 +155,4 @@ export function ScriptDetailPanel({
       </CardContent>
     </Card>
   );
-}
-
-function formatUnixTime(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

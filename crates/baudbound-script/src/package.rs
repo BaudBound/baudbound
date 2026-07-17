@@ -11,16 +11,20 @@ use zip::ZipArchive;
 
 use crate::{Capabilities, EditorMetadata, Manifest, Permissions, Program};
 
+mod color_match;
 mod graph;
 mod limits;
 mod manifest;
+mod numeric;
 mod schema;
 
+use color_match::validate_program_color_match_contract;
 use graph::validate_program_graph;
 use limits::package_limits;
 use manifest::{
     validate_manifest_secrets, validate_manifest_variable_operations, validate_manifest_variables,
 };
+use numeric::validate_program_numeric_contract;
 use schema::validate_program_schema;
 
 const REQUIRED_PACKAGE_FILES: &[&str] = &[
@@ -104,6 +108,12 @@ pub enum PackageLoadError {
     ProgramSchema(String),
     #[error("embedded node port contract is invalid: {0}")]
     PortContract(String),
+    #[error("embedded numeric field contract is invalid: {0}")]
+    NumericContract(String),
+    #[error("program.json numeric configuration is invalid: {0}")]
+    ProgramNumeric(String),
+    #[error("program.json color match configuration is invalid: {0}")]
+    ProgramColor(String),
     #[error("program.json graph is invalid: {0}")]
     ProgramGraph(String),
     #[error("asset {0:?} is not declared in manifest.json")]
@@ -125,6 +135,13 @@ pub enum PackageLoadError {
 pub fn load_script_package(path: impl AsRef<Path>) -> Result<ScriptPackage, PackageLoadError> {
     let file = File::open(path).map_err(PackageLoadError::Open)?;
     load_script_package_reader(file)
+}
+
+pub fn validate_resolved_numeric_config(
+    action_type: &str,
+    config: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    numeric::validate_resolved_numeric_config(action_type, config)
 }
 
 pub fn read_package_asset(
@@ -189,6 +206,8 @@ pub fn load_script_package_reader<R: Read + Seek>(
     let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
     let program = read_json_file::<Program, _>(&mut archive, "program.json")?;
     validate_program_schema(&program)?;
+    validate_program_numeric_contract(&program)?;
+    validate_program_color_match_contract(&program)?;
     validate_program_graph(&program)?;
     let permissions = read_json_file::<Permissions, _>(&mut archive, "permissions.json")?;
     let capabilities = read_json_file::<Capabilities, _>(&mut archive, "capabilities.json")?;

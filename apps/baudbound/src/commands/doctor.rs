@@ -89,8 +89,8 @@ pub fn desktop_doctor_checks() -> Vec<DoctorCheck> {
         DoctorCheck::new(
             true,
             "Clipboard",
-            &["action.clipboard"],
-            "Uses the native clipboard backend through arboard. Requires a usable desktop/session clipboard provider at runtime.",
+            &["action.clipboard.get", "action.clipboard.set"],
+            "Uses the native clipboard text backend through arboard. Requires a usable desktop/session clipboard provider at runtime.",
         ),
         DoctorCheck::new(
             true,

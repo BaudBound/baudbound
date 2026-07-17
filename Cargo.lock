@@ -425,6 +425,7 @@ dependencies = [
  "baudbound-script",
  "baudbound-storage",
  "baudbound-triggers",
+ "chrono",
  "clap",
  "ctrlc",
  "enigo",
@@ -493,6 +494,7 @@ dependencies = [
 name = "baudbound-runtime"
 version = "2.0.0"
 dependencies = [
+ "baudbound-script",
  "getrandom 0.4.3",
  "regex",
  "serde",

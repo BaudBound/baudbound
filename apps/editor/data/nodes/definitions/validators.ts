@@ -103,30 +103,46 @@ export function staticPositiveDurationConfig(
 	valueKey: string,
 	unitKey: string,
 	label: string,
+	allowRuntimeVariables = false,
 ) {
 	const value = configString(config, valueKey).trim();
 	if (!value) {
 		return `must define ${label}.`;
 	}
 	if (hasTemplateReference(value)) {
-		return `${label} cannot use runtime variable references.`;
+		return allowRuntimeVariables ? "" : `${label} cannot use runtime variable references.`;
 	}
 
-	const multiplier = {
+	return validateDurationValue(value, configString(config, unitKey), label);
+}
+
+export function validateDurationValue(value: JsonValue, unit: string, label: string) {
+	const multiplier = durationUnitSeconds(unit);
+	if (multiplier === undefined) {
+		return `${label} uses an unsupported time unit: ${unit || "(empty)"}.`;
+	}
+
+	const numericValue = typeof value === "number" ? value : Number(String(value).trim());
+	if (!Number.isFinite(numericValue) || numericValue <= 0) {
+		return `${label} must be a finite number greater than zero.`;
+	}
+
+	const seconds = numericValue * multiplier;
+	if (!Number.isFinite(seconds) || seconds < 0.001 || seconds >= 2 ** 64) {
+		return `${label} must fit the supported duration range and be at least one millisecond.`;
+	}
+
+	return "";
+}
+
+function durationUnitSeconds(unit: string) {
+	return {
+		milliseconds: 0.001,
 		seconds: 1,
 		minutes: 60,
 		hours: 60 * 60,
 		days: 24 * 60 * 60,
-	}[configString(config, unitKey).trim()];
-	const numericValue = Number(value);
-	const seconds = numericValue * (multiplier ?? Number.NaN);
-	if (!Number.isFinite(numericValue) || numericValue <= 0) {
-		return `${label} must be greater than zero.`;
-	}
-	if (!Number.isFinite(seconds) || seconds < 1e-9 || seconds >= 2 ** 64) {
-		return `${label} must fit the supported duration range and be at least one nanosecond.`;
-	}
-	return "";
+	}[unit.trim()];
 }
 
 export function staticNumberConfig(config: Record<string, JsonValue>, key: string, label: string) {

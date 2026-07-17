@@ -14,6 +14,7 @@ export type VariableCompletion = {
 type VariableCodeInputProps = {
 	ariaLabel?: string;
 	className?: string;
+	containerClassName?: string;
 	hasError?: boolean;
 	id?: string;
 	multiline?: boolean;
@@ -32,6 +33,7 @@ type CompletionState = {
 export function VariableCodeInput({
 	ariaLabel,
 	className,
+	containerClassName,
 	hasError,
 	id,
 	multiline = false,
@@ -135,7 +137,7 @@ export function VariableCodeInput({
 	};
 
 	return (
-		<div className="relative">
+		<div className={cn("relative", containerClassName)}>
 			<div
 				className={cn(
 					"relative overflow-hidden rounded-lg border bg-baud-panel/70 transition-[border-color,box-shadow]",

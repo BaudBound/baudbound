@@ -14,7 +14,6 @@ pub(super) fn config_string(request: &RuntimeActionRequest, key: &str) -> Option
     request.config.get(key).map(value_to_string)
 }
 
-#[cfg(windows)]
 pub(super) fn required_i32(
     request: &RuntimeActionRequest,
     key: &str,
@@ -24,19 +23,6 @@ pub(super) fn required_i32(
         failed_error(
             request,
             format!("invalid integer config field {key}: {source}"),
-        )
-    })
-}
-
-pub(super) fn required_u32(
-    request: &RuntimeActionRequest,
-    key: &str,
-) -> Result<u32, RuntimeActionError> {
-    let raw = required_string(request, key)?;
-    raw.trim().parse::<u32>().map_err(|source| {
-        failed_error(
-            request,
-            format!("invalid non-negative integer config field {key}: {source}"),
         )
     })
 }

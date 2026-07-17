@@ -6,7 +6,22 @@ import { staticPositiveNumberConfig } from "../validators";
 export const loopNode = defineNode({
 	actionType: "control.loop",
 	capabilities: ["runtime.loop"],
-	configFields: [{ key: "count", label: "Repeat count", type: "number", usesVariables: true }],
+	configFields: [
+		{
+			key: "count",
+			label: "Repeat count",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: false,
+				minimum: "1",
+				maximum: "18446744073709551615",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
+	],
 	controlType: "loop",
 	defaultConfig: () => ({ count: "3" }),
 	description: "Repeat a block of steps.",

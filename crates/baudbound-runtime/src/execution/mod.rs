@@ -125,6 +125,7 @@ impl<'a> RuntimeExecutor<'a> {
             level: level.to_owned(),
             message: message.into(),
             node_id,
+            timestamp_unix_ms: contracts::unix_timestamp_millis_now(),
         });
     }
 }

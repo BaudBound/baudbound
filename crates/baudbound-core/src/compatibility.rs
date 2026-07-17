@@ -186,7 +186,8 @@ pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
 pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.application.open",
     "action.beep",
-    "action.clipboard",
+    "action.clipboard.get",
+    "action.clipboard.set",
     "action.notification",
     "action.sound.play",
 ];

@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use baudbound_runtime::unix_timestamp_millis_now;
 use baudbound_script::ScriptPackage;
 use baudbound_storage::{RunLogEntry, ScriptStore, StorageError, StoredRunRecord};
 
@@ -15,6 +16,7 @@ pub(crate) fn stored_run_record_from_report(report: &RunReport) -> StoredRunReco
                 level: log.level.clone(),
                 message: log.message.clone(),
                 node_id: log.node_id.clone(),
+                timestamp_unix_ms: log.timestamp_unix_ms,
             })
             .collect(),
         run_id: report.identity.run_id.clone(),
@@ -83,6 +85,7 @@ fn terminal_run_record(
             level: level.to_owned(),
             message,
             node_id: None,
+            timestamp_unix_ms: unix_timestamp_millis_now(),
         }],
         run_id: create_run_id(&package.manifest.id, &trigger_node_id),
         script_id: package.manifest.id.clone(),

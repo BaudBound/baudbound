@@ -45,6 +45,7 @@ export const canonicalCapabilities = [
 	"action.serial",
 	"action.sub_script",
 	"runtime.variables",
+	"runtime.color_match",
 	"runtime.if",
 	"runtime.switch",
 	"runtime.loop",

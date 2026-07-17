@@ -82,6 +82,11 @@ textarea,
 	user-select: none;
 }
 
+.react-flow .react-flow__nodesselection-rect {
+	background: transparent;
+	border: 0;
+}
+
 .react-flow__node {
 	z-index: 20 !important;
 	font-family: inherit;

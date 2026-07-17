@@ -10,7 +10,20 @@ export const webhookResponseNode = defineNode({
 	actionType: "action.webhook_response",
 	capabilities: ["action.webhook_response"],
 	configFields: [
-		{ key: "statusCode", label: "Status code", type: "number", usesVariables: true },
+		{
+			key: "statusCode",
+			label: "Status code",
+			type: "number",
+			usesVariables: true,
+			numeric: {
+				kind: "integer",
+				signed: false,
+				minimum: "100",
+				maximum: "599",
+				minimumInclusive: true,
+				maximumInclusive: true,
+			},
+		},
 		{ key: "contentType", label: "Content type", type: "text", usesVariables: true },
 		{ key: "body", label: "Body", type: "textarea", usesVariables: true },
 	],

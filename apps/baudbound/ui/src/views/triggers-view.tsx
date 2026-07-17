@@ -9,6 +9,8 @@ import {
   type TriggerDispatchActivity,
   type TriggerRegistrationStatus,
 } from "@/lib/runner-api";
+import { useDesktopTime } from "@/lib/time-format";
+import { SerialReaderStatusPanel } from "@/views/triggers/serial-reader-status";
 
 type TriggerRow = TriggerRegistrationStatus & {
   activity: TriggerDispatchActivity | null;
@@ -44,7 +46,7 @@ export function TriggersView({ dashboard }: { dashboard: DashboardPayload }) {
                 <CardTitle>{triggerDisplayName(group.name)}</CardTitle>
                 <Badge variant="default">{group.rows.length}</Badge>
               </CardHeader>
-              <CardContent className="p-0 max-[900px]:p-3">
+              <CardContent className="p-0">
                 <table className="responsive-table w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -89,6 +91,12 @@ export function TriggersView({ dashboard }: { dashboard: DashboardPayload }) {
                     ))}
                   </tbody>
                 </table>
+                {group.name === "serial_input" ? (
+                  <SerialReaderStatusPanel
+                    dashboard={dashboard}
+                    registrations={group.rows}
+                  />
+                ) : null}
               </CardContent>
             </Card>
           ))}
@@ -126,6 +134,7 @@ function triggerDisplayName(name: string) {
 }
 
 function TriggerHealth({ activity }: { activity: TriggerDispatchActivity | null }) {
+  const { formatUnixSeconds } = useDesktopTime();
   if (!activity || activity.total_dispatch_count === 0) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -147,7 +156,7 @@ function TriggerHealth({ activity }: { activity: TriggerDispatchActivity | null 
       </div>
       {lastDispatch ? (
         <div className="text-muted-foreground">
-          Last {lastDispatch.status} at {formatUnix(lastDispatch.completed_at_unix)}
+          Last {lastDispatch.status} at {formatUnixSeconds(lastDispatch.completed_at_unix)}
         </div>
       ) : null}
     </div>
@@ -156,8 +165,4 @@ function TriggerHealth({ activity }: { activity: TriggerDispatchActivity | null 
 
 function triggerActivityKey(scriptId: string, nodeId: string) {
   return `${scriptId}::${nodeId}`;
-}
-
-function formatUnix(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

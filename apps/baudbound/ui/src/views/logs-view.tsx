@@ -5,18 +5,20 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { DashboardPayload } from "@/lib/runner-api";
+import { useDesktopTime } from "@/lib/time-format";
 
 type LogRow = {
-  completedAt: number;
   level: string;
   message: string;
   nodeId: string | null;
   runId: string;
   scriptId: string;
   scriptName: string;
+  timestampUnixMs: number;
 };
 
 export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
+  const { formatUnixMilliseconds } = useDesktopTime();
   const [searchTerm, setSearchTerm] = useState("");
   const rows = useMemo(() => logRows(dashboard), [dashboard]);
   const visibleRows = useMemo(
@@ -69,7 +71,7 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
                     key={`${row.runId}-${index}`}
                   >
                     <td className="whitespace-nowrap px-3 py-3" data-label="Time">
-                      {formatUnix(row.completedAt)}
+                      {formatUnixMilliseconds(row.timestampUnixMs)}
                     </td>
                     <td className="px-3 py-3" data-label="Level">
                       <Badge variant={logLevelVariant(row.level)}>{row.level}</Badge>
@@ -111,13 +113,13 @@ function logRows(dashboard: DashboardPayload): LogRow[] {
 
   return dashboard.recent_runs.flatMap((run) =>
     run.logs.map((log) => ({
-      completedAt: run.completed_at_unix,
       level: log.level,
       message: log.message,
       nodeId: log.node_id ?? null,
       runId: run.run_id,
       scriptId: run.script_id,
       scriptName: scriptNames.get(run.script_id) ?? run.script_id,
+      timestampUnixMs: log.timestamp_unix_ms,
     })),
   );
 }
@@ -143,8 +145,4 @@ function logLevelVariant(level: string) {
   if (level === "warn" || level === "warning") return "medium";
   if (level === "info") return "good";
   return "muted";
-}
-
-function formatUnix(value: number) {
-  return new Date(value * 1000).toLocaleString();
 }

@@ -5,7 +5,7 @@ export type TabId =
   | "scripts"
   | "security"
   | "triggers"
-  | "devices"
+  | "tools"
   | "runs"
   | "logs"
   | "service"

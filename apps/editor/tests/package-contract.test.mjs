@@ -23,6 +23,76 @@ const runnerPermissionContractPath = join(
 	"node-permissions.json",
 );
 const runnerPortContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-ports.json");
+const runnerNumericContractPath = join(repoRoot, "crates", "baudbound-script", "contracts", "node-numeric-fields.json");
+const editorKeyboardContractPath = join(appRoot, "data", "nodes", "windows-key-contract.json");
+const runnerKeyboardContractPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-script",
+	"contracts",
+	"windows-keyboard-keys.json",
+);
+const colorMatchCasesPath = join(repoRoot, "crates", "baudbound-script", "contracts", "color-match-cases.json");
+
+test("Windows keyboard contract excludes unsupported macOS names and matches the generated runner contract", () => {
+	const editorContract = JSON.parse(read(editorKeyboardContractPath));
+	const runnerContract = JSON.parse(read(runnerKeyboardContractPath));
+	const modifierNames = editorContract.modifiers.flatMap((modifier) => [modifier.canonical, ...modifier.aliases]);
+
+	assert.deepEqual(runnerContract, editorContract);
+	assert.deepEqual(
+		editorContract.modifiers.map((modifier) => modifier.canonical),
+		["Ctrl", "Alt", "Shift", "Windows"],
+	);
+	for (const unsupported of ["Meta", "Cmd", "Command", "Option", "Super"]) {
+		assert.equal(
+			modifierNames.some((name) => name.toLowerCase() === unsupported.toLowerCase()),
+			false,
+			`${unsupported} must not be exposed by the Windows keyboard contract`,
+		);
+	}
+});
+
+test("editor color matching follows the shared Rust parity matrix", async () => {
+	const { evaluateColorMatch } = await loadColorMatcher();
+	const cases = JSON.parse(read(colorMatchCasesPath));
+
+	for (const testCase of cases) {
+		const evaluation = evaluateColorMatch(
+			testCase.actual,
+			testCase.expected,
+			testCase.mode,
+			testCase.tolerance_percent,
+		);
+		assert.equal(evaluation.ok, true, testCase.name);
+		assert.equal(evaluation.value.matches, testCase.matches, testCase.name);
+		assert.ok(
+			Math.abs(evaluation.value.difference_percent - testCase.difference_percent) < 1e-12,
+			`${testCase.name}: ${evaluation.value.difference_percent}`,
+		);
+	}
+});
+
+test("editor color matching rejects malformed inputs without coercion", async () => {
+	const { evaluateColorMatch } = await loadColorMatcher();
+	const invalidCases = [
+		["#fff", "#000000", "per_channel", 0],
+		["rgb(256, 0, 0)", "#000000", "per_channel", 0],
+		["rgb(1.5, 0, 0)", "#000000", "per_channel", 0],
+		[{ r: 0, g: 0 }, "#000000", "per_channel", 0],
+		[{ r: 0, g: 0, b: 0, a: 255 }, "#000000", "per_channel", 0],
+		["#000000", "#000000", "unsupported", 0],
+		["#000000", "#000000", "per_channel", -0.1],
+		["#000000", "#000000", "per_channel", 100.1],
+		["#000000", "#000000", "per_channel", Number.POSITIVE_INFINITY],
+	];
+
+	for (const [actual, expected, mode, tolerance] of invalidCases) {
+		const evaluation = evaluateColorMatch(actual, expected, mode, tolerance);
+		assert.equal(evaluation.ok, false, JSON.stringify({ actual, expected, mode, tolerance }));
+		assert.ok(evaluation.error.length > 0);
+	}
+});
 
 test("schemas are valid JSON", () => {
 	for (const filePath of readJsonFiles(schemasRoot)) {
@@ -37,6 +107,65 @@ test("generated node schemas are current", () => {
 			stdio: "pipe",
 		});
 	});
+});
+
+test("generated numeric contract preserves exact editor ranges and conditional PID fields", () => {
+	const contract = JSON.parse(read(runnerNumericContractPath));
+
+	assert.equal(contract.version, 2);
+	assert.deepEqual(contract.nodes["action.pixel.get"].x, {
+		kind: "integer",
+		signed: true,
+		minimum: "-2147483648",
+		maximum: "2147483647",
+		minimum_inclusive: true,
+		maximum_inclusive: true,
+		label: "Screen X",
+		required: true,
+		allows_variables: true,
+	});
+	assert.equal(contract.nodes["control.loop"].count.maximum, "18446744073709551615");
+	for (const actionType of ["action.process.kill", "action.process.status", "action.window.focus"]) {
+		assert.deepEqual(contract.nodes[actionType].target.when, { key: "matchMode", equals: "pid" });
+		assert.equal(contract.nodes[actionType].target.maximum, "4294967295");
+	}
+});
+
+test("every generated numeric field passes the editor boundary matrix", async () => {
+	const { validateNumericConfigValue } = await loadNumericValidator();
+	const contract = JSON.parse(read(runnerNumericContractPath));
+	let testedFields = 0;
+
+	for (const [actionType, fields] of Object.entries(contract.nodes)) {
+		for (const [key, field] of Object.entries(fields)) {
+			const name = `${actionType}.${key}`;
+			const editorContract = {
+				kind: field.kind,
+				signed: field.signed,
+				minimum: field.minimum,
+				maximum: field.maximum,
+				minimumInclusive: field.minimum_inclusive,
+				maximumInclusive: field.maximum_inclusive,
+			};
+
+			assert.equal(validateNumericConfigValue(validMinimum(field), editorContract), "", `${name} minimum`);
+			assert.equal(validateNumericConfigValue(field.maximum, editorContract), "", `${name} maximum`);
+			assert.notEqual(
+				validateNumericConfigValue(invalidBelowMinimum(field), editorContract),
+				"",
+				`${name} below minimum`,
+			);
+			assert.notEqual(
+				validateNumericConfigValue(invalidAboveMaximum(field), editorContract),
+				"",
+				`${name} above maximum`,
+			);
+			assert.notEqual(validateNumericConfigValue("not-a-number", editorContract), "", `${name} malformed`);
+			testedFields += 1;
+		}
+	}
+
+	assert.equal(testedFields, 22, "the numeric matrix must cover every currently declared field");
 });
 
 test("generated runner capability contract covers every editor node", () => {
@@ -264,12 +393,15 @@ test("file watch uses a static path and explicit recursive configuration", () =>
 	assert.doesNotMatch(fileWatchSource, /key:\s*"path"[^\n]*usesVariables/);
 });
 
-test("schedule intervals use the shared static duration contract", () => {
+test("delay and schedule intervals use the shared millisecond duration contract", () => {
+	const delaySource = read(join(appRoot, "data", "nodes", "definitions", "actions", "delay.ts"));
 	const scheduleSource = read(join(appRoot, "data", "nodes", "definitions", "triggers", "schedule.ts"));
 	const validatorsSource = read(join(appRoot, "data", "nodes", "definitions", "validators.ts"));
 
+	assert.match(delaySource, /staticPositiveDurationConfig\(config, "amount", "unit", "delay duration", true\)/);
 	assert.match(scheduleSource, /staticPositiveDurationConfig\(config, "every", "unit", "schedule interval"\)/);
-	assert.match(validatorsSource, /seconds < 1e-9/);
+	assert.match(validatorsSource, /milliseconds: 0\.001/);
+	assert.match(validatorsSource, /seconds < 0\.001/);
 	assert.match(validatorsSource, /cannot use runtime variable references/);
 });
 
@@ -356,7 +488,6 @@ test("old capability and permission strings are not used by node definitions", (
 		"active_window_read",
 		"play_audio",
 		"run_subscript",
-		"read_clipboard",
 	];
 
 	for (const staleString of staleStrings) {
@@ -578,7 +709,8 @@ test("package contract validates graph structure and import rejects malformed ed
 	assert.match(packageSource, /Program edge .* cannot connect node .* to itself/);
 	assert.match(packageSource, /must define a non-negative integer execution_order/);
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected string/);
-	assert.match(registrySource, /isValidNumberConfigValue/);
+	assert.match(registrySource, /numericContractApplies/);
+	assert.match(registrySource, /validateNumericConfigValue/);
 	assert.match(registrySource, /Invalid value for \$\{field\.key\}: expected boolean/);
 	assert.match(contractSource, /getTargetRuntimeCompatibilityErrors/);
 	assert.match(contractSource, /capabilities\.target_runtime/);
@@ -686,6 +818,50 @@ function readAll(directory) {
 
 function read(path) {
 	return readFileSync(path, "utf8");
+}
+
+async function loadColorMatcher() {
+	const typescript = await import("typescript");
+	const source = read(join(appRoot, "data", "nodes", "color-match.ts"));
+	const compiled = typescript.transpileModule(source, {
+		compilerOptions: {
+			module: typescript.ModuleKind.ESNext,
+			target: typescript.ScriptTarget.ES2022,
+		},
+	});
+	const moduleUrl = `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`;
+	return import(moduleUrl);
+}
+
+async function loadNumericValidator() {
+	const typescript = await import("typescript");
+	const source = read(join(appRoot, "data", "nodes", "numeric-validation.ts"));
+	const compiled = typescript.transpileModule(source, {
+		compilerOptions: {
+			module: typescript.ModuleKind.ESNext,
+			target: typescript.ScriptTarget.ES2022,
+		},
+	});
+	const moduleUrl = `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`;
+	return import(moduleUrl);
+}
+
+function validMinimum(field) {
+	if (field.minimum_inclusive) return field.minimum;
+	if (field.kind === "integer") return (BigInt(field.minimum) + 1n).toString();
+	return field.minimum === "0" ? "1" : String((Number(field.minimum) + Number(field.maximum)) / 2);
+}
+
+function invalidBelowMinimum(field) {
+	if (!field.minimum_inclusive) return field.minimum;
+	if (field.kind === "integer") return (BigInt(field.minimum) - 1n).toString();
+	return String(Number(field.minimum) - 1);
+}
+
+function invalidAboveMaximum(field) {
+	if (!field.maximum_inclusive) return field.maximum;
+	if (field.kind === "integer") return (BigInt(field.maximum) + 1n).toString();
+	return Number(field.maximum) === Number.MAX_VALUE ? "1e309" : String(Number(field.maximum) + 1);
 }
 
 function readJsonFiles(directory) {

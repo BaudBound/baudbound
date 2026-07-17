@@ -84,6 +84,136 @@ fn inverted_condition_selects_the_opposite_branch() {
 }
 
 #[test]
+fn color_match_routes_both_branches_and_exposes_diagnostics() {
+    let matching = execute_manual_program(
+        &program(
+            vec![
+                color_match_node(
+                    json!("rgb(250, 10, 20)"),
+                    json!("#FF0A14"),
+                    "per_channel",
+                    json!(2),
+                ),
+                log_node("n-match", "matched"),
+                log_node("n-no-match", "did not match"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-color"),
+                edge("n-color", "match", "n-match"),
+                edge("n-color", "no_match", "n-no-match"),
+            ],
+        ),
+        "color-match-yes",
+    )
+    .expect("matching colors should execute");
+    assert!(has_log(&matching.logs, "matched"));
+    assert!(!has_log(&matching.logs, "did not match"));
+    assert_eq!(
+        matching.variables.get("n-color.matches"),
+        Some(&json!(true))
+    );
+    assert_eq!(
+        matching.variables.get("n-color.red_difference"),
+        Some(&json!(5))
+    );
+
+    let not_matching = execute_manual_program(
+        &program(
+            vec![
+                color_match_node(
+                    json!("#FF0000"),
+                    json!("#000000"),
+                    "total_distance",
+                    json!(57.7),
+                ),
+                log_node("n-match", "matched"),
+                log_node("n-no-match", "did not match"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-color"),
+                edge("n-color", "match", "n-match"),
+                edge("n-color", "no_match", "n-no-match"),
+            ],
+        ),
+        "color-match-no",
+    )
+    .expect("non-matching colors should execute");
+    assert!(!has_log(&not_matching.logs, "matched"));
+    assert!(has_log(&not_matching.logs, "did not match"));
+    assert_eq!(
+        not_matching.variables.get("n-color.matches"),
+        Some(&json!(false))
+    );
+}
+
+#[test]
+fn color_match_resolves_rgb_objects_and_tolerance_variables() {
+    let report = execute_manual_program(
+        &program(
+            vec![
+                variable_node(
+                    "n-sample",
+                    "sample",
+                    "set",
+                    "object",
+                    json!(r#"{"r":120,"g":80,"b":40}"#),
+                ),
+                variable_node("n-tolerance", "tolerance", "set", "number", json!("5")),
+                color_match_node(
+                    json!("{{sample}}"),
+                    json!("rgb(125, 80, 40)"),
+                    "per_channel",
+                    json!("{{tolerance}}"),
+                ),
+                log_node("n-match", "object matched"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-sample"),
+                edge("n-sample", "out", "n-tolerance"),
+                edge("n-tolerance", "out", "n-color"),
+                edge("n-color", "match", "n-match"),
+            ],
+        ),
+        "color-match-object",
+    )
+    .expect("RGB object and tolerance variables should resolve");
+
+    assert!(has_log(&report.logs, "object matched"));
+    assert_eq!(
+        report.variables.get("n-color.green_difference"),
+        Some(&json!(0))
+    );
+}
+
+#[test]
+fn color_match_rejects_invalid_resolved_values_instead_of_routing_no_match() {
+    let error = execute_manual_program(
+        &program(
+            vec![
+                variable_node("n-invalid", "sample", "set", "string", json!("not-a-color")),
+                color_match_node(
+                    json!("{{sample}}"),
+                    json!("#000000"),
+                    "per_channel",
+                    json!(0),
+                ),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-invalid"),
+                edge("n-invalid", "out", "n-color"),
+            ],
+        ),
+        "color-match-invalid",
+    )
+    .expect_err("invalid runtime colors must fail control flow");
+
+    assert!(
+        error.to_string().contains("actual color must be"),
+        "{error}"
+    );
+}
+
+#[test]
 fn switch_without_a_matching_case_ends_the_branch() {
     let report = execute_manual_program(
         &program(
@@ -291,6 +421,26 @@ fn for_each_node(items: &str) -> Value {
             "items": items,
             "itemVariable": "item",
             "indexVariable": "index"
+        },
+        "runtime_outputs": []
+    })
+}
+
+fn color_match_node(
+    actual_color: Value,
+    expected_color: Value,
+    comparison_mode: &str,
+    tolerance_percent: Value,
+) -> Value {
+    json!({
+        "id": "n-color",
+        "action_type": "control.color_match",
+        "type": "color_match",
+        "config": {
+            "actualColor": actual_color,
+            "expectedColor": expected_color,
+            "comparisonMode": comparison_mode,
+            "tolerancePercent": tolerance_percent
         },
         "runtime_outputs": []
     })
