@@ -87,7 +87,7 @@ async function checkNodeCoverage(repositoryRoot, definition, pageByPath, errors)
 
 async function checkDesktopCoverage(repositoryRoot, definition, pageByPath, errors) {
   const source = await readFile(path.join(repositoryRoot, definition.source), "utf8");
-  const items = [...source.matchAll(/\{\s*icon:\s*\w+,\s*id:\s*"([^"]+)",\s*label:\s*"([^"]+)"\s*\}/g)];
+  const items = [...source.matchAll(/\{\s*icon:\s*\w+,\s*id:\s*"([^"]+)",\s*label:\s*"([^"]+)"\s*,?\s*\}/g)];
   const content = requiredPageContent(definition.page, pageByPath, errors);
   for (const [, id, label] of items) {
     if (!content.includes(`<!-- desktop-tab:${id} -->`)) {

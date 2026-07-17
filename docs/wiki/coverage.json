@@ -44,13 +44,13 @@
   "nodes": {
     "sources": "apps/editor/data/nodes/definitions/**/*.ts",
     "page": "editor/node-reference",
-    "expectedCount": 47,
-    "sourceFingerprint": "8a625d8efd5fab0baf5c9cb36473c88f8f71a08a0b06b4879aa0d665ce48dc8a"
+    "expectedCount": 49,
+    "sourceFingerprint": "e42b362af6a91967c9a13371dc119909426098d2fddda876fe53a65263fcca6c"
   },
   "desktop": {
-    "source": "apps/baudbound/ui/src/app.tsx",
+    "source": "apps/baudbound/ui/src/lib/navigation.ts",
     "page": "runner/desktop-app",
-    "expectedCount": 10
+    "expectedCount": 11
   },
   "cli": {
     "source": "apps/baudbound/src/cli.rs",

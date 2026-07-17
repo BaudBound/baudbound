@@ -82,7 +82,7 @@ Capabilities describe runtime subsystems, not user consent by themselves. Curren
 | Desktop | `action.clipboard`, `action.keyboard`, `action.message_box`, `action.mouse`, `action.notification`, `action.pixel`, `action.sound`, `action.window` |
 | Serial | `action.serial`, `trigger.serial_input` |
 | Network replies/listeners | `action.webhook_response`, `action.websocket`, `trigger.webhook`, `trigger.websocket` |
-| Control flow | `runtime.for_each`, `runtime.if`, `runtime.loop`, `runtime.switch`, `runtime.while` |
+| Control flow | `runtime.color_match`, `runtime.for_each`, `runtime.if`, `runtime.loop`, `runtime.switch`, `runtime.while` |
 | Other triggers | `trigger.file_watch`, `trigger.hotkey`, `trigger.manual`, `trigger.process_started`, `trigger.schedule`, `trigger.startup` |
 
 The editor node registry generates the node-to-capability contract embedded in the Rust security crate. During import, the runner recalculates required capabilities from `program.json` and compares them with package declarations. A package cannot gain access by declaring an unrelated capability, and it cannot omit one required by its program.

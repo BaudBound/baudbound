@@ -10,7 +10,11 @@ test("validates source-derived node, desktop, CLI, config, and repository covera
   const root = await fixtureRoot(context);
   await files(root, {
     "nodes/example.ts": 'export const node = { actionType: "action.example" };',
-    "ui.tsx": '{ icon: Gauge, id: "dashboard", label: "Dashboard" }',
+    "ui.tsx": `{
+      icon: Gauge,
+      id: "dashboard",
+      label: "Dashboard",
+    }`,
     "cli.rs": rustCliFixture(),
     "config.rs": rustConfigFixture(),
     "required.txt": "present",
