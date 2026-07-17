@@ -22,7 +22,7 @@ baudbound secret list SCRIPT
 4. Inspect the declaration and confirm its purpose.
 5. Set the value on the intended runner.
 6. Run the script and confirm no plaintext appears in output.
-7. Rotate by setting a replacement value; subsequent runs use it.
+7. Rotate by setting a replacement value. Subsequent runs use it.
 8. Remove the value when access is revoked or the script no longer needs it.
 
 Values are scoped by stable script identity and secret name. Two scripts declaring `api_token` have separate encrypted records.
@@ -43,7 +43,7 @@ baudbound secret generate-key
 
 The command prints an assignment beginning with `BAUDBOUND_SECRET_KEY=`. Store that complete assignment in the protected environment file or secret manager used by the supervised service. The same value must be present whenever a CLI command reads or changes encrypted secrets for that runner home.
 
-Do not put the key in `config.toml`, shell history, source control, public service templates, or package assets. Losing the key makes existing encrypted values unreadable; back it up through the same protected process used for other service credentials.
+Do not put the key in `config.toml`, shell history, source control, public service templates, or package assets. Losing the key makes existing encrypted values unreadable. Back it up through the same protected process used for other service credentials.
 
 List declarations and whether each value is configured:
 
@@ -75,12 +75,12 @@ Redaction removes exact secret values from runtime variables and replaces matchi
 
 Never place plaintext in:
 
-- project variables, node defaults, comments, or assets;
-- `.bbs` package files;
-- `config.toml`;
-- command-line arguments or shell history;
-- log messages or error descriptions;
-- screenshots or support bundles; or
+- project variables, node defaults, comments, or assets.
+- `.bbs` package files.
+- `config.toml`.
+- command-line arguments or shell history.
+- log messages or error descriptions.
+- screenshots or support bundles.
 - source control and CI output.
 
 Sub-script execution does not transfer the parent's secret records. The child script resolves its own declarations under its own identity and must be independently configured and approved.
@@ -99,7 +99,7 @@ Setting uses an authenticated-encryption nonce and replaces the existing encrypt
 
 Back up the headless environment key separately from the runner home. For desktop installations, use the operating system's supported credential-vault migration or backup process.
 
-The database contains ciphertext and nonce, not a recoverable copy of the encryption key. If the key is lost, existing values cannot be decrypted. Configure each declaration again from its authoritative source; do not attempt to bypass encryption by editing the database.
+The database contains ciphertext and nonce, not a recoverable copy of the encryption key. If the key is lost, existing values cannot be decrypted. Configure each declaration again from its authoritative source. Do not attempt to bypass encryption by editing the database.
 
 ## Editor simulation
 

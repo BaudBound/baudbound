@@ -11,11 +11,11 @@ Use this page after an import, run, or listener behaves differently from what yo
 
 Every terminal run record contains:
 
-- a run ID and stable script ID;
-- the trigger node ID;
-- completion timestamp;
-- status: `completed`, `failed`, or `cancelled`;
-- structured log entries with their own emission timestamp, level, message, and optional node ID; and
+- a run ID and stable script ID.
+- the trigger node ID.
+- completion timestamp.
+- status: `completed`, `failed`, or `cancelled`.
+- structured log entries with their own emission timestamp, level, message, and optional node ID.
 - the final non-secret variable snapshot available for inspection.
 
 `completed` means graph execution reached a normal terminal state. A fallible action can take its failure branch and still produce a completed run when the graph handles that failure. `failed` means execution could not continue. `cancelled` means a stop request interrupted runtime execution.
@@ -109,11 +109,11 @@ An update changed the package hash. Inspect the new access declarations and grap
 
 Confirm all of these:
 
-1. the script is enabled, valid, compatible, approved, and secret-ready;
-2. its trigger appears in **Triggers** or `baudbound script triggers SCRIPT`;
-3. the trigger family is enabled in `config.toml`;
-4. one runner service owns the runner home and listener port;
-5. the watched path, process, serial device, hotkey session, or network route exists; and
+1. the script is enabled, valid, compatible, approved, and secret-ready.
+2. its trigger appears in **Triggers** or `baudbound script triggers SCRIPT`.
+3. the trigger family is enabled in `config.toml`.
+4. one runner service owns the runner home and listener port.
+5. the watched path, process, serial device, hotkey session, or network route exists.
 6. service logs do not report registration or dispatch failure.
 
 Script lifecycle changes reload automatically at `runner.trigger_reload_seconds`. Configuration changes require a service restart.
@@ -132,11 +132,11 @@ Use [Webhooks, WebSockets, and Network Access](network-listeners.md) for local r
 
 ### File or process action fails
 
-Log the resolved path or executable identifier without logging credentials. Check the runner account's permissions and working environment. Desktop-only actions require an active desktop target/session. Windows-title lookup modes are Windows Desktop-only; use process-name or PID modes where documented on Linux.
+Log the resolved path or executable identifier without logging credentials. Check the runner account's permissions and working environment. Desktop-only actions require an active desktop target/session. Windows-title lookup modes are Windows Desktop-only. Use process-name or PID modes where documented on Linux.
 
 ### Update is rejected
 
-Check system time, HTTPS access to the GitHub release endpoint, availability of the exact Windows or Linux artifact, and updater signature metadata. On Linux, the AppImage must remain writable by its owner. Do not bypass signature verification; use the documented manual fallback from [Installation and Updates](installation.md).
+Check system time, HTTPS access to the GitHub release endpoint, availability of the exact Windows or Linux artifact, and updater signature metadata. On Linux, the AppImage must remain writable by its owner. Do not bypass signature verification. Use the documented manual fallback from [Installation and Updates](installation.md).
 
 ## Collect a useful support report
 

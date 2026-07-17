@@ -16,13 +16,13 @@ Open **Project Settings** from the editor top bar. These values are stored in th
 | **Name** | Human-readable project and package name | Required. Use a concise name that distinguishes the automation. |
 | **Target Runtime** | Intended operating system and desktop/headless environment | Choose before adding platform-specific nodes. See [Target Runtimes](target-runtimes.md). |
 | **Description** | Explains what the package does | State its trigger, side effects, and intended operator. |
-| **Author** | Human-readable creator or organization | Informational; it is not a cryptographic signature. |
+| **Author** | Human-readable creator or organization | Informational. It is not a cryptographic signature. |
 | **Minimum Runner** | Oldest runner version allowed to execute the package | Raise this only when the workflow depends on a newer contract or runtime feature. |
 | **Website** | Optional project or product URL | Must be an HTTP or HTTPS URL. |
 | **Repository** | Optional source repository URL | Use when reviewers can inspect the workflow's source or release process. |
 | **Tags** | Search and classification labels | Press Enter, Space, Tab, or comma to finish a tag. |
 
-The project has a stable manifest identity separate from its display name and exported filename. Importing an updated package with the same identity updates the installed script; a different identity creates another script.
+The project has a stable manifest identity separate from its display name and exported filename. Importing an updated package with the same identity updates the installed script. A different identity creates another script.
 
 Changing the display name does not intentionally create a new identity. Do not hand-edit package IDs to force an update.
 
@@ -106,7 +106,7 @@ Review the name, target, author, URLs, minimum runner version, generated filenam
 
 ### 2. Access
 
-Review the calculated risk, permissions, and capabilities. These values are derived from current node definitions and configuration. A surprising permission usually means a node or option has more impact than expected; inspect the graph instead of dismissing the warning.
+Review the calculated risk, permissions, and capabilities. These values are derived from current node definitions and configuration. A surprising permission usually means a node or option has more impact than expected. Inspect the graph instead of dismissing the warning.
 
 ### 3. Verify
 
@@ -114,7 +114,7 @@ The editor checks graph structure, node configuration, variables, assets, target
 
 Warnings require review but may not block export. Read [Verification and Simulation](simulation.md) for the difference between failures, warnings, and risk notices.
 
-After verification passes, choose **Download .bbs**. The browser saves the generated filename; its download location is controlled by browser settings.
+After verification passes, choose **Download .bbs**. The browser saves the generated filename. Its download location is controlled by browser settings.
 
 ## Integrity and archive handling
 

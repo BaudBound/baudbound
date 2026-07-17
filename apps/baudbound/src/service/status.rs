@@ -124,7 +124,7 @@ fn serve_status_services(
         ),
         serve_status_service(
             "hotkey",
-            cfg!(windows),
+            cfg!(windows) && options.hotkeys_enabled,
             services.native_hotkey_service.len(),
             "native Windows global hotkeys".to_owned(),
             services.native_hotkey_service.diagnostics(),

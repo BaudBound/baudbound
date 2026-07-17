@@ -7,7 +7,7 @@ tags: [tutorials, editor, runner]
 
 These tutorials start in the editor and finish on a runner. Complete [Getting Started](../getting-started/index.md) first so package import and approval are familiar.
 
-Use a separate project for each tutorial. After building a graph, trigger it in the editor's **Simulation** tab before exporting. Simulation verifies graph behavior with controlled input; the final runner test proves that the real listener or device works on the target machine.
+Use a separate project for each tutorial. After building a graph, trigger it in the editor's **Simulation** tab before exporting. Simulation checks the graph with controlled input. The final runner test checks that the real listener or device works on the target machine.
 
 ## Scheduled log
 

@@ -15,7 +15,7 @@ Project routes coordinate one writable tab through `BroadcastChannel`. Takeover 
 
 Node definitions under `apps/editor/data/nodes/definitions` own display metadata, category, configuration fields, outputs, risk, capabilities, and `supportedTargetRuntimes`. The registry assembles definitions for palette, inspector, verification, help, schema generation, and package export.
 
-Do not create a second platform-compatibility list. Absence of `supportedTargetRuntimes` means all targets; restrictions must be explicit on the definition. Contract tests ensure the runner recognizes the same executable node types and capabilities.
+Do not create a second platform-compatibility list. Absence of `supportedTargetRuntimes` means all targets. Restrictions must be explicit on the definition. Contract tests ensure the runner recognizes the same executable node types and capabilities.
 
 Use existing shadcn-style UI primitives, Lucide icons, and established inspector field components. Keep operational screens compact and responsive, avoid nested cards and horizontal page scrolling, and verify behavior at desktop and narrow window sizes.
 
@@ -27,7 +27,7 @@ After definition changes, regenerate node schemas, inspect the diff, run unit/ty
 
 1. Add or edit one definition under `apps/editor/data/nodes/definitions/{triggers,control,actions}`.
 2. Define the stable `actionType`, label, description, group, defaults, config fields, execution ports, runtime outputs, risk, permission/capability derivation, fallibility, and target restrictions.
-3. Register the definition in `data/nodes/registry.ts`; do not duplicate its fields in another catalog.
+3. Register the definition in `data/nodes/registry.ts`. Do not duplicate its fields in another catalog.
 4. Add inspector UI only when the standard config-field model cannot express the interaction cleanly.
 5. Implement or update verification and simulation behavior. Simulation must label browser approximations and must not imply unsupported runner behavior.
 6. Generate schemas and inspect the exact node schema plus `program.schema.json` references.
@@ -72,10 +72,10 @@ Change package format version when old runners cannot safely parse the archive/d
 ## UI quality and accessibility
 
 - Reuse existing primitives and keyboard behavior.
-- Use labels, descriptions, focus states, and semantic controls; do not encode status only by color.
+- Use labels, descriptions, focus states, and semantic controls. Do not encode status only by color.
 - Keep operational UI compact and responsive without horizontal page scrolling.
 - Preserve canvas dimensions and hit targets across hover/selection states.
 - Test wide and narrow viewports and critical workflows with Playwright screenshots.
-- Avoid explanatory marketing panels inside the working editor; put detailed guidance in Help and the wiki.
+- Avoid explanatory marketing panels inside the working editor. Put detailed guidance in Help and the wiki.
 
 The release gate is `pnpm --dir apps/editor verify:release`.

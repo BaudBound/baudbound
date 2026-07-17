@@ -7,6 +7,8 @@ tags: [self-hosting, operations]
 
 This section is for operators who want to run the browser editor or public JSON Schemas on their own server. You do not need to self-host either service to use BaudBound: the public editor is available at [editor.baudbound.app](https://editor.baudbound.app/), and runner package validation works offline.
 
+Self hosting means that your own server provides the website instead of using the public BaudBound website. It does not move editor projects into a server database. Each project remains in the browser profile of the person using the editor.
+
 ## Before you begin
 
 You need:
@@ -17,11 +19,15 @@ You need:
 - `curl` for local health checks.
 - Access to container logs and firewall settings on the server.
 
+Docker runs the editor in an isolated container. Docker Compose reads a `compose.yaml` file that describes how the container should start. DNS connects a hostname such as `editor.example.com` to your server. A reverse proxy receives HTTPS requests for that hostname and forwards them to the local editor container.
+
+If Docker, DNS records, HTTPS certificates, and reverse proxies are unfamiliar, learn those server administration basics before exposing the editor to the internet. The commands below assume you can sign in to the server, use `sudo`, edit a file, and manage the server firewall.
+
 The examples bind containers to `127.0.0.1`, so they are reachable only by software on the same server. The reverse proxy is responsible for public HTTPS access. Do not expose the container ports directly to the internet.
 
 ## Self-host the editor
 
-The editor is stateless: it does not require a database or persistent container volume. Projects remain in each user's browser and exported `.bbs` packages are downloaded to that user's machine. Removing or replacing the editor container does not delete projects stored in users' browsers.
+The editor container does not require a database or persistent container volume. Projects remain in each user's browser and exported `.bbs` packages are downloaded to that user's machine. Removing or replacing the editor container does not delete projects stored in users' browsers.
 
 ### Docker Compose
 

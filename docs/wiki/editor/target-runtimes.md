@@ -5,21 +5,21 @@ tags: [editor, runner, compatibility, platforms]
 ---
 # Target Runtimes and Platform Support
 
-A target runtime states where a package is intended to run. It combines operating-system specificity with whether an interactive desktop session is required. Choose it before building the graph so the editor can hide or reject incompatible nodes.
+A target runtime tells BaudBound what kind of machine and session will run the package. Choose it before building the graph. The editor then hides or rejects nodes that cannot work in that environment.
+
+**Desktop** means a user is signed in to a graphical Windows or Linux session. Desktop workflows can interact with visible applications when the selected operating system supports the requested node.
+
+**Headless** means the runner works without a graphical desktop session. This is common on servers. Headless workflows can use files, network requests, schedules, and other background features, but they cannot click a mouse, type into a window, show a desktop notification, or read a screen pixel.
+
+**Generic** means the workflow is intended to work on both Windows and Linux. Generic does not convert paths, command names, or external programs between operating systems.
 
 ## Choose a target
 
-1. Will the runner operate without a signed-in graphical desktop session?
-   - Choose a **Headless** target.
-   - Do not use hotkeys, notifications, dialogs, sound playback, application opening, clipboard, input control, pixel, or window nodes.
-2. Does the workflow require a desktop session?
-   - Choose a **Desktop** target.
-3. Does it depend on Windows-only window or pixel APIs, or window-title process matching?
-   - Choose **Windows Desktop**.
-4. Is it deliberately portable across Windows and Linux within the same session family?
-   - Choose the corresponding **Generic** target.
-5. Does it depend on OS-specific paths, executables, serial names, or behavior even though all nodes are generic?
-   - Prefer the matching Windows or Linux target so operators are not misled.
+1. If the runner will operate without a signed in graphical session, choose a **Headless** target. Do not use hotkeys, notifications, dialogs, sound playback, application opening, clipboard, input control, pixel, or window nodes.
+2. If the workflow needs to interact with a signed in graphical session, choose a **Desktop** target.
+3. If it depends on Windows window or pixel features, or matches a process by window title, choose **Windows Desktop**.
+4. If the same workflow is intended to work on both Windows and Linux, choose the matching **Generic** target.
+5. If the workflow contains operating system specific paths, executable names, serial port names, or behavior, choose the matching Windows or Linux target even when every node is otherwise portable.
 
 ## Runtime families {.tabset}
 
@@ -54,12 +54,12 @@ Linux Desktop does not imply that every X11 or Wayland window-management feature
 
 These nodes require a Desktop target:
 
-- Hotkey trigger;
-- Open Application;
-- Clipboard;
-- Keyboard and Type Text;
-- Show Notification;
-- Mouse Click and Move Mouse; and
+- Hotkey trigger.
+- Open Application.
+- Clipboard.
+- Keyboard and Type Text.
+- Show Notification.
+- Mouse Click and Move Mouse.
 - Play Sound.
 
 The editor checks `desktopOnly` from node definitions, and the runner independently applies its corresponding compatibility table.
@@ -68,9 +68,9 @@ The editor checks `desktopOnly` from node definitions, and the runner independen
 
 These nodes support only Windows Desktop:
 
-- MessageBox;
-- Get Active Window;
-- Window Focus; and
+- MessageBox.
+- Get Active Window.
+- Window Focus.
 - Get Pixel Color.
 
 Process Status, Kill Process, and App / Process Started are otherwise portable, but selecting **Window title** match mode makes that configured node Windows Desktop-only.
@@ -79,7 +79,7 @@ Process Status, Kill Process, and App / Process Started are otherwise portable, 
 
 A node definition can constrain support in two ways:
 
-- `desktopOnly: true` allows desktop targets and rejects headless targets;
+- `desktopOnly: true` allows desktop targets and rejects headless targets.
 - `supportedTargetRuntimes` lists an explicit narrower set.
 
 When `supportedTargetRuntimes` is omitted, the node is available to all targets unless another rule such as `desktopOnly` or configuration-specific validation narrows it. Omission does not promise that arbitrary machine paths or external dependencies are portable.

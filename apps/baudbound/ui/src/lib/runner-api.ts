@@ -331,6 +331,7 @@ export type RunnerSettings = {
 
 export type TriggerSettings = {
   file_watch_enabled: boolean;
+  hotkeys_enabled: boolean;
   process_watch_enabled: boolean;
   schedules_enabled: boolean;
   serial_enabled: boolean;

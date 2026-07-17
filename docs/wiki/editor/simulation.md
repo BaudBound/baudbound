@@ -12,7 +12,7 @@ Verification checks whether a project is internally valid. Simulation executes i
 | Stage | Runs where | Performs native production actions | Main purpose |
 | --- | --- | --- | --- |
 | **Verification** | Editor | No | Find graph, config, variable, asset, access, and target problems |
-| **Simulation** | Editor browser | Mostly no; see side effects below | Exercise branches and data with controlled input |
+| **Simulation** | Editor browser | Mostly no. See side effects below | Exercise branches and data with controlled input |
 | **Runner validation** | Native runner | No | Reparse package and recalculate integrity, security, target, and semantic contracts |
 | **Runner execution** | Native runner | Yes, after checks and approval | Perform the approved automation |
 
@@ -73,7 +73,7 @@ Payload fields are test input, not saved production events.
 | Webhook | `method`, `path`, headers, query, raw `body`, JSON body |
 | WebSocket | `path`, `message`, `connectionId`, headers, query, `remoteAddress` |
 | Hotkey | `key` |
-| Serial Input | `data`; output also calculates byte length and timestamp |
+| Serial Input | `data`. Output also calculates byte length and timestamp |
 | Process Started | `processName`, `processId`, `executablePath`, `windowTitle` |
 | Startup | `reason`, normally represented as runner startup |
 
@@ -101,10 +101,10 @@ Entered values are type-checked, supplied to simulation, redacted from simulatio
 
 The browser performs a small controlled set of visible simulation effects:
 
-- notification actions show editor toasts;
-- message boxes show an editor dialog and return the selected button;
-- Beep uses browser Web Audio;
-- Play Sound can play a packaged audio asset; and
+- notification actions show editor toasts.
+- message boxes show an editor dialog and return the selected button.
+- Beep uses browser Web Audio.
+- Play Sound can play a packaged audio asset.
 - HTTP Request uses the browser's real `fetch` API.
 
 HTTP simulation can contact a real server. Browser CORS, forbidden headers, user-agent handling, cookies, TLS trust, and network policy differ from the native runner.
@@ -113,12 +113,12 @@ Other native actions are described and assigned simulated outputs without contro
 
 Simulation cannot prove:
 
-- runner filesystem paths or account permissions;
-- executable or process availability;
-- desktop focus and session behavior;
-- serial protocol or device identity;
-- listener binding, firewall, proxy, or port ownership;
-- package approval, runner policy, or encrypted secret storage; or
+- runner filesystem paths or account permissions.
+- executable or process availability.
+- desktop focus and session behavior.
+- serial protocol or device identity.
+- listener binding, firewall, proxy, or port ownership.
+- package approval, runner policy, or encrypted secret storage.
 - native error timing and operating-system-specific output.
 
 ## Runtime overrides

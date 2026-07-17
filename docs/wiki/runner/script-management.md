@@ -73,7 +73,7 @@ baudbound script run SCRIPT
 baudbound script logs --script SCRIPT
 ```
 
-`run` starts the script's manual trigger. It fails when the package has no manual trigger; use the desktop Triggers view or `baudbound script triggers SCRIPT` to see the available trigger node IDs.
+`run` starts the script's manual trigger. It fails when the package has no manual trigger. Use the desktop Triggers view or `baudbound script triggers SCRIPT` to see the available trigger node IDs.
 
 To run a specific trigger with controlled JSON input:
 
@@ -82,6 +82,8 @@ baudbound script run SCRIPT --trigger TRIGGER --payload-json '{"test":true}'
 ```
 
 Replace `TRIGGER` with the node ID shown by trigger inspection. Listener-generated production events normally use the background service instead.
+
+The JSON after `--payload-json` is test data for the selected trigger. It is not a runner setting. See [Supplying trigger test data](cli-reference.md#supplying-trigger-test-data) for a complete example and the variable names created from the JSON.
 
 Enable the package when its listener-based triggers should load in the background:
 

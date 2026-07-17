@@ -173,6 +173,7 @@ target_runtimes = []
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
+hotkeys_enabled = true
 process_watch_enabled = true
 serial_enabled = true
 startup_enabled = true
@@ -287,6 +288,7 @@ impl Default for RunnerSettings {
 #[serde(default)]
 pub struct TriggerSettings {
     pub file_watch_enabled: bool,
+    pub hotkeys_enabled: bool,
     pub process_watch_enabled: bool,
     pub schedules_enabled: bool,
     pub serial_enabled: bool,
@@ -299,6 +301,7 @@ impl Default for TriggerSettings {
     fn default() -> Self {
         Self {
             file_watch_enabled: true,
+            hotkeys_enabled: true,
             process_watch_enabled: true,
             schedules_enabled: true,
             serial_enabled: true,
@@ -404,6 +407,7 @@ mod tests {
         );
         assert!(config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
+        assert!(config.triggers.hotkeys_enabled);
         assert!(config.triggers.serial_enabled);
         assert!(!config.triggers.webhooks_enabled);
         assert_eq!(config.webhooks.bind, DEFAULT_WEBHOOK_BIND);
@@ -431,6 +435,7 @@ mod tests {
         );
         let contents = fs::read_to_string(config_path).expect("config should be readable");
         assert!(contents.contains("[triggers]"));
+        assert!(contents.contains("hotkeys_enabled = true"));
     }
 
     #[test]
@@ -447,6 +452,7 @@ mod tests {
                 [triggers]
                 schedules_enabled = false
                 file_watch_enabled = true
+                hotkeys_enabled = false
                 process_watch_enabled = false
                 serial_enabled = false
                 startup_enabled = true
@@ -493,6 +499,7 @@ mod tests {
         );
         assert!(!config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
+        assert!(!config.triggers.hotkeys_enabled);
         assert!(!config.triggers.process_watch_enabled);
         assert!(!config.triggers.serial_enabled);
         assert!(config.triggers.startup_enabled);

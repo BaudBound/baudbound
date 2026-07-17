@@ -9,7 +9,7 @@ BaudBound versions must agree across the Cargo workspace, Tauri configuration, a
 
 `apps/baudbound/scripts/verify-release-version.mjs` checks that the tag, root Cargo workspace, `apps/baudbound/tauri.conf.json`, and `apps/baudbound/ui/package.json` agree before packaging.
 
-The release workflow builds a Windows NSIS installer and Linux AppImage, signs updater artifacts, creates a draft GitHub release, and publishes `latest.json` with platform URLs and signatures. The private updater key and password live in protected GitHub secrets; only the public key is committed in application configuration.
+The release workflow builds a Windows NSIS installer and Linux AppImage, signs updater artifacts, creates a draft GitHub release, and publishes `latest.json` with platform URLs and signatures. The private updater key and password live in protected GitHub secrets. Only the public key is committed in application configuration.
 
 Use the interactive release helper:
 
@@ -25,7 +25,7 @@ It can check versions and prerequisites, run verification, create the tag, inspe
 2. Run Rust, editor contract/schema, and desktop UI release gates.
 3. Create and push `vMAJOR.MINOR.PATCH`.
 4. GitHub repeats the quality gate on Ubuntu.
-5. Windows builds the NSIS installer; Ubuntu 22.04 builds the AppImage.
+5. Windows builds the NSIS installer. Ubuntu 22.04 builds the AppImage.
 6. Tauri signs updater artifacts and uploads platform signatures.
 7. The workflow creates a **draft** GitHub release and generates `latest.json` with platform URLs, versions, and signatures.
 8. A maintainer checks artifacts on clean supported machines, release notes, updater metadata, and install/update behavior.
@@ -60,7 +60,7 @@ The scripts deliberately use `Cache-Control: no-store` behavior so updates becom
 | Setting | Purpose |
 | --- | --- |
 | `GITHUB_TOKEN` | Create the draft and upload artifacts in the repository |
-| `TAURI_SIGNING_PRIVATE_KEY` | Sign updater packages; never commit it |
+| `TAURI_SIGNING_PRIVATE_KEY` | Sign updater packages. Never commit it |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Decrypt the private signing key in CI |
 
 Loss of the private updater key prevents producing updates trusted by existing installations. Exposure allows an attacker with release publication access to sign malicious updates. Back it up offline, restrict the GitHub environment, and rotate only through a deliberately designed migration.

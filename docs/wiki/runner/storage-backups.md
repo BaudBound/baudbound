@@ -32,12 +32,12 @@ Never run two services against the same runner home. Although SQLite coordinates
 
 SQLite stores:
 
-- installed script identity, package path, hash, versions, target, risk, and enabled state;
-- per-revision approvals and approved permissions;
-- completed run records, logs, and variable snapshots;
-- service status and reload signals used between runner processes;
-- script-scoped persistent variables;
-- runner-global variables; and
+- installed script identity, package path, hash, versions, target, risk, and enabled state.
+- per-revision approvals and approved permissions.
+- completed run records, logs, and variable snapshots.
+- service status and reload signals used between runner processes.
+- script-scoped persistent variables.
+- runner-global variables.
 - encrypted script secret values.
 
 The database does not make encrypted secret values independently recoverable. Their encryption key is stored in the operating-system credential vault for desktop use or supplied through `BAUDBOUND_SECRET_KEY` for headless use.
@@ -78,7 +78,7 @@ When `BAUDBOUND_HOME` or `XDG_DATA_HOME` is set, copy the resolved directory rep
 
 ### 3. Back up the secret key
 
-Desktop installations rely on the operating-system credential vault. Include the platform's supported credential-vault backup or machine-migration procedure; copying runner files alone does not copy that key.
+Desktop installations rely on the operating-system credential vault. Include the platform's supported credential-vault backup or machine-migration procedure. Copying runner files alone does not copy that key.
 
 Headless installations must back up the exact `BAUDBOUND_SECRET_KEY` through the operator's secret-management system. Do not place the plaintext key inside the same unencrypted archive as publicly accessible backups.
 
@@ -92,7 +92,7 @@ Restart the original runner only after verification.
 
 1. Install a runner version that supports the backup's database schema and package formats. The same version or a newer compatible release is safest.
 2. Stop every BaudBound process on the destination.
-3. Move any existing destination runner home aside; do not merge directories.
+3. Move any existing destination runner home aside. Do not merge directories.
 4. Copy the complete backup to the resolved destination path.
 5. Restore ownership and permissions for the account that will run BaudBound.
 6. Restore access to the original desktop vault key or headless `BAUDBOUND_SECRET_KEY`.
@@ -127,7 +127,7 @@ The database records and `scripts/` files likely came from different points in t
 
 ### Secrets cannot decrypt
 
-The runner does not have the original encryption key. Restore the credential-vault entry or headless key backup. If the key is permanently lost, encrypted values cannot be recovered; remove and set each secret again from its authoritative source.
+The runner does not have the original encryption key. Restore the credential-vault entry or headless key backup. If the key is permanently lost, encrypted values cannot be recovered. Remove and set each secret again from its authoritative source.
 
 ### Newer schema error
 

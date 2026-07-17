@@ -105,11 +105,11 @@ The desktop background runner and an operating-system service solve the same lon
 
 | Term | Meaning |
 | --- | --- |
-| **Bind address** | The local network interface on which a listener accepts connections. `127.0.0.1` is reachable only from the same machine; `0.0.0.0` exposes all IPv4 interfaces. |
+| **Bind address** | The local network interface on which a listener accepts connections. `127.0.0.1` accepts connections only from the same machine. `0.0.0.0` accepts connections through every available IPv4 network interface. |
 | **Port** | The numeric TCP endpoint used by a webhook or WebSocket listener. Only one process can normally bind the same address and port combination. |
 | **Webhook hook name** | The node setting used to create a route such as `/events/deploy`. It is not the listener address or port. |
 | **Reverse proxy** | A separate server that accepts client traffic and forwards selected requests to the runner, commonly adding TLS, authentication, and request controls. |
 
-For example, a Webhook node with hook name `deploy` may receive requests at `http://127.0.0.1:43891/events/deploy`. The `deploy` segment comes from the node; `127.0.0.1:43891` comes from runner configuration.
+For example, a Webhook node with hook name `deploy` may receive requests at `http://127.0.0.1:43891/events/deploy`. The `deploy` part comes from the node. The address and port `127.0.0.1:43891` come from runner configuration.
 
 Read [Background Service and Triggers](runner/service-triggers.md) before enabling listeners and [Security Model](security/index.md) before exposing them beyond the local machine.

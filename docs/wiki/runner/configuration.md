@@ -5,15 +5,19 @@ tags: [runner, configuration, serial]
 ---
 # Configuration and Serial Devices
 
-The runner uses one validated TOML configuration. It creates a secure default automatically on first normal startup. Desktop users should prefer the validated Simple editor; headless operators can edit the same file directly.
+The runner uses one validated TOML configuration. It creates a secure default automatically on first normal startup. Desktop users should prefer the validated Simple editor. Headless operators can edit the same file directly.
+
+TOML is a text format for settings. A heading such as `[triggers]` begins a group. A line such as `hotkeys_enabled = true` assigns one value inside that group. A boolean value is a switch. `true` means enabled and `false` means disabled. Keep spelling, quotation marks, and section names exactly as documented.
+
+Most desktop users do not need to open `config.toml` themselves. The Simple mode in **Config** edits the same settings with fields and switches.
 
 ## Path and precedence
 
 Configuration resolution, highest priority first:
 
-1. global CLI option `--config PATH`;
-2. `BAUDBOUND_CONFIG` environment variable;
-3. `config.toml` inside the resolved `BAUDBOUND_HOME`; and
+1. global CLI option `--config PATH`.
+2. `BAUDBOUND_CONFIG` environment variable.
+3. `config.toml` inside the resolved `BAUDBOUND_HOME`.
 4. the platform-default runner home.
 
 Print the exact path without guessing:
@@ -46,22 +50,23 @@ Edit the path from `baudbound config path` under the account that runs BaudBound
 
 | Key | Type and default | Meaning | Restart/security impact |
 | --- | --- | --- | --- |
-| `runner.name` | optional string; `BaudBound Runner` when blank | Display name in status and UI | No privilege change; reload UI/status |
-| `runner.trigger_reload_seconds` | integer seconds; `2` | Interval for detecting installed-script registration changes | Restart service to change polling interval |
-| `runner.run_history_max_records` | positive integer; `10000` | Maximum number of complete run records retained across all scripts | Lower values prune existing history immediately when the config is applied |
-| `runner.run_history_max_age_days` | positive integer days; `30` | Maximum age of retained runs | Lower values prune expired history immediately when the config is applied |
-| `runner.target_runtimes` | string array; `[]` | Empty uses host defaults; explicit list restricts accepted package targets | Restart; cannot grant unsupported targets |
+| `runner.name` | optional string. `BaudBound Runner` when blank | Display name in status and UI | No privilege change. Reload UI/status |
+| `runner.trigger_reload_seconds` | integer seconds. `2` | Interval for detecting installed-script registration changes | Restart service to change polling interval |
+| `runner.run_history_max_records` | positive integer. `10000` | Maximum number of complete run records retained across all scripts | Lower values prune existing history immediately when the config is applied |
+| `runner.run_history_max_age_days` | positive integer days. `30` | Maximum age of retained runs | Lower values prune expired history immediately when the config is applied |
+| `runner.target_runtimes` | string array. `[]` | Empty uses host defaults. Explicit list restricts accepted package targets | Restart. Cannot grant unsupported targets |
 
 Supported target strings are `Generic Headless`, `Linux Headless`, `Windows Headless`, `Generic Desktop`, `Windows Desktop`, and `Linux Desktop`. A runner accepts only the host-appropriate subset.
 
 ## Trigger-family switches
 
-All keys are booleans. Schedule, file, process, serial, and startup default to `true`; network listeners default to `false`.
+All keys are booleans. Schedule, file, hotkey, process, serial, and startup default to `true`. Network listeners default to `false`.
 
 | Key | Listener family | Notes |
 | --- | --- | --- |
 | `triggers.schedules_enabled` | Schedule | Timers for enabled, approved scripts |
 | `triggers.file_watch_enabled` | File Watch | Native filesystem watchers |
+| `triggers.hotkeys_enabled` | Hotkey | Native Windows global keyboard listener |
 | `triggers.process_watch_enabled` | App / Process Started | Process snapshot polling |
 | `triggers.serial_enabled` | Serial Input | Physical readers from configured mappings |
 | `triggers.startup_enabled` | Startup | Dispatches when eligible registrations load at service start |
@@ -74,9 +79,9 @@ Disabling a family prevents all scripts in that family from registering. Restart
 
 | Key | Type/default | Valid value | Impact |
 | --- | --- | --- | --- |
-| `webhooks.bind` | string; `127.0.0.1` | Local IP/interface address | Non-loopback can expose routes to a network |
-| `webhooks.port` | integer; `43891` | `1-65535` and available | Must not conflict with another process |
-| `webhooks.max_body_bytes` | positive integer; `1048576` | Maximum accepted HTTP body | Bounds memory and request size |
+| `webhooks.bind` | string. `127.0.0.1` | Local IP/interface address | Non-loopback can expose routes to a network |
+| `webhooks.port` | integer. `43891` | `1-65535` and available | Must not conflict with another process |
+| `webhooks.max_body_bytes` | positive integer. `1048576` | Maximum accepted HTTP body | Bounds memory and request size |
 
 Keep loopback unless exposure controls are designed. See [Webhooks, WebSockets, and Network Access](network-listeners.md).
 
@@ -84,10 +89,10 @@ Keep loopback unless exposure controls are designed. See [Webhooks, WebSockets, 
 
 | Key | Type/default | Valid value | Impact |
 | --- | --- | --- | --- |
-| `websockets.bind` | string; `127.0.0.1` | Local IP/interface address | Non-loopback can expose routes |
-| `websockets.port` | integer; `43892` | `1-65535` and available | Must not conflict |
-| `websockets.max_message_bytes` | positive integer; `1048576` | Maximum text message size | Bounds per-message work |
-| `websockets.max_connections` | positive integer; `128` | Concurrent connection limit | Bounds sockets and registry state |
+| `websockets.bind` | string. `127.0.0.1` | Local IP/interface address | Non-loopback can expose routes |
+| `websockets.port` | integer. `43892` | `1-65535` and available | Must not conflict |
+| `websockets.max_message_bytes` | positive integer. `1048576` | Maximum text message size | Bounds per-message work |
+| `websockets.max_connections` | positive integer. `128` | Concurrent connection limit | Bounds sockets and registry state |
 
 Zero message size or connection count is rejected.
 
@@ -104,27 +109,28 @@ This keeps COM and `/dev/tty*` names out of portable packages. Serial Input and 
 ### Add by scanning
 
 1. Connect the physical device.
-2. Open **Devices** and choose **Scan**.
-3. Identify the intended card using port, vendor/product IDs, serial number, manufacturer, and product.
-4. Choose **Add** and enter the exact logical ID used in editor nodes.
-5. Complete protocol fields from the hardware manual.
-6. Save Config and restart the background runner.
-7. Scan again and confirm the configured mapping resolves to the intended hardware.
+2. Open **Tools** and find the serial device scanner.
+3. Choose **Scan**.
+4. Identify the intended card using its port, vendor ID, product ID, serial number, manufacturer, and product name where available.
+5. Choose **Add** and enter the exact logical ID used in editor nodes.
+6. Complete the protocol fields using the device manual.
+7. Save Config and restart the background runner.
+8. Scan again and confirm that the logical ID points to the intended hardware.
 
 ### Serial field reference
 
 | Key | Type/default | Supported values and meaning |
 | --- | --- | --- |
-| `port` | string; empty | Windows `COM` name or Linux device path; required for active mapping |
-| `baud_rate` | positive integer; `115200` | Device transmission rate from its manual |
-| `data_bits` | integer; `8` | `5`, `6`, `7`, or `8` |
-| `parity` | string; `none` | `none`, `odd`, or `even` |
-| `stop_bits` | string; `1` | `1` or `2` |
-| `flow_control` | string; `none` | `none`, `software`, or `hardware` |
-| `read_mode` | string; `line` | `line` for newline-delimited text or `raw` for received byte chunks |
-| `auto_reconnect` | boolean; `true` | Retry after disconnect instead of leaving reader failed |
-| `validate_usb_identity` | boolean; `false` | Require configured USB identity fields to match opened port |
-| `auto_rebind_port` | boolean; `false` | Find same unambiguous hardware after OS port-name change and save new port |
+| `port` | string. Empty | Windows `COM` name or Linux device path. Required for active mapping |
+| `baud_rate` | positive integer. `115200` | Device transmission rate from its manual |
+| `data_bits` | integer. `8` | `5`, `6`, `7`, or `8` |
+| `parity` | string. `none` | `none`, `odd`, or `even` |
+| `stop_bits` | string. `1` | `1` or `2` |
+| `flow_control` | string. `none` | `none`, `software`, or `hardware` |
+| `read_mode` | string. `line` | `line` for newline-delimited text or `raw` for received byte chunks |
+| `auto_reconnect` | boolean. `true` | Retry after disconnect instead of leaving reader failed |
+| `validate_usb_identity` | boolean. `false` | Require configured USB identity fields to match opened port |
+| `auto_rebind_port` | boolean. `false` | Find same unambiguous hardware after OS port-name change and save new port |
 | `vendor_id` | optional string | USB hexadecimal vendor ID |
 | `product_id` | optional string | USB hexadecimal product ID |
 | `serial_number` | optional string | Strong discriminator between identical models when available |
@@ -166,6 +172,7 @@ target_runtimes = []
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
+hotkeys_enabled = true
 process_watch_enabled = true
 serial_enabled = true
 startup_enabled = true
@@ -197,6 +204,7 @@ target_runtimes = ["Generic Headless", "Linux Headless"]
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
+hotkeys_enabled = false
 process_watch_enabled = true
 serial_enabled = true
 startup_enabled = true
@@ -223,6 +231,7 @@ Use the desktop defaults, then change only:
 [triggers]
 schedules_enabled = true
 file_watch_enabled = true
+hotkeys_enabled = true
 process_watch_enabled = true
 serial_enabled = true
 startup_enabled = true

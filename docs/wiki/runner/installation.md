@@ -15,6 +15,8 @@ Download release files only from the [BaudBound GitHub Releases page](https://gi
 
 These commands install BaudBound when it is missing and update it when an older version is installed. The downloaded release file is checked against the SHA-256 digest published by GitHub before it is opened or installed.
 
+A SHA-256 digest is a long value calculated from a file. It works like a digital fingerprint. The installation script calculates the fingerprint of the downloaded file and compares it with the fingerprint published for that release. The script stops when they do not match.
+
 ### Windows
 
 Open PowerShell and run:

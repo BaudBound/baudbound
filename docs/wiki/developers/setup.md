@@ -27,7 +27,7 @@ pnpm --version
 
 ### Linux
 
-Install Git, Rust 1.95, Node.js 24, pnpm 11.10.0, a C/C++ toolchain, pkg-config, WebKitGTK 4.1 development headers, AppIndicator, ALSA, udev, SVG, xdo, and patchelf packages. Package names differ by distribution; the authoritative Ubuntu package list used by CI is in `.github/workflows/runner-ci.yml`.
+Install Git, Rust 1.95, Node.js 24, pnpm 11.10.0, a C/C++ toolchain, pkg-config, WebKitGTK 4.1 development headers, AppIndicator, ALSA, udev, SVG, xdo, and patchelf packages. Package names differ by distribution. The authoritative Ubuntu package list used by CI is in `.github/workflows/runner-ci.yml`.
 
 ```bash
 git --version
@@ -94,7 +94,7 @@ The first runner command creates a default `config.toml` and SQLite database in 
 | Work | Start command | Main fast checks |
 | --- | --- | --- |
 | Editor | `pnpm --dir apps/editor dev` | lint, typecheck, focused tests, schemas check |
-| Desktop UI only | `pnpm --dir apps/baudbound/ui dev` | typecheck and Vitest; Tauri APIs need the desktop shell |
+| Desktop UI only | `pnpm --dir apps/baudbound/ui dev` | typecheck and Vitest. Tauri APIs need the desktop shell |
 | Tauri desktop | Choose **Desktop** in the helper | UI tests plus focused Rust tests |
 | Headless service | `cargo run -p baudbound -- serve` | crate and command integration tests |
 | Schemas | `pnpm --dir apps/editor schemas:generate` | inspect diff, then `schemas:check` |

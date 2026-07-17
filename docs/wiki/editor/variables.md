@@ -19,7 +19,7 @@ Variable-aware fields show matching suggestions after typing `{{`. Select a sugg
 | --- | --- | --- |
 | Value only during the current trigger run | Runtime variable | Starts clean for each run and has the narrowest write scope |
 | Value retained for later runs of the same script | Persistent variable | Stored under that script identity |
-| Deliberately shared value across scripts on one runner | Global variable | One runner-level name; requires high-risk review |
+| Deliberately shared value across scripts on one runner | Global variable | One runner-level name. Requires high-risk review |
 | Password, token, private key, or credential | Secret declaration | Value stays outside the project and package |
 | Data produced by a trigger or action | Node output | Read-only and namespaced by stable node ID |
 
@@ -59,7 +59,7 @@ Use dot-separated paths to read object fields and zero-based list indexes:
 
 Reading paths use numeric dot segments such as `.0`. Bracket notation is reserved for the Variable Operation node's **Set object field** path, where paths such as `users[0].name` are supported.
 
-References retrieve data; they do not evaluate arithmetic or arbitrary expressions. Use Calculate for mathematics and Format Text for text transformations.
+References retrieve data. They do not evaluate arithmetic or arbitrary expressions. Use Calculate for mathematics and Format Text for text transformations.
 
 ## Variable sources
 
@@ -107,7 +107,7 @@ Actions and triggers expose read-only runtime data using the node ID and output 
 {{n-mr3zyt6f-12.error.message}}
 ```
 
-Select a node and open **Runtime Data** in Properties to see its outputs, field types, descriptions, and complete tokens. A custom node display name does not change these references; the stable node ID remains the data namespace.
+Select a node and open **Runtime Data** in Properties to see its outputs, field types, descriptions, and complete tokens. A custom node display name does not change these references. The stable node ID remains the data namespace.
 
 Trigger payload fields use the trigger node ID in the same way. Action outputs become available only after that node executes on the current branch. Referencing an output before execution leaves the token unresolved.
 
@@ -223,7 +223,7 @@ Examples:
 {{payload.$is_empty}}
 ```
 
-Metadata is refreshed whenever the underlying runtime value changes. The `$` names are reserved; an object property with the same name cannot be addressed through this derived-token form.
+Metadata is refreshed whenever the underlying runtime value changes. The `$` names are reserved. An object property with the same name cannot be addressed through this derived-token form.
 
 ## Conditions and typed values
 
@@ -231,18 +231,18 @@ If/Else and While resolve both sides before comparing them. Keep a standalone re
 
 Available comparisons are equals, does not equal, numeric greater/less variants, contains, starts with, ends with, regex match, is empty, and is null. Rows are combined in order with AND or OR, and each row can be inverted.
 
-Numeric comparisons require numeric operands. Regex patterns are limited to 256 characters; the runner rejects invalid patterns, and simulation treats patterns rejected by its safety checks as a non-match.
+Numeric comparisons require numeric operands. Regex patterns are limited to 256 characters. The runner rejects invalid patterns, and simulation treats patterns rejected by its safety checks as a non-match.
 
 ## Inspecting runtime data
 
 The bottom **Variables** tab combines declared variables, built-ins, secrets, node outputs, and the most recent simulation snapshot. It can:
 
-- show or hide derived metadata;
-- show or hide manifest and other built-in values;
-- show or hide system values;
+- show or hide derived metadata.
+- show or hide manifest and other built-in values.
+- show or hide system values.
 - sort recently changed values first.
 
-These controls only affect the panel. They do not change the project, exported package, or runtime state. Values shown before simulation may be declarations without a current value; run a relevant trigger to inspect actual data produced along that path.
+These controls only affect the panel. They do not change the project, exported package, or runtime state. Values shown before simulation may be declarations without a current value. Run a relevant trigger to inspect actual data produced along that path.
 
 ## Common mistakes
 

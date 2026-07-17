@@ -128,7 +128,7 @@ fn serve_preflight_rows(
         ),
         serve_preflight_row(
             "hotkey",
-            cfg!(windows),
+            cfg!(windows) && options.hotkeys_enabled,
             count_trigger_registrations(registrations, "trigger.hotkey"),
             "native Windows global hotkeys".to_owned(),
         ),

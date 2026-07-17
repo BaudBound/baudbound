@@ -30,11 +30,11 @@ Search the node library, then either click a node entry to add it near the curre
 
 Select a node to edit:
 
-- optional custom display name;
-- definition-specific fields;
-- variable-aware text and number inputs;
-- conditions, switch cases, headers, serial options, or asset choices where relevant;
-- runtime output data and reference examples; and
+- optional custom display name.
+- definition-specific fields.
+- variable-aware text and number inputs.
+- conditions, switch cases, headers, serial options, or asset choices where relevant.
+- runtime output data and reference examples.
 - risk and node identity.
 
 Node IDs are stable within the project and appear in output references, edges, logs, and package data. Use the inspector copy button rather than retyping an ID.
@@ -43,11 +43,11 @@ Node IDs are stable within the project and appear in output references, edges, l
 
 Drag from an output handle to a compatible input handle. The edge follows the project-wide style selected in the canvas toolbar.
 
-Ordinary nodes use an `out` execution output. Fallible actions expose **success** and **failed** outputs; the failed branch provides structured `error` data. Control nodes expose named branches such as **true**, **false**, **loop**, **done**, switch cases, or a default route.
+Ordinary nodes use an `out` execution output. Fallible actions expose **success** and **failed** outputs. The failed branch provides structured `error` data. Control nodes expose named branches such as **true**, **false**, **loop**, **done**, switch cases, or a default route.
 
 Triggers have no execution input because they begin runs. A workflow can contain multiple trigger types, but only one Manual trigger is allowed.
 
-Loop body edges leave the **loop** output and completion continues from **done**. Do not connect the body back to the loop node; the runtime owns repetition.
+Loop body edges leave the **loop** output and completion continues from **done**. Do not connect the body back to the loop node. The runtime owns repetition.
 
 One output can connect to several nodes. Those branches run one after another in the numbered order shown on the edges. The first connection created from an output is first, and each new connection is added to the end.
 
@@ -84,18 +84,18 @@ Hotkey and Keyboard node fields use a key-capture control. Focus that control be
 Add a comment from the canvas comment control. Comments are normal selectable React Flow nodes but are excluded from the executable program.
 
 - Drag from the entire upper comment section.
-- Edit text directly in the body; the cursor remains where you place it.
+- Edit text directly in the body. The cursor remains where you place it.
 - Resize from the lower-right handle. Minimum size prevents controls from overlapping.
 - Choose amber, blue, green, rose, or violet from the header swatches.
 - Use **A-**, **A+**, or type a font size from `12` through `72`.
-- Press Enter or leave the size field to apply it; Escape restores the current size.
+- Press Enter or leave the size field to apply it. Escape restores the current size.
 - Copy, paste, duplicate, select, and delete comments like executable nodes.
 
 When a comment overlaps an executable node, the executable node is rendered above it so controls and connections remain accessible.
 
 ## Edge style
 
-The canvas edge selector applies one style to all graph edges. Available styles map to React Flow's straight, step, smooth-step, and default Bezier rendering. The selected style is editor metadata saved in `editor.json`; it does not change execution order.
+The canvas edge selector applies one style to all graph edges. Available styles map to React Flow's straight, step, smooth-step, and default Bezier rendering. The selected style is editor metadata saved in `editor.json`. It does not change execution order.
 
 ## Project, assets, and packages
 
@@ -136,6 +136,6 @@ Export before clearing browser data, switching profiles or devices, using privat
 | Imported package is rejected | Return to Projects, use Open package, and inspect the verification error |
 | Project is already open | Continue in the owning tab, or take control after its changes are saved |
 | Save failed | Keep the tab open, retry the save, or export the current project from the recovery dialog |
-| Work disappeared | Check the original browser profile; restore from the latest exported package |
+| Work disappeared | Check the original browser profile. Restore from the latest exported package |
 
 Continue with [Node Reference](node-reference.md) and [Variables and Data](variables.md).

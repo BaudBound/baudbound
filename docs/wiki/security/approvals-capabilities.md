@@ -5,7 +5,15 @@ tags: [security, approval, permissions, capabilities, risk]
 ---
 # Approvals, Capabilities, and Risk
 
-BaudBound describes program access in three related forms. **Permissions** are operator-facing operations with risk. **Capabilities** are machine-checkable runtime feature categories. **Risk** is the highest review level calculated from required permissions. Approval accepts one exact package revision; it does not disable validation.
+Before a script can run, BaudBound calculates what the script needs and shows that information for review.
+
+**Permissions** describe operations that matter to the person approving the script. Examples include reading a file, controlling the keyboard, or starting a process.
+
+**Capabilities** are internal feature categories used to confirm that package declarations match the executable graph. Users do not add or approve capabilities separately.
+
+**Risk** shows how carefully the package should be reviewed. It is calculated from the highest risk operation in the package.
+
+**Approval** records that the current package revision and its calculated access were accepted. A changed package needs a new approval. Approval never disables validation or platform checks.
 
 ## Risk levels
 
@@ -91,9 +99,9 @@ The editor node registry generates the node-to-capability contract embedded in t
 
 Approval records:
 
-- stable script identity;
-- exact package hash;
-- calculated permissions accepted during review; and
+- stable script identity.
+- exact package hash.
+- calculated permissions accepted during review.
 - approval time.
 
 An approval is **current** only while the installed package hash and permission set match. Updating package content invalidates the previous approval. An unchanged display name does not preserve trust.
@@ -137,8 +145,8 @@ Use `--json` on supported inspection commands for automation. Do not parse decor
 
 Security validation accepts policy flags for:
 
-- dangerous actions;
-- shell commands; and
+- dangerous actions.
+- shell commands.
 - network-server triggers.
 
 Shell commands have both dangerous-action and shell-specific gates. Webhook and WebSocket listeners have a network-server gate. A current approval allows the runner's intended approved execution path, but unsupported platforms, malformed configuration, package mismatches, missing secrets, and unavailable native adapters remain blocking conditions.

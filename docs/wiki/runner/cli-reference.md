@@ -5,6 +5,10 @@ tags: [runner, cli, reference]
 ---
 # CLI Reference
 
+CLI means command line interface. It lets you control BaudBound by typing commands in PowerShell on Windows or a terminal on Linux. The desktop application and CLI use the same installed scripts and runner data when they run under the same user account.
+
+You do not need the CLI for normal desktop use. Use it for a headless Linux runner, repeatable administration, troubleshooting, or integration with another local tool.
+
 Install BaudBound first and confirm that the shell can find the executable with `baudbound --version`. [Installation and Updates](installation.md) creates the `baudbound` command for the supported installation paths.
 
 ```text
@@ -14,6 +18,8 @@ baudbound --version
 ```
 
 `--config` is optional and global, so it can be used with any command. Without a command, BaudBound opens the desktop application when a graphical session is available. In a headless Linux session it prints runner status.
+
+Type only the command text shown inside a code block. Do not type labels such as `PowerShell`, `Linux shell`, or the placeholder words described below. Press Enter after typing a command and wait for it to finish before entering the next one.
 
 ## Placeholders and quoting
 
@@ -51,7 +57,7 @@ baudbound config path
 | Command | Behavior |
 | --- | --- |
 | `baudbound config path` | Prints the resolved config path. |
-| `baudbound config print` | Prints a complete example TOML template; it does not print the active file. |
+| `baudbound config print` | Prints a complete example TOML template. It does not print the active file. |
 | `baudbound config init` | Writes the starter template to the resolved path and refuses to replace an existing file. |
 | `baudbound config init --force` | Replaces an existing config with the starter template. |
 
@@ -121,17 +127,57 @@ Updating package content invalidates its previous approval.
 
 ```text
 baudbound script triggers [SCRIPT] [--json]
-baudbound script run SCRIPT [--trigger TRIGGER] [--payload-json JSON]
+baudbound script run SCRIPT
+baudbound script run SCRIPT --trigger TRIGGER [--payload-json JSON]
 baudbound script dispatch-trigger SCRIPT TRIGGER [--payload-json JSON]
 ```
 
-`baudbound script triggers` lists registered triggers for all installed scripts or one selected script. `baudbound script run` uses the script's manual trigger unless `--trigger` selects another trigger node ID. `baudbound script dispatch-trigger` always requires the trigger node ID.
+`baudbound script triggers` lists the triggers that belong to installed scripts. A trigger node ID identifies one specific trigger inside a script. It looks similar to `n-mrowrsh5`. Use the ID shown by this command instead of typing the trigger name or guessing an ID.
 
-`--payload-json` must contain valid JSON. Its value is exposed as trigger output data for the run. Shell quoting rules apply; in PowerShell, a payload can be passed as:
+`baudbound script run SCRIPT` starts the script's Manual trigger. Use the second form when you need to start another trigger. `baudbound script dispatch-trigger` is an explicit form intended for tools that always provide a trigger ID. It performs the same installed script, approval, and runtime checks.
+
+### Supplying trigger test data
+
+A payload is the data delivered to a trigger when an event occurs. For example, a Webhook trigger normally receives request data from an HTTP request. The `--payload-json` option lets you provide test data yourself when starting that trigger from the CLI. This is useful when you want to test the graph without sending the real external event.
+
+The option must be used together with `--trigger`. First list the script's trigger IDs:
+
+```text
+baudbound script triggers my-automation
+```
+
+Suppose the Webhook trigger ID is `n-webhook`. The following command works in PowerShell and a normal Linux shell. It starts that trigger and supplies two fields:
 
 ```powershell
-baudbound script run my-automation --payload-json '{"message":"hello"}'
+baudbound script run my-automation --trigger n-webhook --payload-json '{"message":"hello","count":3}'
 ```
+
+The JSON object becomes output data from the selected trigger. Nodes can read its fields with these variable references:
+
+```text
+{{n-webhook.message}}
+{{n-webhook.count}}
+```
+
+Nested JSON objects can also be read. This payload:
+
+```json
+{
+  "request": {
+    "status": "ready"
+  }
+}
+```
+
+makes the value `ready` available as:
+
+```text
+{{n-webhook.request.status}}
+```
+
+An object exposes each top level field by name. A JSON array, string, number, or boolean does not have named fields, so the complete value is available as `{{n-webhook.payload}}`. Omitting `--payload-json` supplies no extra test data.
+
+The JSON must be valid and must be passed as one shell argument. JSON quoting differs between PowerShell and Linux shells. Run history stores the resulting variable values. Do not put passwords, tokens, encryption keys, or other secrets in this option or in command history.
 
 ### Run history
 
@@ -154,7 +200,7 @@ Without overrides, `baudbound serve` uses `config.toml`, loads enabled and appro
 | Option | Behavior |
 | --- | --- |
 | `--dry-run` | Prints listener preflight status and exits without starting services. |
-| `--json` | Uses JSON output for `--dry-run`; it is not a general service log format. |
+| `--json` | Uses JSON output for `--dry-run`. It is not a general service log format. |
 | `--once` | Stops after the first due schedule batch. |
 | `--run-schedules-immediately` | Dispatches all schedule triggers once before normal interval waiting. |
 | `--hotkey-stdin` | Reads newline-delimited hotkey expressions from standard input. |
@@ -194,7 +240,7 @@ Treat generated keys as credentials and do not store them in source control or c
 
 ## JSON output and errors
 
-`--json` is available only on commands that explicitly list it. Human-readable output is not a stable machine interface. JSON commands write their document to standard output; failures write an error and return a non-zero process exit code.
+`--json` is available only on commands that explicitly list it. Human-readable output is not a stable machine interface. JSON commands write their document to standard output. Failures write an error and return a non-zero process exit code.
 
 Validation, configuration, storage, policy, approval, secret, and execution failures also return non-zero. Use `baudbound COMMAND --help` to confirm syntax for the installed runner version.
 

@@ -5,7 +5,26 @@ tags: [editor, nodes, reference]
 ---
 # Node Reference
 
-This reference covers every executable node currently registered by the editor. `action_type` is the stable package identifier. Configuration marked variable-aware accepts `{{variable}}` references. Exact serialized fields are enforced by the linked [per-node schemas](../package-format/index.md).
+This page explains every node available in the editor. Use it when you need to know what a node does, what you must enter, what data it produces, or whether it works on your target machine.
+
+Each node entry uses the same labels:
+
+| Label | Meaning |
+| --- | --- |
+| **Action type** | The internal name stored in the exported package. You normally do not type or change it. |
+| **Configuration** | The settings you enter in the node properties. |
+| **Output** or **Data** | Values that later nodes can read. The exact reference uses the node ID shown in the editor. |
+| **Flow** | The execution connection that runs next, such as `out`, `success`, or `failed`. |
+| **Use** | A common reason to choose the node. |
+| **Runtime** | What happens when the native runner executes the node. |
+| **Simulation** | What the browser editor can test without performing the real native action. |
+| **Permission** | An operation that the runner shows for human approval. |
+| **Capability** | An internal feature category that the runner verifies against the graph. You do not grant capabilities manually. |
+| **Risk** | The review priority calculated from the operations used by the package. |
+
+A setting described as **variable aware** accepts either a fixed value or a reference such as `{{customer_name}}`. A fixed value stays the same for every run. A variable reference is replaced with current runtime data. [Variables and Data](variables.md) explains how references work.
+
+Exact package field names are enforced by the linked [node schemas](../package-format/index.md). Ordinary editor users do not need to read or edit those schemas.
 
 ## Common node behavior
 
@@ -24,42 +43,42 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Manual
 
-- **Action type:** `trigger.manual`; capability `trigger.manual`; low risk.
+- **Action type:** `trigger.manual`. Capability `trigger.manual`. Low risk.
 - **Configuration:** none. Only one Manual trigger is allowed per project.
-- **Output:** no trigger-specific data; continues through `out`.
+- **Output:** no trigger-specific data. Continues through `out`.
 - **Use:** start a script on demand from Scripts or `baudbound script run SCRIPT`.
 - **Simulation:** trigger card starts immediately with optional test payload.
 
 ### Schedule
 
-- **Action type:** `trigger.schedule`; capability `trigger.schedule`; low risk.
-- **Configuration:** **Every** positive number, default `5`; **Unit** `milliseconds`, `seconds`, `minutes`, `hours`, or `days`, default `minutes`. The resulting interval must be at least one millisecond.
-- **Output:** runner payload includes interval and due-time information; graph continues through `out`.
+- **Action type:** `trigger.schedule`. Capability `trigger.schedule`. Low risk.
+- **Configuration:** **Every** positive number, default `5`. **Unit** `milliseconds`, `seconds`, `minutes`, `hours`, or `days`, default `minutes`. The resulting interval must be at least one millisecond.
+- **Output:** runner payload includes interval and due-time information. Graph continues through `out`.
 - **Use:** recurring work while a background service is active.
-- **Runtime:** unchanged registrations preserve due timing across reload; missed intervals are counted without dispatching every missed occurrence. Millisecond schedules use operating-system timers and are not hard real-time guarantees.
+- **Runtime:** unchanged registrations preserve due timing across reload. Missed intervals are counted without dispatching every missed occurrence. Millisecond schedules use operating-system timers and are not hard real-time guarantees.
 - **Simulation:** fires automatically while simulation remains active.
 
 ### File Watch
 
-- **Action type:** `trigger.file_watch`; capability `trigger.file_watch`; low risk.
-- **Configuration:** static **Path**; optional **Include subdirectories** for directory targets. Runtime templates are rejected.
+- **Action type:** `trigger.file_watch`. Capability `trigger.file_watch`. Low risk.
+- **Configuration:** static **Path**. Optional **Include subdirectories** for directory targets. Runtime templates are rejected.
 - **Outputs:** `path` and normalized `event` (`created`, `modified`, `deleted`, or `renamed`).
 - **Use:** react to one file or a directory tree.
 - **Runtime:** target must exist and be accessible when listener registration starts. OS save behavior may emit multiple events.
-- **Simulation:** supplied path/event become outputs; no filesystem watcher is opened.
+- **Simulation:** supplied path/event become outputs. No filesystem watcher is opened.
 
 ### Webhook
 
-- **Action type:** `trigger.webhook`; capability `trigger.webhook`; permission `webhook_public_bind`; high risk.
-- **Configuration:** HTTP **Method**; required **Hook name**; optional wait switch, positive response timeout, fallback status `100-599`, content type, and body.
+- **Action type:** `trigger.webhook`. Capability `trigger.webhook`. Permission `webhook_public_bind`. High risk.
+- **Configuration:** HTTP **Method**. Required **Hook name**. Optional wait switch, positive response timeout, fallback status `100-599`, content type, and body.
 - **Outputs:** `method`, `path`, `headers`, `query`, raw `body`, parsed `json`, and `response` state.
 - **Use:** receive HTTP at `/events/HOOK_NAME` while webhooks are enabled.
 - **Flow rule:** waiting mode requires a reachable Webhook Response node. Timeout uses the configured fallback.
-- **Simulation:** creates a request and response state from supplied payload; it does not open a network port.
+- **Simulation:** creates a request and response state from supplied payload. It does not open a network port.
 
 ### WebSocket
 
-- **Action type:** `trigger.websocket`; capability `trigger.websocket`; permission `websocket_public_bind`; high risk.
+- **Action type:** `trigger.websocket`. Capability `trigger.websocket`. Permission `websocket_public_bind`. High risk.
 - **Configuration:** required **Path** beginning with `/`, default `/events/messages`.
 - **Outputs:** message text, path, `connection_id`, headers, query, and remote address.
 - **Use:** begin one run per inbound text message on a matched connection.
@@ -68,18 +87,18 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Hotkey
 
-- **Action type:** `trigger.hotkey`; capability `trigger.hotkey`; medium risk; Windows Desktop only.
+- **Action type:** `trigger.hotkey`. Capability `trigger.hotkey`. Medium risk. Windows Desktop only.
 - **Configuration:** captured **Key** expression, default `Ctrl+Alt+B`. A single key such as `G`, `F1`, or `MediaPlayPause` is valid. Any distinct supported keys can form a chord, including `K+L`, `F1+T`, and `Ctrl+Shift+B`. See [Supported Windows node keys](#supported-windows-node-keys) for the exact names.
 - **Output:** canonical `key` expression and timestamp.
 - **Use:** start a script when the complete physical key chord is held while the Windows desktop background runner is active.
 - **Matching:** the held keys must match the configured chord exactly. The run starts when the final required key is pressed, regardless of the order in which the keys were pressed. Holding the chord does not repeatedly start runs.
 - **Platform:** Windows Desktop only. Firmware-only `Fn` keys and Windows secure-attention input such as `Ctrl+Alt+Delete` are not available.
-- **Simulation:** uses the supplied or configured expression; it does not register a global OS hook.
+- **Simulation:** uses the supplied or configured expression. It does not register a global OS hook.
 
 ### Serial Input
 
-- **Action type:** `trigger.serial_input`; capability `trigger.serial_input`; permission `serial_input`; high risk.
-- **Configuration:** logical **Device id**, default `serial-device`; lowercase letters, numbers, `_`, and `-` only.
+- **Action type:** `trigger.serial_input`. Capability `trigger.serial_input`. Permission `serial_input`. High risk.
+- **Configuration:** logical **Device id**, default `serial-device`. Lowercase letters, numbers, `_`, and `-` only.
 - **Outputs:** `device_id`, received `data`, byte count, and runner `timestamp`.
 - **Use:** start when a runner-mapped serial device emits data.
 - **Graph rule:** the same device ID cannot be used by two Serial Input triggers in one project.
@@ -87,7 +106,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Startup
 
-- **Action type:** `trigger.startup`; capability `trigger.startup`; permission `startup_trigger`; high risk.
+- **Action type:** `trigger.startup`. Capability `trigger.startup`. Permission `startup_trigger`. High risk.
 - **Configuration:** none.
 - **Output:** startup reason and service context where available.
 - **Use:** run once when an eligible script is loaded by a newly started service session.
@@ -95,10 +114,10 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### App / Process Started
 
-- **Action type:** `trigger.process_started`; capability `trigger.process_started`; medium risk.
-- **Configuration:** **Match by** process name, executable path, or window title; required **Target**.
+- **Action type:** `trigger.process_started`. Capability `trigger.process_started`. Medium risk.
+- **Configuration:** **Match by** process name, executable path, or window title. Required **Target**.
 - **Outputs:** process name, process ID, executable path, and window title where available.
-- **Platform:** window-title matching requires Windows Desktop; other modes support compatible Windows/Linux targets.
+- **Platform:** window-title matching requires Windows Desktop. Other modes support compatible Windows/Linux targets.
 - **Runtime:** polling dispatches when a process first appears, not continuously while the same process remains present.
 - **Simulation:** uses supplied process facts or stable sample values.
 
@@ -106,7 +125,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### If / Else
 
-- **Action type:** `control.if`; capability `runtime.if`; low risk.
+- **Action type:** `control.if`. Capability `runtime.if`. Low risk.
 - **Configuration:** one or more condition rows with value, operator, optional inversion, target, and AND/OR combinator.
 - **Flow:** named `true` and `false` outputs.
 - **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, and null checks.
@@ -128,7 +147,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Switch
 
-- **Action type:** `control.switch`; capability `runtime.switch`; low risk.
+- **Action type:** `control.switch`. Capability `runtime.switch`. Low risk.
 - **Configuration:** variable-aware **Value** and ordered case rows with stable IDs, labels, and expected values.
 - **Flow:** one named output per case plus default behavior when no case matches.
 - **Runtime:** first typed-equal case wins.
@@ -136,26 +155,26 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Loop
 
-- **Action type:** `control.loop`; capability `runtime.loop`; low risk.
+- **Action type:** `control.loop`. Capability `runtime.loop`. Low risk.
 - **Configuration:** variable-aware non-negative **Repeat count**.
-- **Flow:** `loop` executes the body; `done` continues after all iterations.
+- **Flow:** `loop` executes the body. `done` continues after all iterations.
 - **Outputs/data:** loop index variables are available through runtime loop context.
-- **Graph rule:** do not connect the body back to Loop; the runtime repeats it.
+- **Graph rule:** do not connect the body back to Loop. The runtime repeats it.
 - **Simulation:** visibly repeats the body at selected speed.
 
 ### While
 
-- **Action type:** `control.while`; capability `runtime.while`; low risk.
+- **Action type:** `control.while`. Capability `runtime.while`. Low risk.
 - **Configuration:** the same condition rows and inversion behavior as If/Else.
-- **Flow:** `loop` executes while conditions pass; `done` follows the first false result.
+- **Flow:** `loop` executes while conditions pass. `done` follows the first false result.
 - **Graph rule:** no explicit edge returns to While.
-- **Safety:** ensure body state can make the condition false; runtime limits and cancellation remain important.
+- **Safety:** ensure body state can make the condition false. Runtime limits and cancellation remain important.
 
 ### For Each
 
-- **Action type:** `control.for_each`; capability `runtime.for_each`; low risk.
-- **Configuration:** variable-aware **Items** resolving to a list; **Item variable** and **Index variable** names.
-- **Flow:** `loop` runs once per item; `done` follows completion.
+- **Action type:** `control.for_each`. Capability `runtime.for_each`. Low risk.
+- **Configuration:** variable-aware **Items** resolving to a list. **Item variable** and **Index variable** names.
+- **Flow:** `loop` runs once per item. `done` follows completion.
 - **Data:** configured variables hold the current item and zero-based index.
 - **Failure:** non-list input fails control-flow validation/execution.
 - **Example:** iterate `{{response.json.items}}` as `item` and `index`.
@@ -164,24 +183,24 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Variable Operation
 
-- **Action type:** `runtime.set_variable`; capabilities `runtime.variables` and, for stored scopes, `runtime.persistent_storage`.
-- **Configuration:** operation `set`, `increment`, `append_list`, `set_object_field`, or `clear`; name; scope `runtime`, `persistent`, or `global`; value type; operation-specific value and field path.
+- **Action type:** `runtime.set_variable`. Capabilities `runtime.variables` and, for stored scopes, `runtime.persistent_storage`.
+- **Configuration:** operation `set`, `increment`, `append_list`, `set_object_field`, or `clear`. Name. Scope `runtime`, `persistent`, or `global`. Value type. Operation-specific value and field path.
 - **Access:** runtime scope is low, persistent is medium, global is high.
 - **Data:** writes `{{name}}` and refreshes `$length`, `$count`, `$type`, and `$is_empty`.
 - **Validation:** names use letters, numbers, and underscores, cannot start with a number, and cannot use reserved prefixes.
-- **Simulation:** updates current simulation state; runner persistence must be tested separately.
+- **Simulation:** updates current simulation state. Runner persistence must be tested separately.
 
 ### Calculate
 
-- **Action type:** `action.calculate`; capability `action.calculate`; permission `calculate`; low risk; fallible.
+- **Action type:** `action.calculate`. Capability `action.calculate`. Permission `calculate`. Low risk. Fallible.
 - **Configuration:** variable-aware numeric **Expression**.
-- **Output:** `result` number on success; structured error on failure.
+- **Output:** `result` number on success. Structured error on failure.
 - **Use:** arithmetic supported by the runtime expression evaluator, not arbitrary code.
 - **Simulation:** evaluates with current values using the same supported expression rules.
 
 ### Text Transform
 
-- **Action type:** `action.text.format`; capability `action.text`; permission `text_transform`; low risk.
+- **Action type:** `action.text.format`. Capability `action.text`. Permission `text_transform`. Low risk.
 - **Configuration:** operation-specific fields for template, input, search, replacement, delimiter, items, start, length, padding, or target length.
 - **Operations:** template, trim, uppercase, lowercase, sentence case, capitalize words, literal/regex replace, split, join, substring, padding, URL/Base64 encode/decode, and JSON escape/unescape.
 - **Output:** transformed result data available from the node output.
@@ -189,61 +208,61 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Log
 
-- **Action type:** `action.log`; capability `action.log`; permission `log`; low risk.
-- **Configuration:** level `info`, `warn`, `error`, or `debug`; variable-aware **Message**.
-- **Output:** no action-specific data; continues through `out`.
+- **Action type:** `action.log`. Capability `action.log`. Permission `log`. Low risk.
+- **Configuration:** level `info`, `warn`, `error`, or `debug`. Variable-aware **Message**.
+- **Output:** no action-specific data. Continues through `out`.
 - **Runtime:** stores the resolved message with node and run identity.
 - **Security:** do not intentionally log secrets or untrusted payloads without review.
 
 ### Delay
 
-- **Action type:** `action.delay`; capability `action.delay`; permission `delay`; low risk.
+- **Action type:** `action.delay`. Capability `action.delay`. Permission `delay`. Low risk.
 - **Configuration:** variable-aware positive **Amount** and unit milliseconds, seconds, minutes, hours, or days. The resolved duration must be at least one millisecond.
-- **Output:** none; continues after the cancellable wait.
+- **Output:** none. Continues after the cancellable wait.
 - **Simulation:** validates the resolved duration and records the simulated delay without blocking the UI thread.
 
 ### Beep
 
-- **Action type:** `action.beep`; capability `action.sound`; permission `beep`; low risk; Desktop only; fallible.
-- **Configuration:** variable-aware positive frequency Hz, default `800`; duration ms, default `200`.
+- **Action type:** `action.beep`. Capability `action.sound`. Permission `beep`. Low risk. Desktop only. Fallible.
+- **Configuration:** variable-aware positive frequency Hz, default `800`. Duration ms, default `200`.
 - **Flow/data:** success or failed with structured error.
 - **Runtime:** plays a generated tone through the default desktop audio output.
-- **Simulation:** Web Audio sine tone clamped to safe editor bounds; browsers may block audio before interaction.
+- **Simulation:** Web Audio sine tone clamped to safe editor bounds. Browsers may block audio before interaction.
 
 ### Show Notification
 
-- **Action type:** `action.notification`; capability `action.notification`; permission `show_notification`; medium risk; Desktop only; fallible.
+- **Action type:** `action.notification`. Capability `action.notification`. Permission `show_notification`. Medium risk. Desktop only. Fallible.
 - **Configuration:** variable-aware **Title** and **Message**.
 - **Output:** success/failure state.
 - **Simulation:** editor toast rather than native notification-center behavior.
 
 ### MessageBox
 
-- **Action type:** `action.message_box`; capability `action.message_box`; permission `show_message_box`; medium risk; Windows Desktop only; fallible.
-- **Configuration:** type info/warning/error; title; message; buttons OK, OK/Cancel, Yes/No, or Yes/No/Cancel.
+- **Action type:** `action.message_box`. Capability `action.message_box`. Permission `show_message_box`. Medium risk. Windows Desktop only. Fallible.
+- **Configuration:** type info/warning/error. Title. Message. Buttons OK, OK/Cancel, Yes/No, or Yes/No/Cancel.
 - **Output:** selected button plus success/failure data.
-- **Simulation:** modal inside the editor; Stop aborts a waiting selection.
+- **Simulation:** modal inside the editor. Stop aborts a waiting selection.
 
 ### Play Sound
 
-- **Action type:** `action.sound.play`; capability `action.sound`; permission `play_sound`; medium risk; Desktop only; fallible.
+- **Action type:** `action.sound.play`. Capability `action.sound`. Permission `play_sound`. Medium risk. Desktop only. Fallible.
 - **Configuration:** source package asset or file path and corresponding selected path.
 - **Output:** played source/path information and failure data.
-- **Simulation:** plays package audio in the browser; a runner filesystem path cannot be tested there.
+- **Simulation:** plays package audio in the browser. A runner filesystem path cannot be tested there.
 
 ## Network and Serial
 
 ### HTTP Request
 
-- **Action type:** `action.http`; capability `action.http`; permission `http_request`; medium risk; fallible.
-- **Configuration:** method; variable-aware URL, headers, body, timeout `1-300` seconds, and user agent.
+- **Action type:** `action.http`. Capability `action.http`. Permission `http_request`. Medium risk. Fallible.
+- **Configuration:** method. Variable-aware URL, headers, body, timeout `1-300` seconds, and user agent.
 - **Outputs:** status code/text, headers, body, optional parsed `json`, duration, or structured network error.
 - **Runtime:** native HTTP client behavior may differ from browser redirects, CORS, forbidden headers, cookies, and TLS stores.
-- **Simulation:** sends a real browser `fetch`; use a safe test endpoint.
+- **Simulation:** sends a real browser `fetch`. Use a safe test endpoint.
 
 ### Webhook Response
 
-- **Action type:** `action.webhook_response`; capability `action.webhook_response`; permission `webhook_response`; low risk; fallible.
+- **Action type:** `action.webhook_response`. Capability `action.webhook_response`. Permission `webhook_response`. Low risk. Fallible.
 - **Configuration:** variable-aware status `100-599`, content type, headers, and body.
 - **Outputs:** `sent`, status, content type, headers, body, owning `trigger_id`, or error.
 - **Graph rule:** must be reachable from a Webhook trigger with waiting enabled.
@@ -251,7 +270,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### WebSocket Write
 
-- **Action type:** `action.websocket.write`; capability `action.websocket`; permission `websocket_write`; medium risk; fallible.
+- **Action type:** `action.websocket.write`. Capability `action.websocket`. Permission `websocket_write`. Medium risk. Fallible.
 - **Configuration:** variable-aware **Connection id** and **Message**.
 - **Outputs:** send result/byte information or connection error.
 - **Use:** reply to the connection ID emitted by the WebSocket trigger for the current run.
@@ -259,7 +278,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Serial Write
 
-- **Action type:** `action.serial.write`; capability `action.serial`; permission `serial_write`; medium risk; fallible.
+- **Action type:** `action.serial.write`. Capability `action.serial`. Permission `serial_write`. Medium risk. Fallible.
 - **Configuration:** logical device ID selected from Serial Input triggers, variable-aware data, and line ending none/LF/CRLF.
 - **Output:** write result or structured serial error.
 - **Graph rule:** requires a Serial Input trigger using the same logical ID.
@@ -269,97 +288,97 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Read File
 
-- **Action type:** `action.file.read`; capability `action.file`; permission `file_read`; medium risk; fallible.
+- **Action type:** `action.file.read`. Capability `action.file`. Permission `file_read`. Medium risk. Fallible.
 - **Configuration:** variable-aware path and UTF-8 encoding.
 - **Outputs:** content, byte count, resolved path, or error.
 - **Access:** absolute, sensitive, or runtime-selected paths require the dangerous `read_sensitive_file` permission instead of `file_read`.
-- **Simulation:** sample output only; runner account permissions and file existence remain untested.
+- **Simulation:** sample output only. Runner account permissions and file existence remain untested.
 
 ### Write File
 
-- **Action type:** `action.file.write`; capability `action.file`; permission `file_write_limited`; high risk; fallible.
+- **Action type:** `action.file.write`. Capability `action.file`. Permission `file_write_limited`. High risk. Fallible.
 - **Configuration:** variable-aware path/content and mode overwrite or append.
 - **Outputs:** resolved path, bytes written, mode, or error.
 - **Access:** absolute, sensitive, or runtime-selected paths require the dangerous `write_any_file` permission instead of `file_write_limited`.
-- **Review:** paths can be influenced by variables; confirm they cannot escape intended storage.
+- **Review:** paths can be influenced by variables. Confirm they cannot escape intended storage.
 
 ### Download File
 
-- **Action type:** `action.file.download`; capabilities `action.file` and network behavior; permission `download_file`; medium risk; fallible.
-- **Configuration:** variable-aware URL and destination path; overwrite switch.
+- **Action type:** `action.file.download`. Capabilities `action.file` and network behavior. Permission `download_file`. Medium risk. Fallible.
+- **Configuration:** variable-aware URL and destination path. Overwrite switch.
 - **Outputs:** destination, transferred size/status information, or error.
 - **Access:** an absolute, sensitive, or runtime-selected destination also requires `write_any_file`.
 - **Review:** validate both remote source and local overwrite consequences.
 
 ### Delete File
 
-- **Action type:** `action.file.delete`; capability `action.file`; permission `delete_file`; dangerous; fallible.
+- **Action type:** `action.file.delete`. Capability `action.file`. Permission `delete_file`. Dangerous. Fallible.
 - **Configuration:** variable-aware path.
 - **Output:** deleted path or error.
 - **Warning:** deletion is not a recycle-bin operation. Restrict input and test on disposable data.
 
 ### Copy File
 
-- **Action type:** `action.file.copy`; capability `action.file`; permission `file_copy`; medium risk; fallible.
-- **Configuration:** variable-aware source and destination; overwrite switch.
+- **Action type:** `action.file.copy`. Capability `action.file`. Permission `file_copy`. Medium risk. Fallible.
+- **Configuration:** variable-aware source and destination. Overwrite switch.
 - **Outputs:** resolved paths, copy result, or error.
-- **Access:** a broad source requires `read_sensitive_file`; a broad destination requires `write_any_file`.
+- **Access:** a broad source requires `read_sensitive_file`. A broad destination requires `write_any_file`.
 
 ### Move File
 
-- **Action type:** `action.file.move`; capability `action.file`; permission `file_move`; medium risk; fallible.
-- **Configuration:** variable-aware source and destination; overwrite switch.
+- **Action type:** `action.file.move`. Capability `action.file`. Permission `file_move`. Medium risk. Fallible.
+- **Configuration:** variable-aware source and destination. Overwrite switch.
 - **Outputs:** resolved paths, move result, or error.
-- **Access:** a broad source requires `read_sensitive_file`; a broad destination requires `write_any_file`.
+- **Access:** a broad source requires `read_sensitive_file`. A broad destination requires `write_any_file`.
 - **Review:** a successful move removes the original path.
 
 ## Processes and Windows
 
 ### Run Process
 
-- **Action type:** `action.process.run`; capability `action.process`; permission `run_process`; high risk; fallible.
+- **Action type:** `action.process.run`. Capability `action.process`. Permission `run_process`. High risk. Fallible.
 - **Configuration:** variable-aware executable, arguments, optional working directory, and optional timeout from `1` to `86400` seconds, default `300`.
 - **Outputs:** process ID, exit/status information where applicable, or error.
 - **Runtime:** uses native process APIs, not shell parsing. Arguments must match the target executable's contract.
 
 ### Process Status
 
-- **Action type:** `action.process.status`; capability `action.process`; permission `process_query`; medium risk; fallible.
-- **Configuration:** match by process name, executable path, or window title; variable-aware target.
+- **Action type:** `action.process.status`. Capability `action.process`. Permission `process_query`. Medium risk. Fallible.
+- **Configuration:** match by process name, executable path, or window title. Variable-aware target.
 - **Outputs:** running flag, matching process information, or error.
 - **Platform:** window-title mode requires Windows Desktop.
 
 ### Kill Process
 
-- **Action type:** `action.process.kill`; capability `action.process`; permission `process_kill`; high risk; fallible.
-- **Configuration:** match by process name, executable path, window title, or PID; variable-aware target.
+- **Action type:** `action.process.kill`. Capability `action.process`. Permission `process_kill`. High risk. Fallible.
+- **Configuration:** match by process name, executable path, window title, or PID. Variable-aware target.
 - **Outputs:** matched/terminated process information or error.
 - **Platform:** window-title mode requires Windows Desktop.
 
 ### Open Application
 
-- **Action type:** `action.application.open`; capability `action.window`; permission `open_application`; medium risk; Desktop only; fallible.
+- **Action type:** `action.application.open`. Capability `action.window`. Permission `open_application`. Medium risk. Desktop only. Fallible.
 - **Configuration:** variable-aware application name/ID/shortcut/desktop entry and arguments.
 - **Outputs:** resolved application ID and process ID when exposed.
 - **Simulation:** returns sample IDs without opening an application.
 
 ### Get Active Window
 
-- **Action type:** `action.window.active`; capability `action.window`; permission `window_query`; medium risk; Windows Desktop only; fallible.
+- **Action type:** `action.window.active`. Capability `action.window`. Permission `window_query`. Medium risk. Windows Desktop only. Fallible.
 - **Configuration:** none.
 - **Outputs:** window title, process ID/name, executable path, and native handle where available.
-- **Simulation:** sample window data; no native lookup.
+- **Simulation:** sample window data. No native lookup.
 
 ### Window Focus
 
-- **Action type:** `action.window.focus`; capability `action.window`; permission `window_focus`; high risk; Windows Desktop only; fallible.
-- **Configuration:** match by process name, executable path, or window title; variable-aware target.
+- **Action type:** `action.window.focus`. Capability `action.window`. Permission `window_focus`. High risk. Windows Desktop only. Fallible.
+- **Configuration:** match by process name, executable path, or window title. Variable-aware target.
 - **Outputs:** focused window/process details or error.
 - **Review:** focus changes can redirect subsequent keyboard or mouse actions.
 
 ### Get Pixel Color
 
-- **Action type:** `action.pixel.get`; capability `action.pixel`; permission `screen_pixel_read`; medium risk; Windows Desktop only; fallible.
+- **Action type:** `action.pixel.get`. Capability `action.pixel`. Permission `screen_pixel_read`. Medium risk. Windows Desktop only. Fallible.
 - **Configuration:** variable-aware signed integer screen X and Y coordinates from `-2147483648` through `2147483647`.
 - **Outputs:** coordinates, RGB channels, hex color, and error on failure.
 - **Simulation:** deterministic sample color derived for testing, not a real screenshot read.
@@ -370,14 +389,14 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Set Clipboard
 
-- **Action type:** `action.clipboard.set`; capability `action.clipboard`; permission `write_clipboard`; medium risk; Desktop only; fallible.
+- **Action type:** `action.clipboard.set`. Capability `action.clipboard`. Permission `write_clipboard`. Medium risk. Desktop only. Fallible.
 - **Configuration:** variable-aware value to write.
 - **Output:** written text, its UTF-8 byte length, or an error.
 - **Review:** replaces the user's current clipboard and may expose data to other applications.
 
 ### Get Clipboard
 
-- **Action type:** `action.clipboard.get`; capability `action.clipboard`; permission `read_clipboard`; medium risk; Desktop only; fallible.
+- **Action type:** `action.clipboard.get`. Capability `action.clipboard`. Permission `read_clipboard`. Medium risk. Desktop only. Fallible.
 - **Configuration:** none.
 - **Output:** clipboard text or an error when text is unavailable.
 - **Review:** clipboard text can contain passwords or other sensitive data. Avoid sending it to logs or external services unless that is intentional.
@@ -385,7 +404,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Keyboard
 
-- **Action type:** `action.keyboard`; capability `action.keyboard`; permission `keyboard_control`; high risk; Windows Desktop only; fallible.
+- **Action type:** `action.keyboard`. Capability `action.keyboard`. Permission `keyboard_control`. High risk. Windows Desktop only. Fallible.
 - **Configuration:** one or more distinct supported keys captured by the editor or added with the key-reference buttons. Separate chord members with `+`, for example `G`, `F1`, `K+L`, or `Ctrl+Shift+S`.
 - **Supported keys:** uses the same [Supported Windows node keys](#supported-windows-node-keys) as the Hotkey trigger. Unsupported names are rejected instead of being guessed.
 - **Platform:** Windows Desktop only.
@@ -413,7 +432,7 @@ Firmware-managed keys such as `Fn` and Windows secure-attention input such as `C
 
 ### Type Text
 
-- **Action type:** `action.keyboard.type_text`; capability `action.keyboard`; permission `keyboard_control`; high risk; Windows Desktop only; fallible.
+- **Action type:** `action.keyboard.type_text`. Capability `action.keyboard`. Permission `keyboard_control`. High risk. Windows Desktop only. Fallible.
 - **Configuration:** variable-aware text.
 - **Platform:** Windows Desktop only.
 - **Output:** typed length/status or error.
@@ -421,7 +440,7 @@ Firmware-managed keys such as `Fn` and Windows secure-attention input such as `C
 
 ### Mouse Click
 
-- **Action type:** `action.mouse`; capability `action.mouse`; permission `mouse_control`; high risk; Windows Desktop only; fallible.
+- **Action type:** `action.mouse`. Capability `action.mouse`. Permission `mouse_control`. High risk. Windows Desktop only. Fallible.
 - **Configuration:** left/right/middle/back/forward button and single/double click.
 - **Output:** click details or error.
 - **Platform:** Windows Desktop only.
@@ -429,7 +448,7 @@ Firmware-managed keys such as `Fn` and Windows secure-attention input such as `C
 
 ### Move Mouse
 
-- **Action type:** `action.mouse.move`; capability `action.mouse`; permission `mouse_control`; high risk; Windows Desktop only; fallible.
+- **Action type:** `action.mouse.move`. Capability `action.mouse`. Permission `mouse_control`. High risk. Windows Desktop only. Fallible.
 - **Configuration:** variable-aware signed integer X/Y and relative switch.
 - **Output:** final coordinates/movement details or error.
 - **Platform:** Windows Desktop only.
@@ -440,14 +459,14 @@ Firmware-managed keys such as `Fn` and Windows secure-attention input such as `C
 
 ### Sub-script
 
-- **Action type:** `action.script.run`; capability `action.sub_script`; permission `sub_script_run`; high risk; fallible.
+- **Action type:** `action.script.run`. Capability `action.sub_script`. Permission `sub_script_run`. High risk. Fallible.
 - **Configuration:** installed child script name or ID.
 - **Outputs:** child run ID/status/report summary or error.
 - **Runtime:** child must be independently installed, valid, current, approved, and manually runnable. Parent approval does not approve the child.
 
 ### Shell Command
 
-- **Action type:** `action.shell`; capability supplied through process execution; permission `run_shell_command`; dangerous; fallible.
+- **Action type:** `action.shell`. Capability supplied through process execution. Permission `run_shell_command`. Dangerous. Fallible.
 - **Configuration:** variable-aware command string interpreted by the target shell and optional timeout from `1` to `86400` seconds, default `300`.
 - **Outputs:** exit code, stdout, stderr, or error.
 - **Platform:** syntax is platform-specific even under a Generic target.

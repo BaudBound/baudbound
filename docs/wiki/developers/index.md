@@ -5,11 +5,13 @@ tags: [developers, architecture]
 ---
 # Developer Overview
 
-BaudBound is a TypeScript and Rust workspace. Changes should preserve explicit ownership boundaries, deterministic validation, native platform implementations, and tests proportional to behavior and risk.
+This section is for people who want to build BaudBound from source, contribute a change, review architecture, publish documentation, or prepare a release. Product users do not need the developer tools described here.
+
+BaudBound is a TypeScript and Rust workspace. A workspace is one repository containing several applications, libraries, tests, and build tools that are developed together. Changes should preserve explicit ownership boundaries, deterministic validation, native platform implementations, and tests proportional to behavior and risk.
 
 ## Applications
 
-`apps/editor` is the Next.js visual editor. `apps/baudbound` is the unified runner CLI and Tauri desktop application; its React UI lives under `apps/baudbound/ui`.
+`apps/editor` is the Next.js visual editor. `apps/baudbound` is the unified runner CLI and Tauri desktop application. Its React UI lives under `apps/baudbound/ui`.
 
 | Area | Owns | Start here |
 | --- | --- | --- |
@@ -48,11 +50,11 @@ Unsupported platform behavior must be declared and rejected by both editor and r
 
 - Editor node definitions own authoring metadata, config fields, outputs, access declarations, and supported target runtimes.
 - Generated node schemas are build artifacts checked against those definitions.
-- Rust package and security code independently enforce the execution contract; it does not trust editor output.
+- Rust package and security code independently enforce the execution contract. It does not trust editor output.
 - `RunnerConfig` Rust structs own `config.toml` shape and defaults.
 - Clap enums own CLI commands and options.
 - Desktop `navigationGroups` owns operator tab IDs and labels.
-- SQLite migrations own durable state; JSON files are not a mutable runner database.
+- SQLite migrations own durable state. JSON files are not a mutable runner database.
 - `docs/wiki/coverage.json` maps these product surfaces to mandatory public documentation.
 
 When two layers need the same contract, derive or test it across the boundary. Do not add another handwritten compatibility table merely because it is convenient locally.

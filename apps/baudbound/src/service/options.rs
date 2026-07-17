@@ -14,6 +14,7 @@ use toml_edit::{DocumentMut, value};
 #[derive(Clone)]
 pub struct ServeOptions {
     pub(crate) file_watch_enabled: bool,
+    pub(crate) hotkeys_enabled: bool,
     pub(crate) hotkey_stdin_enabled: bool,
     pub max_webhook_body_bytes: usize,
     pub max_websocket_connections: usize,
@@ -61,6 +62,7 @@ impl ServeOptions {
     ) -> Self {
         Self {
             file_watch_enabled: config.triggers.file_watch_enabled,
+            hotkeys_enabled: config.triggers.hotkeys_enabled,
             hotkey_stdin_enabled: overrides.hotkey_stdin,
             max_webhook_body_bytes: overrides
                 .max_webhook_body_bytes

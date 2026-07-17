@@ -54,7 +54,7 @@ When a source changes, update generation, validation, tests, and documentation i
 ## Package-to-run execution flow
 
 1. The editor derives program steps and security declarations from registered node definitions.
-2. Export writes manifest, program, permissions, capabilities, optional editor data, and declared assets into `.bbs`; schemas remain external contract files rather than archive entries.
+2. Export writes manifest, program, permissions, capabilities, optional editor data, and declared assets into `.bbs`. Schemas remain external contract files rather than archive entries.
 3. `baudbound-script` parses the archive with normalized paths and bounded documents.
 4. `baudbound-security` recalculates permissions, capabilities, and risk from the program instead of trusting declarations.
 5. `baudbound-core` checks package identity, target compatibility, installed hash, policy, approval, and required secret state.
@@ -86,7 +86,7 @@ Commands such as import, approve, and enable run as separate processes. Durable 
 
 The service publishes a loopback-only control descriptor in SQLite status. Reload and stop requests use a bounded, authenticated `baudbound-control-v1` TCP protocol with a random token, strict message size, loopback enforcement, and short timeouts.
 
-SQLite remains the durable source of status and signals; IPC provides immediate live control. Tauri commands are the desktop UI bridge. These layers are intentionally separate.
+SQLite remains the durable source of status and signals. IPC provides immediate live control. Tauri commands are the desktop UI bridge. These layers are intentionally separate.
 
 ## Configuration and reload
 

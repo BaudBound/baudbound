@@ -78,7 +78,7 @@ export function SettingsView({
           />
           <SettingRow
             checked={draft.desktop.start_background_runner_on_launch}
-            description="Start schedules, webhooks, serial listeners, and other trigger services when the desktop app opens."
+            description="Start hotkeys, schedules, webhooks, serial listeners, and other trigger services when the desktop app opens."
             icon={Play}
             label="Start background runner on launch"
             name="start_background_runner_on_launch"

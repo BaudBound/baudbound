@@ -5,18 +5,22 @@ tags: [security, approvals, integrity]
 ---
 # Security Model
 
-BaudBound treats every imported automation package as untrusted executable intent. The editor helps authors describe access, but the runner makes the final decision. It parses the package, validates the graph, derives access from the nodes, enforces platform and policy restrictions, checks the installed package hash, and requires approval for the current revision before a side effect can run.
+An automation can read data, change files, start programs, or control input. BaudBound therefore treats every imported package as untrusted until the local runner has checked it and the user has approved the exact installed revision.
+
+The editor describes what the package intends to do. The runner makes the final decision. It reads the package, checks the graph and settings, calculates required access from the nodes, checks platform support, verifies the installed file fingerprint, and requires approval before an action can affect the machine.
+
+Approval means that you accept the reviewed operations for one exact package revision. It does not mean the package came from a trusted author. It also does not allow invalid or unsupported behavior.
 
 ## Threat model
 
 The security model is designed to limit these failures:
 
-- a package understates the files, processes, input devices, network listeners, or secrets it uses;
-- a package is changed after an operator approved it;
-- a script runs on a platform where its native behavior is unavailable;
-- a listener is exposed more broadly than the operator intended;
-- one script calls another script that has not been reviewed;
-- secret plaintext is included in a package, log, or ordinary variable snapshot; or
+- a package understates the files, processes, input devices, network listeners, or secrets it uses.
+- a package is changed after an operator approved it.
+- a script runs on a platform where its native behavior is unavailable.
+- a listener is exposed more broadly than the operator intended.
+- one script calls another script that has not been reviewed.
+- secret plaintext is included in a package, log, or ordinary variable snapshot.
 - a UI bug attempts an operation the Rust backend has not authorized.
 
 BaudBound cannot decide whether an otherwise truthful automation is appropriate for your machine. An approved Shell node can still run a destructive command. An approved File Delete node can still delete the path its configuration resolves to. Review remains an operator responsibility.
@@ -31,7 +35,7 @@ BaudBound cannot decide whether an otherwise truthful automation is appropriate 
 | Security derivation | Recalculates permissions, capabilities, risk, and target compatibility | Package declarations that do not match the graph |
 | Operator approval | Accepts one installed package revision and its access | Future updates or another script with a similar name |
 | Native adapter | Performs an authorized OS operation | Shell emulation of an unsupported native feature |
-| Desktop UI | Presents state and sends Tauri requests | Authorization decisions; Rust checks them again |
+| Desktop UI | Presents state and sends Tauri requests | Authorization decisions. Rust checks them again |
 | Network edge | Delivers webhook or WebSocket input | Internet origin, proxy configuration, or payload safety by default |
 
 ## Validation before side effects
@@ -54,9 +58,11 @@ A failure at any stage blocks the related run. Approval cannot override malforme
 
 At import or update, the runner computes a SHA-256 hash of the complete `.bbs` file and stores it with the installed script record. Before status-sensitive operations and execution, it hashes the stored package again. A mismatch means the managed copy changed outside the runner and is no longer trusted.
 
+A hash is a file fingerprint. BaudBound compares the current fingerprint with the one saved during import or update. If they differ, the runner blocks execution until the package is installed through the normal update and approval process.
+
 This package hash detects local modification. It does **not** prove who authored or published the package. BaudBound does not currently provide package-author signatures. Obtain packages through a channel you trust, inspect their graph and access, and approve only the installed revision you intend to run.
 
-Runner release signing is a separate system. Tauri updater signatures authenticate published runner update artifacts; they do not sign user-created `.bbs` packages.
+Runner release signing is a separate system. Tauri updater signatures authenticate published runner update artifacts. They do not sign user-created `.bbs` packages.
 
 ## Approval and updates
 

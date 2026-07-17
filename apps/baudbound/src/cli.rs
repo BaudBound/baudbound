@@ -298,8 +298,8 @@ pub enum ScriptCommand {
         /// Trigger node id to start from. Defaults to the script manual trigger.
         #[arg(long)]
         trigger: Option<String>,
-        /// JSON payload exposed as trigger node output data.
-        #[arg(long)]
+        /// JSON payload exposed as trigger node output data. Requires --trigger.
+        #[arg(long, requires = "trigger")]
         payload_json: Option<String>,
     },
     /// Show stored runner run history.
@@ -362,8 +362,8 @@ mod tests {
     #[cfg(windows)]
     use super::default_command;
     use super::{
-        Cli, Command, SecretCommand, SetSettingCommand, SettingsCommand, TimeFormatValue,
-        default_command_for_session, parse_positive_usize,
+        Cli, Command, ScriptCommand, SecretCommand, SetSettingCommand, SettingsCommand,
+        TimeFormatValue, default_command_for_session, parse_positive_usize,
     };
 
     #[test]
@@ -405,6 +405,43 @@ mod tests {
                     }
                 }
             })
+        ));
+    }
+
+    #[test]
+    fn script_run_payload_requires_an_explicit_trigger() {
+        assert!(
+            Cli::try_parse_from([
+                "baudbound",
+                "script",
+                "run",
+                "script-1",
+                "--payload-json",
+                r#"{"message":"hello"}"#,
+            ])
+            .is_err()
+        );
+
+        let cli = Cli::try_parse_from([
+            "baudbound",
+            "script",
+            "run",
+            "script-1",
+            "--trigger",
+            "n-webhook",
+            "--payload-json",
+            r#"{"message":"hello"}"#,
+        ])
+        .expect("payload should parse with an explicit trigger");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Script {
+                command: ScriptCommand::Run {
+                    trigger: Some(trigger),
+                    payload_json: Some(payload),
+                    ..
+                }
+            }) if trigger == "n-webhook" && payload == r#"{"message":"hello"}"#
         ));
     }
 

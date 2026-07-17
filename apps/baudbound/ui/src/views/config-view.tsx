@@ -754,6 +754,7 @@ function BooleanField({
 const triggerFields = [
   ["schedules_enabled", "Schedules"],
   ["file_watch_enabled", "File watcher"],
+  ["hotkeys_enabled", "Hotkeys"],
   ["process_watch_enabled", "Process watcher"],
   ["serial_enabled", "Serial input"],
   ["startup_enabled", "Startup"],

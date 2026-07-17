@@ -23,9 +23,11 @@ Every procedure must state:
 6. How to choose between alternatives.
 7. The expected successful result.
 8. What to inspect when a step fails.
-9. the next relevant page.
+9. The next relevant page.
 
 Use short sentences and one action per numbered step. Put commands in fenced code blocks. Prefer familiar file commands such as `mkdir`, `cp`, `mv`, `chmod`, and `chown` in beginner procedures. Do not hide decisions inside shell conditionals merely to shorten instructions.
+
+Do not use semicolons or dash punctuation in normal prose. Start a new sentence instead. Hyphens that are required inside commands, options, paths, identifiers, and established technical names must remain exact. Markdown list markers are also allowed because they render as list structure rather than punctuation.
 
 Explain destructive consequences before a command that deletes, overwrites, resets, revokes, or exposes data. Follow the command with a verification step.
 

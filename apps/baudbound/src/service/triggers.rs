@@ -253,12 +253,17 @@ fn build_trigger_services(
     } else {
         HotkeyService::empty()
     };
-    let native_hotkey_service = NativeHotkeyService::start_or_reconfigure(
-        registrations.clone(),
-        trigger_sender.clone(),
-        previous_native_hotkey_service,
-    )
-    .context("failed to register native hotkey triggers")?;
+    let native_hotkey_service = if options.hotkeys_enabled {
+        NativeHotkeyService::start_or_reconfigure(
+            registrations.clone(),
+            trigger_sender.clone(),
+            previous_native_hotkey_service,
+        )
+        .context("failed to register native hotkey triggers")?
+    } else {
+        drop(previous_native_hotkey_service);
+        NativeHotkeyService::empty()
+    };
     let websocket_service = if options.websockets_enabled {
         WebSocketService::start_or_reconfigure(
             registrations.clone(),

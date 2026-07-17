@@ -20,7 +20,7 @@ cargo build -p baudbound --locked
 
 The workspace includes unit and integration tests for package parsing, security abuse cases, SQLite migrations and lifecycle, graph execution, actions, triggers, core orchestration, CLI behavior, Tauri-facing application functions, and supported native adapters.
 
-Windows and Linux CI both run the workspace. Platform-gated tests prove only the implementation compiled for that runner; they do not make unsupported native behavior portable.
+Windows and Linux CI both run the workspace. Platform-gated tests prove only the implementation compiled for that runner. They do not make unsupported native behavior portable.
 
 ### Rust dependency advisories
 
@@ -105,11 +105,11 @@ The editor produces the package language consumed by Rust. A runner change can e
 
 | Change | Minimum required gates |
 | --- | --- |
-| Editor UI only | editor lint, typecheck, tests, build; Playwright for interaction/layout |
-| Node definition | editor schemas, tests, typecheck, build; Rust security/runtime tests; documentation coverage |
-| Package or schema contract | editor schema and package tests; full Rust workspace; schema image |
+| Editor UI only | editor lint, typecheck, tests, build. Playwright for interaction/layout |
+| Node definition | editor schemas, tests, typecheck, build. Rust security/runtime tests. Documentation coverage |
+| Package or schema contract | editor schema and package tests. Full Rust workspace. Schema image |
 | Rust crate | fmt, clippy, affected tests, then workspace tests |
-| Native action or trigger | workspace tests on affected platforms; target compatibility; editor contract |
+| Native action or trigger | workspace tests on affected platforms. Target compatibility. Editor contract |
 | SQLite schema | storage migration tests, core/CLI lifecycle tests, backup documentation review |
 | CLI command | Clap tests, CLI integration tests, CLI documentation coverage |
 | Tauri command or payload | Rust tests, desktop UI typecheck/tests/build |
@@ -128,7 +128,7 @@ Direct commands remain authoritative and are preferable in CI or when diagnosing
 
 CI cannot prove every physical-device, desktop-session, window-manager, audio, serial, firewall, reverse-proxy, or updater condition. Tests should isolate deterministic contracts and reject unavailable native features clearly.
 
-Before release, maintainers separately perform platform acceptance checks described in [Release Engineering](releases.md). Do not weaken a deterministic test because a physical environment is unavailable; separate the adapter contract from manual acceptance instead.
+Before release, maintainers separately perform platform acceptance checks described in [Release Engineering](releases.md). Do not weaken a deterministic test because a physical environment is unavailable. Separate the adapter contract from manual acceptance instead.
 
 ## Failure discipline
 

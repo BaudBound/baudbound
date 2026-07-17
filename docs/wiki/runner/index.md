@@ -19,7 +19,7 @@ Running `baudbound` without a subcommand opens the desktop UI when a desktop ses
 
 ## One runner home
 
-One runner home contains one logical installation's configuration, SQLite state, and installed package copies. The default is under the current user's platform data directory; `BAUDBOUND_HOME` can select a dedicated location.
+One runner home contains one logical installation's configuration, SQLite state, and installed package copies. The default is under the current user's platform data directory. `BAUDBOUND_HOME` can select a dedicated location.
 
 Desktop and CLI commands use the same state when launched by the same account and environment. The recommended Linux background-service setup also runs under that account, so normal `baudbound` commands manage the same runner home.
 
@@ -34,7 +34,7 @@ See [Storage, Backups, and Recovery](storage-backups.md) for exact paths and bac
 3. The package is copied under the runner home and indexed in SQLite.
 4. The operator reviews and approves the exact installed hash.
 5. Required secret values and runtime policy are checked before a run.
-6. A trigger payload enters the graph runtime.
+6. Trigger data enters the graph runtime. This data can contain information such as a webhook body, a changed file path, a serial message, or a pressed hotkey.
 7. Each selected output follows its connections sequentially in the explicit package execution order.
 8. Supported native adapters perform side effects.
 9. Redacted logs, variables, status, and result are stored as a run record.

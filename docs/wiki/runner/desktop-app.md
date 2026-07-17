@@ -7,6 +7,8 @@ tags: [runner, desktop, interface]
 
 The BaudBound desktop application manages one local runner home through a native Tauri interface. It imports packages, reviews approval, starts or stops the desktop background runner, and displays durable state from the runner database.
 
+The desktop window is a control interface. The background runner is the listener loop that waits for schedules, hotkeys, webhooks, files, processes, and devices. The window can remain open while the background runner is stopped. When that happens, you can still inspect data and change settings, but automatic triggers do not fire.
+
 The interface refreshes automatically while it is open and when the window regains focus. Action results appear as notifications at the top center.
 
 ## Navigation overview
@@ -46,7 +48,7 @@ Each script row provides frequent actions directly:
 - The row expander shows package identity, health, declared permissions, triggers, and recent runs.
 - The action menu contains less frequent operations such as update, enable or disable, revoke approval, secret management, and removal.
 
-Multiple rows can remain expanded. The displayed package name is not the stable script identity; the ID shown with it controls update matching.
+Multiple rows can remain expanded. The displayed package name is not the stable script identity. The ID shown with it controls update matching.
 
 Before approval, open the review dialog and confirm target runtime, hash state, nodes, permissions, capabilities, risk, and missing secrets. The approval button remains unavailable when package validation or another blocking condition fails.
 
@@ -76,14 +78,14 @@ Security summarizes installed scripts, current approvals, high-risk packages, an
 
 The review table includes:
 
-- script name and stable identity;
-- approval state;
-- calculated risk;
-- declared permissions;
-- package filename and hash prefix; and
+- script name and stable identity.
+- approval state.
+- calculated risk.
+- declared permissions.
+- package filename and hash prefix.
 - the active security issue, if any.
 
-The secret panel lists each script's declarations and whether a value is configured. Setting a secret opens a protected input dialog; removing it makes dependent runs ineligible until another value is supplied.
+The secret panel lists each script's declarations and whether a value is configured. Setting a secret opens a protected input dialog. Removing it makes dependent runs ineligible until another value is supplied.
 
 Approval does not override malformed packages, unsupported targets, missing required secrets, or runner policy. See [Approvals, Capabilities, and Risk](../security/approvals-capabilities.md).
 
@@ -126,20 +128,20 @@ Runs summarizes completed, failed, cancelled, and error-containing executions. S
 
 Expand a run to inspect:
 
-- run and script identity;
-- trigger node and timestamps;
-- terminal result and error context;
-- ordered node log entries with their individual emission times; and
+- run and script identity.
+- trigger node and timestamps.
+- terminal result and error context.
+- ordered node log entries with their individual emission times.
 - captured variable snapshots.
 
-Use the run ID when correlating an entry with Logs or CLI output. Secret plaintext should not be intentionally stored in logs or variable snapshots; report a redaction failure as a security issue.
+Use the run ID when correlating an entry with Logs or CLI output. Secret plaintext should not be intentionally stored in logs or variable snapshots. Report a redaction failure as a security issue.
 
 ## Logs
 <!-- desktop-tab:logs -->
 
 Logs searches recent messages across scripts, nodes, and runs. Each entry includes the time when that message was emitted, level, script, node, message, and run ID. Two messages can have the same displayed time and still retain their original execution order.
 
-The **Clear** button clears the current search text; it does not delete durable run history. Open the related run for ordered context and variable state.
+The **Clear** button clears the current search text. It does not delete durable run history. Open the related run for ordered context and variable state.
 
 Log levels are `debug`, `info`, `warn`, and `error`. An error message can appear in a run that later records another terminal state, so inspect the full run rather than inferring its result from one line.
 
@@ -157,9 +159,9 @@ Use **Advanced** mode for the complete raw TOML. The CodeMirror editor supports 
 
 Doctor is a diagnostic view, not another configuration editor. It reports:
 
-- runner and package health checks;
-- native desktop-action support on the current platform and session;
-- resolved runner, configuration, storage, and executable paths; and
+- runner and package health checks.
+- native desktop-action support on the current platform and session.
+- resolved runner, configuration, storage, and executable paths.
 - operating-system, architecture, desktop-session, and runtime facts.
 
 Treat a failed check as blocking for the related feature. A warning describes a limitation or inactive service that may be intentional. Use the reported path and fact values when requesting support, but remove usernames and never include secrets.

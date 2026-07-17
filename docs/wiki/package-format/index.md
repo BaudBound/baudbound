@@ -7,6 +7,8 @@ tags: [packages, format, schemas]
 
 A `.bbs` file is a ZIP archive used to move an editor project into a runner. The archive has a strict root layout, JSON documents for executable and review data, optional editor metadata, and optional declared assets. The runner must be able to validate it without contacting the public schema server.
 
+Most users only need to know three things. Create the file with **Export** in the editor. Import or update it through the runner. Keep the file unchanged between export and import. The remaining sections explain the internal format for people building tools, reviewing package contents, or contributing to BaudBound.
+
 Do not manually edit or repack a `.bbs` file. Make changes in the editor and export a new revision. Repacking can change package bytes, break stored-hash approval, create unsupported archive metadata, or make package declarations disagree with the graph.
 {.is-warning}
 
@@ -38,7 +40,7 @@ No other root files are accepted. Directory entries do not count as package docu
 | `created_with`, `created_at`, `updated_at` | Exporting editor and timestamps |
 | `minimum_runner_version` | Oldest runner version allowed to execute the package |
 | `assets` | Declared asset records with ID, kind, media type, name, path, and byte size |
-| `secrets` | Name, type, description, and required flag; never a secret value |
+| `secrets` | Name, type, description, and required flag. Never a secret value |
 
 An update must keep the same `id`. A display name is not a stable update key and may not uniquely identify a script.
 
@@ -80,11 +82,13 @@ Credentials do not belong in assets. Declare them as secrets and configure value
 
 ## Archive safety limits
 
-The parser rejects duplicate and case-colliding entries, unsupported root files, invalid asset paths, and directories presented as files. It also enforces package entry and size limits before trusting data. JSON shape validation is only the first layer; semantic checks cover relationships that JSON Schema cannot express safely.
+The parser rejects duplicate and case-colliding entries, unsupported root files, invalid asset paths, and directories presented as files. It also enforces package entry and size limits before trusting data. JSON shape validation is only the first layer. Semantic checks cover relationships that JSON Schema cannot express safely.
 
 ## Hashing and approval
 
 The current package format does not contain a package-author signature or an internal integrity document. On import or update, runner storage computes SHA-256 over the exact `.bbs` bytes and records that package hash. The managed package is hashed again before trust-sensitive operations. Approval binds to that stored hash, so a changed archive requires a normal update and new approval.
+
+SHA-256 produces a long fingerprint from the complete file. The same file produces the same fingerprint. A changed file produces a different fingerprint. The runner uses this comparison to detect whether the installed package still matches the revision that was reviewed.
 
 This proves consistency of the installed copy, not author identity. See [Security Model](../security/index.md).
 
@@ -104,6 +108,8 @@ The runner rejects unknown future formats, unsupported language versions, unmet 
 ## JSON Schemas
 
 Committed schemas cover `manifest.json`, `program.json`, `permissions.json`, `capabilities.json`, `editor.json`, and every registered node config. Each schema has a stable HTTPS `$id` beneath `https://schemas.baudbound.app/`. `program.schema.json` references per-node schemas by those identifiers.
+
+A JSON Schema is a machine readable set of rules for JSON data. It describes required fields, accepted value types, and allowed structures. Normal editor and runner use does not require you to open a schema file.
 
 The public schema host helps editors and external tools. Runner validation remains offline: Rust models and semantic validators are compiled into the runner and do not download schemas during import or execution.
 
