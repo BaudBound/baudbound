@@ -37,6 +37,7 @@ import {
   type ActionPayload,
   type ActiveRunEvent,
   type DashboardPayload,
+  type GeneratedTriggerToken,
   getDashboardState,
 } from "@/lib/runner-api";
 import { createDesktopTimeFormatter, DesktopTimeProvider } from "@/lib/time-format";
@@ -45,9 +46,9 @@ import { DiagnosticsView } from "@/views/diagnostics-view";
 import { LogsView } from "@/views/logs-view";
 import { RunsView } from "@/views/runs-view";
 import { SecurityView } from "@/views/security-view";
+import { OneTimeTriggerTokensDialog } from "@/views/security/one-time-trigger-tokens-dialog";
 import { ScriptsView } from "@/views/scripts-view";
 import { ServiceView } from "@/views/service-view";
-import { TriggersView } from "@/views/triggers-view";
 import { ToolsView } from "@/views/tools-view";
 
 const ConfigView = lazy(() =>
@@ -61,6 +62,7 @@ export function App() {
   const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [generatedTriggerTokens, setGeneratedTriggerTokens] = useState<GeneratedTriggerToken[]>([]);
   const dashboardRef = useRef<DashboardPayload | null>(null);
   const pendingActiveRunEvents = useRef<ActiveRunEvent[]>([]);
   const refreshInFlight = useRef(false);
@@ -192,6 +194,13 @@ export function App() {
       try {
         const result = await action();
         installDashboard(result.dashboard);
+        const newTokens = result.generated_trigger_tokens;
+        if (newTokens?.length) {
+          setGeneratedTriggerTokens((current) => [
+            ...current,
+            ...newTokens,
+          ]);
+        }
         setLastUpdatedAt(new Date());
         pushNotice({ kind: "success", message: result.message });
         return true;
@@ -318,9 +327,12 @@ export function App() {
               runAction={runAction}
             />
           ) : activeTab === "security" ? (
-            <SecurityView busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
-          ) : activeTab === "triggers" ? (
-            <TriggersView dashboard={dashboard} />
+            <SecurityView
+              busyActions={busyActions}
+              dashboard={dashboard}
+              onDashboard={installDashboard}
+              runAction={runAction}
+            />
           ) : activeTab === "tools" ? (
             <ToolsView
               busyActions={busyActions}
@@ -357,6 +369,10 @@ export function App() {
         <AppUpdateDialog
           automaticCheck={dashboard?.automatic_update_checks ?? false}
           onError={reportUpdateError}
+        />
+        <OneTimeTriggerTokensDialog
+          onDone={() => setGeneratedTriggerTokens([])}
+          tokens={generatedTriggerTokens}
         />
         <Toaster closeButton position="top-center" richColors />
       </div>

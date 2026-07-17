@@ -2,7 +2,8 @@ use std::fs;
 
 use serde_json::json;
 
-use super::{TestHttpServer, execute};
+use super::{TestHttpServer, execute, execute_with_handler};
+use crate::{ActionLimits, HeadlessActionHandler};
 
 #[test]
 fn read_file_rejects_invalid_encoding_and_invalid_utf8() {
@@ -27,6 +28,31 @@ fn read_file_rejects_invalid_encoding_and_invalid_utf8() {
     )
     .expect_err("invalid UTF-8 must fail");
     assert!(utf8_error.to_string().contains("not valid UTF-8"));
+}
+
+#[test]
+fn read_file_rejects_files_over_the_configured_limit() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let path = directory.path().join("large.txt");
+    fs::write(&path, "12345").expect("fixture should be written");
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_file_read_bytes: 4,
+        ..ActionLimits::default()
+    });
+
+    let error = execute_with_handler(
+        &handler,
+        "action.file.read",
+        json!({"path": path, "encoding": "utf-8"}),
+        serde_json::Value::Null,
+    )
+    .expect_err("oversized file read must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("configured read limit of 4 bytes")
+    );
 }
 
 #[test]
@@ -243,4 +269,39 @@ fn download_rejects_http_failures_and_respects_overwrite() {
     .expect("download overwrite should succeed");
     success_server.join();
     assert_eq!(fs::read_to_string(&destination).unwrap(), "new");
+}
+
+#[test]
+fn oversized_download_preserves_destination_and_removes_temporary_file() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let destination = directory.path().join("download.txt");
+    fs::write(&destination, "existing").expect("destination should be written");
+    let server =
+        TestHttpServer::start("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nresponse-too-large");
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_file_download_bytes: 4,
+        ..ActionLimits::default()
+    });
+
+    let error = execute_with_handler(
+        &handler,
+        "action.file.download",
+        json!({
+            "url": server.url("/large"),
+            "destinationPath": destination,
+            "overwrite": true,
+            "timeoutSeconds": 2
+        }),
+        serde_json::Value::Null,
+    )
+    .expect_err("oversized download must fail");
+    server.join();
+
+    assert!(error.to_string().contains("configured limit of 4 bytes"));
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "existing");
+    assert_eq!(
+        fs::read_dir(directory.path()).unwrap().count(),
+        1,
+        "temporary download file must be removed"
+    );
 }

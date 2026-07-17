@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -134,7 +134,23 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 update_available INTEGER NOT NULL CHECK (update_available IN (0, 1))
             );
 
-            PRAGMA user_version = 6;
+            CREATE TABLE IF NOT EXISTS trigger_auth (
+                script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+                trigger_node_id TEXT NOT NULL,
+                trigger_type TEXT NOT NULL CHECK (trigger_type IN ('webhook', 'websocket')),
+                auth_enabled INTEGER NOT NULL CHECK (auth_enabled IN (0, 1)),
+                token_hash BLOB NOT NULL CHECK (length(token_hash) = 32),
+                token_preview TEXT NOT NULL,
+                created_at_unix INTEGER NOT NULL,
+                rotated_at_unix INTEGER,
+                disabled_at_unix INTEGER,
+                PRIMARY KEY (script_id, trigger_node_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS trigger_auth_type_index
+                ON trigger_auth(trigger_type, auth_enabled);
+
+            PRAGMA user_version = 7;
             COMMIT;
             "#,
             )

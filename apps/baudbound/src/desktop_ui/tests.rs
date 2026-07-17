@@ -50,6 +50,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
                 .build(),
         )
         .manage(coordinate_picker::CoordinatePickerState::default())
+        .manage(SensitiveOperationGuard::default())
         .manage(state)
         .invoke_handler(desktop_command_handler!())
         .build(test::mock_context(test::noop_assets()))
@@ -57,37 +58,112 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .expect("mock webview should build");
+    webview.set_focus().expect("mock webview should focus");
 
     let initial = invoke(&webview, "dashboard_state", json!({}));
     assert_eq!(initial["runner"]["total_script_count"], 0);
 
     let package_path = temporary_directory.path().join("desktop-workflow.bbs");
     fs::write(&package_path, create_test_package()).expect("test package should be written");
+    let missing_confirmation = try_invoke(
+        &webview,
+        "import_script_package",
+        json!({"confirmationId": "missing", "packagePath": package_path}),
+    )
+    .expect_err("sensitive command without a valid confirmation must fail");
+    assert!(
+        missing_confirmation.contains("missing or already used"),
+        "{missing_confirmation}"
+    );
+
+    let wrong_challenge = invoke(
+        &webview,
+        "prepare_sensitive_operation",
+        json!({
+            "operation": {"kind": "import_script_package", "package_path": package_path}
+        }),
+    );
+    let wrong_operation = try_invoke(
+        &webview,
+        "approve_script",
+        json!({
+            "confirmationId": wrong_challenge["confirmation_id"],
+            "reference": "desktop-workflow"
+        }),
+    )
+    .expect_err("confirmation for another operation must fail");
+    assert!(wrong_operation.contains("different action"));
+
+    let import_challenge = invoke(
+        &webview,
+        "prepare_sensitive_operation",
+        json!({
+            "operation": {"kind": "import_script_package", "package_path": package_path}
+        }),
+    );
     let imported = invoke(
         &webview,
         "import_script_package",
-        json!({"packagePath": package_path}),
+        json!({
+            "confirmationId": import_challenge["confirmation_id"],
+            "packagePath": package_path
+        }),
     );
     assert_eq!(imported["dashboard"]["runner"]["total_script_count"], 1);
+    assert!(imported.get("generated_trigger_tokens").is_none());
     assert!(
         imported["message"]
             .as_str()
             .is_some_and(|value| value.starts_with("Imported"))
     );
+    let reused = try_invoke(
+        &webview,
+        "import_script_package",
+        json!({
+            "confirmationId": import_challenge["confirmation_id"],
+            "packagePath": package_path
+        }),
+    )
+    .expect_err("single-use confirmation must not be reusable");
+    assert!(reused.contains("missing or already used"));
 
-    let approved = invoke(
+    let changed_package_challenge = invoke(
+        &webview,
+        "prepare_sensitive_operation",
+        json!({
+            "operation": {"kind": "update_script_package", "package_path": package_path}
+        }),
+    );
+    let mut changed_package = create_test_package();
+    changed_package.push(0);
+    fs::write(&package_path, changed_package).expect("changed package should be written");
+    let changed_package_error = try_invoke(
+        &webview,
+        "update_script_package",
+        json!({
+            "confirmationId": changed_package_challenge["confirmation_id"],
+            "packagePath": package_path
+        }),
+    )
+    .expect_err("package changes after review must fail");
+    assert!(changed_package_error.contains("changed after it was reviewed"));
+
+    let approved = invoke_sensitive(
         &webview,
         "approve_script",
+        json!({"kind": "approve_script", "reference": "desktop-workflow"}),
         json!({"reference": "desktop-workflow"}),
     );
     assert_eq!(
         approved["dashboard"]["runner"]["scripts"][0]["approval_status"]["state"],
         "current"
     );
+    assert_eq!(approved["generated_trigger_tokens"], json!([]));
 
-    let run = invoke(
+    let run = invoke_sensitive(
         &webview,
         "run_script",
+        json!({"kind": "run_script", "reference": "desktop-workflow"}),
         json!({"reference": "desktop-workflow"}),
     );
     assert_eq!(run["dashboard"]["recent_runs"][0]["status"], "completed");
@@ -121,21 +197,48 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         .as_str()
         .expect("config contents should be returned")
         .to_owned();
+
+    let expiring_operation = json!({
+        "kind": "reset_runner_config",
+        "restart_background": false
+    });
+    let expiring_challenge = invoke(
+        &webview,
+        "prepare_sensitive_operation",
+        json!({"operation": expiring_operation}),
+    );
+    let expiring_id = expiring_challenge["confirmation_id"]
+        .as_str()
+        .expect("confirmation ID should be a string");
+    app.state::<SensitiveOperationGuard>().expire(expiring_id);
+    let expired = try_invoke(
+        &webview,
+        "reset_runner_config",
+        json!({"confirmationId": expiring_id, "restartBackground": false}),
+    )
+    .expect_err("expired confirmation must fail");
+    assert!(expired.contains("has expired"));
     contents = contents.replace(
         "run_history_max_records = 10000",
         "run_history_max_records = 250",
     );
-    invoke(
+    invoke_sensitive(
         &webview,
         "save_runner_config",
+        json!({
+            "kind": "save_runner_config",
+            "contents": contents,
+            "restart_background": false
+        }),
         json!({"contents": contents, "restartBackground": false}),
     );
     let saved = invoke(&webview, "read_runner_config", json!({}));
     assert_eq!(saved["config"]["runner"]["run_history_max_records"], 250);
 
-    let reset = invoke(
+    let reset = invoke_sensitive(
         &webview,
         "reset_runner_config",
+        json!({"kind": "reset_runner_config", "restart_background": false}),
         json!({"restartBackground": false}),
     );
     assert_eq!(reset["message"], "Reset runner config to defaults.");
@@ -235,6 +338,15 @@ fn only_runtime_owned_config_requires_a_background_restart() {
 }
 
 fn invoke(webview: &tauri::WebviewWindow<test::MockRuntime>, command: &str, body: Value) -> Value {
+    try_invoke(webview, command, body)
+        .unwrap_or_else(|error| panic!("Tauri command {command:?} failed: {error}"))
+}
+
+fn try_invoke(
+    webview: &tauri::WebviewWindow<test::MockRuntime>,
+    command: &str,
+    body: Value,
+) -> Result<Value, String> {
     test::get_ipc_response(
         webview,
         InvokeRequest {
@@ -253,9 +365,29 @@ fn invoke(webview: &tauri::WebviewWindow<test::MockRuntime>, command: &str, body
             invoke_key: test::INVOKE_KEY.to_owned(),
         },
     )
-    .unwrap_or_else(|error| panic!("Tauri command {command:?} failed: {error}"))
+    .map_err(|error| error.to_string())?
     .deserialize::<Value>()
-    .unwrap_or_else(|error| panic!("Tauri command {command:?} returned invalid JSON: {error}"))
+    .map_err(|error| format!("Tauri command {command:?} returned invalid JSON: {error}"))
+}
+
+fn invoke_sensitive(
+    webview: &tauri::WebviewWindow<test::MockRuntime>,
+    command: &str,
+    operation: Value,
+    mut body: Value,
+) -> Value {
+    let challenge = invoke(
+        webview,
+        "prepare_sensitive_operation",
+        json!({"operation": operation}),
+    );
+    body.as_object_mut()
+        .expect("sensitive command body should be an object")
+        .insert(
+            "confirmationId".to_owned(),
+            challenge["confirmation_id"].clone(),
+        );
+    invoke(webview, command, body)
 }
 
 fn create_test_package() -> Vec<u8> {

@@ -200,7 +200,10 @@ fn current_script_approval_allows_policy_blocked_permissions() {
     let approval = core
         .approve_installed(&store, "network-trigger")
         .expect("package should approve");
-    assert_eq!(approval.approved_permissions, ["webhook_public_bind"]);
+    assert_eq!(
+        approval.approval.approved_permissions,
+        ["webhook_public_bind"]
+    );
 
     let report = core
         .run_installed(&store, "network-trigger")
@@ -236,6 +239,10 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     assert_eq!(imported.package_file_name, "network-trigger.bbs");
     assert!(imported.package_path.exists());
     assert!(store.verify_script_package_hash("network-trigger").is_ok());
+    let initial_auth = core
+        .list_trigger_auth(&store, "network-trigger")
+        .expect("webhook auth should list");
+    assert!(initial_auth.is_empty());
 
     let blocked = core
         .run_installed(&store, "network-trigger")
@@ -251,8 +258,28 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
         "failed"
     );
 
-    core.approve_installed(&store, "network-trigger")
+    let approval = core
+        .approve_installed(&store, "network-trigger")
         .expect("package should approve");
+    assert_eq!(approval.generated_trigger_tokens.len(), 1);
+    assert_eq!(
+        approval.generated_trigger_tokens[0].status.node_id,
+        "n-webhook"
+    );
+    let approved_auth = core
+        .list_trigger_auth(&store, "network-trigger")
+        .expect("approved webhook auth should list");
+    assert_eq!(approved_auth.len(), 1);
+    assert!(approved_auth[0].auth_enabled);
+    let rotated_auth = core
+        .rotate_trigger_token(
+            &store,
+            "network-trigger",
+            "n-webhook",
+            NetworkTriggerType::Webhook,
+        )
+        .expect("webhook token should rotate");
+    assert!(rotated_auth.token.starts_with("bbwh_"));
     let report = core
         .dispatch_trigger_event(
             &store,
@@ -288,12 +315,25 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     assert_eq!(updated.package_file_name, "network-trigger-updated.bbs");
     assert!(!imported.package_path.exists());
     assert!(updated.package_path.exists());
+    let updated_auth = core
+        .list_trigger_auth(&store, "network-trigger")
+        .expect("updated webhook auth should list");
+    assert_eq!(updated_auth.len(), 1);
+    assert_eq!(
+        updated_auth[0].token_preview,
+        rotated_auth.status.token_preview
+    );
     assert!(
         store
             .find_script_approval("network-trigger")
             .expect("approval lookup should succeed")
             .is_none()
     );
+
+    let reapproval = core
+        .approve_installed(&store, "network-trigger")
+        .expect("updated package should approve");
+    assert!(reapproval.generated_trigger_tokens.is_empty());
 
     let registrations = core
         .list_trigger_registrations(&store, Some("network-trigger"))

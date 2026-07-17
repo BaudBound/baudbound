@@ -1,6 +1,7 @@
 //! Headless action implementations for the BaudBound runner.
 
 mod actions;
+mod limits;
 
 use std::{collections::BTreeMap, io::Write, sync::Arc, time::Duration};
 
@@ -17,6 +18,10 @@ use actions::{
     open_application_action, process_status_action, read_file_action, run_process_action,
     serial_port_builder, shell_command_action, text_format_action, validate_usb_identity,
     webhook_response_action, write_file_action,
+};
+pub use limits::{
+    ActionLimits, DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES,
+    DEFAULT_MAX_HTTP_RESPONSE_BYTES,
 };
 
 pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
@@ -69,6 +74,7 @@ pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
 
 #[derive(Default)]
 pub struct HeadlessActionHandler {
+    limits: ActionLimits,
     serial_devices: BTreeMap<String, SerialDeviceSpec>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
 }
@@ -340,6 +346,7 @@ impl HeadlessActionHandler {
     #[must_use]
     pub fn from_serial_devices(devices: impl IntoIterator<Item = SerialDeviceConfig>) -> Self {
         Self {
+            limits: ActionLimits::default(),
             serial_devices: devices
                 .into_iter()
                 .filter_map(SerialDeviceSpec::from_config)
@@ -347,6 +354,12 @@ impl HeadlessActionHandler {
                 .collect(),
             websocket_sink: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_limits(mut self, limits: ActionLimits) -> Self {
+        self.limits = limits;
+        self
     }
 
     #[must_use]
@@ -368,11 +381,13 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.clipboard.set" => desktop_only_action(request, "clipboard writes"),
             "action.file.copy" => copy_file_action(request),
             "action.file.delete" => delete_file_action(request),
-            "action.file.download" => download_file_action(request),
+            "action.file.download" => {
+                download_file_action(request, self.limits.max_file_download_bytes)
+            }
             "action.file.move" => move_file_action(request),
-            "action.file.read" => read_file_action(request),
+            "action.file.read" => read_file_action(request, self.limits.max_file_read_bytes),
             "action.file.write" => write_file_action(request),
-            "action.http" => http_request_action(request),
+            "action.http" => http_request_action(request, self.limits.max_http_response_bytes),
             "action.message_box" => desktop_only_action(request, "message boxes"),
             "action.notification" => desktop_only_action(request, "desktop notifications"),
             "action.application.open" => open_application_action(request),

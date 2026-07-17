@@ -115,6 +115,11 @@ pub enum Command {
         #[command(subcommand)]
         command: SecretCommand,
     },
+    /// Manage runner-owned webhook and WebSocket trigger tokens.
+    TriggerAuth {
+        #[command(subcommand)]
+        command: TriggerAuthCommand,
+    },
     /// Check whether a newer signed runner release is available.
     Update {
         #[command(subcommand)]
@@ -154,6 +159,45 @@ pub enum SecretCommand {
     Set { script: String, name: String },
     /// Remove a configured secret value.
     Remove { script: String, name: String },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum NetworkTriggerTypeValue {
+    Webhook,
+    Websocket,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TriggerAuthCommand {
+    /// List authentication status without exposing token values.
+    List {
+        script: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a replacement token and print it once.
+    Rotate {
+        script: String,
+        node_id: String,
+        trigger_type: NetworkTriggerTypeValue,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Enable token authentication for one network trigger.
+    Enable {
+        script: String,
+        node_id: String,
+        trigger_type: NetworkTriggerTypeValue,
+    },
+    /// Disable token authentication for one network trigger.
+    Disable {
+        script: String,
+        node_id: String,
+        trigger_type: NetworkTriggerTypeValue,
+        /// Confirm that callers will be able to trigger the script without a token.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -364,8 +408,9 @@ mod tests {
     #[cfg(windows)]
     use super::default_command;
     use super::{
-        Cli, Command, ConfigCommand, ConfigKey, ScriptCommand, SecretCommand, TimeFormatValue,
-        default_command_for_session, parse_positive_usize,
+        Cli, Command, ConfigCommand, ConfigKey, NetworkTriggerTypeValue, ScriptCommand,
+        SecretCommand, TimeFormatValue, TriggerAuthCommand, default_command_for_session,
+        parse_positive_usize,
     };
 
     #[test]
@@ -384,6 +429,53 @@ mod tests {
             Some(Command::Secret {
                 command: SecretCommand::List { script, json: true }
             }) if script == "script-1"
+        ));
+    }
+
+    #[test]
+    fn parses_network_trigger_auth_management_commands() {
+        let rotate = Cli::try_parse_from([
+            "baudbound",
+            "trigger-auth",
+            "rotate",
+            "script-1",
+            "n-webhook",
+            "webhook",
+            "--json",
+        ])
+        .expect("trigger token rotation should parse");
+        assert!(matches!(
+            rotate.command,
+            Some(Command::TriggerAuth {
+                command: TriggerAuthCommand::Rotate {
+                    script,
+                    node_id,
+                    trigger_type: NetworkTriggerTypeValue::Webhook,
+                    json: true,
+                }
+            }) if script == "script-1" && node_id == "n-webhook"
+        ));
+
+        let disable = Cli::try_parse_from([
+            "baudbound",
+            "trigger-auth",
+            "disable",
+            "script-1",
+            "n-socket",
+            "websocket",
+            "--yes",
+        ])
+        .expect("explicit trigger auth disable should parse");
+        assert!(matches!(
+            disable.command,
+            Some(Command::TriggerAuth {
+                command: TriggerAuthCommand::Disable {
+                    script,
+                    node_id,
+                    trigger_type: NetworkTriggerTypeValue::Websocket,
+                    yes: true,
+                }
+            }) if script == "script-1" && node_id == "n-socket"
         ));
     }
 

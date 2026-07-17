@@ -53,6 +53,29 @@ pub trait TriggerDispatcher: Send + Sync {
     fn dispatch(&self, event: TriggerEvent) -> Result<RunReport, TriggerError>;
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum NetworkTriggerKind {
+    Webhook,
+    WebSocket,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum NetworkTriggerAuthenticationError {
+    InvalidToken,
+    MissingToken,
+    Unavailable(String),
+}
+
+pub trait NetworkTriggerAuthenticator: Send + Sync {
+    fn authenticate(
+        &self,
+        script_id: &str,
+        node_id: &str,
+        trigger_kind: NetworkTriggerKind,
+        provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError>;
+}
+
 pub trait SerialPortRebindSink: Send + Sync {
     fn update_serial_device_port(&self, device_id: &str, port: &str) -> Result<(), String>;
 }

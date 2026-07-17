@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
@@ -28,9 +29,13 @@ pub struct ServeOptions {
     pub(crate) serial_devices: Vec<TriggerSerialDeviceConfig>,
     pub(crate) serial_port_rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     pub(crate) startup_enabled: bool,
+    pub(crate) webhook_allow_browser_origins: BTreeSet<String>,
+    pub(crate) webhook_allow_unauthenticated_public_bind: bool,
     pub webhook_bind: String,
     pub webhook_port: u16,
     pub(crate) webhooks_enabled: bool,
+    pub(crate) websocket_allow_browser_origins: BTreeSet<String>,
+    pub(crate) websocket_allow_unauthenticated_public_bind: bool,
     pub websocket_bind: String,
     pub websocket_port: u16,
     pub(crate) websocket_registry: Arc<WebSocketConnectionRegistry>,
@@ -107,11 +112,29 @@ impl ServeOptions {
                 .collect(),
             serial_port_rebind_sink: None,
             startup_enabled: config.triggers.startup_enabled,
+            webhook_allow_browser_origins: config
+                .webhooks
+                .allow_browser_origins
+                .iter()
+                .cloned()
+                .collect(),
+            webhook_allow_unauthenticated_public_bind: config
+                .webhooks
+                .allow_unauthenticated_public_bind,
             webhook_bind: overrides
                 .webhook_bind
                 .unwrap_or_else(|| config.webhooks.bind.clone()),
             webhook_port: overrides.webhook_port.unwrap_or(config.webhooks.port),
             webhooks_enabled: config.triggers.webhooks_enabled || overrides.webhooks,
+            websocket_allow_browser_origins: config
+                .websockets
+                .allow_browser_origins
+                .iter()
+                .cloned()
+                .collect(),
+            websocket_allow_unauthenticated_public_bind: config
+                .websockets
+                .allow_unauthenticated_public_bind,
             websocket_bind: overrides
                 .websocket_bind
                 .unwrap_or_else(|| config.websockets.bind.clone()),

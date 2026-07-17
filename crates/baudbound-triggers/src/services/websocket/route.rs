@@ -100,6 +100,9 @@ impl WebSocketHandshake {
         let headers = request
             .headers()
             .iter()
+            .filter(|(name, _)| {
+                name.as_str() != "x-baudbound-token" && name.as_str() != "sec-websocket-protocol"
+            })
             .filter_map(|(name, value)| {
                 value
                     .to_str()

@@ -42,6 +42,7 @@ rodio = { version = "0.22.2", default-features = false, features = [
 serde.workspace = true
 serde_json.workspace = true
 semver.workspace = true
+sha2.workspace = true
 serialport.workspace = true
 tauri = { version = "2.11.5", features = ["image-ico", "tray-icon"] }
 tauri-plugin-autostart = "2.5.1"

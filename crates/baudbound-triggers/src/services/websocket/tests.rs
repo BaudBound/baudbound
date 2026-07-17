@@ -17,10 +17,49 @@ use tungstenite::{
 };
 
 use super::{WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig};
-use crate::{TriggerEvent, TriggerRegistration};
+use crate::{
+    NetworkTriggerAuthenticationError, NetworkTriggerAuthenticator, NetworkTriggerKind,
+    TriggerEvent, TriggerRegistration,
+};
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(2);
 type ClientConnectError = Box<HandshakeError<ClientHandshake<TcpStream>>>;
+
+struct AllowAllAuthenticator;
+
+impl NetworkTriggerAuthenticator for AllowAllAuthenticator {
+    fn authenticate(
+        &self,
+        _script_id: &str,
+        _node_id: &str,
+        _trigger_kind: NetworkTriggerKind,
+        _provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError> {
+        Ok(())
+    }
+}
+
+fn authenticator() -> Arc<dyn NetworkTriggerAuthenticator> {
+    Arc::new(AllowAllAuthenticator)
+}
+
+struct ExpectedTokenAuthenticator(&'static str);
+
+impl NetworkTriggerAuthenticator for ExpectedTokenAuthenticator {
+    fn authenticate(
+        &self,
+        _script_id: &str,
+        _node_id: &str,
+        _trigger_kind: NetworkTriggerKind,
+        provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError> {
+        match provided_token {
+            None => Err(NetworkTriggerAuthenticationError::MissingToken),
+            Some(token) if token == self.0 => Ok(()),
+            Some(_) => Err(NetworkTriggerAuthenticationError::InvalidToken),
+        }
+    }
+}
 
 #[test]
 fn dispatches_concurrent_clients_and_writes_to_the_originating_connections() {
@@ -140,6 +179,87 @@ fn rejects_unknown_routes_and_connections_above_the_configured_limit() {
 }
 
 #[test]
+fn authenticates_tokens_and_enforces_browser_origins_during_handshake() {
+    let registry = Arc::new(WebSocketConnectionRegistry::new());
+    let (sender, receiver) = mpsc::sync_channel(8);
+    let mut config = service_config(4, 1024);
+    config
+        .allow_browser_origins
+        .insert("https://allowed.example".to_owned());
+    let service = WebSocketService::start_or_reconfigure(
+        [registration("script-1", "n-websocket", "/events")],
+        config,
+        sender,
+        Arc::new(ExpectedTokenAuthenticator("correct-token")),
+        Arc::clone(&registry),
+        None,
+    )
+    .expect("authenticated test service should start");
+    let address = service.bound_address().expect("service should be bound");
+
+    let missing = connect(address, "/events", None).expect_err("missing token must fail");
+    assert_http_status(&missing, 401);
+    let wrong = connect(
+        address,
+        "/events",
+        Some(("x-baudbound-token", "wrong-token")),
+    )
+    .expect_err("wrong token must fail");
+    assert_http_status(&wrong, 403);
+    let denied_origin = connect_headers(
+        address,
+        "/events",
+        &[
+            ("x-baudbound-token", "correct-token"),
+            ("origin", "https://denied.example"),
+        ],
+    )
+    .expect_err("unlisted browser origin must fail");
+    assert_http_status(&denied_origin, 403);
+
+    let mut custom_header_client = connect_headers(
+        address,
+        "/events",
+        &[
+            ("x-baudbound-token", "correct-token"),
+            ("origin", "https://allowed.example"),
+        ],
+    )
+    .expect("listed origin and custom token should connect");
+    send_and_expect(
+        &mut custom_header_client,
+        &receiver,
+        "custom",
+        "script-1",
+        "n-websocket",
+    );
+    custom_header_client
+        .close(None)
+        .expect("custom-header client should close");
+
+    let mut protocol_client = connect(
+        address,
+        "/events",
+        Some((
+            "sec-websocket-protocol",
+            "baudbound.v1, bbtoken.correct-token",
+        )),
+    )
+    .expect("protocol token should connect");
+    send_and_expect(
+        &mut protocol_client,
+        &receiver,
+        "protocol",
+        "script-1",
+        "n-websocket",
+    );
+    protocol_client
+        .close(None)
+        .expect("protocol client should close");
+    drop(service);
+}
+
+#[test]
 fn protocol_limit_disconnects_oversized_messages_before_dispatch() {
     let registry = Arc::new(WebSocketConnectionRegistry::new());
     let (sender, receiver) = mpsc::sync_channel(32);
@@ -234,6 +354,7 @@ fn rejects_duplicate_routes_before_binding_and_cleans_up_on_shutdown() {
         ],
         service_config(4, 1024),
         sender.clone(),
+        authenticator(),
         Arc::clone(&registry),
         None,
     ) {
@@ -273,6 +394,7 @@ fn start_service(
         registrations,
         service_config(max_connections, max_message_bytes),
         sender,
+        authenticator(),
         registry,
         previous,
     )
@@ -281,6 +403,7 @@ fn start_service(
 
 fn service_config(max_connections: usize, max_message_bytes: usize) -> WebSocketServiceConfig {
     WebSocketServiceConfig {
+        allow_browser_origins: BTreeSet::new(),
         bind: "127.0.0.1".to_owned(),
         max_connections,
         max_message_bytes,
@@ -293,6 +416,14 @@ fn connect(
     path: &str,
     header: Option<(&str, &str)>,
 ) -> Result<WebSocket<TcpStream>, ClientConnectError> {
+    connect_headers(address, path, &header.into_iter().collect::<Vec<_>>())
+}
+
+fn connect_headers(
+    address: std::net::SocketAddr,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> Result<WebSocket<TcpStream>, ClientConnectError> {
     let stream = TcpStream::connect_timeout(&address, TEST_TIMEOUT)
         .expect("test client should connect to listener");
     stream
@@ -304,7 +435,7 @@ fn connect(
     let mut request = format!("ws://{address}{path}")
         .into_client_request()
         .expect("test WebSocket request should build");
-    if let Some((name, value)) = header {
+    for (name, value) in headers {
         request.headers_mut().insert(
             name.parse::<tungstenite::http::HeaderName>()
                 .expect("test header name should parse"),

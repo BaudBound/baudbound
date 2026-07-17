@@ -7,8 +7,9 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
-    ApproveScriptRequest, ImportScriptRequest, InstalledScript, ScriptApproval, ScriptStore,
-    SecretCipher, SecretStatus, StorageError, StoredRunRecord, StoredVariable, StoredVariableScope,
+    ApproveScriptRequest, ImportScriptRequest, InstalledScript, ScriptApproval,
+    ScriptApprovalResult, ScriptStore, SecretCipher, SecretStatus, StorageError, StoredRunRecord,
+    StoredVariable, StoredVariableScope,
     storage::filesystem::{
         copy_file, create_dir_all, current_unix_timestamp, package_file_name_from_path,
         remove_file_inside_root, sha256_file, validate_package_file_name, validate_script_id,
@@ -16,6 +17,7 @@ use crate::{
 };
 
 mod conversions;
+mod network_auth;
 mod rows;
 mod run_retention;
 mod schema;
@@ -140,6 +142,7 @@ impl SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
+
         Ok(())
     }
 
@@ -448,7 +451,8 @@ impl ScriptStore for SqliteRunnerStore {
     fn approve_script(
         &self,
         request: ApproveScriptRequest,
-    ) -> Result<ScriptApproval, StorageError> {
+    ) -> Result<ScriptApprovalResult, StorageError> {
+        let network_triggers = request.network_triggers;
         let approval = ScriptApproval {
             approved_at_unix: current_unix_timestamp(),
             approved_permissions: request.approved_permissions,
@@ -463,7 +467,14 @@ impl ScriptStore for SqliteRunnerStore {
                 }
             })?;
         let connection = self.connection()?;
-        connection
+        let transaction =
+            connection
+                .unchecked_transaction()
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        transaction
             .execute(
                 r#"
                 INSERT INTO approvals (
@@ -489,8 +500,22 @@ impl ScriptStore for SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
-        self.request_trigger_reload_with_connection(&connection)?;
-        Ok(approval)
+        let generated_trigger_tokens = self.reconcile_network_trigger_auth_with_connection(
+            &transaction,
+            &approval.script_id,
+            &network_triggers,
+        )?;
+        self.request_trigger_reload_with_connection(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        Ok(ScriptApprovalResult {
+            approval,
+            generated_trigger_tokens,
+        })
     }
 
     fn find_script_approval(
@@ -723,6 +748,42 @@ impl ScriptStore for SqliteRunnerStore {
             });
         }
         Ok(installed)
+    }
+
+    fn list_trigger_auth_statuses(
+        &self,
+        script_reference: &str,
+    ) -> Result<Vec<crate::TriggerAuthStatus>, StorageError> {
+        self.list_network_trigger_auth_statuses(script_reference)
+    }
+
+    fn rotate_trigger_auth_token(
+        &self,
+        script_reference: &str,
+        node_id: &str,
+        trigger_type: crate::NetworkTriggerType,
+    ) -> Result<crate::GeneratedTriggerToken, StorageError> {
+        self.rotate_network_trigger_auth_token(script_reference, node_id, trigger_type)
+    }
+
+    fn set_trigger_auth_enabled(
+        &self,
+        script_reference: &str,
+        node_id: &str,
+        trigger_type: crate::NetworkTriggerType,
+        enabled: bool,
+    ) -> Result<crate::TriggerAuthStatus, StorageError> {
+        self.set_network_trigger_auth_enabled(script_reference, node_id, trigger_type, enabled)
+    }
+
+    fn authenticate_trigger(
+        &self,
+        script_id: &str,
+        node_id: &str,
+        trigger_type: crate::NetworkTriggerType,
+        provided_token: Option<&str>,
+    ) -> Result<crate::TriggerAuthentication, StorageError> {
+        self.authenticate_network_trigger(script_id, node_id, trigger_type, provided_token)
     }
 
     fn load_variable(

@@ -16,6 +16,38 @@ use serde_json::{Value, json};
 use super::*;
 use crate::service::{executor::TriggerRunner, ipc::ServiceControlServer};
 
+struct AllowAllAuthenticator;
+
+impl NetworkTriggerAuthenticator for AllowAllAuthenticator {
+    fn authenticate(
+        &self,
+        _script_id: &str,
+        _node_id: &str,
+        _trigger_kind: NetworkTriggerKind,
+        _provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError> {
+        Ok(())
+    }
+}
+
+struct ExpectedTokenAuthenticator(&'static str);
+
+impl NetworkTriggerAuthenticator for ExpectedTokenAuthenticator {
+    fn authenticate(
+        &self,
+        _script_id: &str,
+        _node_id: &str,
+        _trigger_kind: NetworkTriggerKind,
+        provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError> {
+        match provided_token {
+            None => Err(NetworkTriggerAuthenticationError::MissingToken),
+            Some(token) if token == self.0 => Ok(()),
+            Some(_) => Err(NetworkTriggerAuthenticationError::InvalidToken),
+        }
+    }
+}
+
 #[test]
 fn immediate_webhook_response_does_not_wait_for_execution() {
     let release = Arc::new(Barrier::new(2));
@@ -215,8 +247,98 @@ fn http_bridge_rejects_oversized_bodies_and_wrong_methods_before_dispatch() {
     );
 }
 
+#[test]
+fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
+    let (event_sender, event_receiver) = mpsc::channel();
+    let runner = Arc::new(move |event: TriggerEvent| {
+        event_sender
+            .send(event.clone())
+            .expect("captured event should send");
+        Ok(report(&event, Default::default()))
+    }) as Arc<TriggerRunner>;
+    let mut host = test_host(webhook_service(false, 1.0), runner);
+    host.authenticator = Arc::new(ExpectedTokenAuthenticator("correct-token"));
+    host.allow_browser_origins
+        .insert("https://allowed.example".to_owned());
+
+    let missing = send_request(&host, "POST", "/events/test", "{}");
+    accept_next(&mut host);
+    assert!(
+        missing
+            .recv_timeout(Duration::from_secs(1))
+            .expect("missing-token response should arrive")
+            .starts_with("HTTP/1.1 401")
+    );
+
+    let wrong = send_request_with_headers(
+        &host,
+        "POST",
+        "/events/test",
+        "{}",
+        &[("X-BaudBound-Token", "wrong-token")],
+    );
+    accept_next(&mut host);
+    assert!(
+        wrong
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wrong-token response should arrive")
+            .starts_with("HTTP/1.1 403")
+    );
+
+    let preflight = send_request_with_headers(
+        &host,
+        "OPTIONS",
+        "/events/test",
+        "",
+        &[
+            ("Origin", "https://allowed.example"),
+            ("Access-Control-Request-Method", "POST"),
+            (
+                "Access-Control-Request-Headers",
+                "Content-Type, X-BaudBound-Token",
+            ),
+        ],
+    );
+    accept_next(&mut host);
+    let preflight = preflight
+        .recv_timeout(Duration::from_secs(1))
+        .expect("preflight response should arrive");
+    assert!(preflight.starts_with("HTTP/1.1 204"), "{preflight}");
+    assert!(
+        preflight.contains("Access-Control-Allow-Origin: https://allowed.example"),
+        "{preflight}"
+    );
+
+    let accepted = send_request_with_headers(
+        &host,
+        "POST",
+        "/events/test",
+        "{}",
+        &[
+            ("X-BaudBound-Token", "correct-token"),
+            ("Origin", "https://allowed.example"),
+        ],
+    );
+    accept_next(&mut host);
+    let accepted = accepted
+        .recv_timeout(Duration::from_secs(1))
+        .expect("authenticated response should arrive");
+    assert!(accepted.starts_with("HTTP/1.1 202"), "{accepted}");
+    assert!(
+        accepted.contains("Access-Control-Allow-Origin: https://allowed.example"),
+        "{accepted}"
+    );
+    let event = event_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("authenticated request should dispatch");
+    assert!(event.payload["headers"].get("x-baudbound-token").is_none());
+    assert!(event_receiver.try_recv().is_err());
+}
+
 fn test_host(service: WebhookService, runner: Arc<TriggerRunner>) -> WebhookHost {
     WebhookHost {
+        allow_browser_origins: BTreeSet::new(),
+        authenticator: Arc::new(AllowAllAuthenticator),
         executor: TriggerExecutor::with_runner(2, 4, "webhook-test", runner)
             .expect("test webhook executor should start"),
         pending: BTreeMap::new(),
@@ -255,6 +377,16 @@ fn webhook_service_for(
 }
 
 fn send_request(host: &WebhookHost, method: &str, path: &str, body: &str) -> Receiver<String> {
+    send_request_with_headers(host, method, path, body, &[])
+}
+
+fn send_request_with_headers(
+    host: &WebhookHost,
+    method: &str,
+    path: &str,
+    body: &str,
+    headers: &[(&str, &str)],
+) -> Receiver<String> {
     let address = host
         .server
         .server_addr()
@@ -264,23 +396,37 @@ fn send_request(host: &WebhookHost, method: &str, path: &str, body: &str) -> Rec
     let method = method.to_owned();
     let path = path.to_owned();
     let body = body.to_owned();
+    let headers = headers
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect::<Vec<_>>();
     thread::spawn(move || {
         sender
-            .send(http_request(address, &method, &path, &body))
+            .send(http_request(address, &method, &path, &body, &headers))
             .expect("HTTP response should send to test");
     });
     receiver
 }
 
-fn http_request(address: SocketAddr, method: &str, path: &str, body: &str) -> String {
+fn http_request(
+    address: SocketAddr,
+    method: &str,
+    path: &str,
+    body: &str,
+    headers: &[(String, String)],
+) -> String {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(1))
         .expect("test client should connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .expect("test client read timeout should configure");
+    let headers = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
     write!(
         stream,
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
     .expect("test request should write");
@@ -289,6 +435,15 @@ fn http_request(address: SocketAddr, method: &str, path: &str, body: &str) -> St
         .read_to_string(&mut response)
         .expect("test response should read");
     response
+}
+
+fn accept_next(host: &mut WebhookHost) {
+    let request = host
+        .server
+        .recv_timeout(Duration::from_secs(1))
+        .expect("server receive should succeed")
+        .expect("request should arrive");
+    host.accept_request(request, 1024);
 }
 
 fn wait_for_host_completion(host: &mut WebhookHost, status: &mut ServeStatusTracker) {

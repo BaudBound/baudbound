@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -19,12 +19,16 @@ pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
 pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
+pub use baudbound_actions::{
+    DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
+};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RunnerConfig {
     pub desktop: DesktopSettings,
     pub display: DisplaySettings,
+    pub limits: LimitSettings,
     pub runner: RunnerSettings,
     pub serial: SerialSettings,
     pub triggers: TriggerSettings,
@@ -96,6 +100,38 @@ impl RunnerConfig {
                 message: "updates.check_interval_hours must be greater than zero".to_owned(),
             });
         }
+        for (setting, value) in [
+            (
+                "limits.max_http_response_bytes",
+                self.limits.max_http_response_bytes,
+            ),
+            (
+                "limits.max_file_download_bytes",
+                self.limits.max_file_download_bytes,
+            ),
+            (
+                "limits.max_file_read_bytes",
+                self.limits.max_file_read_bytes,
+            ),
+        ] {
+            if value == 0 {
+                return Err(RunnerConfigError::Validate {
+                    path: path.to_path_buf(),
+                    message: format!("{setting} must be greater than zero"),
+                });
+            }
+        }
+        if self.webhooks.max_body_bytes == 0 {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "webhooks.max_body_bytes must be greater than zero".to_owned(),
+            });
+        }
+        validate_browser_origins(
+            path,
+            "webhooks.allow_browser_origins",
+            &self.webhooks.allow_browser_origins,
+        )?;
         if self.websockets.max_connections == 0 {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
@@ -108,6 +144,11 @@ impl RunnerConfig {
                 message: "websockets.max_message_bytes must be greater than zero".to_owned(),
             });
         }
+        validate_browser_origins(
+            path,
+            "websockets.allow_browser_origins",
+            &self.websockets.allow_browser_origins,
+        )?;
         for (device_id, device) in &self.serial.devices {
             if !device.auto_rebind_port {
                 continue;
@@ -197,6 +238,11 @@ target_runtimes = []
 [display]
 time_format = "24-hour"
 
+[limits]
+max_http_response_bytes = 10485760
+max_file_download_bytes = 104857600
+max_file_read_bytes = 10485760
+
 [updates]
 automatic_checks = true
 check_interval_hours = 24
@@ -241,12 +287,16 @@ websockets_enabled = false
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 
 [websockets]
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
 max_connections = 128
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 "#
     }
 }
@@ -280,6 +330,24 @@ impl TimeFormat {
         match self {
             Self::TwelveHour => "12-hour",
             Self::TwentyFourHour => "24-hour",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LimitSettings {
+    pub max_file_download_bytes: u64,
+    pub max_file_read_bytes: u64,
+    pub max_http_response_bytes: u64,
+}
+
+impl Default for LimitSettings {
+    fn default() -> Self {
+        Self {
+            max_file_download_bytes: DEFAULT_MAX_FILE_DOWNLOAD_BYTES,
+            max_file_read_bytes: DEFAULT_MAX_FILE_READ_BYTES,
+            max_http_response_bytes: DEFAULT_MAX_HTTP_RESPONSE_BYTES,
         }
     }
 }
@@ -419,6 +487,8 @@ impl Default for TriggerSettings {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WebhookSettings {
+    pub allow_browser_origins: Vec<String>,
+    pub allow_unauthenticated_public_bind: bool,
     pub bind: String,
     pub max_body_bytes: usize,
     pub port: u16,
@@ -427,6 +497,8 @@ pub struct WebhookSettings {
 impl Default for WebhookSettings {
     fn default() -> Self {
         Self {
+            allow_browser_origins: Vec::new(),
+            allow_unauthenticated_public_bind: false,
             bind: DEFAULT_WEBHOOK_BIND.to_owned(),
             max_body_bytes: DEFAULT_WEBHOOK_MAX_BODY_BYTES,
             port: DEFAULT_WEBHOOK_PORT,
@@ -437,6 +509,8 @@ impl Default for WebhookSettings {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct WebSocketSettings {
+    pub allow_browser_origins: Vec<String>,
+    pub allow_unauthenticated_public_bind: bool,
     pub bind: String,
     pub max_connections: usize,
     pub max_message_bytes: usize,
@@ -446,6 +520,8 @@ pub struct WebSocketSettings {
 impl Default for WebSocketSettings {
     fn default() -> Self {
         Self {
+            allow_browser_origins: Vec::new(),
+            allow_unauthenticated_public_bind: false,
             bind: DEFAULT_WEBSOCKET_BIND.to_owned(),
             max_connections: DEFAULT_WEBSOCKET_MAX_CONNECTIONS,
             max_message_bytes: DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
@@ -485,6 +561,40 @@ fn blank_optional(value: &Option<String>) -> bool {
         .is_none()
 }
 
+fn validate_browser_origins(
+    path: &Path,
+    setting: &str,
+    origins: &[String],
+) -> Result<(), RunnerConfigError> {
+    let mut unique = BTreeSet::new();
+    for origin in origins {
+        let authority = origin
+            .strip_prefix("http://")
+            .or_else(|| origin.strip_prefix("https://"));
+        let valid = origin == origin.trim()
+            && authority.is_some_and(|authority| {
+                !authority.is_empty()
+                    && !authority.contains(['/', '?', '#', '@'])
+                    && !authority.chars().any(char::is_whitespace)
+            });
+        if !valid {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "{setting} contains invalid origin {origin:?}; use an exact origin such as https://dashboard.example.com"
+                ),
+            });
+        }
+        if !unique.insert(origin) {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!("{setting} contains duplicate origin {origin:?}"),
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,6 +625,10 @@ mod tests {
         assert!(!config.triggers.webhooks_enabled);
         assert_eq!(config.webhooks.bind, DEFAULT_WEBHOOK_BIND);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
+        assert_eq!(
+            config.limits.max_http_response_bytes,
+            DEFAULT_MAX_HTTP_RESPONSE_BYTES
+        );
         assert!(
             !config_path.exists(),
             "load_or_default should preserve legacy no-write behavior"
@@ -637,6 +751,85 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_external_data_limits() {
+        for field in [
+            "max_http_response_bytes",
+            "max_file_download_bytes",
+            "max_file_read_bytes",
+        ] {
+            let contents = format!("[limits]\n{field} = 0");
+            let error = RunnerConfig::from_toml(&contents, "runner.toml")
+                .expect_err("external data limits must be positive");
+            assert!(error.to_string().contains(field), "{error}");
+        }
+    }
+
+    #[test]
+    fn rejects_zero_webhook_body_limit() {
+        let error = RunnerConfig::from_toml("[webhooks]\nmax_body_bytes = 0", "runner.toml")
+            .expect_err("webhook request bodies must stay bounded");
+
+        assert!(error.to_string().contains("webhooks.max_body_bytes"));
+    }
+
+    #[test]
+    fn validates_exact_browser_origins() {
+        let config = RunnerConfig::from_toml(
+            r#"
+                [webhooks]
+                allow_browser_origins = ["https://dashboard.example.com"]
+
+                [websockets]
+                allow_browser_origins = ["http://localhost:3000"]
+            "#,
+            "runner.toml",
+        )
+        .expect("exact HTTP and HTTPS origins should be accepted");
+
+        assert_eq!(
+            config.webhooks.allow_browser_origins,
+            ["https://dashboard.example.com"]
+        );
+        assert_eq!(
+            config.websockets.allow_browser_origins,
+            ["http://localhost:3000"]
+        );
+
+        for origin in [
+            "*",
+            "dashboard.example.com",
+            "https://dashboard.example.com/path",
+            "https://user@dashboard.example.com",
+            " https://dashboard.example.com",
+        ] {
+            let contents = format!(
+                "[webhooks]\nallow_browser_origins = [{}]",
+                toml::Value::String(origin.to_owned())
+            );
+            let error = RunnerConfig::from_toml(&contents, "runner.toml")
+                .expect_err("non-origin values must be rejected");
+            assert!(error.to_string().contains("invalid origin"), "{error}");
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_browser_origins() {
+        let error = RunnerConfig::from_toml(
+            r#"
+                [websockets]
+                allow_browser_origins = [
+                    "https://dashboard.example.com",
+                    "https://dashboard.example.com",
+                ]
+            "#,
+            "runner.toml",
+        )
+        .expect_err("duplicate browser origins should be rejected");
+
+        assert!(error.to_string().contains("duplicate origin"));
+    }
+
+    #[test]
     fn rejects_auto_rebind_without_usb_identity() {
         let error = RunnerConfig::from_toml(
             r#"
@@ -737,6 +930,10 @@ mod tests {
         assert!(!config.desktop.launch_at_login);
         assert!(config.desktop.keep_running_on_close);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
+        assert_eq!(
+            config.limits.max_file_download_bytes,
+            DEFAULT_MAX_FILE_DOWNLOAD_BYTES
+        );
         assert_eq!(config.websockets.port, DEFAULT_WEBSOCKET_PORT);
         assert_eq!(
             config.websockets.max_connections,

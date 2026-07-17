@@ -7,9 +7,12 @@ use std::{
 use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings, TimeFormat};
-use baudbound_storage::{ScriptStore, SqliteRunnerStore, StoredRunRecord};
+use baudbound_storage::{
+    GeneratedTriggerToken, NetworkTriggerType, ScriptStore, SqliteRunnerStore, StoredRunRecord,
+    TriggerAuthStatus,
+};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{Manager, State};
 
@@ -22,6 +25,7 @@ use crate::service::{ServeOptions, ServeOverrides};
 
 mod active_runs;
 mod background;
+mod command_guard;
 mod coordinate_picker;
 mod desktop_config;
 mod lifecycle;
@@ -30,10 +34,12 @@ mod tools;
 
 use active_runs::{ActiveRunRegistry, ActiveRunSnapshot};
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
+use command_guard::{SensitiveOperation, SensitiveOperationGuard, ensure_main_window};
 macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
+            prepare_sensitive_operation,
             dashboard_state,
             coordinate_picker::cancel_coordinate_picker,
             tools::discover_monitors,
@@ -53,8 +59,10 @@ macro_rules! desktop_command_handler {
             set_script_secret,
             remove_script_secret,
             reset_runner_config,
+            rotate_network_trigger_token,
             select_package_file,
             set_script_enabled,
+            set_network_trigger_auth_enabled,
             start_background_runner,
             coordinate_picker::start_coordinate_picker,
             stop_background_runner,
@@ -97,6 +105,7 @@ pub fn run_desktop_ui(
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(coordinate_picker::CoordinatePickerState::default())
+        .manage(SensitiveOperationGuard::default())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             active_runs,
@@ -142,6 +151,28 @@ pub(super) struct DesktopUiState {
 }
 
 #[tauri::command]
+fn prepare_sensitive_operation<R: tauri::Runtime>(
+    operation: SensitiveOperation,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<command_guard::ConfirmationChallenge, String> {
+    ensure_main_window(&window)?;
+    guard.prepare(&operation, &state)
+}
+
+fn consume_sensitive_operation<R: tauri::Runtime>(
+    confirmation_id: &str,
+    operation: &SensitiveOperation,
+    guard: &SensitiveOperationGuard,
+    state: &DesktopUiState,
+    window: &tauri::WebviewWindow<R>,
+) -> Result<(), String> {
+    ensure_main_window(window)?;
+    guard.consume(confirmation_id, operation, state)
+}
+
+#[tauri::command]
 fn dashboard_state(state: State<'_, DesktopUiState>) -> Result<DashboardPayload, String> {
     build_dashboard_payload(&state).map_err(|error| error.to_string())
 }
@@ -175,13 +206,30 @@ fn select_package_file() -> Option<String> {
 }
 
 #[tauri::command]
-fn approve_script(
+fn approve_script<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     state: State<'_, DesktopUiState>,
-) -> Result<ActionPayload, String> {
-    run_locked_action(&state, || {
-        current_core(&state)?.approve_installed(&state.store, &reference)?;
-        Ok(format!("Approved {reference}."))
+    window: tauri::WebviewWindow<R>,
+) -> Result<PackageActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ApproveScript {
+            reference: reference.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
+    let result = run_locked_value(&state, || {
+        Ok(current_core(&state)?.approve_installed(&state.store, &reference)?)
+    })?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(PackageActionPayload {
+        dashboard,
+        generated_trigger_tokens: result.generated_trigger_tokens,
+        message: format!("Approved {reference}."),
     })
 }
 
@@ -201,32 +249,64 @@ fn revoke_script_approval(
 }
 
 #[tauri::command]
-fn import_script_package(
+fn import_script_package<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     package_path: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ImportScriptPackage {
+            package_path: package_path.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     let path = PathBuf::from(package_path);
-    run_locked_action(&state, || {
-        let script = current_core(&state)?.import_package(&state.store, &path)?;
-        Ok(format!(
+    let script = run_locked_value(&state, || {
+        Ok(current_core(&state)?.import_package(&state.store, &path)?)
+    })?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload {
+        dashboard,
+        message: format!(
             "Imported {} ({}) as {}.",
             script.name, script.id, script.package_file_name
-        ))
+        ),
     })
 }
 
 #[tauri::command]
-fn update_script_package(
+fn update_script_package<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     package_path: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::UpdateScriptPackage {
+            package_path: package_path.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     let path = PathBuf::from(package_path);
-    run_locked_action(&state, || {
-        let script = current_core(&state)?.update_package(&state.store, &path)?;
-        Ok(format!(
+    let script = run_locked_value(&state, || {
+        Ok(current_core(&state)?.update_package(&state.store, &path)?)
+    })?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload {
+        dashboard,
+        message: format!(
             "Updated {} ({}) as {}.",
             script.name, script.id, script.package_file_name
-        ))
+        ),
     })
 }
 
@@ -287,12 +367,117 @@ fn set_script_enabled(
 }
 
 #[tauri::command]
-fn set_script_secret(
+fn rotate_network_trigger_token<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    reference: String,
+    node_id: String,
+    trigger_type: NetworkTriggerType,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<GeneratedTriggerTokenPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::RotateNetworkTriggerToken {
+            reference: reference.clone(),
+            node_id: node_id.clone(),
+            trigger_type,
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
+    let generated = run_locked_value(&state, || {
+        Ok(current_core(&state)?.rotate_trigger_token(
+            &state.store,
+            &reference,
+            &node_id,
+            trigger_type,
+        )?)
+    })?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(GeneratedTriggerTokenPayload {
+        dashboard,
+        message: format!(
+            "Generated a new {} token for {reference}:{node_id}. Save it now because it cannot be shown again.",
+            trigger_type_label(&generated.status.trigger_type)
+        ),
+        status: generated.status,
+        token: generated.token,
+    })
+}
+
+#[tauri::command]
+fn set_network_trigger_auth_enabled<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    request: SetNetworkTriggerAuthEnabledRequest,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    let SetNetworkTriggerAuthEnabledRequest {
+        enabled,
+        node_id,
+        reference,
+        trigger_type,
+    } = request;
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::SetNetworkTriggerAuthEnabled {
+            reference: reference.clone(),
+            node_id: node_id.clone(),
+            trigger_type,
+            enabled,
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
+    run_locked_action(&state, || {
+        current_core(&state)?.set_trigger_auth_enabled(
+            &state.store,
+            &reference,
+            &node_id,
+            trigger_type,
+            enabled,
+        )?;
+        Ok(format!(
+            "{} authentication for {reference}:{node_id}.",
+            if enabled { "Enabled" } else { "Disabled" }
+        ))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetNetworkTriggerAuthEnabledRequest {
+    enabled: bool,
+    node_id: String,
+    reference: String,
+    trigger_type: NetworkTriggerType,
+}
+
+#[tauri::command]
+fn set_script_secret<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     name: String,
     value: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::SetScriptSecret {
+            reference: reference.clone(),
+            name: name.clone(),
+            value: value.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         current_core(&state)?.set_installed_secret_from_text(
             &state.store,
@@ -305,11 +490,24 @@ fn set_script_secret(
 }
 
 #[tauri::command]
-fn remove_script_secret(
+fn remove_script_secret<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     name: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::RemoveScriptSecret {
+            reference: reference.clone(),
+            name: name.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         let removed =
             current_core(&state)?.remove_installed_secret(&state.store, &reference, &name)?;
@@ -330,35 +528,71 @@ fn read_runner_config(
 }
 
 #[tauri::command]
-fn save_runner_config(
+fn save_runner_config<R: tauri::Runtime>(
     autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    confirmation_id: String,
     contents: String,
+    guard: State<'_, SensitiveOperationGuard>,
     restart_background: bool,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::SaveRunnerConfig {
+            contents: contents.clone(),
+            restart_background,
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         save_runner_config_contents(&autostart, &state, &contents, restart_background)
     })
 }
 
 #[tauri::command]
-fn save_runner_config_model(
+fn save_runner_config_model<R: tauri::Runtime>(
     autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    confirmation_id: String,
     config: RunnerConfig,
+    guard: State<'_, SensitiveOperationGuard>,
     restart_background: bool,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::SaveRunnerConfigModel {
+            config: config.clone(),
+            restart_background,
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         save_runner_config_model_contents(&autostart, &state, config, restart_background)
     })
 }
 
 #[tauri::command]
-fn reset_runner_config(
+fn reset_runner_config<R: tauri::Runtime>(
     autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     restart_background: bool,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ResetRunnerConfig { restart_background },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         save_valid_runner_config(
             &autostart,
@@ -398,6 +632,17 @@ fn run_locked_action(
     Ok(ActionPayload { dashboard, message })
 }
 
+fn run_locked_value<T>(
+    state: &DesktopUiState,
+    action: impl FnOnce() -> Result<T>,
+) -> Result<T, String> {
+    let _guard = state
+        .operation_lock
+        .lock()
+        .map_err(|_| "desktop UI operation lock is poisoned".to_owned())?;
+    action().map_err(|error| error.to_string())
+}
+
 pub(super) fn run_locked_message(
     state: &DesktopUiState,
     action: impl FnOnce() -> Result<String>,
@@ -422,6 +667,14 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
                 .map(|secrets| (script.installed.id.clone(), secrets))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
+    let trigger_auth_statuses = runner
+        .scripts
+        .iter()
+        .map(|script| {
+            core.list_trigger_auth(&state.store, &script.installed.id)
+                .map(|statuses| (script.installed.id.clone(), statuses))
+        })
+        .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
     let recent_runs = state.store.list_run_records(None, Some(50))?;
     let active_runs = state.active_runs.snapshot();
     let desktop_background = state.background_runner.snapshot()?;
@@ -454,6 +707,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         config_path: state.config_path.display().to_string(),
         storage_root: state.store.root().display().to_string(),
         time_format: runner_config.display.time_format,
+        trigger_auth_statuses,
     })
 }
 
@@ -485,6 +739,7 @@ struct DashboardPayload {
     service_status: Option<Value>,
     storage_root: String,
     time_format: TimeFormat,
+    trigger_auth_statuses: std::collections::BTreeMap<String, Vec<TriggerAuthStatus>>,
 }
 
 #[derive(Serialize)]
@@ -511,6 +766,28 @@ struct SerialDevicePayload {
 struct ActionPayload {
     dashboard: DashboardPayload,
     message: String,
+}
+
+#[derive(Serialize)]
+struct PackageActionPayload {
+    dashboard: DashboardPayload,
+    generated_trigger_tokens: Vec<GeneratedTriggerToken>,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct GeneratedTriggerTokenPayload {
+    dashboard: DashboardPayload,
+    message: String,
+    status: TriggerAuthStatus,
+    token: String,
+}
+
+fn trigger_type_label(trigger_type: &NetworkTriggerType) -> &'static str {
+    match trigger_type {
+        NetworkTriggerType::Webhook => "webhook",
+        NetworkTriggerType::Websocket => "WebSocket",
+    }
 }
 
 #[derive(Serialize)]

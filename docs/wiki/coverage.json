@@ -45,7 +45,7 @@
     "sources": "apps/editor/data/nodes/definitions/**/*.ts",
     "page": "editor/node-reference",
     "expectedCount": 49,
-    "sourceFingerprint": "e42b362af6a91967c9a13371dc119909426098d2fddda876fe53a65263fcca6c"
+    "sourceFingerprint": "252176987b8691c75129305ae9a31df8a4518d54b4c36404bcfa9d1fac2bc3e9"
   },
   "desktop": {
     "source": "apps/baudbound/ui/src/lib/navigation.ts",
@@ -58,11 +58,12 @@
   "configuration": {
     "source": "crates/baudbound-core/src/config.rs",
     "page": "runner/configuration",
-    "structs": ["DisplaySettings", "UpdateSettings", "DesktopSettings", "RunnerSettings", "TriggerSettings", "SerialDeviceSettings", "WebhookSettings", "WebSocketSettings"],
+    "structs": ["DisplaySettings", "UpdateSettings", "DesktopSettings", "LimitSettings", "RunnerSettings", "TriggerSettings", "SerialDeviceSettings", "WebhookSettings", "WebSocketSettings"],
       "sections": {
         "display": "DisplaySettings",
         "updates": "UpdateSettings",
         "desktop": "DesktopSettings",
+      "limits": "LimitSettings",
       "runner": "RunnerSettings",
       "triggers": "TriggerSettings",
       "serial.devices.*": "SerialDeviceSettings",

@@ -13,6 +13,7 @@ use baudbound_triggers::{
 };
 
 use super::{
+    network_auth::{RunnerNetworkTriggerAuthenticator, validate_listener_exposure},
     options::ServeOptions,
     webhooks::{WebhookHost, build_webhook_host},
 };
@@ -82,7 +83,21 @@ impl TriggerRegistrationSet {
         let registrations = core
             .list_trigger_registrations(store, None)
             .with_context(|| format!("failed to {operation} trigger registrations"))?;
-        let fingerprint = serde_json::to_string(&registrations)
+        let mut auth_statuses = Vec::new();
+        let script_ids = registrations
+            .iter()
+            .filter(|registration| {
+                registration.action_type == "trigger.webhook"
+                    || registration.action_type == "trigger.websocket"
+            })
+            .map(|registration| registration.script_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        for script_id in script_ids {
+            auth_statuses.extend(core.list_trigger_auth(store, script_id).with_context(|| {
+                format!("failed to {operation} network trigger authentication state")
+            })?);
+        }
+        let fingerprint = serde_json::to_string(&(registrations.as_slice(), auth_statuses))
             .context("failed to fingerprint trigger registrations")?;
 
         Ok(Self {
@@ -265,15 +280,26 @@ fn build_trigger_services(
         NativeHotkeyService::empty()
     };
     let websocket_service = if options.websockets_enabled {
+        validate_listener_exposure(
+            core,
+            store,
+            &registrations,
+            baudbound_triggers::NetworkTriggerKind::WebSocket,
+            &options.websocket_bind,
+            options.websocket_port,
+            options.websocket_allow_unauthenticated_public_bind,
+        )?;
         WebSocketService::start_or_reconfigure(
             registrations.clone(),
             WebSocketServiceConfig {
+                allow_browser_origins: options.websocket_allow_browser_origins.clone(),
                 bind: options.websocket_bind.clone(),
                 max_connections: options.max_websocket_connections,
                 max_message_bytes: options.max_websocket_message_bytes,
                 port: options.websocket_port,
             },
             trigger_sender.clone(),
+            Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store)),
             Arc::clone(&options.websocket_registry),
             previous_websocket_service,
         )

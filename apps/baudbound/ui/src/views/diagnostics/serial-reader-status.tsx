@@ -8,7 +8,7 @@ import type {
 } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
 
-export type SerialTriggerRow = TriggerRegistrationStatus & {
+export type SerialTriggerRegistration = TriggerRegistrationStatus & {
   scriptId: string;
   scriptName: string;
 };
@@ -18,7 +18,7 @@ export function SerialReaderStatusPanel({
   registrations,
 }: {
   dashboard: DashboardPayload;
-  registrations: SerialTriggerRow[];
+  registrations: SerialTriggerRegistration[];
 }) {
   const readers = serialReaderStatuses(dashboard);
 
@@ -58,7 +58,7 @@ function SerialReaderRow({
 }: {
   configured: boolean;
   reader: SerialReaderStatus | null;
-  registration: SerialTriggerRow;
+  registration: SerialTriggerRegistration;
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   return (

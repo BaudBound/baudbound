@@ -44,6 +44,7 @@ test("project creation requires valid settings before writing storage", async ({
 
 test("project home disables the native browser context menu", async ({ page }) => {
 	await page.goto("/");
+	await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
 	const defaultAllowed = await page.evaluate(() =>
 		document.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
 	);

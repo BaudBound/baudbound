@@ -3,15 +3,31 @@ use std::sync::{Arc, Mutex};
 use baudbound_core::{CoreError, RunnerCore};
 use baudbound_runtime::RuntimeError;
 use baudbound_storage::SqliteRunnerStore;
-use tauri::State;
+use tauri::{Runtime, State, WebviewWindow};
 
-use super::{ActionPayload, DesktopUiState, build_dashboard_payload};
+use super::{
+    ActionPayload, DesktopUiState, build_dashboard_payload,
+    command_guard::{SensitiveOperation, SensitiveOperationGuard},
+    consume_sensitive_operation,
+};
 
 #[tauri::command]
-pub(super) async fn run_script(
+pub(super) async fn run_script<R: Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     state: State<'_, DesktopUiState>,
+    window: WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::RunScript {
+            reference: reference.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     let core = Arc::clone(&state.core);
     let store = state.store.clone();
 

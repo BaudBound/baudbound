@@ -4,7 +4,6 @@ export type TabId =
   | "dashboard"
   | "scripts"
   | "security"
-  | "triggers"
   | "tools"
   | "runs"
   | "logs"

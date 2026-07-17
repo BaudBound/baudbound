@@ -33,6 +33,7 @@ import {
   saveRunnerConfigModel,
 } from "@/lib/runner-api";
 import { cn } from "@/lib/utils";
+import { BrowserOriginField } from "@/views/config/browser-origin-field";
 import {
   ConfigGroupHeading,
   DesktopConfiguration,
@@ -383,6 +384,47 @@ function SimpleConfigEditor({
 
       <Card>
         <CardHeader>
+          <CardTitle>External data limits</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <NumberField
+            label="Maximum HTTP response bytes"
+            min={1}
+            onChange={(max_http_response_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_http_response_bytes },
+              })
+            }
+            value={config.limits.max_http_response_bytes}
+          />
+          <NumberField
+            label="Maximum file download bytes"
+            min={1}
+            onChange={(max_file_download_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_file_download_bytes },
+              })
+            }
+            value={config.limits.max_file_download_bytes}
+          />
+          <NumberField
+            label="Maximum file read bytes"
+            min={1}
+            onChange={(max_file_read_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_file_read_bytes },
+              })
+            }
+            value={config.limits.max_file_read_bytes}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Trigger listeners</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -408,11 +450,27 @@ function SimpleConfigEditor({
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2">
           <NetworkSection
+            allowBrowserOrigins={config.webhooks.allow_browser_origins}
+            allowUnauthenticatedPublicBind={
+              config.webhooks.allow_unauthenticated_public_bind
+            }
             bind={config.webhooks.bind}
             maxBytes={config.webhooks.max_body_bytes}
             maxBytesLabel="Max body bytes"
             onBindChange={(bind) =>
               onChange({ ...config, webhooks: { ...config.webhooks, bind } })
+            }
+            onAllowBrowserOriginsChange={(allow_browser_origins) =>
+              onChange({
+                ...config,
+                webhooks: { ...config.webhooks, allow_browser_origins },
+              })
+            }
+            onAllowUnauthenticatedPublicBindChange={(allow_unauthenticated_public_bind) =>
+              onChange({
+                ...config,
+                webhooks: { ...config.webhooks, allow_unauthenticated_public_bind },
+              })
             }
             onMaxBytesChange={(max_body_bytes) =>
               onChange({
@@ -427,12 +485,28 @@ function SimpleConfigEditor({
             title="Webhooks"
           />
           <NetworkSection
+            allowBrowserOrigins={config.websockets.allow_browser_origins}
+            allowUnauthenticatedPublicBind={
+              config.websockets.allow_unauthenticated_public_bind
+            }
             bind={config.websockets.bind}
             maxConnections={config.websockets.max_connections}
             maxBytes={config.websockets.max_message_bytes}
             maxBytesLabel="Max message bytes"
             onBindChange={(bind) =>
               onChange({ ...config, websockets: { ...config.websockets, bind } })
+            }
+            onAllowBrowserOriginsChange={(allow_browser_origins) =>
+              onChange({
+                ...config,
+                websockets: { ...config.websockets, allow_browser_origins },
+              })
+            }
+            onAllowUnauthenticatedPublicBindChange={(allow_unauthenticated_public_bind) =>
+              onChange({
+                ...config,
+                websockets: { ...config.websockets, allow_unauthenticated_public_bind },
+              })
             }
             onMaxBytesChange={(max_message_bytes) =>
               onChange({
@@ -510,10 +584,14 @@ function SimpleConfigEditor({
 }
 
 function NetworkSection({
+  allowBrowserOrigins,
+  allowUnauthenticatedPublicBind,
   bind,
   maxConnections,
   maxBytes,
   maxBytesLabel,
+  onAllowBrowserOriginsChange,
+  onAllowUnauthenticatedPublicBindChange,
   onBindChange,
   onMaxBytesChange,
   onMaxConnectionsChange,
@@ -521,10 +599,14 @@ function NetworkSection({
   port,
   title,
 }: {
+  allowBrowserOrigins: string[];
+  allowUnauthenticatedPublicBind: boolean;
   bind: string;
   maxConnections?: number;
   maxBytes: number;
   maxBytesLabel: string;
+  onAllowBrowserOriginsChange: (value: string[]) => void;
+  onAllowUnauthenticatedPublicBindChange: (value: boolean) => void;
   onBindChange: (value: string) => void;
   onMaxBytesChange: (value: number) => void;
   onMaxConnectionsChange?: (value: number) => void;
@@ -536,6 +618,10 @@ function NetworkSection({
     <div className="grid gap-3 rounded-md border border-border bg-background p-3">
       <div className="text-sm font-medium">{title}</div>
       <TextField label="Bind address" onChange={onBindChange} value={bind} />
+      <BrowserOriginField
+        onChange={onAllowBrowserOriginsChange}
+        value={allowBrowserOrigins}
+      />
       <NumberField label="Port" max={65535} min={1} onChange={onPortChange} value={port} />
       <NumberField
         label={maxBytesLabel}
@@ -550,6 +636,17 @@ function NetworkSection({
           onChange={onMaxConnectionsChange}
           value={maxConnections}
         />
+      ) : null}
+      <BooleanField
+        checked={allowUnauthenticatedPublicBind}
+        label="Allow unauthenticated public bind"
+        onChange={onAllowUnauthenticatedPublicBindChange}
+      />
+      {allowUnauthenticatedPublicBind ? (
+        <div className="text-xs text-destructive">
+          Unsafe override enabled. Unprotected triggers may be reached from other machines when the
+          listener uses a public address.
+        </div>
       ) : null}
     </div>
   );

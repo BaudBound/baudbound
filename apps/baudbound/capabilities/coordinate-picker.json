@@ -3,5 +3,5 @@
   "identifier": "coordinate-picker",
   "description": "Minimal core permissions for the native coordinate picker overlays.",
   "windows": ["coordinate-picker-*"],
-  "permissions": ["core:default"]
+  "permissions": []
 }

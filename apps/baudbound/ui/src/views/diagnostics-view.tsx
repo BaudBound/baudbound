@@ -16,6 +16,7 @@ import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload, NativeDoctorCheck } from "@/lib/runner-api";
+import { TriggerRegistrationPanel } from "@/views/diagnostics/trigger-registration-panel";
 
 type CheckState = "ok" | "warn" | "idle";
 
@@ -75,6 +76,8 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
           )}
         </CardContent>
       </Card>
+
+      <TriggerRegistrationPanel dashboard={dashboard} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

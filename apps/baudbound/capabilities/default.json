@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Default permissions for the BaudBound desktop UI.",
   "windows": ["main"],
-  "permissions": ["core:default", "process:allow-restart", "updater:default"]
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:resources:allow-close",
+    "process:allow-restart",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install"
+  ]
 }

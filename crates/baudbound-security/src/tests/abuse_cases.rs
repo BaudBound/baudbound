@@ -79,16 +79,43 @@ fn network_server_triggers_have_an_independent_policy_gate() {
 }
 
 #[test]
-fn process_kill_and_shell_permissions_keep_their_high_risk_classification() {
+fn process_execution_permissions_keep_their_security_classification() {
     let process_kill = permission_for_action_type("action.process.kill")
         .expect("process kill permission should exist");
     assert_eq!(process_kill.name, "process_kill");
     assert_eq!(process_kill.risk, RiskLevel::High);
 
+    let run_process = permission_for_action_type("action.process.run")
+        .expect("run process permission should exist");
+    assert_eq!(run_process.name, "run_process");
+    assert_eq!(run_process.risk, RiskLevel::Dangerous);
+
     let shell =
         permission_for_action_type("action.shell").expect("shell command permission should exist");
     assert_eq!(shell.name, "run_shell_command");
     assert_eq!(shell.risk, RiskLevel::Dangerous);
+}
+
+#[test]
+fn dangerous_action_policy_blocks_run_process() {
+    let program = program_with_steps(&["action.process.run"]);
+
+    let error = validate_program_permissions(
+        &program,
+        &["run_process".to_owned()],
+        RiskLevel::Dangerous,
+        &RunnerPolicy {
+            allow_dangerous_actions: false,
+            ..RunnerPolicy::permissive()
+        },
+    )
+    .expect_err("dangerous-action policy must block process execution");
+
+    assert!(matches!(
+        error,
+        PermissionValidationError::PolicyBlocked { ref permission, .. }
+            if permission == "run_process"
+    ));
 }
 
 #[test]

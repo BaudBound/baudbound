@@ -213,6 +213,7 @@ fn update_replaces_package_and_invalidates_approval() {
     store
         .approve_script(ApproveScriptRequest {
             approved_permissions: vec!["file_write_limited".to_owned()],
+            network_triggers: Vec::new(),
             package_hash: imported.package_hash,
             script_id: imported.id,
         })
@@ -256,6 +257,202 @@ fn update_replaces_package_and_invalidates_approval() {
 }
 
 #[test]
+fn network_trigger_auth_is_hash_only_rotatable_and_reconciled_on_update() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let package_path = temporary_directory.path().join("network.bbs");
+    std::fs::write(&package_path, b"network package").expect("package should be written");
+    store
+        .import_script(ImportScriptRequest {
+            id: "network-script".to_owned(),
+            name: "Network Script".to_owned(),
+            package_source: package_path,
+            package_format_version: 1,
+            script_language_version: 1,
+            target_runtime: "Generic Desktop".to_owned(),
+            asset_count: 0,
+            risk_level: "high".to_owned(),
+        })
+        .expect("network script should import");
+
+    assert!(
+        store
+            .list_trigger_auth_statuses("network-script")
+            .expect("unapproved auth statuses should list")
+            .is_empty()
+    );
+
+    let approved = store
+        .approve_script(ApproveScriptRequest {
+            approved_permissions: Vec::new(),
+            network_triggers: vec![
+                NetworkTriggerDefinition {
+                    node_id: "n-webhook".to_owned(),
+                    trigger_type: NetworkTriggerType::Webhook,
+                },
+                NetworkTriggerDefinition {
+                    node_id: "n-websocket".to_owned(),
+                    trigger_type: NetworkTriggerType::Websocket,
+                },
+            ],
+            package_hash: "initial-package-hash".to_owned(),
+            script_id: "network-script".to_owned(),
+        })
+        .expect("network script should approve");
+
+    assert_eq!(approved.generated_trigger_tokens.len(), 2);
+    for generated in &approved.generated_trigger_tokens {
+        assert_eq!(
+            store
+                .authenticate_trigger(
+                    "network-script",
+                    &generated.status.node_id,
+                    generated.status.trigger_type,
+                    Some(&generated.token),
+                )
+                .expect("generated import token should authenticate"),
+            TriggerAuthentication::Authenticated
+        );
+    }
+
+    let initial = store
+        .list_trigger_auth_statuses("network-script")
+        .expect("auth statuses should list");
+    assert_eq!(initial.len(), 2);
+    assert!(initial.iter().all(|status| status.auth_enabled));
+    assert!(initial.iter().all(|status| status.token_preview.len() == 6));
+
+    let rotated = store
+        .rotate_trigger_auth_token("network-script", "n-webhook", NetworkTriggerType::Webhook)
+        .expect("webhook token should rotate");
+    assert!(rotated.token.starts_with("bbwh_"));
+    assert_eq!(rotated.token.len(), 48);
+    assert_eq!(
+        store
+            .authenticate_trigger(
+                "network-script",
+                "n-webhook",
+                NetworkTriggerType::Webhook,
+                Some(&rotated.token),
+            )
+            .expect("correct token should validate"),
+        TriggerAuthentication::Authenticated
+    );
+    assert_eq!(
+        store
+            .authenticate_trigger(
+                "network-script",
+                "n-webhook",
+                NetworkTriggerType::Webhook,
+                Some("bbwh_wrong"),
+            )
+            .expect("wrong token should be handled"),
+        TriggerAuthentication::InvalidToken
+    );
+    assert_eq!(
+        store
+            .authenticate_trigger(
+                "network-script",
+                "n-webhook",
+                NetworkTriggerType::Webhook,
+                None,
+            )
+            .expect("missing token should be handled"),
+        TriggerAuthentication::MissingToken
+    );
+
+    let disabled = store
+        .set_trigger_auth_enabled(
+            "network-script",
+            "n-webhook",
+            NetworkTriggerType::Webhook,
+            false,
+        )
+        .expect("webhook auth should disable");
+    assert!(!disabled.auth_enabled);
+    assert!(disabled.disabled_at_unix.is_some());
+    assert_eq!(
+        store
+            .authenticate_trigger(
+                "network-script",
+                "n-webhook",
+                NetworkTriggerType::Webhook,
+                None,
+            )
+            .expect("disabled auth should be reported"),
+        TriggerAuthentication::Disabled
+    );
+
+    let updated_package_path = temporary_directory.path().join("network-updated.bbs");
+    std::fs::write(&updated_package_path, b"updated network package")
+        .expect("updated package should be written");
+    store
+        .update_script(ImportScriptRequest {
+            id: "network-script".to_owned(),
+            name: "Network Script".to_owned(),
+            package_source: updated_package_path,
+            package_format_version: 1,
+            script_language_version: 1,
+            target_runtime: "Generic Desktop".to_owned(),
+            asset_count: 0,
+            risk_level: "high".to_owned(),
+        })
+        .expect("network script should update");
+
+    let before_reapproval = store
+        .list_trigger_auth_statuses("network-script")
+        .expect("stale auth statuses should list before reapproval");
+    assert_eq!(before_reapproval.len(), 2);
+    assert!(
+        before_reapproval
+            .iter()
+            .any(|status| status.node_id == "n-websocket")
+    );
+
+    let reapproved = store
+        .approve_script(ApproveScriptRequest {
+            approved_permissions: Vec::new(),
+            network_triggers: vec![
+                NetworkTriggerDefinition {
+                    node_id: "n-webhook".to_owned(),
+                    trigger_type: NetworkTriggerType::Webhook,
+                },
+                NetworkTriggerDefinition {
+                    node_id: "n-webhook-new".to_owned(),
+                    trigger_type: NetworkTriggerType::Webhook,
+                },
+            ],
+            package_hash: "updated-package-hash".to_owned(),
+            script_id: "network-script".to_owned(),
+        })
+        .expect("updated network script should approve");
+
+    assert_eq!(reapproved.generated_trigger_tokens.len(), 1);
+    assert_eq!(
+        reapproved.generated_trigger_tokens[0].status.node_id,
+        "n-webhook-new"
+    );
+
+    let updated = store
+        .list_trigger_auth_statuses("network-script")
+        .expect("updated auth statuses should list");
+    assert_eq!(updated.len(), 2);
+    let preserved = updated
+        .iter()
+        .find(|status| status.node_id == "n-webhook")
+        .expect("unchanged webhook should remain");
+    assert_eq!(preserved.token_preview, rotated.status.token_preview);
+    assert!(!preserved.auth_enabled);
+    assert!(updated.iter().all(|status| status.node_id != "n-websocket"));
+    let added = updated
+        .iter()
+        .find(|status| status.node_id == "n-webhook-new")
+        .expect("new webhook should receive auth state");
+    assert!(added.auth_enabled);
+    assert!(added.rotated_at_unix.is_none());
+}
+
+#[test]
 fn stores_finds_and_revokes_approval() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
@@ -268,6 +465,7 @@ fn stores_finds_and_revokes_approval() {
     let approval = store
         .approve_script(ApproveScriptRequest {
             approved_permissions: vec!["http_request".to_owned()],
+            network_triggers: Vec::new(),
             package_hash: imported.package_hash.clone(),
             script_id: imported.id,
         })
@@ -278,7 +476,7 @@ fn stores_finds_and_revokes_approval() {
             .expect("approval should request trigger reload")
     );
 
-    assert_eq!(approval.approved_permissions, ["http_request"]);
+    assert_eq!(approval.approval.approved_permissions, ["http_request"]);
     assert_eq!(
         store
             .find_script_approval("Script One")

@@ -18,7 +18,7 @@ export const openApplicationNode = defineNode({
 		{ key: "arguments", label: "Arguments", type: "textarea", usesVariables: true },
 	],
 	defaultConfig: () => ({ application: "Calculator", arguments: "" }),
-	description: "Open an installed desktop application.",
+	description: "Launch an installed desktop application without waiting for it or capturing its output.",
 	desktopOnly: true,
 	fallible: true,
 	group: "actions",

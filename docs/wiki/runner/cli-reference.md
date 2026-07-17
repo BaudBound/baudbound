@@ -104,8 +104,8 @@ An installed script can normally be identified by its manifest ID or installed n
 
 | Command | Behavior |
 | --- | --- |
-| `baudbound script import PACKAGE` | Validates and installs a new `.bbs` package. |
-| `baudbound script update PACKAGE` | Replaces the installed package with a new package carrying the same manifest ID. |
+| `baudbound script import PACKAGE` | Validates and installs a new `.bbs` package. It does not create network credentials. |
+| `baudbound script update PACKAGE` | Replaces the installed package with a new package carrying the same manifest ID. Existing network tokens are preserved. |
 | `baudbound script list [--json]` | Lists installed scripts. |
 | `baudbound script status [--json]` | Shows health across installed scripts, including loadability and approval state. |
 | `baudbound script inspect SCRIPT [--json]` | Shows one installed script's manifest, nodes, access declarations, integrity, and state. |
@@ -118,7 +118,7 @@ An installed script can normally be identified by its manifest ID or installed n
 | Command | Behavior |
 | --- | --- |
 | `baudbound script approval SCRIPT [--json]` | Shows whether approval matches the installed package revision. |
-| `baudbound script approve SCRIPT` | Approves the current package hash and declared access. |
+| `baudbound script approve SCRIPT` | Approves the current package hash and declared access. New Webhook and WebSocket tokens are printed once. |
 | `baudbound script revoke-approval SCRIPT` | Removes the current approval. |
 
 Updating package content invalidates its previous approval.
@@ -237,6 +237,22 @@ The CLI `listen` command requires `--stdin` and accepts explicit test input. It 
 | `baudbound secret remove SCRIPT NAME` | Removes the configured value. |
 
 Treat generated keys as credentials and do not store them in source control or command history. See [Secrets](secrets.md) for desktop and headless storage.
+
+## Network trigger authentication commands
+
+Webhook and WebSocket tokens belong to the installed trigger on this runner. The `.bbs` package does not contain them. Import and update do not create tokens. The approve command prints tokens for newly approved network triggers once. BaudBound then stores only a token hash, so the plaintext value cannot be requested later. The rotate command replaces a token and prints the replacement once.
+
+| Command | Behavior |
+| --- | --- |
+| `baudbound trigger-auth list SCRIPT [--json]` | Lists Webhook and WebSocket node IDs, authentication state, and a short token ending. It never prints the token. |
+| `baudbound trigger-auth rotate SCRIPT NODE_ID webhook [--json]` | Replaces one Webhook token and prints the new value once. |
+| `baudbound trigger-auth rotate SCRIPT NODE_ID websocket [--json]` | Replaces one WebSocket token and prints the new value once. |
+| `baudbound trigger-auth enable SCRIPT NODE_ID TYPE` | Requires the current token for the selected trigger again. |
+| `baudbound trigger-auth disable SCRIPT NODE_ID TYPE --yes` | Removes token protection from the selected trigger after explicit confirmation. |
+
+`TYPE` must be `webhook` or `websocket`. Use `list` to copy the exact `NODE_ID`. Save a rotated token in the client that calls the trigger. Do not put it in the script package or source control.
+
+Disabling authentication does not automatically make a public listener start. A non-loopback bind still refuses unprotected triggers unless the matching unsafe public-bind override is enabled in `config.toml`.
 
 ## JSON output and errors
 

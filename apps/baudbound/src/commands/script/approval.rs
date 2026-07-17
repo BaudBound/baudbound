@@ -4,6 +4,8 @@ use baudbound_storage::{ScriptStore, SqliteRunnerStore};
 
 use crate::{output::print_approval_permissions, time_format::CliTimeFormatter};
 
+use super::lifecycle::print_generated_trigger_tokens;
+
 pub(super) fn print_approval(
     config: &RunnerConfig,
     store: &SqliteRunnerStore,
@@ -38,14 +40,15 @@ pub(super) fn approve_script(
     store: &SqliteRunnerStore,
     script: String,
 ) -> Result<()> {
-    let approval = core
+    let result = core
         .approve_installed(store, &script)
         .with_context(|| format!("failed to approve installed script {script:?}"))?;
     println!(
         "Approved {} for package {}",
-        approval.script_id, approval.package_hash
+        result.approval.script_id, result.approval.package_hash
     );
-    print_approval_permissions(&approval);
+    print_approval_permissions(&result.approval);
+    print_generated_trigger_tokens(&result.generated_trigger_tokens);
     Ok(())
 }
 

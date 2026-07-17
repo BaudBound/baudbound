@@ -1,36 +1,47 @@
 import { ShieldCheck, ShieldAlert } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
+import { StatusSummaryCard } from "@/components/status-summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
 import type { DashboardAction } from "@/lib/app-types";
 import { approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
 import { SecretManagementPanel } from "@/views/secret-management-panel";
+import { NetworkTriggerSecurityPanel } from "@/views/security/network-trigger-security-panel";
 
 export function SecurityView({
   busyActions,
   dashboard,
+  onDashboard,
   runAction,
 }: {
   busyActions: Set<string>;
   dashboard: DashboardPayload;
+  onDashboard: (dashboard: DashboardPayload) => void;
   runAction: DashboardAction;
 }) {
   const scripts = dashboard.runner.scripts;
   const attention = scripts.filter(scriptNeedsAttention);
+  const networkAuth = Object.values(dashboard.trigger_auth_statuses).flat();
+  const unprotectedNetworkTriggers = networkAuth.filter((auth) => !auth.auth_enabled).length;
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-        <SecurityMetric label="Installed" value={scripts.length} />
-        <SecurityMetric label="Needs attention" tone="medium" value={attention.length} />
-        <SecurityMetric
+      <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        <StatusSummaryCard label="Installed" value={scripts.length} />
+        <StatusSummaryCard label="Needs attention" tone="medium" value={attention.length} />
+        <StatusSummaryCard
           label="Approved"
           tone="good"
           value={scripts.filter((script) => isApprovalCurrent(script.approval_status)).length}
         />
-        <SecurityMetric
+        <StatusSummaryCard
+          label="Unprotected network"
+          tone={unprotectedNetworkTriggers > 0 ? "destructive" : "good"}
+          value={unprotectedNetworkTriggers}
+        />
+        <StatusSummaryCard
           label="High risk"
           tone="destructive"
           value={scripts.filter((script) => script.installed.risk_level === "high").length}
@@ -115,34 +126,19 @@ export function SecurityView({
         </Card>
       )}
 
+      <NetworkTriggerSecurityPanel
+        busyActions={busyActions}
+        dashboard={dashboard}
+        onDashboard={onDashboard}
+        runAction={runAction}
+      />
+
       <SecretManagementPanel
         busyActions={busyActions}
         dashboard={dashboard}
         runAction={runAction}
       />
     </div>
-  );
-}
-
-function SecurityMetric({
-  label,
-  tone = "muted",
-  value,
-}: {
-  label: string;
-  tone?: "destructive" | "good" | "medium" | "muted";
-  value: number;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm text-muted-foreground">{label}</div>
-          <div className="mt-1 text-2xl font-semibold">{value}</div>
-        </div>
-        <Badge variant={tone}>{label}</Badge>
-      </CardContent>
-    </Card>
   );
 }
 

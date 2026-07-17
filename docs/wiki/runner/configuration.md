@@ -75,7 +75,7 @@ These settings affect only the native Windows and Linux desktop app. They do not
 | --- | --- | --- |
 | `desktop.launch_at_login` | boolean. `false` | Opens BaudBound after the current desktop user signs in |
 | `desktop.start_background_runner_on_launch` | boolean. `false` | Starts trigger listeners when the desktop app opens |
-| `desktop.start_minimized_to_tray` | boolean. `false` | Hides an automatic login launch in the tray |
+| `desktop.start_minimized_to_tray` | boolean. `false` | Keeps the window hidden in the system tray when BaudBound starts automatically after login |
 | `desktop.keep_running_on_close` | boolean. `true` | Hides the window in the tray instead of exiting when it is closed |
 
 The login setting represents the desired operating system registration. BaudBound reconciles the real registration when the app starts and when Config is saved. Doctor reports a warning if the requested and actual states do not match.
@@ -90,6 +90,18 @@ The login setting represents the desired operating system registration. BaudBoun
 | `runner.target_runtimes` | string array. `[]` | Empty uses host defaults. Explicit list restricts accepted package targets | Restart. Cannot grant unsupported targets |
 
 Supported target strings are `Generic Headless`, `Linux Headless`, `Windows Headless`, `Generic Desktop`, `Windows Desktop`, and `Linux Desktop`. A runner accepts only the host-appropriate subset.
+
+## External data limits
+
+These limits prevent one action from loading an unexpectedly large response or file into memory. Every value must be greater than zero.
+
+| Key | Type/default | Meaning |
+| --- | --- | --- |
+| `limits.max_http_response_bytes` | positive integer. `10485760` | Maximum HTTP response body returned to a workflow |
+| `limits.max_file_download_bytes` | positive integer. `104857600` | Maximum file download size before the temporary download is removed |
+| `limits.max_file_read_bytes` | positive integer. `10485760` | Maximum regular file size accepted by File Read |
+
+File Download writes to a temporary file beside the destination. BaudBound replaces the destination only after the complete download passes the size limit. A failed oversized download does not leave partial destination data.
 
 ## Trigger-family switches
 
@@ -115,6 +127,8 @@ Disabling a family prevents all scripts in that family from registering. Restart
 | `webhooks.bind` | string. `127.0.0.1` | Local IP/interface address | Non-loopback can expose routes to a network |
 | `webhooks.port` | integer. `43891` | `1-65535` and available | Must not conflict with another process |
 | `webhooks.max_body_bytes` | positive integer. `1048576` | Maximum accepted HTTP body | Bounds memory and request size |
+| `webhooks.allow_browser_origins` | string array. `[]` | Exact HTTP or HTTPS browser origins | Empty rejects browser-origin requests |
+| `webhooks.allow_unauthenticated_public_bind` | boolean. `false` | Permit a public listener while a trigger has auth disabled | Unsafe emergency override |
 
 Keep loopback unless exposure controls are designed. See [Webhooks, WebSockets, and Network Access](network-listeners.md).
 
@@ -126,8 +140,10 @@ Keep loopback unless exposure controls are designed. See [Webhooks, WebSockets, 
 | `websockets.port` | integer. `43892` | `1-65535` and available | Must not conflict |
 | `websockets.max_message_bytes` | positive integer. `1048576` | Maximum text message size | Bounds per-message work |
 | `websockets.max_connections` | positive integer. `128` | Concurrent connection limit | Bounds sockets and registry state |
+| `websockets.allow_browser_origins` | string array. `[]` | Exact HTTP or HTTPS browser origins | Empty rejects browser-origin handshakes |
+| `websockets.allow_unauthenticated_public_bind` | boolean. `false` | Permit a public listener while a trigger has auth disabled | Unsafe emergency override |
 
-Zero message size or connection count is rejected.
+Zero size or connection limits are rejected. Browser origins must contain only a scheme, host, and optional port. Wildcards and paths are rejected. A non-loopback listener refuses to start when any matching trigger has authentication disabled unless the unsafe override is explicitly enabled.
 
 ## Serial device model
 
@@ -204,6 +220,11 @@ target_runtimes = []
 [display]
 time_format = "24-hour"
 
+[limits]
+max_http_response_bytes = 10485760
+max_file_download_bytes = 104857600
+max_file_read_bytes = 10485760
+
 [updates]
 automatic_checks = true
 check_interval_hours = 24
@@ -228,19 +249,22 @@ websockets_enabled = false
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 
 [websockets]
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
 max_connections = 128
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 ```
 
 ### Linux headless restriction
 
 ```toml
 [runner]
-name = "Automation Server"
 trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30
@@ -248,6 +272,11 @@ target_runtimes = ["Generic Headless", "Linux Headless"]
 
 [display]
 time_format = "24-hour"
+
+[limits]
+max_http_response_bytes = 10485760
+max_file_download_bytes = 104857600
+max_file_read_bytes = 10485760
 
 [updates]
 automatic_checks = true
@@ -273,12 +302,16 @@ websockets_enabled = false
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 
 [websockets]
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
 max_connections = 128
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 ```
 
 ### Local webhook

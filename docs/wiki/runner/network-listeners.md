@@ -5,7 +5,9 @@ tags: [runner, webhooks, websockets, networking, security]
 ---
 # Webhooks, WebSockets, and Network Access
 
-BaudBound can accept HTTP webhook requests and WebSocket messages while a background runner is active. These listeners are local infrastructure components, not a hosted API gateway. The operator owns firewall, TLS, authentication, rate limiting, and reverse-proxy policy.
+BaudBound can accept HTTP webhook requests and WebSocket messages while a background runner is active. Every approved Webhook and WebSocket trigger is protected by default. Approving the package shows each newly created plaintext token once, then the runner keeps only its hash. A token cannot be recovered later.
+
+The token controls who can start the trigger. You must still configure TLS, firewall rules, rate limiting, and reverse proxy policy when the listener is exposed to a network.
 
 ## Network basics
 
@@ -24,18 +26,56 @@ Defaults are intentionally local:
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 
 [websockets]
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
 max_connections = 128
+allow_browser_origins = []
+allow_unauthenticated_public_bind = false
 ```
 
 The corresponding trigger-family switches under `[triggers]` must also be enabled. Configuration changes require the running service to restart.
 
-> Changing a bind address to `0.0.0.0` can expose every registered route to other machines. BaudBound does not automatically add TLS, user authentication, firewall rules, or Internet-safe request policy.
+> Changing a bind address to `0.0.0.0` can expose every registered route to other machines. BaudBound refuses a public bind when any registered trigger has token authentication disabled. The explicit unauthenticated override removes that protection and should remain off.
 {.is-warning}
+
+## Trigger access tokens
+
+Tokens belong to one installed trigger on one runner. They are not stored in the `.bbs` package and are not transferred from the editor. Importing a package creates no credentials. Approving the package creates protected authentication state and displays each new plaintext token once. Updating a package keeps the token for the same script and node identity. A new network trigger receives its token when you approve the updated package.
+
+Open **Security** in the desktop app to inspect authentication status. Generate a replacement token when configuring a new client, when a token was lost, or when the old token may have been exposed. Copy the new value immediately because BaudBound cannot reveal it later. Doctor lists registered triggers and their runtime health without displaying credentials.
+
+The same operations are available in the CLI:
+
+```text
+baudbound trigger-auth list SCRIPT
+baudbound trigger-auth rotate SCRIPT NODE_ID webhook
+baudbound trigger-auth rotate SCRIPT NODE_ID websocket
+```
+
+Replace `SCRIPT` with the installed script name or ID. Replace `NODE_ID` with the Webhook or WebSocket node ID shown by the list command.
+
+Disabling authentication allows any client that can reach the listener to start that trigger. The desktop app requires confirmation. The CLI requires the explicit `--yes` option. A non-loopback listener will then refuse to start unless its matching `allow_unauthenticated_public_bind` setting is also enabled.
+
+## Browser origins
+
+Browsers send an `Origin` header for cross-origin Webhook and WebSocket requests. BaudBound rejects browser origins unless the complete origin appears in the matching `allow_browser_origins` list.
+
+An origin contains the scheme, host, and optional port. It does not contain a path. This example allows one production site and one local development site:
+
+```toml
+[webhooks]
+allow_browser_origins = ["https://dashboard.example.com", "http://localhost:3000"]
+
+[websockets]
+allow_browser_origins = ["https://dashboard.example.com", "http://localhost:3000"]
+```
+
+BaudBound does not accept `*`, paths, credentials, or partial host matches. Requests without an `Origin` header are treated as non-browser clients and still require the trigger token.
 
 ## Webhook routes
 
@@ -76,17 +116,20 @@ If no response arrives before **Response timeout seconds**, the listener uses th
 1. Enable webhooks in Config.
 2. Keep bind `127.0.0.1` and port `43891`.
 3. Import, approve, and enable a script with a POST webhook named `tutorial`.
-4. Start or reload the background runner.
-5. Send a request from the same machine.
+4. Copy the Webhook token shown after approval. If it was not saved, open **Security**, generate a replacement, and copy the new value shown once.
+5. Start or reload the background runner.
+6. Set the token in the command and send a request from the same machine.
 
 ### Client command {.tabset}
 
 #### PowerShell
 
 ```powershell
+$token = "PASTE_TOKEN_HERE"
 Invoke-WebRequest `
   -Method Post `
   -Uri "http://127.0.0.1:43891/events/tutorial" `
+  -Headers @{ "X-BaudBound-Token" = $token } `
   -ContentType "application/json" `
   -Body '{ "message": "hello" }'
 ```
@@ -94,8 +137,10 @@ Invoke-WebRequest `
 #### Linux shell
 
 ```bash
+TOKEN='PASTE_TOKEN_HERE'
 curl --fail-with-body \
   --request POST \
+  --header "X-BaudBound-Token: $TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{ "message": "hello" }' \
   http://127.0.0.1:43891/events/tutorial
@@ -119,10 +164,16 @@ Each accepted connection receives a runner-generated `connection_id`. Every inbo
 
 ## Test WebSockets locally
 
-Use a WebSocket client you trust. One cross-platform option is `wscat`, which requires Node.js and is not part of BaudBound:
+Use the WebSocket token shown after approval. If it was not saved, open **Security** and generate a replacement. One cross platform test client is `wscat`, which requires Node.js and is not part of BaudBound:
 
-```text
-npx wscat --connect ws://127.0.0.1:43892/events/messages
+```powershell
+$token = "PASTE_TOKEN_HERE"
+npx wscat --connect ws://127.0.0.1:43892/events/messages --header "X-BaudBound-Token: $token"
+```
+
+```bash
+TOKEN='PASTE_TOKEN_HERE'
+npx wscat --connect ws://127.0.0.1:43892/events/messages --header "X-BaudBound-Token: $TOKEN"
 ```
 
 Type a text message and press Enter. Confirm that one run appears with the same message and a connection ID. If the workflow contains WebSocket Write, its reply appears in the client.
@@ -298,26 +349,29 @@ After completing a proxy tab, test the public routes:
 ```text
 curl --fail-with-body \
   --request POST \
+  --header 'X-BaudBound-Token: PASTE_TOKEN_HERE' \
   --header 'Content-Type: application/json' \
   --data '{"message":"hello"}' \
   https://hooks.example.com/events/tutorial
-npx wscat --connect wss://socket.example.com/events/messages
+npx wscat --connect wss://socket.example.com/events/messages --header 'X-BaudBound-Token: PASTE_TOKEN_HERE'
 ```
 
 Use the method and path configured by the actual trigger. Confirm the related run and connection in BaudBound.
 
-Before exposing either listener, decide how clients authenticate. Restrict source networks with the firewall or proxy. Set request and connection rate limits. Review body, message, and timeout limits. Keep untrusted request data out of sensitive logs.
+Before exposing either listener, confirm every client uses its assigned trigger token. Restrict source networks with the firewall or proxy. Set request and connection rate limits. Review body, message, and timeout limits. Keep untrusted request data out of sensitive logs.
 
 ## Failure guide
 
 | Symptom | Likely cause | Check |
 | --- | --- | --- |
-| Connection refused | Listener stopped, disabled, wrong address, or wrong port | Service and Triggers views, Config, port ownership |
+| Connection refused | Listener stopped, disabled, wrong address, or wrong port | Service, Doctor, Config, and port ownership |
 | `404` webhook response | No route matches method and hook name | Script enabled/approved, exact method, `/events/` path |
+| `401` webhook response | Trigger token is missing | Send `X-BaudBound-Token` with the current token |
+| `403` webhook response | Token is invalid or browser origin is not allowed | Rotate/check token and exact `allow_browser_origins` entry |
 | `413` or oversized error | Request exceeds configured body limit | `max_body_bytes` and proxy body limit |
 | `503` response | Executor unavailable, reloading, or at capacity | Service state and run concurrency logs |
 | Webhook fallback response | Response node did not complete before timeout | Graph path, node failure, timeout setting |
-| WebSocket handshake rejected | Unknown path or connection limit | Trigger path and `max_connections` |
+| WebSocket handshake rejected | Missing/invalid token, blocked origin, unknown path, or connection limit | Token, exact allowed origin, trigger path, and `max_connections` |
 | WebSocket write fails | Client disconnected or wrong connection ID | Use the ID from the current trigger output |
 | Address already in use | Another process owns the bind address and port | Stop the duplicate service or select a deliberate new port |
 

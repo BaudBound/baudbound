@@ -18,13 +18,12 @@ The interface refreshes automatically while it is open and when the window regai
 | **Dashboard** | Overall health, counts, review queue, and recent activity |
 | **Scripts** | Importing, updating, approving, enabling, running, and removing scripts |
 | **Service** | Controlling the desktop-owned background runner and inspecting listeners |
-| **Security** | Approval, risk, permissions, package integrity, and secret readiness |
-| **Triggers** | Registration state and listener-family diagnostics |
+| **Security** | Approval, risk, permissions, package integrity, secrets, and network trigger tokens |
 | **Tools** | Screen-coordinate inspection and serial-port discovery |
 | **Runs** | Per-run status, logs, results, and variable snapshots |
 | **Logs** | Searching recent log messages across runs |
 | **Config** | Shared, runner, and desktop application configuration |
-| **Doctor** | Native support, paths, runtime facts, and corrective diagnostics |
+| **Doctor** | Native support, registered triggers, serial-reader health, paths, runtime facts, and corrective diagnostics |
 
 ## Dashboard
 <!-- desktop-tab:dashboard -->
@@ -39,6 +38,8 @@ The **Review queue** highlights scripts with package, approval, secret, compatib
 <!-- desktop-tab:scripts -->
 
 Choose **Import package** to select a `.bbs` file. Import validates the package before modifying runner storage. A rejected package does not replace an installed revision.
+
+Importing a package does not create network credentials. When you approve a package that contains Webhook or WebSocket triggers, BaudBound creates the required tokens and opens a one time token dialog. Save every displayed token before continuing. Only token hashes are stored, so a closed token dialog cannot be reopened. Use Security to generate a replacement if a token is lost. Updating a package preserves tokens for unchanged network triggers. Tokens for newly added network triggers appear after you approve the updated package.
 
 Each script row provides frequent actions directly:
 
@@ -85,18 +86,11 @@ The review table includes:
 - package filename and hash prefix.
 - the active security issue, if any.
 
+The network trigger authentication table lists every installed Webhook and WebSocket trigger. It shows whether token protection is enabled, the non-secret token ending, creation time, and last rotation. Generate a replacement token here when a credential is lost or exposed. The new plaintext token appears once.
+
 The secret panel lists each script's declarations and whether a value is configured. Setting a secret opens a protected input dialog. Removing it makes dependent runs ineligible until another value is supplied.
 
 Approval does not override malformed packages, unsupported targets, missing required secrets, or runner policy. See [Approvals, Capabilities, and Risk](../security/approvals-capabilities.md).
-
-## Triggers
-<!-- desktop-tab:triggers -->
-
-This tab groups registrations by trigger family and reports enabled, registered, active, and failed states. A registration exists only when its script and package are eligible and the listener family is enabled.
-
-Trigger registrations refresh automatically after importing, updating, removing, enabling, disabling, approving, or revoking approval for a script. No manual reload is required. The execution boundary also checks current enablement and approval, so an outdated listener or queued event cannot bypass the latest script state.
-
-A registered trigger is not necessarily receiving events. Inspect listener state, the script's approval and enablement, and family-specific prerequisites. [Background Service and Triggers](service-triggers.md) describes each family.
 
 ## Tools
 <!-- desktop-tab:tools -->
@@ -117,7 +111,7 @@ Screen-coordinate discovery and the related input actions are unavailable on Lin
 
 Choose **Scan** to enumerate serial ports through the native serial library. Cards display available USB identity fields. Choose **Add**, provide the logical device ID used in editor nodes, and save the generated mapping.
 
-The scanner adds configuration but does not own it. Edit complete serial settings under Config. Inspect active readers beside Serial Input registrations under Triggers. Use Doctor for missing logical device references and invalid configuration.
+The scanner adds configuration but does not own it. Edit complete serial settings under Config. Inspect active readers and Serial Input registrations under Doctor. Use the same page for missing logical device references and invalid configuration.
 
 Enable USB identity validation when vendor and product IDs are available. Auto rebind requires identity validation and refuses ambiguous matches. See [Configuration and Serial Devices](configuration.md).
 
@@ -170,7 +164,7 @@ Enable **Restart desktop background runner after saving** when listener, target,
 
 **Start background runner on launch** starts trigger listeners whenever the desktop application opens.
 
-**Start login launch in the tray** keeps the main window hidden when the operating system launches BaudBound after login. Opening BaudBound manually still shows the window.
+**Hide window when launched at login** keeps BaudBound in the system tray when it starts automatically after you sign in. Opening BaudBound manually still shows the window.
 
 **Keep running when the window closes** hides the window in the tray. When disabled, closing the window stops the desktop background runner and exits the application.
 
@@ -191,6 +185,10 @@ Doctor is a diagnostic view, not another configuration editor. It reports:
 - native desktop-action support on the current platform and session.
 - resolved runner, configuration, storage, and executable paths.
 - operating-system, architecture, desktop-session, and runtime facts.
+
+**Registered triggers** lists the script, trigger type, node ID, target, and recent dispatch health for every trigger currently loaded by the background runner. Serial Input registrations also show their live reader state, active port, reconnect behavior, last event, and last error.
+
+Registrations refresh automatically after package, approval, enablement, or configuration changes. A missing registration usually means the script is disabled, unapproved, incompatible, invalid, or its trigger family is disabled. Authentication tokens are managed under Security and listener addresses remain under Config.
 
 Treat a failed check as blocking for the related feature. A warning describes a limitation or inactive service that may be intentional. Use the reported path and fact values when requesting support, but remove usernames and never include secrets.
 

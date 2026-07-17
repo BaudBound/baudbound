@@ -11,12 +11,13 @@ use reqwest::{
 use serde_json::{Map, Number, Value};
 
 use crate::{
-    config_string, failed, number_from_config, required_string, timeout_duration, value_kind,
-    value_to_string,
+    actions::bounded_io, config_string, failed, number_from_config, required_string,
+    timeout_duration, value_kind, value_to_string,
 };
 
 pub(crate) fn http_request_action(
     request: &RuntimeActionRequest,
+    max_response_bytes: u64,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let method = request_method(request)?;
     let url = required_string(request, "url")?;
@@ -42,7 +43,7 @@ pub(crate) fn http_request_action(
         builder = builder.body(body);
     }
 
-    let response = builder
+    let mut response = builder
         .send()
         .map_err(|source| RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
@@ -51,12 +52,24 @@ pub(crate) fn http_request_action(
     let duration_ms = elapsed_millis(started_at);
     let status = response.status();
     let headers = response_headers(response.headers());
-    let body = response
-        .text()
-        .map_err(|source| RuntimeActionError::Failed {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_response_bytes)
+    {
+        return failed(
+            request,
+            format!(
+                "HTTP response body exceeds the configured limit of {max_response_bytes} bytes"
+            ),
+        );
+    }
+    let body = bounded_io::read_to_end(&mut response, max_response_bytes).map_err(|source| {
+        RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
             message: format!("failed to read HTTP response body: {source}"),
-        })?;
+        }
+    })?;
+    let body = String::from_utf8_lossy(&body).into_owned();
     let json_body = serde_json::from_str::<Value>(&body).ok();
 
     let mut output_data = Map::from_iter([

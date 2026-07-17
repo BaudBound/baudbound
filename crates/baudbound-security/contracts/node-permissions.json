@@ -191,7 +191,7 @@
 		"action.process.run": {
 			"permission": {
 				"name": "run_process",
-				"risk": "high"
+				"risk": "dangerous"
 			},
 			"path_rules": []
 		},

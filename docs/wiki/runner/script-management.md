@@ -43,7 +43,7 @@ baudbound script import "C:\Users\Alice\Downloads\desk-lights.bbs"
 baudbound script import "$HOME/Downloads/desk-lights.bbs"
 ```
 
-Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. A failed import does not install a partially accepted package.
+Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. Import does not create Webhook or WebSocket credentials. Those credentials are created only after you review and approve the package. A failed import does not install a partially accepted package.
 
 The runner stages validation before durable installation. Rejection leaves existing script records, package files, approvals, variables, secrets, and registrations unchanged.
 
@@ -64,6 +64,8 @@ Run `approval` first and review its output. Check author information, target run
 
 Approval belongs to an exact package revision, not a filename. Updating package content invalidates the previous approval.
 
+When approval creates credentials for Webhook or WebSocket triggers, the CLI prints each new token and the desktop app opens a token dialog. Save the values immediately because the runner stores only their hashes. Approving an unchanged trigger again does not replace its existing token.
+
 ## Run and enable
 
 Run a manual trigger:
@@ -73,7 +75,7 @@ baudbound script run SCRIPT
 baudbound script logs --script SCRIPT
 ```
 
-`run` starts the script's manual trigger. It fails when the package has no manual trigger. Use the desktop Triggers view or `baudbound script triggers SCRIPT` to see the available trigger node IDs.
+`run` starts the script's manual trigger. It fails when the package has no manual trigger. Expand the script in the desktop Scripts view or run `baudbound script triggers SCRIPT` to see the available trigger node IDs.
 
 To run a specific trigger with controlled JSON input:
 
@@ -110,7 +112,7 @@ Update succeeds only when the package has the same manifest identity as an insta
 
 Open the same saved editor project when creating an update. Its later exports retain the manifest identity automatically. Duplicating the editor project or choosing **Import copy** creates a different identity and must be imported as another script instead of used with Update.
 
-Update preserves the script's enabled state, import identity, persistent variables, configured secret values, and historical runs. The previous approval remains recorded against its old hash and is reported as stale until the new revision is approved. When the imported filename changes, the old stored package copy is removed after the replacement is committed.
+Update preserves the script's enabled state, import identity, persistent variables, configured secret values, network tokens for unchanged trigger node IDs, and historical runs. A newly added Webhook or WebSocket trigger receives a token only after the updated package is approved. The CLI prints that token once and the desktop app shows it once. The previous approval remains recorded against its old hash and is reported as stale until the new revision is approved. When the imported filename changes, the old stored package copy is removed after the replacement is committed.
 
 Remove an installed script with:
 

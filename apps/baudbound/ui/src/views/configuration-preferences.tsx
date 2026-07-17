@@ -147,11 +147,11 @@ export function DesktopConfiguration({
           />
           <SettingRow
             checked={config.desktop.start_minimized_to_tray}
-            description="Keep the main window hidden when BaudBound is opened automatically after login."
+            description="Keep BaudBound in the system tray when it starts automatically after you sign in. Manual launches still open the window."
             disabled={!config.desktop.launch_at_login}
             icon={Power}
             id="start-minimized"
-            label="Start login launch in the tray"
+            label="Hide window when launched at login"
             onChange={(checked) => updateDesktop("start_minimized_to_tray", checked)}
           />
           <SettingRow

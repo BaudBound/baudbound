@@ -60,9 +60,55 @@ pub struct ImportScriptRequest {
     pub risk_level: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkTriggerType {
+    Webhook,
+    Websocket,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct NetworkTriggerDefinition {
+    pub node_id: String,
+    pub trigger_type: NetworkTriggerType,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TriggerAuthStatus {
+    pub auth_enabled: bool,
+    pub created_at_unix: u64,
+    pub disabled_at_unix: Option<u64>,
+    pub node_id: String,
+    pub rotated_at_unix: Option<u64>,
+    pub script_id: String,
+    pub token_preview: String,
+    pub trigger_type: NetworkTriggerType,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct GeneratedTriggerToken {
+    pub status: TriggerAuthStatus,
+    pub token: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScriptApprovalResult {
+    pub approval: ScriptApproval,
+    pub generated_trigger_tokens: Vec<GeneratedTriggerToken>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerAuthentication {
+    Authenticated,
+    Disabled,
+    InvalidToken,
+    MissingToken,
+}
+
 #[derive(Debug, Clone)]
 pub struct ApproveScriptRequest {
     pub approved_permissions: Vec<String>,
+    pub network_triggers: Vec<NetworkTriggerDefinition>,
     pub package_hash: String,
     pub script_id: String,
 }
@@ -127,6 +173,14 @@ pub enum StorageError {
     InvalidPackageFileName(String),
     #[error("script {0} is not installed")]
     NotFound(String),
+    #[error(
+        "network trigger auth state was not found for {script_id}:{node_id} ({trigger_type:?})"
+    )]
+    TriggerAuthNotFound {
+        script_id: String,
+        node_id: String,
+        trigger_type: NetworkTriggerType,
+    },
     #[error("invalid script id {0:?}")]
     InvalidScriptId(String),
     #[error("storage path {path} is outside runner storage root {root}")]
@@ -159,8 +213,10 @@ pub enum StorageError {
 
 pub trait ScriptStore: Send + Sync {
     fn append_run_record(&self, record: StoredRunRecord) -> Result<(), StorageError>;
-    fn approve_script(&self, request: ApproveScriptRequest)
-    -> Result<ScriptApproval, StorageError>;
+    fn approve_script(
+        &self,
+        request: ApproveScriptRequest,
+    ) -> Result<ScriptApprovalResult, StorageError>;
     fn find_script_approval(
         &self,
         script_reference: &str,
@@ -185,6 +241,30 @@ pub trait ScriptStore: Send + Sync {
     ) -> Result<InstalledScript, StorageError>;
     fn find_script(&self, reference: &str) -> Result<InstalledScript, StorageError>;
     fn verify_script_package_hash(&self, reference: &str) -> Result<InstalledScript, StorageError>;
+    fn list_trigger_auth_statuses(
+        &self,
+        script_reference: &str,
+    ) -> Result<Vec<TriggerAuthStatus>, StorageError>;
+    fn rotate_trigger_auth_token(
+        &self,
+        script_reference: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+    ) -> Result<GeneratedTriggerToken, StorageError>;
+    fn set_trigger_auth_enabled(
+        &self,
+        script_reference: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+        enabled: bool,
+    ) -> Result<TriggerAuthStatus, StorageError>;
+    fn authenticate_trigger(
+        &self,
+        script_id: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+        provided_token: Option<&str>,
+    ) -> Result<TriggerAuthentication, StorageError>;
     fn load_variable(
         &self,
         scope: StoredVariableScope,

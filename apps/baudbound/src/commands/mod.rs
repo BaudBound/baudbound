@@ -6,4 +6,5 @@ pub mod script;
 pub mod secret;
 pub mod service_health;
 pub mod status;
+pub mod trigger_auth;
 pub mod update;

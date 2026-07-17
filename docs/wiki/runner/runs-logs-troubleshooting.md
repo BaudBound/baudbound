@@ -46,7 +46,7 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 4. For a finished run, select the relevant script and choose the newest failed or cancelled record.
 5. Copy the run ID, trigger ID, status, and first useful error.
 6. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
-7. Open **Triggers** when the run never started or a configured serial reader is disconnected. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state or **Doctor** for machine support.
+7. Open **Doctor** when the run never started or a configured serial reader is disconnected. It lists registered triggers and live serial readers. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state.
 
 The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
 
@@ -130,13 +130,19 @@ On Linux, inspect ownership with `ls -l /dev/ttyUSB0` or the real device path an
 
 ### Webhook or WebSocket is unavailable
 
-Confirm the family toggle, bind address, port, route, and size limits. Loopback accepts only local clients. A public bind can still be blocked by the firewall or reverse proxy. A port conflict means another process, including a second BaudBound service, already owns it.
+Confirm the family toggle, bind address, port, route, token status, allowed browser origin, and size limits. Use `baudbound trigger-auth list SCRIPT` or the desktop Security view to inspect token protection without exposing the token. Generate a replacement for a lost token and update the client with the new value. Use Doctor to confirm that the trigger is registered and healthy.
+
+A Webhook `401` response means the token is missing. A `403` response means the token is invalid or the browser Origin is not allowed. A `503` response means authentication storage or the run executor is temporarily unavailable. WebSocket clients receive the equivalent error during the opening handshake.
+
+Loopback accepts only local clients. A public bind is refused when a matching trigger has authentication disabled unless the unsafe override is enabled. It can still be blocked by the firewall or reverse proxy. A port conflict means another process, including a second BaudBound service, already owns it.
 
 Use [Webhooks, WebSockets, and Network Access](network-listeners.md) for local request tests and exposure guidance.
 
 ### File or process action fails
 
 Log the resolved path or executable identifier without logging credentials. Check the runner account's permissions and working environment. Desktop-only actions require an active desktop target/session. Windows-title lookup modes are Windows Desktop-only. Use process-name or PID modes where documented on Linux.
+
+HTTP Response, File Download, and File Read fail before returning oversized data. Check the three values under `[limits]`. An oversized download is removed before it can replace an existing destination file.
 
 ### Update is rejected
 

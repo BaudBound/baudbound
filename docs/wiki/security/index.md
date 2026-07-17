@@ -54,6 +54,8 @@ The runner performs the relevant checks before graph execution:
 
 A failure at any stage blocks the related run. Approval cannot override malformed data, a package-hash mismatch, unsupported targets, missing secrets, or disabled dangerous-action policy.
 
+Sensitive desktop operations also require a short-lived confirmation guard issued by the Rust backend. The guard is bound to the exact operation and reviewed content, expires after two minutes, and can be used only once. Changing a package or config after review invalidates the guard. The backend rejects missing, expired, reused, or mismatched guards even when the frontend sends a command directly.
+
 ## Package consistency and publisher identity
 
 At import or update, the runner computes a SHA-256 hash of the complete `.bbs` file and stores it with the installed script record. Before status-sensitive operations and execution, it hashes the stored package again. A mismatch means the managed copy changed outside the runner and is no longer trusted.
@@ -80,7 +82,9 @@ The encryption key is part of the backup boundary. Database records without the 
 
 ## Network and native platform boundaries
 
-Webhook and WebSocket listeners default to loopback. A non-loopback bind can make routes reachable from another machine, but BaudBound does not automatically provide TLS, public authentication, rate limiting at an internet edge, or firewall policy. Put exposed listeners behind an appropriate reverse proxy and network controls.
+Webhook and WebSocket listeners default to loopback. Each approved network trigger uses runner owned token protection by default. Approval displays newly created plaintext tokens once, then only their hashes remain in storage. Replacement tokens generated under Security are also displayed once. Browser requests require an exact configured origin. A non loopback bind is refused when any registered trigger has authentication disabled unless the operator enables the explicit unsafe override.
+
+Token authentication does not provide TLS, rate limiting, or firewall policy. Put exposed listeners behind an appropriate reverse proxy and network controls.
 
 Native actions use supported Rust libraries or operating-system APIs. The editor marks platform restrictions, package verification rejects incompatible targets, and runtime adapters reject unavailable behavior. BaudBound does not silently replace an unsupported native action with PowerShell, Bash, or desktop command-line tools.
 

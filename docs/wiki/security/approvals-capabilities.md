@@ -21,8 +21,8 @@ Before a script can run, BaudBound calculates what the script needs and shows th
 | --- | --- | --- |
 | **Low** | Local workflow behavior with limited external impact | logging, delay, calculation, text transformation |
 | **Medium** | Reads, controlled writes, communication, or visible desktop effects | file read/copy, HTTP request, clipboard, notification, serial write |
-| **High** | Broad mutation, process/input control, persistent or global data, secrets, listeners | process launch, keyboard/mouse, file write, webhook bind, secret read |
-| **Dangerous** | Arbitrary command behavior or irreversible operation requiring focused review | shell command, file deletion |
+| **High** | Broad mutation, input control, persistent or global data, secrets, listeners | keyboard/mouse, file write, webhook bind, secret read |
+| **Dangerous** | Arbitrary process or command behavior and irreversible operations requiring focused review | run process, shell command, file deletion |
 
 Risk is a review priority, not a verdict. A low-risk workflow can still disclose data through careless logging, and a high-risk workflow can be legitimate when its scope is understood.
 
@@ -61,7 +61,6 @@ The runner derives permissions from executable action types and variable scopes.
 | `mouse_control` | High | Move or click the native pointer |
 | `process_kill` | High | Terminate a matching process |
 | `read_secret` | High | Resolve runner-supplied secret declarations |
-| `run_process` | High | Start an executable with arguments |
 | `serial_input` | High | Read unattended input from a serial mapping |
 | `set_global_variable` | High | Change runner-global data |
 | `startup_trigger` | High | Start a script automatically when its service loads |
@@ -71,6 +70,7 @@ The runner derives permissions from executable action types and variable scopes.
 | `window_focus` | High | Change foreground-window focus |
 | `delete_file` | Dangerous | Permanently remove a file |
 | `read_sensitive_file` | Dangerous | Read from an absolute, sensitive, or runtime-selected filesystem path |
+| `run_process` | Dangerous | Start an executable with arguments, wait for completion, and capture its exit status and output |
 | `run_shell_command` | Dangerous | Execute a command through a shell interpreter |
 | `write_any_file` | Dangerous | Write to an absolute, sensitive, or runtime-selected filesystem path |
 

@@ -14,7 +14,7 @@ mod version;
 
 use std::{path::Path, sync::Arc};
 
-use baudbound_actions::{HeadlessActionHandler, WebSocketMessageSink};
+use baudbound_actions::{ActionLimits, HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
     RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
     RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeRunObserver,
@@ -24,7 +24,9 @@ use baudbound_runtime::{
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
 use baudbound_security::{RunnerPolicy, SecurityValidationError};
 use baudbound_storage::{
-    ApproveScriptRequest, InstalledScript, ScriptApproval, ScriptStore, StorageError,
+    ApproveScriptRequest, GeneratedTriggerToken, InstalledScript, NetworkTriggerType,
+    ScriptApproval, ScriptApprovalResult, ScriptStore, StorageError, TriggerAuthStatus,
+    TriggerAuthentication,
 };
 use thiserror::Error;
 
@@ -32,7 +34,9 @@ use compatibility::{
     CompatibilityError, default_host_target_runtime_names, runner_target_runtime_names,
     validate_package_for_runner,
 };
-use package::{import_request_from_package, validate_package_security};
+use package::{
+    import_request_from_package, network_trigger_definitions, validate_package_security,
+};
 use run_records::{
     append_cancelled_run_record, append_failed_run_record, stored_run_record_from_report,
 };
@@ -42,11 +46,13 @@ pub use baudbound_runtime::RunReport;
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 pub use compatibility::{DESKTOP_ONLY_ACTIONS, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
+    DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
     DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, DEFAULT_WEBHOOK_BIND,
     DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
     DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
-    RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings,
-    TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
+    LimitSettings, RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings,
+    SerialSettings, TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings,
+    WebhookSettings,
 };
 pub use package::PackageInspection;
 pub use secrets::InstalledSecretStatus;
@@ -69,6 +75,7 @@ pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 #[derive(Clone)]
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
+    action_limits: ActionLimits,
     run_observer: Option<Arc<dyn RuntimeRunObserver>>,
     serial_devices: Vec<baudbound_actions::SerialDeviceConfig>,
     supported_target_runtimes: Vec<String>,
@@ -79,6 +86,7 @@ impl Default for RunnerCore {
     fn default() -> Self {
         Self {
             action_handler: None,
+            action_limits: ActionLimits::default(),
             run_observer: None,
             serial_devices: Vec::new(),
             supported_target_runtimes: default_host_target_runtime_names(),
@@ -92,6 +100,11 @@ impl RunnerCore {
     pub fn from_config(config: &RunnerConfig) -> Self {
         Self {
             action_handler: None,
+            action_limits: ActionLimits {
+                max_file_download_bytes: config.limits.max_file_download_bytes,
+                max_file_read_bytes: config.limits.max_file_read_bytes,
+                max_http_response_bytes: config.limits.max_http_response_bytes,
+            },
             run_observer: None,
             serial_devices: action_serial_devices_from_config(config),
             supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
@@ -170,13 +183,13 @@ impl RunnerCore {
             .iter()
             .map(|secret| secret.name.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        let installed = store.update_script(import_request_from_package(path, package))?;
-        for secret in store.list_secret_statuses(&installed.id)? {
+        let result = store.update_script(import_request_from_package(path, package))?;
+        for secret in store.list_secret_statuses(&result.id)? {
             if !declared_secret_names.contains(&secret.name) {
-                store.remove_secret(&installed.id, &secret.name)?;
+                store.remove_secret(&result.id, &secret.name)?;
             }
         }
-        Ok(installed)
+        Ok(result)
     }
 
     pub fn list_installed(
@@ -184,6 +197,54 @@ impl RunnerCore {
         store: &impl ScriptStore,
     ) -> Result<Vec<InstalledScript>, CoreError> {
         store.list_scripts().map_err(CoreError::Storage)
+    }
+
+    pub fn list_trigger_auth(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+    ) -> Result<Vec<TriggerAuthStatus>, CoreError> {
+        store
+            .list_trigger_auth_statuses(reference)
+            .map_err(CoreError::Storage)
+    }
+
+    pub fn rotate_trigger_token(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+    ) -> Result<GeneratedTriggerToken, CoreError> {
+        store
+            .rotate_trigger_auth_token(reference, node_id, trigger_type)
+            .map_err(CoreError::Storage)
+    }
+
+    pub fn set_trigger_auth_enabled(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+        enabled: bool,
+    ) -> Result<TriggerAuthStatus, CoreError> {
+        store
+            .set_trigger_auth_enabled(reference, node_id, trigger_type, enabled)
+            .map_err(CoreError::Storage)
+    }
+
+    pub fn authenticate_network_trigger(
+        &self,
+        store: &impl ScriptStore,
+        script_id: &str,
+        node_id: &str,
+        trigger_type: NetworkTriggerType,
+        provided_token: Option<&str>,
+    ) -> Result<TriggerAuthentication, CoreError> {
+        store
+            .authenticate_trigger(script_id, node_id, trigger_type, provided_token)
+            .map_err(CoreError::Storage)
     }
 
     pub fn remove_installed(
@@ -293,13 +354,14 @@ impl RunnerCore {
         &self,
         store: &impl ScriptStore,
         reference: &str,
-    ) -> Result<ScriptApproval, CoreError> {
+    ) -> Result<ScriptApprovalResult, CoreError> {
         let installed = store.verify_script_package_hash(reference)?;
         let package = load_script_package(&installed.package_path)?;
         self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
         store
             .approve_script(ApproveScriptRequest {
                 approved_permissions: package.permissions.declared_permissions.clone(),
+                network_triggers: network_trigger_definitions(&package.program),
                 package_hash: installed.package_hash,
                 script_id: installed.id,
             })
@@ -522,7 +584,8 @@ impl RunnerCore {
     #[must_use]
     pub fn headless_action_handler(&self) -> HeadlessActionHandler {
         let mut action_handler =
-            HeadlessActionHandler::from_serial_devices(self.serial_devices.clone());
+            HeadlessActionHandler::from_serial_devices(self.serial_devices.clone())
+                .with_limits(self.action_limits);
         if let Some(sink) = &self.websocket_sink {
             action_handler = action_handler.with_websocket_sink(Arc::clone(sink));
         }

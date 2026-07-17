@@ -66,7 +66,6 @@ fn main() -> Result<()> {
     if let Some(secret_cipher) = secret_cipher {
         store = store.with_secret_cipher(secret_cipher);
     }
-
     check_for_automatic_cli_update(&command, &runner_config, &store);
 
     dispatch_command(
@@ -200,6 +199,9 @@ fn dispatch_command(
         }
         Command::Secret { command } => {
             commands::secret::handle_secret_command(core, store, command)
+        }
+        Command::TriggerAuth { command } => {
+            commands::trigger_auth::handle_trigger_auth_command(core, store, command)
         }
         Command::Update { command } => match command {
             cli::UpdateCommand::Check { json } => commands::update::check(store, json),

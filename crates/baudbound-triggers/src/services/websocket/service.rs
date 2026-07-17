@@ -9,10 +9,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::{TriggerError, TriggerEvent, TriggerRegistration, TriggerServiceDiagnostics};
+use crate::{
+    NetworkTriggerAuthenticator, TriggerError, TriggerEvent, TriggerRegistration,
+    TriggerServiceDiagnostics,
+};
 
 use super::{
-    listener::run_listener,
+    listener::{WebSocketListenerContext, run_listener},
     registry::WebSocketConnectionRegistry,
     route::{WebSocketRoute, parse_routes},
 };
@@ -29,6 +32,7 @@ pub struct WebSocketService {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WebSocketServiceConfig {
+    pub allow_browser_origins: BTreeSet<String>,
     pub bind: String,
     pub max_connections: usize,
     pub max_message_bytes: usize,
@@ -59,6 +63,7 @@ impl WebSocketService {
         registrations: impl IntoIterator<Item = TriggerRegistration>,
         config: WebSocketServiceConfig,
         sender: SyncSender<TriggerEvent>,
+        authenticator: Arc<dyn NetworkTriggerAuthenticator>,
         registry: Arc<WebSocketConnectionRegistry>,
         previous: Option<Self>,
     ) -> Result<Self, TriggerError> {
@@ -82,13 +87,14 @@ impl WebSocketService {
             drop(service);
         }
 
-        Self::start(routes, config, sender, registry)
+        Self::start(routes, config, sender, authenticator, registry)
     }
 
     fn start(
         routes: Vec<WebSocketRoute>,
         config: WebSocketServiceConfig,
         sender: SyncSender<TriggerEvent>,
+        authenticator: Arc<dyn NetworkTriggerAuthenticator>,
         registry: Arc<WebSocketConnectionRegistry>,
     ) -> Result<Self, TriggerError> {
         let bind_address = config.bind_address();
@@ -113,6 +119,7 @@ impl WebSocketService {
 
         let running = Arc::new(AtomicBool::new(true));
         let shared_routes = Arc::new(RwLock::new(routes));
+        let allow_browser_origins = Arc::new(config.allow_browser_origins.clone());
         let route_count = shared_routes
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -126,12 +133,16 @@ impl WebSocketService {
                 move || {
                     run_listener(
                         listener,
-                        routes,
-                        config.max_message_bytes,
-                        config.max_connections,
-                        sender,
-                        registry,
-                        running,
+                        WebSocketListenerContext {
+                            allow_browser_origins,
+                            authenticator,
+                            max_connections: config.max_connections,
+                            max_message_bytes: config.max_message_bytes,
+                            registry,
+                            routes,
+                            running,
+                            sender,
+                        },
                     );
                 }
             })

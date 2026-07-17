@@ -15,6 +15,11 @@ const config: RunnerConfig = {
     start_minimized_to_tray: false,
   },
   display: { time_format: "24-hour" },
+  limits: {
+    max_file_download_bytes: 104_857_600,
+    max_file_read_bytes: 10_485_760,
+    max_http_response_bytes: 10_485_760,
+  },
   runner: {
     run_history_max_age_days: 30,
     run_history_max_records: 10_000,
@@ -33,8 +38,16 @@ const config: RunnerConfig = {
     websockets_enabled: false,
   },
   updates: { automatic_checks: true, check_interval_hours: 24 },
-  webhooks: { bind: "127.0.0.1", max_body_bytes: 1_048_576, port: 43_891 },
+  webhooks: {
+    allow_browser_origins: [],
+    allow_unauthenticated_public_bind: false,
+    bind: "127.0.0.1",
+    max_body_bytes: 1_048_576,
+    port: 43_891,
+  },
   websockets: {
+    allow_browser_origins: [],
+    allow_unauthenticated_public_bind: false,
     bind: "127.0.0.1",
     max_connections: 128,
     max_message_bytes: 1_048_576,

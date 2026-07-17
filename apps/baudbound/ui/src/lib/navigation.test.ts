@@ -11,6 +11,13 @@ describe("runner navigation", () => {
     expect(navigationItems.some((item) => String(item.id) === "devices")).toBe(false);
   });
 
+  it("keeps trigger inspection inside Doctor instead of a dedicated destination", () => {
+    const inspect = navigationGroups.find((group) => group.label === "Inspect");
+
+    expect(inspect?.items.map((item) => item.id)).toEqual(["security", "runs", "logs"]);
+    expect(navigationItems.some((item) => String(item.id) === "triggers")).toBe(false);
+  });
+
   it("uses the Tools page identity", () => {
     expect(pageTitle("tools")).toBe("Tools");
   });

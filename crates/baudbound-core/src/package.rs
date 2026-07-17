@@ -6,7 +6,8 @@ use baudbound_security::{
     validate_program_capabilities_with_declarations,
     validate_program_permissions_with_declarations,
 };
-use baudbound_storage::ImportScriptRequest;
+use baudbound_storage::{ImportScriptRequest, NetworkTriggerDefinition, NetworkTriggerType};
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct PackageInspection {
@@ -42,6 +43,33 @@ pub(crate) fn import_request_from_package(
         asset_count: summary.asset_count,
         risk_level: risk_level_name(&package.permissions.risk_level).to_owned(),
     }
+}
+
+pub(crate) fn network_trigger_definitions(program: &Value) -> Vec<NetworkTriggerDefinition> {
+    let Some(entry) = program.get("entry").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut triggers = Vec::new();
+    if let Some(trigger) = entry.get("trigger") {
+        triggers.push(trigger);
+    }
+    if let Some(entries) = entry.get("triggers").and_then(Value::as_array) {
+        triggers.extend(entries);
+    }
+    triggers
+        .into_iter()
+        .filter_map(|trigger| {
+            let trigger_type = match trigger.get("action_type").and_then(Value::as_str)? {
+                "trigger.webhook" => NetworkTriggerType::Webhook,
+                "trigger.websocket" => NetworkTriggerType::Websocket,
+                _ => return None,
+            };
+            Some(NetworkTriggerDefinition {
+                node_id: trigger.get("id")?.as_str()?.to_owned(),
+                trigger_type,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn validate_package_security(

@@ -336,9 +336,9 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 
 ### Run Process
 
-- **Action type:** `action.process.run`. Capability `action.process`. Permission `run_process`. High risk. Fallible.
+- **Action type:** `action.process.run`. Capability `action.process`. Permission `run_process`. Dangerous risk. Fallible.
 - **Configuration:** variable-aware executable, arguments, optional working directory, and optional timeout from `1` to `86400` seconds, default `300`.
-- **Outputs:** process ID, exit/status information where applicable, or error.
+- **Outputs:** process ID, exit code, success flag, captured standard output, captured standard error, or action error.
 - **Runtime:** uses native process APIs, not shell parsing. Arguments must match the target executable's contract.
 
 ### Process Status

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     io::{self, Write},
     net::{Shutdown, TcpListener, TcpStream},
     sync::{
@@ -10,54 +11,57 @@ use std::{
     time::Duration,
 };
 
-use crate::TriggerEvent;
+use crate::{NetworkTriggerAuthenticator, TriggerEvent};
 
 use super::{
-    connection::handle_connection, registry::WebSocketConnectionRegistry, route::WebSocketRoute,
+    connection::{WebSocketConnectionContext, handle_connection},
+    registry::WebSocketConnectionRegistry,
+    route::WebSocketRoute,
 };
 
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const ACCEPT_ERROR_BACKOFF: Duration = Duration::from_millis(250);
 
-pub(super) fn run_listener(
-    listener: TcpListener,
-    routes: Arc<RwLock<Vec<WebSocketRoute>>>,
-    max_message_bytes: usize,
-    max_connections: usize,
-    sender: SyncSender<TriggerEvent>,
-    registry: Arc<WebSocketConnectionRegistry>,
-    running: Arc<AtomicBool>,
-) {
+pub(super) struct WebSocketListenerContext {
+    pub(super) allow_browser_origins: Arc<BTreeSet<String>>,
+    pub(super) authenticator: Arc<dyn NetworkTriggerAuthenticator>,
+    pub(super) max_connections: usize,
+    pub(super) max_message_bytes: usize,
+    pub(super) registry: Arc<WebSocketConnectionRegistry>,
+    pub(super) routes: Arc<RwLock<Vec<WebSocketRoute>>>,
+    pub(super) running: Arc<AtomicBool>,
+    pub(super) sender: SyncSender<TriggerEvent>,
+}
+
+pub(super) fn run_listener(listener: TcpListener, context: WebSocketListenerContext) {
     let active_connections = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::new();
-    while running.load(Ordering::Acquire) {
+    while context.running.load(Ordering::Acquire) {
         reap_finished(&mut handles);
         match listener.accept() {
             Ok((stream, remote_address)) => {
-                let Some(permit) =
-                    ConnectionPermit::acquire(Arc::clone(&active_connections), max_connections)
-                else {
+                let Some(permit) = ConnectionPermit::acquire(
+                    Arc::clone(&active_connections),
+                    context.max_connections,
+                ) else {
                     reject_at_capacity(stream);
                     continue;
                 };
                 let spawn_result = thread::Builder::new()
                     .name("baudbound-websocket-connection".to_owned())
                     .spawn({
-                        let routes = Arc::clone(&routes);
-                        let sender = sender.clone();
-                        let registry = Arc::clone(&registry);
-                        let running = Arc::clone(&running);
+                        let connection_context = WebSocketConnectionContext {
+                            allow_browser_origins: Arc::clone(&context.allow_browser_origins),
+                            authenticator: Arc::clone(&context.authenticator),
+                            max_message_bytes: context.max_message_bytes,
+                            registry: Arc::clone(&context.registry),
+                            routes: Arc::clone(&context.routes),
+                            running: Arc::clone(&context.running),
+                            sender: context.sender.clone(),
+                        };
                         move || {
                             let _permit = permit;
-                            handle_connection(
-                                stream,
-                                remote_address,
-                                routes,
-                                max_message_bytes,
-                                sender,
-                                registry,
-                                running,
-                            );
+                            handle_connection(stream, remote_address, connection_context);
                         }
                     });
                 match spawn_result {
@@ -77,11 +81,11 @@ pub(super) fn run_listener(
         }
     }
 
-    registry.close_all();
+    context.registry.close_all();
     for handle in handles {
         let _ = handle.join();
     }
-    running.store(false, Ordering::Release);
+    context.running.store(false, Ordering::Release);
 }
 
 fn reap_finished(handles: &mut Vec<JoinHandle<()>>) {

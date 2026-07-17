@@ -331,7 +331,15 @@ baudbound --version
 
 5. Import, approve, and run a small known package.
 6. Start and stop the desktop background runner.
-7. Review generated release notes and remove unrelated or misleading text.
+7. Import a package with Webhook and WebSocket triggers, approve it, and confirm the one time token dialog shows each new token before the values become unrecoverable.
+8. Confirm a Webhook request without `X-BaudBound-Token` receives `401` and the current token succeeds.
+9. Confirm a WebSocket handshake without a token is rejected and the current token succeeds.
+10. Confirm a public bind refuses to start when one matching trigger has authentication disabled and the unsafe override is off.
+11. Confirm oversized HTTP responses, downloads, and file reads fail without replacing an existing download destination.
+12. Confirm Run Process is shown as Dangerous and requires approval for the current revision.
+13. Review generated release notes and remove unrelated or misleading text.
+
+The release notes must explain that network trigger tokens are runner owned, approval shows new values once, and generating a replacement shows that value only once. They must also call out the exact browser Origin allowlist, public bind refusal, Run Process risk change, and external data limits. Existing pre-release integrations must be updated with a current token before they can call a protected trigger.
 
 The release remains invisible to the production updater while it is a draft.
 

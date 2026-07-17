@@ -87,17 +87,20 @@ Do not type the literal placeholder `NODE_ID`. Use the variable browser so the r
 
 1. In **Config**, enable webhooks and keep the bind address `127.0.0.1` and port `43891`.
 2. Export, import, inspect, approve, and enable the script.
-3. Start the background runner.
-4. Send the request from the same machine.
+3. Copy the Webhook token shown after approval. If it was not saved, open **Security**, generate a replacement, and copy it immediately.
+4. Start the background runner.
+5. Set the token in the command and send the request from the same machine.
 
 ### Request {.tabset}
 
 #### PowerShell
 
 ```powershell
+$token = "PASTE_TOKEN_HERE"
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://127.0.0.1:43891/events/tutorial" `
+  -Headers @{ "X-BaudBound-Token" = $token } `
   -ContentType "application/json" `
   -Body '{ "message": "hello" }'
 ```
@@ -105,8 +108,10 @@ Invoke-RestMethod `
 #### Linux shell
 
 ```bash
+TOKEN='PASTE_TOKEN_HERE'
 curl --fail-with-body \
   --request POST \
+  --header "X-BaudBound-Token: $TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{ "message": "hello" }' \
   http://127.0.0.1:43891/events/tutorial
@@ -118,7 +123,7 @@ Expected response:
 { "received": true }
 ```
 
-Expected runner result: a successful run whose log contains `hello`. A `404` means no active route matches the method and hook name. A connection error usually means the listener is stopped, disabled, or using another address or port.
+Expected runner result: a successful run whose log contains `hello`. A `401` means the token header is missing. A `403` means the token is wrong. A `404` means no active route matches the method and hook name. A connection error usually means the listener is stopped, disabled, or using another address or port.
 
 ### Cleanup
 

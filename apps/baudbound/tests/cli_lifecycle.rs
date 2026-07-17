@@ -79,14 +79,20 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
             package_path.to_str().expect("path should be UTF-8"),
         ],
     ));
-    assert_success(run_baudbound(
+    let import_output = run_baudbound(
         &runner_home,
         [
             "script",
             "import",
             package_path.to_str().expect("path should be UTF-8"),
         ],
-    ));
+    );
+    assert_success_like(&import_output);
+    assert!(
+        !String::from_utf8_lossy(&import_output.stdout).contains("bbwh_"),
+        "import must not create or print network trigger credentials\n{}",
+        command_output(&import_output)
+    );
     let imported = command_json(run_baudbound(
         &runner_home,
         ["script", "inspect", "cli-lifecycle", "--json"],
@@ -104,10 +110,13 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
         command_output(&failed_run)
     );
 
-    assert_success(run_baudbound(
-        &runner_home,
-        ["script", "approve", "cli-lifecycle"],
-    ));
+    let approval_output = run_baudbound(&runner_home, ["script", "approve", "cli-lifecycle"]);
+    assert_success_like(&approval_output);
+    assert!(
+        String::from_utf8_lossy(&approval_output.stdout).contains("bbwh_"),
+        "approval should print a newly generated Webhook token once\n{}",
+        command_output(&approval_output)
+    );
     assert_success(run_baudbound(
         &runner_home,
         ["script", "run", "cli-lifecycle"],

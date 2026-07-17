@@ -3,7 +3,6 @@ import {
   FileClock,
   FileCog,
   Gauge,
-  ListTree,
   MonitorCog,
   ScrollText,
   ShieldCheck,
@@ -34,7 +33,6 @@ export const navigationGroups: Array<{ items: NavigationItem[]; label: string }>
     label: "Inspect",
     items: [
       { icon: ShieldCheck, id: "security", label: "Security" },
-      { icon: ListTree, id: "triggers", label: "Triggers" },
       { icon: FileClock, id: "runs", label: "Runs" },
       { icon: ClipboardCheck, id: "logs", label: "Logs" },
     ],
@@ -62,7 +60,6 @@ export function pageTitle(activeTab: TabId) {
     security: "Security",
     service: "Service",
     tools: "Tools",
-    triggers: "Triggers",
   };
   return labels[activeTab];
 }
@@ -74,9 +71,6 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
   }
   if (activeTab === "security") {
     return `${dashboard.runner.problem_count} scripts need attention`;
-  }
-  if (activeTab === "triggers") {
-    return `${dashboard.runner.trigger_count} trigger registrations`;
   }
   if (activeTab === "tools") {
     return "Utilities for inspecting and configuring the local runner";

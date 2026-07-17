@@ -41,6 +41,24 @@ export type TriggerRegistrationStatus = {
   target: string | null;
 };
 
+export type NetworkTriggerType = "webhook" | "websocket";
+
+export type TriggerAuthStatus = {
+  auth_enabled: boolean;
+  created_at_unix: number;
+  disabled_at_unix: number | null;
+  node_id: string;
+  rotated_at_unix: number | null;
+  script_id: string;
+  token_preview: string;
+  trigger_type: NetworkTriggerType;
+};
+
+export type GeneratedTriggerToken = {
+  status: TriggerAuthStatus;
+  token: string;
+};
+
 export type ScriptStatus = {
   approval_status: ApprovalStatus;
   declared_permissions: string[];
@@ -296,6 +314,7 @@ export type DashboardPayload = {
   service_status: ServiceStatusDocument | null;
   storage_root: string;
   time_format: TimeFormat;
+  trigger_auth_statuses: Record<string, TriggerAuthStatus[]>;
 };
 
 export type InstalledSecretStatus = {
@@ -309,7 +328,17 @@ export type InstalledSecretStatus = {
 
 export type ActionPayload = {
   dashboard: DashboardPayload;
+  generated_trigger_tokens?: GeneratedTriggerToken[];
   message: string;
+};
+
+export type PackageActionPayload = ActionPayload & {
+  generated_trigger_tokens: GeneratedTriggerToken[];
+};
+
+export type GeneratedTriggerTokenPayload = ActionPayload & {
+  status: TriggerAuthStatus;
+  token: string;
 };
 
 export type TimeFormat = "12-hour" | "24-hour";
@@ -333,12 +362,19 @@ export type UpdateSettings = {
 export type RunnerConfig = {
   desktop: DesktopSettings;
   display: DisplaySettings;
+  limits: LimitSettings;
   runner: RunnerSettings;
   serial: SerialSettings;
   triggers: TriggerSettings;
   updates: UpdateSettings;
   webhooks: WebhookSettings;
   websockets: WebSocketSettings;
+};
+
+export type LimitSettings = {
+  max_file_download_bytes: number;
+  max_file_read_bytes: number;
+  max_http_response_bytes: number;
 };
 
 export type RunnerSettings = {
@@ -382,12 +418,16 @@ export type SerialDeviceSettings = {
 };
 
 export type WebhookSettings = {
+  allow_browser_origins: string[];
+  allow_unauthenticated_public_bind: boolean;
   bind: string;
   max_body_bytes: number;
   port: number;
 };
 
 export type WebSocketSettings = {
+  allow_browser_origins: string[];
+  allow_unauthenticated_public_bind: boolean;
   bind: string;
   max_connections: number;
   max_message_bytes: number;
@@ -400,6 +440,26 @@ export type RunnerConfigPayload = {
   launch_at_login_registered: boolean;
   path: string;
 };
+
+type ConfirmationChallenge = {
+  confirmation_id: string;
+  expires_at_unix_ms: number;
+  operation_kind: string;
+  summary: string;
+};
+
+type SensitiveOperation = { kind: string } & Record<string, unknown>;
+
+async function invokeSensitive<T>(
+  command: string,
+  operation: SensitiveOperation,
+  args: Record<string, unknown>,
+) {
+  const challenge = await invoke<ConfirmationChallenge>("prepare_sensitive_operation", {
+    operation,
+  });
+  return invoke<T>(command, { ...args, confirmationId: challenge.confirmation_id });
+}
 
 export function getDashboardState() {
   return invoke<DashboardPayload>("dashboard_state");
@@ -418,15 +478,27 @@ export function recordUpdateCheck(latestVersion: string | null, releaseNotes: st
 }
 
 export function saveRunnerConfig(contents: string, restartBackground: boolean) {
-  return invoke<ActionPayload>("save_runner_config", { contents, restartBackground });
+  return invokeSensitive<ActionPayload>(
+    "save_runner_config",
+    { kind: "save_runner_config", contents, restart_background: restartBackground },
+    { contents, restartBackground },
+  );
 }
 
 export function saveRunnerConfigModel(config: RunnerConfig, restartBackground: boolean) {
-  return invoke<ActionPayload>("save_runner_config_model", { config, restartBackground });
+  return invokeSensitive<ActionPayload>(
+    "save_runner_config_model",
+    { kind: "save_runner_config_model", config, restart_background: restartBackground },
+    { config, restartBackground },
+  );
 }
 
 export function resetRunnerConfig(restartBackground: boolean) {
-  return invoke<ActionPayload>("reset_runner_config", { restartBackground });
+  return invokeSensitive<ActionPayload>(
+    "reset_runner_config",
+    { kind: "reset_runner_config", restart_background: restartBackground },
+    { restartBackground },
+  );
 }
 
 export function scanSerialPorts() {
@@ -478,7 +550,11 @@ export function selectPackageFile() {
 }
 
 export function approveScript(reference: string) {
-  return invoke<ActionPayload>("approve_script", { reference });
+  return invokeSensitive<PackageActionPayload>(
+    "approve_script",
+    { kind: "approve_script", reference },
+    { reference },
+  );
 }
 
 export function revokeScriptApproval(reference: string) {
@@ -486,11 +562,19 @@ export function revokeScriptApproval(reference: string) {
 }
 
 export function importScriptPackage(packagePath: string) {
-  return invoke<ActionPayload>("import_script_package", { packagePath });
+  return invokeSensitive<ActionPayload>(
+    "import_script_package",
+    { kind: "import_script_package", package_path: packagePath },
+    { packagePath },
+  );
 }
 
 export function updateScriptPackage(packagePath: string) {
-  return invoke<ActionPayload>("update_script_package", { packagePath });
+  return invokeSensitive<ActionPayload>(
+    "update_script_package",
+    { kind: "update_script_package", package_path: packagePath },
+    { packagePath },
+  );
 }
 
 export function startBackgroundRunner() {
@@ -514,7 +598,11 @@ export function removeScript(reference: string) {
 }
 
 export function runScript(reference: string) {
-  return invoke<ActionPayload>("run_script", { reference });
+  return invokeSensitive<ActionPayload>(
+    "run_script",
+    { kind: "run_script", reference },
+    { reference },
+  );
 }
 
 export function stopRun(runId: string) {
@@ -529,10 +617,54 @@ export function setScriptEnabled(reference: string, enabled: boolean) {
   return invoke<ActionPayload>("set_script_enabled", { enabled, reference });
 }
 
+export function rotateNetworkTriggerToken(
+  reference: string,
+  nodeId: string,
+  triggerType: NetworkTriggerType,
+) {
+  return invokeSensitive<GeneratedTriggerTokenPayload>(
+    "rotate_network_trigger_token",
+    {
+      kind: "rotate_network_trigger_token",
+      node_id: nodeId,
+      reference,
+      trigger_type: triggerType,
+    },
+    { nodeId, reference, triggerType },
+  );
+}
+
+export function setNetworkTriggerAuthEnabled(
+  reference: string,
+  nodeId: string,
+  triggerType: NetworkTriggerType,
+  enabled: boolean,
+) {
+  return invokeSensitive<ActionPayload>(
+    "set_network_trigger_auth_enabled",
+    {
+      enabled,
+      kind: "set_network_trigger_auth_enabled",
+      node_id: nodeId,
+      reference,
+      trigger_type: triggerType,
+    },
+    { request: { enabled, nodeId, reference, triggerType } },
+  );
+}
+
 export function setScriptSecret(reference: string, name: string, value: string) {
-  return invoke<ActionPayload>("set_script_secret", { name, reference, value });
+  return invokeSensitive<ActionPayload>(
+    "set_script_secret",
+    { kind: "set_script_secret", name, reference, value },
+    { name, reference, value },
+  );
 }
 
 export function removeScriptSecret(reference: string, name: string) {
-  return invoke<ActionPayload>("remove_script_secret", { name, reference });
+  return invokeSensitive<ActionPayload>(
+    "remove_script_secret",
+    { kind: "remove_script_secret", name, reference },
+    { name, reference },
+  );
 }

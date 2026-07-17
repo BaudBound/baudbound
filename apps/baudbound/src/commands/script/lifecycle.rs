@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use baudbound_core::RunnerCore;
-use baudbound_storage::SqliteRunnerStore;
+use baudbound_storage::{GeneratedTriggerToken, NetworkTriggerType, SqliteRunnerStore};
 
 use crate::output::print_installed_script;
 
@@ -37,6 +37,30 @@ pub(super) fn update_script(
         script.name, script.id, script.package_file_name
     );
     Ok(())
+}
+
+pub(super) fn print_generated_trigger_tokens(tokens: &[GeneratedTriggerToken]) {
+    if tokens.is_empty() {
+        return;
+    }
+    println!();
+    println!("New network trigger tokens:");
+    println!("Save these tokens now. They cannot be shown again.");
+    for generated in tokens {
+        println!(
+            "{}  {}  {}",
+            trigger_type_name(generated.status.trigger_type),
+            generated.status.node_id,
+            generated.token
+        );
+    }
+}
+
+fn trigger_type_name(trigger_type: NetworkTriggerType) -> &'static str {
+    match trigger_type {
+        NetworkTriggerType::Webhook => "webhook",
+        NetworkTriggerType::Websocket => "websocket",
+    }
 }
 
 pub(super) fn list_scripts(core: &RunnerCore, store: &SqliteRunnerStore, json: bool) -> Result<()> {

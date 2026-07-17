@@ -8,6 +8,7 @@ use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionR
 use reqwest::blocking::Client;
 use serde_json::{Map, Number, Value};
 
+use crate::actions::bounded_io;
 use crate::{config_bool, config_string, failed, required_string, timeout_duration};
 
 mod move_file;
@@ -16,6 +17,7 @@ use move_file::move_file;
 
 pub(crate) fn read_file_action(
     request: &RuntimeActionRequest,
+    max_read_bytes: u64,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let encoding = config_string(&request.config, "encoding").unwrap_or_else(|| "utf-8".to_owned());
@@ -23,9 +25,29 @@ pub(crate) fn read_file_action(
         return failed(request, format!("unsupported file encoding {encoding}"));
     }
 
-    let bytes = fs::read(Path::new(&path)).map_err(|source| RuntimeActionError::Failed {
+    let path_ref = Path::new(&path);
+    let metadata = fs::metadata(path_ref).map_err(|source| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!("failed to inspect {path}: {source}"),
+    })?;
+    if !metadata.is_file() {
+        return failed(request, format!("{path} is not a regular file"));
+    }
+    if metadata.len() > max_read_bytes {
+        return failed(
+            request,
+            format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
+        );
+    }
+    let mut file = fs::File::open(path_ref).map_err(|source| RuntimeActionError::Failed {
         action_type: request.action_type.clone(),
         message: format!("failed to read {path}: {source}"),
+    })?;
+    let bytes = bounded_io::read_to_end(&mut file, max_read_bytes).map_err(|source| {
+        RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to read {path}: {source}"),
+        }
     })?;
     let content =
         String::from_utf8(bytes.clone()).map_err(|source| RuntimeActionError::Failed {
@@ -43,6 +65,7 @@ pub(crate) fn read_file_action(
 }
 pub(crate) fn download_file_action(
     request: &RuntimeActionRequest,
+    max_download_bytes: u64,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let url = required_string(request, "url")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -58,7 +81,7 @@ pub(crate) fn download_file_action(
             action_type: request.action_type.clone(),
             message: format!("failed to build HTTP client: {source}"),
         })?;
-    let response = client
+    let mut response = client
         .get(&url)
         .send()
         .map_err(|source| RuntimeActionError::Failed {
@@ -72,23 +95,50 @@ pub(crate) fn download_file_action(
             format!("download request {url} returned {}", status.as_u16()),
         );
     }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_download_bytes)
+    {
+        return failed(
+            request,
+            format!("download exceeds the configured limit of {max_download_bytes} bytes"),
+        );
+    }
 
-    let bytes = response
-        .bytes()
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to create temporary download file: {source}"),
+        })?;
+    let bytes = bounded_io::copy(&mut response, temporary.as_file_mut(), max_download_bytes)
         .map_err(|source| RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
-            message: format!("failed to read download response body: {source}"),
+            message: format!("failed to download {url}: {source}"),
         })?;
-    fs::write(&destination, &bytes).map_err(|source| RuntimeActionError::Failed {
-        action_type: request.action_type.clone(),
-        message: format!("failed to write download to {destination_path}: {source}"),
+    temporary
+        .as_file_mut()
+        .sync_all()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to flush temporary download file: {source}"),
+        })?;
+    let temporary_path = temporary.into_temp_path();
+    move_file(temporary_path.as_ref(), &destination, overwrite).map_err(|source| {
+        RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to replace download destination {destination_path}: {source}"),
+        }
     })?;
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([
             ("path".to_owned(), Value::String(destination_path)),
             ("url".to_owned(), Value::String(url)),
-            ("bytes".to_owned(), Value::Number(Number::from(bytes.len()))),
+            ("bytes".to_owned(), Value::Number(Number::from(bytes))),
         ]),
     })
 }

@@ -5,6 +5,7 @@ mod heartbeat;
 mod hotkey_stdin;
 mod idle;
 mod ipc;
+mod network_auth;
 mod options;
 mod preflight;
 mod runtime;

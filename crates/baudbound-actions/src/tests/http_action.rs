@@ -7,7 +7,8 @@ use std::{
 
 use serde_json::{Value, json};
 
-use super::execute;
+use super::{execute, execute_with_handler};
+use crate::{ActionLimits, HeadlessActionHandler};
 
 #[test]
 fn supports_every_editor_http_method_and_body_policy() {
@@ -78,6 +79,33 @@ fn preserves_large_response_bodies_without_losing_output_metadata() {
     assert_eq!(result.output_data["headers"]["x-large"], json!("yes"));
     assert!(result.output_data["duration_ms"].as_u64().is_some());
     assert!(!result.output_data.contains_key("json"));
+}
+
+#[test]
+fn rejects_response_bodies_that_exceed_the_configured_limit() {
+    let server = LoopbackHttpServer::start(
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ntoo-large".to_vec(),
+        Duration::ZERO,
+    );
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_http_response_bytes: 4,
+        ..ActionLimits::default()
+    });
+
+    let error = execute_with_handler(
+        &handler,
+        "action.http",
+        json!({
+            "method": "GET",
+            "url": server.url("/bounded"),
+            "timeoutSeconds": 2
+        }),
+        Value::Null,
+    )
+    .expect_err("oversized response body must fail");
+    server.join();
+
+    assert!(error.to_string().contains("configured limit of 4 bytes"));
 }
 
 #[test]

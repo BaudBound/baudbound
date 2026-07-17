@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
+import { StatusSummaryCard } from "@/components/status-summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,23 +76,23 @@ export function RunsView({
     <div className="grid gap-4">
       {dashboard.recent_runs.length > 0 ? (
         <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-          <RunSummaryTile label="Total" value={dashboard.recent_runs.length} />
-          <RunSummaryTile
+          <StatusSummaryCard label="Total" value={dashboard.recent_runs.length} />
+          <StatusSummaryCard
             label="Completed"
             tone="good"
             value={summary.completed}
           />
-          <RunSummaryTile
+          <StatusSummaryCard
             label="Failed"
             tone="destructive"
             value={summary.failed}
           />
-          <RunSummaryTile
+          <StatusSummaryCard
             label="Cancelled"
             tone="medium"
             value={summary.cancelled}
           />
-          <RunSummaryTile
+          <StatusSummaryCard
             label="With errors"
             tone="medium"
             value={summary.withErrors}
@@ -175,28 +176,6 @@ export function RunsView({
         </Card>
       )}
     </div>
-  );
-}
-
-function RunSummaryTile({
-  label,
-  tone = "muted",
-  value,
-}: {
-  label: string;
-  tone?: "destructive" | "good" | "medium" | "muted";
-  value: number;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm text-muted-foreground">{label}</div>
-          <div className="mt-1 text-2xl font-semibold">{value}</div>
-        </div>
-        <Badge variant={tone}>{label}</Badge>
-      </CardContent>
-    </Card>
   );
 }
 
