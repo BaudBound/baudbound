@@ -47,6 +47,7 @@ macro_rules! desktop_command_handler {
             tools::scan_serial_ports,
             set_script_secret,
             remove_script_secret,
+            reset_runner_config,
             select_package_file,
             set_script_enabled,
             start_background_runner,
@@ -354,6 +355,23 @@ fn save_runner_config_model(
     })
 }
 
+#[tauri::command]
+fn reset_runner_config(
+    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+    restart_background: bool,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        save_valid_runner_config(
+            &autostart,
+            &state,
+            RunnerConfig::template_toml(),
+            restart_background,
+            ConfigWriteOperation::Reset,
+        )
+    })
+}
+
 pub(super) fn start_background_runner_message(state: &DesktopUiState) -> Result<String> {
     let (core, options) = current_runtime(state)?;
     state
@@ -520,7 +538,13 @@ fn save_runner_config_contents(
     contents: &str,
     restart_background: bool,
 ) -> Result<String> {
-    save_valid_runner_config(autostart, state, contents, restart_background)
+    save_valid_runner_config(
+        autostart,
+        state,
+        contents,
+        restart_background,
+        ConfigWriteOperation::Save,
+    )
 }
 
 fn save_runner_config_model_contents(
@@ -530,7 +554,40 @@ fn save_runner_config_model_contents(
     restart_background: bool,
 ) -> Result<String> {
     let contents = config.to_pretty_toml()?;
-    save_valid_runner_config(autostart, state, &contents, restart_background)
+    save_valid_runner_config(
+        autostart,
+        state,
+        &contents,
+        restart_background,
+        ConfigWriteOperation::Save,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ConfigWriteOperation {
+    Save,
+    Reset,
+}
+
+impl ConfigWriteOperation {
+    fn success_message(self, restarted: bool, restart_required: bool) -> &'static str {
+        match (self, restarted, restart_required) {
+            (Self::Save, true, _) => {
+                "Saved runner config and restarted the desktop background runner."
+            }
+            (Self::Save, false, true) => {
+                "Saved runner config. Restart the desktop background runner to apply listener changes."
+            }
+            (Self::Save, false, false) => "Saved runner config.",
+            (Self::Reset, true, _) => {
+                "Reset runner config to defaults and restarted the desktop background runner."
+            }
+            (Self::Reset, false, true) => {
+                "Reset runner config to defaults. Restart the desktop background runner to apply listener changes."
+            }
+            (Self::Reset, false, false) => "Reset runner config to defaults.",
+        }
+    }
 }
 
 fn save_valid_runner_config(
@@ -538,6 +595,7 @@ fn save_valid_runner_config(
     state: &DesktopUiState,
     contents: &str,
     restart_background: bool,
+    operation: ConfigWriteOperation,
 ) -> Result<String> {
     let next_config = RunnerConfig::from_toml(contents, &state.config_path)?;
     let previous_contents = fs::read_to_string(&state.config_path)?;
@@ -575,17 +633,14 @@ fn save_valid_runner_config(
         state
             .background_runner
             .start(core, state.store.clone(), options)?;
-        return Ok("Saved runner config and restarted the desktop background runner.".to_owned());
+        return Ok(operation.success_message(true, false).to_owned());
     }
 
     if runtime_changed && was_running {
-        return Ok(
-            "Saved runner config. Restart the desktop background runner to apply listener changes."
-                .to_owned(),
-        );
+        return Ok(operation.success_message(false, true).to_owned());
     }
 
-    Ok("Saved runner config.".to_owned())
+    Ok(operation.success_message(false, false).to_owned())
 }
 
 fn runner_runtime_config_changed(previous: &RunnerConfig, next: &RunnerConfig) -> bool {

@@ -41,7 +41,7 @@ test("reports missing source-derived documentation", async (context) => {
 
   await assert.rejects(
     validateDocumentationCoverage(root, documentationPages().map((page) => ({ ...page, content: "" })), manifestPath),
-    /action\.example[\s\S]*desktop tab marker[\s\S]*CLI command status[\s\S]*config field runner\.name/,
+      /action\.example[\s\S]*desktop tab marker[\s\S]*CLI command status[\s\S]*config field runner\.trigger_reload_seconds/,
   );
 });
 
@@ -66,7 +66,7 @@ function documentationPages() {
     { path: "nodes", content: "`action.example`" },
     { path: "desktop", content: "<!-- desktop-tab:dashboard -->" },
     { path: "cli", content: "baudbound status `--json`" },
-    { path: "config", content: "`runner.name`" },
+    { path: "config", content: "`runner.trigger_reload_seconds`" },
   ];
 }
 
@@ -86,7 +86,7 @@ pub enum SecretCommand {}
 }
 
 function rustConfigFixture() {
-  return `pub struct RunnerSettings {\n    pub name: Option<String>,\n}`;
+  return `pub struct RunnerSettings {\n    pub trigger_reload_seconds: u64,\n}`;
 }
 
 async function fixtureRoot(context) {

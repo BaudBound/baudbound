@@ -212,7 +212,6 @@ fn print_dispatch_activity(service_status: &serde_json::Value) {
 }
 
 pub fn print_runner_status(status: &RunnerStatus, storage_root: &Path) {
-    println!("Runner: {}", status.runner_name);
     println!("Storage: {}", storage_root.display());
     println!(
         "Supported target runtimes: {}",

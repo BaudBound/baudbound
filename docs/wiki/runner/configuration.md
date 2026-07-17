@@ -84,7 +84,6 @@ The login setting represents the desired operating system registration. BaudBoun
 
 | Key | Type and default | Meaning | Restart/security impact |
 | --- | --- | --- | --- |
-| `runner.name` | optional string. `BaudBound Runner` when blank | Display name in status and UI | No privilege change. Reload UI/status |
 | `runner.trigger_reload_seconds` | integer seconds. `2` | Interval for detecting installed-script registration changes | Restart service to change polling interval |
 | `runner.run_history_max_records` | positive integer. `10000` | Maximum number of complete run records retained across all scripts | Lower values prune existing history immediately when the config is applied |
 | `runner.run_history_max_age_days` | positive integer days. `30` | Maximum age of retained runs | Lower values prune expired history immediately when the config is applied |
@@ -197,7 +196,6 @@ Add the account running BaudBound only to the group shown by the target system's
 
 ```toml
 [runner]
-name = "BaudBound Runner"
 trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30

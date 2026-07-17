@@ -36,7 +36,6 @@ pub fn print_app_status(
                 "desktop": {
                     "action_adapter": "system",
                     "native_tray": false,
-                    "runner_name": core.name,
                     "storage_root": store.root(),
                     "supported_target_runtimes": core.supported_target_runtimes(),
                 },
@@ -48,7 +47,6 @@ pub fn print_app_status(
         return Ok(());
     }
 
-    println!("{} runner", core.name);
     println!("Storage: {}", store.root().display());
     println!(
         "Supported target runtimes: {}",

@@ -16,7 +16,6 @@ const config: RunnerConfig = {
   },
   display: { time_format: "24-hour" },
   runner: {
-    name: "BaudBound Runner",
     run_history_max_age_days: 30,
     run_history_max_records: 10_000,
     target_runtimes: [],

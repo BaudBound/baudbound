@@ -467,7 +467,7 @@ test("comment nodes support node context menu actions", async ({ page }) => {
 		element.blur();
 	});
 
-	const commentHandles = page.locator(".baud-comment-drag-handle");
+	const commentHandles = page.locator(".baud-comment-drag-handle").getByText("Comment", { exact: true });
 	await commentHandles.first().click({ button: "right" });
 	const nodeMenu = page.getByRole("menu", { name: "Node actions" });
 	await expect(nodeMenu).toBeVisible();

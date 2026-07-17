@@ -13,7 +13,6 @@ pub struct RunnerStatus {
     pub disabled_script_count: usize,
     pub enabled_script_count: usize,
     pub problem_count: usize,
-    pub runner_name: String,
     pub scripts: Vec<ScriptStatus>,
     pub supported_target_runtimes: Vec<String>,
     pub total_script_count: usize,
@@ -22,7 +21,6 @@ pub struct RunnerStatus {
 
 impl RunnerStatus {
     pub(crate) fn from_scripts(
-        runner_name: String,
         supported_target_runtimes: Vec<String>,
         scripts: Vec<ScriptStatus>,
     ) -> Self {
@@ -40,7 +38,6 @@ impl RunnerStatus {
             disabled_script_count: scripts.len().saturating_sub(enabled_script_count),
             enabled_script_count,
             problem_count,
-            runner_name,
             total_script_count: scripts.len(),
             scripts,
             supported_target_runtimes,

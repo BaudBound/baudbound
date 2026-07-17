@@ -37,7 +37,6 @@ pub(super) fn build_serve_status_document(
         "last_reload_unix": snapshot.last_reload_at_unix,
         "pid": std::process::id(),
         "reload_interval_seconds": options.reload_check_interval.as_secs(),
-        "runner_name": options.runner_name.clone(),
         "services": service_rows
             .into_iter()
             .map(|row| {

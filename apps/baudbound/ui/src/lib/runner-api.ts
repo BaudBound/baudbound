@@ -54,7 +54,6 @@ export type RunnerStatus = {
   disabled_script_count: number;
   enabled_script_count: number;
   problem_count: number;
-  runner_name: string;
   scripts: ScriptStatus[];
   supported_target_runtimes: string[];
   total_script_count: number;
@@ -217,7 +216,6 @@ export type ServiceStatusDocument = {
   last_reload_unix: number;
   pid: number;
   reload_interval_seconds: number;
-  runner_name: string;
   services: ServiceStatusService[];
   started_at_unix: number;
   state: string;
@@ -319,7 +317,6 @@ export type RunnerConfig = {
 };
 
 export type RunnerSettings = {
-  name: string | null;
   run_history_max_age_days: number;
   run_history_max_records: number;
   target_runtimes: string[];
@@ -401,6 +398,10 @@ export function saveRunnerConfig(contents: string, restartBackground: boolean) {
 
 export function saveRunnerConfigModel(config: RunnerConfig, restartBackground: boolean) {
   return invoke<ActionPayload>("save_runner_config_model", { config, restartBackground });
+}
+
+export function resetRunnerConfig(restartBackground: boolean) {
+  return invoke<ActionPayload>("reset_runner_config", { restartBackground });
 }
 
 export function scanSerialPorts() {

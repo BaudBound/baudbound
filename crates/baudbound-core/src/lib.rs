@@ -67,7 +67,6 @@ pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 
 #[derive(Clone)]
 pub struct RunnerCore {
-    pub name: String,
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     serial_devices: Vec<baudbound_actions::SerialDeviceConfig>,
     supported_target_runtimes: Vec<String>,
@@ -77,7 +76,6 @@ pub struct RunnerCore {
 impl Default for RunnerCore {
     fn default() -> Self {
         Self {
-            name: "BaudBound Runner".to_owned(),
             action_handler: None,
             serial_devices: Vec::new(),
             supported_target_runtimes: default_host_target_runtime_names(),
@@ -90,7 +88,6 @@ impl RunnerCore {
     #[must_use]
     pub fn from_config(config: &RunnerConfig) -> Self {
         Self {
-            name: config.runner_name(),
             action_handler: None,
             serial_devices: action_serial_devices_from_config(config),
             supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
@@ -211,7 +208,6 @@ impl RunnerCore {
             .collect::<Vec<_>>();
 
         Ok(RunnerStatus::from_scripts(
-            self.name.clone(),
             self.supported_target_runtimes.clone(),
             scripts,
         ))

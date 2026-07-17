@@ -11,13 +11,18 @@ BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is 
 
 Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
-## Recommended automatic install or update {.tabset}
+## Automatic installation and updates
 
 These commands install BaudBound when it is missing and update it when an older version is installed. The downloaded release file is checked against the SHA-256 digest published by GitHub before it is opened or installed.
 
+This is the recommended method for most users. Choose the operating system below and run its single command.
+{.is-success}
+
 A SHA-256 digest is a long value calculated from a file. It works like a digital fingerprint. The installation script calculates the fingerprint of the downloaded file and compares it with the fingerprint published for that release. The script stops when they do not match.
 
-### Windows
+### Choose your operating system {.tabset}
+
+#### Windows
 
 Open PowerShell and run:
 
@@ -27,7 +32,7 @@ irm https://get.baudbound.app/windows | iex
 
 The script downloads the current Windows installer from the official BaudBound GitHub release and verifies it before opening the normal setup window. Quit BaudBound before running the command when you are updating an existing installation.
 
-### Linux
+#### Linux
 
 Open a terminal and run:
 
@@ -39,15 +44,16 @@ The Linux script requires `curl`, `jq`, and `sha256sum`. If `jq` is missing, the
 
 Quit the desktop application or stop `baudbound serve` before updating. The script refuses to replace an AppImage that is still running.
 
-Use the manual instructions below when you prefer to download and place release files yourself.
-
----
-
-## Manual installation alternative {.tabset}
+## Manual installation
 
 Use this section when you do not want to run the hosted installation script. These steps download and install the same official GitHub release files manually.
 
-### Windows
+Manual installation takes more steps and requires you to replace files yourself when updating. Use it only when you prefer not to run the automatic installation command.
+{.is-info}
+
+### Choose your operating system {.tabset}
+
+#### Windows
 
 1. Download the `.exe` setup file from the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
 2. Open the downloaded file and complete the installer.
@@ -58,7 +64,7 @@ The desktop interface uses Microsoft Edge WebView2. It is already installed on c
 
 The installer provides the desktop application. It does not guarantee that `baudbound` is added to every terminal's `PATH`. Use the Start menu for normal desktop use. CLI users can run the installed executable directly or add its installation directory to `PATH` themselves.
 
-### Linux
+#### Linux
 
 An AppImage is a portable executable. The steps below keep it in your home directory and create a `baudbound` command for your user account. They do not install a system package and do not require `sudo`.
 

@@ -130,6 +130,23 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let saved = invoke(&webview, "read_runner_config", json!({}));
     assert_eq!(saved["config"]["runner"]["run_history_max_records"], 250);
 
+    let reset = invoke(
+        &webview,
+        "reset_runner_config",
+        json!({"restartBackground": false}),
+    );
+    assert_eq!(reset["message"], "Reset runner config to defaults.");
+    let reset_config = invoke(&webview, "read_runner_config", json!({}));
+    assert_eq!(
+        reset_config["config"]["runner"]["run_history_max_records"],
+        10_000
+    );
+    assert!(
+        reset_config["contents"]
+            .as_str()
+            .is_some_and(|contents| contents == RunnerConfig::template_toml())
+    );
+
     let serial_ports = invoke(&webview, "scan_serial_ports", json!({}));
     assert!(serial_ports.is_array());
 

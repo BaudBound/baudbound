@@ -559,7 +559,6 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
     .expect("test package should be written");
     let config = RunnerConfig {
         runner: RunnerSettings {
-            name: Some("Headless Test Runner".to_owned()),
             target_runtimes: vec!["Generic Headless".to_owned()],
             trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
             ..RunnerSettings::default()
@@ -813,7 +812,6 @@ fn status_reports_script_health_and_approval_state() {
         .expect("package should import");
 
     let status = core.status(&store).expect("status should build");
-    assert_eq!(status.runner_name, "BaudBound Runner");
     assert!(
         status
             .supported_target_runtimes

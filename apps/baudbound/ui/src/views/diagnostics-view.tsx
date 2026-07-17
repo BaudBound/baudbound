@@ -100,7 +100,6 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
           <CardContent>
             <Details
               rows={[
-                ["Runner", dashboard.runner.runner_name],
                 ["Desktop loop", dashboard.desktop_background.state],
                 ["Target runtimes", dashboard.runner.supported_target_runtimes.join(", ")],
                 ["Run records", dashboard.recent_runs.length.toString()],

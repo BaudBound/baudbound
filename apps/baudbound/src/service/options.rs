@@ -23,7 +23,6 @@ pub struct ServeOptions {
     pub(crate) process_watch_enabled: bool,
     pub(crate) reload_check_interval: Duration,
     pub(crate) run_schedules_immediately: bool,
-    pub(crate) runner_name: String,
     pub(crate) schedules_enabled: bool,
     pub(crate) serial_enabled: bool,
     pub(crate) serial_devices: Vec<TriggerSerialDeviceConfig>,
@@ -83,11 +82,6 @@ impl ServeOptions {
                     .max(1),
             ),
             run_schedules_immediately,
-            runner_name: config
-                .runner
-                .name
-                .clone()
-                .unwrap_or_else(|| "BaudBound Runner".to_owned()),
             schedules_enabled: config.triggers.schedules_enabled,
             serial_enabled: config.triggers.serial_enabled,
             serial_devices: serial_device_configs_from_settings(&config.serial.devices)

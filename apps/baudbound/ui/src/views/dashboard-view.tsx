@@ -56,7 +56,6 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
             </div>
             <Details
               rows={[
-                ["Name", dashboard.runner.runner_name],
                 ["Storage", dashboard.storage_root],
                 [
                   "Target runtimes",

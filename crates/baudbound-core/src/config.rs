@@ -179,16 +179,6 @@ impl RunnerConfig {
         Self::write_atomic(path, &contents)
     }
 
-    pub fn runner_name(&self) -> String {
-        self.runner
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .unwrap_or("BaudBound Runner")
-            .to_owned()
-    }
-
     #[must_use]
     pub fn template_toml() -> &'static str {
         r#"# BaudBound runner configuration.
@@ -196,7 +186,6 @@ impl RunnerConfig {
 # Webhooks and WebSockets are disabled by default.
 
 [runner]
-name = "BaudBound Runner"
 trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30
@@ -382,7 +371,6 @@ impl Default for SerialDeviceSettings {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct RunnerSettings {
-    pub name: Option<String>,
     pub run_history_max_age_days: u64,
     pub run_history_max_records: usize,
     pub target_runtimes: Vec<String>,
@@ -392,7 +380,6 @@ pub struct RunnerSettings {
 impl Default for RunnerSettings {
     fn default() -> Self {
         Self {
-            name: None,
             run_history_max_age_days: DEFAULT_RUN_HISTORY_MAX_AGE_DAYS,
             run_history_max_records: DEFAULT_RUN_HISTORY_MAX_RECORDS,
             target_runtimes: Vec::new(),
@@ -509,7 +496,6 @@ mod tests {
 
         let config = RunnerConfig::load_or_default(&config_path).expect("config should load");
 
-        assert_eq!(config.runner_name(), "BaudBound Runner");
         assert_eq!(
             config.runner.trigger_reload_seconds,
             DEFAULT_TRIGGER_RELOAD_SECONDS
@@ -543,9 +529,8 @@ mod tests {
             .join("nested")
             .join("runner.toml");
 
-        let config = RunnerConfig::load_or_init(&config_path).expect("config should load");
+        RunnerConfig::load_or_init(&config_path).expect("config should load");
 
-        assert_eq!(config.runner_name(), "BaudBound Runner");
         assert!(
             config_path.exists(),
             "load_or_init should create a real config file"
@@ -560,7 +545,6 @@ mod tests {
         let config = RunnerConfig::from_toml(
             r#"
                 [runner]
-                name = "Server Runner"
                 trigger_reload_seconds = 5
                 run_history_max_records = 2500
                 run_history_max_age_days = 14
@@ -606,7 +590,6 @@ mod tests {
         )
         .expect("config should parse");
 
-        assert_eq!(config.runner_name(), "Server Runner");
         assert_eq!(config.runner.trigger_reload_seconds, 5);
         assert_eq!(config.runner.run_history_max_records, 2500);
         assert_eq!(config.runner.run_history_max_age_days, 14);
@@ -745,7 +728,6 @@ mod tests {
         let config = RunnerConfig::from_toml(RunnerConfig::template_toml(), "template.toml")
             .expect("template should parse");
 
-        assert_eq!(config.runner_name(), "BaudBound Runner");
         assert_eq!(config.display.time_format, TimeFormat::TwentyFourHour);
         assert!(config.updates.automatic_checks);
         assert_eq!(

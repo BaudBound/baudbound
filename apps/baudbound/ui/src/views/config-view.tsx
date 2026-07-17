@@ -1,9 +1,17 @@
-import { Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { Plus, RefreshCcw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TomlCodeEditor } from "@/components/toml-code-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -20,6 +28,7 @@ import {
   type RunnerConfig,
   type SerialDeviceSettings,
   readRunnerConfig,
+  resetRunnerConfig,
   saveRunnerConfig,
   saveRunnerConfigModel,
 } from "@/lib/runner-api";
@@ -69,8 +78,10 @@ export function ConfigView({
   const [restartBackground, setRestartBackground] = useState(true);
   const [newDeviceId, setNewDeviceId] = useState("");
   const [launchAtLoginRegistered, setLaunchAtLoginRegistered] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   const isSaving = busyActions.has("config-save");
+  const isResetting = busyActions.has("config-reset");
   const isBackgroundRunning = dashboard.desktop_background.running;
   const isDirty =
     mode === "advanced"
@@ -109,6 +120,14 @@ export function ConfigView({
             saveRunnerConfigModel(config, restartBackground),
           );
     if (saved) {
+      await loadConfig();
+    }
+  }
+
+  async function resetConfig() {
+    const reset = await runAction("config-reset", () => resetRunnerConfig(restartBackground));
+    if (reset) {
+      setResetDialogOpen(false);
       await loadConfig();
     }
   }
@@ -164,12 +183,27 @@ export function ConfigView({
                 {!isBackgroundRunning ? " (available while it is running)" : ""}
               </span>
             </label>
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex">
-              <Button disabled={isLoading} onClick={loadConfig} variant="outline">
+            <div className="grid w-full grid-cols-3 gap-2 sm:w-auto sm:flex">
+              <Button
+                disabled={isLoading || isSaving || isResetting || !config}
+                onClick={() => setResetDialogOpen(true)}
+                variant="destructive"
+              >
+                <RotateCcw />
+                Reset
+              </Button>
+              <Button
+                disabled={isLoading || isSaving || isResetting}
+                onClick={loadConfig}
+                variant="outline"
+              >
                 <RefreshCcw className={cn(isLoading && "animate-spin")} />
                 Reload
               </Button>
-              <Button disabled={!isDirty || isSaving || isLoading || !config} onClick={saveConfig}>
+              <Button
+                disabled={!isDirty || isSaving || isResetting || isLoading || !config}
+                onClick={saveConfig}
+              >
                 <Save />
                 {isSaving ? "Saving..." : "Save"}
               </Button>
@@ -201,6 +235,40 @@ export function ConfigView({
           onNewDeviceIdChange={setNewDeviceId}
         />
       )}
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!isResetting) setResetDialogOpen(open);
+        }}
+        open={resetDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset runner configuration?</DialogTitle>
+            <DialogDescription>
+              This replaces the current config.toml with BaudBound defaults. Desktop, shared,
+              runner, network, trigger, and serial settings will be reset. Installed scripts,
+              approvals, secrets, variables, and run history will not be removed.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-foreground">
+            Any unsaved configuration changes will be discarded.
+          </p>
+          <DialogFooter>
+            <Button
+              disabled={isResetting}
+              onClick={() => setResetDialogOpen(false)}
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button disabled={isResetting} onClick={resetConfig} variant="destructive">
+              <RotateCcw />
+              {isResetting ? "Resetting..." : "Reset to defaults"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -267,13 +335,6 @@ function SimpleConfigEditor({
           <CardTitle>Runner</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <TextField
-            label="Runner name"
-            onChange={(name) =>
-              onChange({ ...config, runner: { ...config.runner, name: nullableText(name) } })
-            }
-            value={config.runner.name ?? ""}
-          />
           <NumberField
             label="Trigger reload seconds"
             min={1}

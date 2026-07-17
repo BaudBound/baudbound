@@ -151,13 +151,15 @@ Use **Simple** mode for validated fields and switches. The page separates settin
 
 **Shared configuration** contains the clock format and update checks used by both the desktop app and CLI.
 
-**Runner configuration** contains runner identity, target runtimes, reload timing, trigger families, network listeners, and serial devices.
+**Runner configuration** contains target runtimes, reload timing, trigger families, network listeners, and serial devices.
 
 **Desktop configuration** contains login startup, automatic background startup, tray startup, and close behavior. These values affect the graphical app only. They do not change a headless `baudbound serve` process.
 
 Use **Advanced** mode for the complete raw TOML. The CodeMirror editor supports line numbers, selection, normal keyboard editing, indentation, and scrolling. The runner validates the entire document before replacing the active configuration.
 
-**Reload** discards unsaved edits and rereads the file. **Save** writes only valid configuration. Enable **Restart desktop background runner after saving** when listener, target, or device changes must apply immediately and the runner is currently active. Display, update, and desktop window changes apply without restarting the background runner.
+**Reload** discards unsaved edits and rereads the file. **Save** writes only valid configuration. **Reset** asks for confirmation and then replaces the configuration file with BaudBound defaults. Reset does not remove installed scripts, approvals, secrets, variables, or run history.
+
+Enable **Restart desktop background runner after saving** when listener, target, or device changes must apply immediately and the runner is currently active. The same choice applies when resetting. Display, update, and desktop window changes apply without restarting the background runner.
 
 **Launch at login** registers BaudBound with the current Windows or Linux desktop session. It starts after that user signs in. It does not create a system service or start on a headless machine.
 

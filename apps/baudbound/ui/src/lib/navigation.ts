@@ -96,5 +96,5 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
   if (activeTab === "diagnostics") {
     return "Readiness checks and troubleshooting signals";
   }
-  return `${dashboard.runner.runner_name} at ${dashboard.storage_root}`;
+  return dashboard.storage_root;
 }
