@@ -16,6 +16,7 @@ pub(crate) struct MonitorDiscoveryPayload {
     pub(crate) virtual_bounds: Option<MonitorBounds>,
 }
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct ScreenPixel {
     pub(crate) alpha: u8,
@@ -26,8 +27,8 @@ pub(crate) struct ScreenPixel {
     pub(crate) red: u8,
 }
 
+#[cfg(any(windows, test))]
 impl ScreenPixel {
-    #[cfg(any(windows, test))]
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
         Self {
             alpha: 255,

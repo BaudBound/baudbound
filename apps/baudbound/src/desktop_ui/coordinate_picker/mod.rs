@@ -10,7 +10,9 @@ use crate::desktop_actions::screen_tools::{MonitorInfo, ScreenPixel};
 
 pub(super) use session::CoordinatePickerState;
 
+#[cfg(windows)]
 const PICKER_EVENT: &str = "coordinate-picker-finished";
+#[cfg(windows)]
 const MAIN_WINDOW_LABEL: &str = "main";
 
 #[derive(Clone, Serialize)]

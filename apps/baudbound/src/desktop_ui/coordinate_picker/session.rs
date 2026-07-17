@@ -1,13 +1,20 @@
+#[cfg(windows)]
 use std::sync::{
     Mutex,
     atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(windows)]
 pub(in crate::desktop_ui) struct CoordinatePickerState {
     active: Mutex<Option<PickerSession>>,
     next_session_id: AtomicU64,
 }
 
+#[cfg(not(windows))]
+#[derive(Default)]
+pub(in crate::desktop_ui) struct CoordinatePickerState;
+
+#[cfg(windows)]
 impl Default for CoordinatePickerState {
     fn default() -> Self {
         Self {
@@ -17,6 +24,7 @@ impl Default for CoordinatePickerState {
     }
 }
 
+#[cfg(windows)]
 impl CoordinatePickerState {
     pub(super) fn reserve(&self) -> Result<String, String> {
         let mut active = self.lock_active()?;
@@ -79,13 +87,14 @@ impl CoordinatePickerState {
     }
 }
 
+#[cfg(windows)]
 #[derive(Debug)]
 pub(super) struct PickerSession {
     pub(super) id: String,
     pub(super) window_labels: Vec<String>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

@@ -261,7 +261,7 @@ fn build_trigger_services(
         )
         .context("failed to register native hotkey triggers")?
     } else {
-        drop(previous_native_hotkey_service);
+        let _ = previous_native_hotkey_service;
         NativeHotkeyService::empty()
     };
     let websocket_service = if options.websockets_enabled {
