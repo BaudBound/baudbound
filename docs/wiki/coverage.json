@@ -49,8 +49,7 @@
   },
   "desktop": {
     "source": "apps/baudbound/ui/src/lib/navigation.ts",
-    "page": "runner/desktop-app",
-    "expectedCount": 11
+    "page": "runner/desktop-app"
   },
   "cli": {
     "source": "apps/baudbound/src/cli.rs",

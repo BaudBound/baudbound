@@ -3,6 +3,12 @@ name: Wiki Documentation
 on:
   pull_request:
     paths:
+      - "apps/baudbound/src/cli.rs"
+      - "apps/baudbound/ui/src/lib/navigation.ts"
+      - "apps/editor/data/nodes/definitions/**"
+      - "crates/baudbound-core/src/config.rs"
+      - "crates/baudbound-security/contracts/node-capabilities.json"
+      - "crates/baudbound-security/src/lib.rs"
       - "docs/wiki/**"
       - "tools/wiki-publisher/**"
       - ".github/workflows/wiki-publish.yml"
@@ -10,6 +16,12 @@ on:
     branches:
       - master
     paths:
+      - "apps/baudbound/src/cli.rs"
+      - "apps/baudbound/ui/src/lib/navigation.ts"
+      - "apps/editor/data/nodes/definitions/**"
+      - "crates/baudbound-core/src/config.rs"
+      - "crates/baudbound-security/contracts/node-capabilities.json"
+      - "crates/baudbound-security/src/lib.rs"
       - "docs/wiki/**"
       - "tools/wiki-publisher/**"
       - ".github/workflows/wiki-publish.yml"

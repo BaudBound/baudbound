@@ -87,16 +87,48 @@ async function checkNodeCoverage(repositoryRoot, definition, pageByPath, errors)
 
 async function checkDesktopCoverage(repositoryRoot, definition, pageByPath, errors) {
   const source = await readFile(path.join(repositoryRoot, definition.source), "utf8");
-  const items = [...source.matchAll(/\{\s*icon:\s*\w+,\s*id:\s*"([^"]+)",\s*label:\s*"([^"]+)"\s*,?\s*\}/g)];
+  const items = desktopNavigationItems(source);
   const content = requiredPageContent(definition.page, pageByPath, errors);
-  for (const [, id, label] of items) {
+  const sourceIds = new Set();
+  for (const { id, label } of items) {
+    if (sourceIds.has(id)) {
+      errors.push(`${definition.source} contains duplicate desktop navigation id ${id}`);
+      continue;
+    }
+    sourceIds.add(id);
     if (!content.includes(`<!-- desktop-tab:${id} -->`)) {
       errors.push(`${definition.page} is missing the desktop tab marker for ${id} (${label})`);
     }
   }
-  if (items.length !== definition.expectedCount) {
-    errors.push(`desktop navigation has ${items.length} tabs; coverage baseline is ${definition.expectedCount}`);
+
+  if (items.length === 0) {
+    errors.push(`${definition.source} does not contain any recognizable desktop navigation items`);
   }
+
+  const documentedIds = [...content.matchAll(/<!--\s*desktop-tab:([a-z0-9-]+)\s*-->/g)].map(
+    (match) => match[1],
+  );
+  const seenDocumentedIds = new Set();
+  for (const id of documentedIds) {
+    if (seenDocumentedIds.has(id)) {
+      errors.push(`${definition.page} contains duplicate desktop tab marker ${id}`);
+    } else if (!sourceIds.has(id)) {
+      errors.push(`${definition.page} documents removed or unknown desktop tab ${id}`);
+    }
+    seenDocumentedIds.add(id);
+  }
+}
+
+function desktopNavigationItems(source) {
+  const items = [];
+  for (const match of source.matchAll(/\{[^{}]*\}/gs)) {
+    const body = match[0];
+    if (!/\bicon\s*:/.test(body)) continue;
+    const id = body.match(/\bid\s*:\s*"([^"]+)"/)?.[1];
+    const label = body.match(/\blabel\s*:\s*"([^"]+)"/)?.[1];
+    if (id && label) items.push({ id, label });
+  }
+  return items;
 }
 
 async function checkCliCoverage(repositoryRoot, definition, pageByPath, errors) {

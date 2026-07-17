@@ -45,12 +45,44 @@ test("reports missing source-derived documentation", async (context) => {
   );
 });
 
+test("rejects stale duplicate and unparseable desktop navigation contracts", async (context) => {
+  const root = await fixtureRoot(context);
+  await files(root, {
+    "nodes/example.ts": 'export const node = { actionType: "action.example" };',
+    "ui.tsx": `
+      { label: "Dashboard", id: "dashboard", icon: Gauge }
+      { icon: Gauge, id: "dashboard", label: "Duplicate" }
+    `,
+    "cli.rs": rustCliFixture(),
+    "config.rs": rustConfigFixture(),
+    "required.txt": "present",
+  });
+  const manifestPath = path.join(root, "coverage.json");
+  await writeFile(manifestPath, JSON.stringify(manifest()), "utf8");
+  const pages = documentationPages().map((page) =>
+    page.path === "desktop"
+      ? { ...page, content: "<!-- desktop-tab:dashboard -->\n<!-- desktop-tab:dashboard -->\n<!-- desktop-tab:settings -->" }
+      : page,
+  );
+
+  await assert.rejects(
+    validateDocumentationCoverage(root, pages, manifestPath),
+    /duplicate desktop navigation id dashboard[\s\S]*duplicate desktop tab marker dashboard[\s\S]*removed or unknown desktop tab settings/,
+  );
+
+  await writeFile(path.join(root, "ui.tsx"), "export const navigation = [];", "utf8");
+  await assert.rejects(
+    validateDocumentationCoverage(root, documentationPages(), manifestPath),
+    /does not contain any recognizable desktop navigation items[\s\S]*removed or unknown desktop tab dashboard/,
+  );
+});
+
 function manifest() {
   return {
     requiredPages: ["nodes", "desktop", "cli", "config"],
     requiredPaths: ["required.txt"],
     nodes: { sources: "nodes/*.ts", page: "nodes", expectedCount: 1 },
-    desktop: { source: "ui.tsx", page: "desktop", expectedCount: 1 },
+    desktop: { source: "ui.tsx", page: "desktop" },
     cli: { source: "cli.rs", page: "cli" },
     configuration: {
       source: "config.rs",
