@@ -24,6 +24,7 @@ mod background;
 mod coordinate_picker;
 mod desktop_config;
 mod lifecycle;
+mod manual_runs;
 mod tools;
 
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
@@ -40,7 +41,7 @@ macro_rules! desktop_command_handler {
             revoke_script_approval,
             reload_background_runner,
             read_runner_config,
-            run_script,
+            manual_runs::run_script,
             save_runner_config,
             save_runner_config_model,
             coordinate_picker::select_coordinate_picker,
@@ -96,10 +97,10 @@ pub fn run_desktop_ui(
             config_path,
             login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
-            core: Mutex::new(core),
+            core: Arc::new(Mutex::new(core)),
             store,
             websocket_registry,
-            operation_lock: Mutex::new(()),
+            operation_lock: Arc::new(Mutex::new(())),
         })
         .setup(move |app| {
             desktop_config::reconcile_autostart_registration(app.handle());
@@ -123,10 +124,10 @@ pub(super) struct DesktopUiState {
     config_path: PathBuf,
     login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
-    core: Mutex<RunnerCore>,
+    core: Arc<Mutex<RunnerCore>>,
     store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
-    operation_lock: Mutex<()>,
+    operation_lock: Arc<Mutex<()>>,
 }
 
 #[tauri::command]
@@ -256,20 +257,6 @@ fn remove_script(
     run_locked_action(&state, || {
         let script = current_core(&state)?.remove_installed(&state.store, &reference)?;
         Ok(format!("Removed {} ({}).", script.name, script.id))
-    })
-}
-
-#[tauri::command]
-fn run_script(
-    reference: String,
-    state: State<'_, DesktopUiState>,
-) -> Result<ActionPayload, String> {
-    run_locked_action(&state, || {
-        let report = current_core(&state)?.run_installed(&state.store, &reference)?;
-        Ok(format!(
-            "Run {} completed for {reference}.",
-            report.identity.run_id
-        ))
     })
 }
 

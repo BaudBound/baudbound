@@ -470,7 +470,7 @@ fn executes_fixed_count_loop_body_and_done_branch() {
     .expect("loop should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
-    assert!(report.logs.iter().any(|log| log.message == "counter=3.0"));
+    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
 #[test]
@@ -554,7 +554,7 @@ fn executes_while_until_condition_fails() {
         report
             .logs
             .iter()
-            .any(|log| log.message == "while counter=3.0")
+            .any(|log| log.message == "while counter=3")
     );
 }
 
@@ -679,7 +679,7 @@ fn calculates_expression_and_exposes_result_reference() {
     .expect("calculate should execute");
 
     assert_eq!(report.variables.get("n-calc.result"), Some(&json!(10.0)));
-    assert!(report.logs.iter().any(|log| log.message == "result=10.0"));
+    assert!(report.logs.iter().any(|log| log.message == "result=10"));
 }
 
 #[test]

@@ -114,6 +114,26 @@ test("text transform accepts a default variable with inactive optional numeric f
 	await expect(page.getByText(/Invalid value for length/)).toHaveCount(0);
 });
 
+test("variable operation completes writable variable names without template braces", async ({ page }) => {
+	await openEditor(page);
+
+	await page.getByRole("button", { name: "Variables", exact: true }).click();
+	await page.getByRole("button", { name: "Add variable" }).click();
+	const variableDialog = page.getByRole("dialog");
+	await variableDialog.getByRole("textbox", { name: "Name" }).fill("preferred_status");
+	await variableDialog.getByRole("textbox", { name: "Default value" }).fill("ready");
+	await variableDialog.getByRole("button", { name: "Save" }).click();
+
+	await page.getByRole("button", { name: "Data & Variables" }).click();
+	await page.getByRole("button", { name: "Variable Operation" }).click();
+	const nameInput = page.getByRole("combobox", { name: "Variable name" });
+	await nameInput.fill("preferred");
+	await page.getByRole("option", { name: /preferred_status/ }).click();
+
+	await expect(nameInput).toHaveValue("preferred_status");
+	await expect(nameInput).not.toHaveValue("{{preferred_status}}");
+});
+
 test("coordinate verification rejects values outside the signed i32 contract", async ({ page }) => {
 	await openEditor(page);
 	await page.getByRole("button", { name: "Open project settings" }).click();

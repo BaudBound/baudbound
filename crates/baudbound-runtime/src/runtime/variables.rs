@@ -304,9 +304,23 @@ pub(crate) fn value_to_string(value: &Value) -> String {
         Value::Null => String::new(),
         Value::String(value) => value.clone(),
         Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
+        Value::Number(value) => number_to_display_string(value),
         Value::Array(_) | Value::Object(_) => value.to_string(),
     }
+}
+
+fn number_to_display_string(number: &Number) -> String {
+    if let Some(value) = number.as_i64() {
+        return value.to_string();
+    }
+    if let Some(value) = number.as_u64() {
+        return value.to_string();
+    }
+
+    number
+        .as_f64()
+        .map(|value| ryu_js::Buffer::new().format(value).to_owned())
+        .unwrap_or_else(|| number.to_string())
 }
 
 pub(crate) fn value_kind(value: &Value) -> &'static str {
@@ -317,5 +331,28 @@ pub(crate) fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Array(_) => "list",
         Value::Object(_) => "object",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::value_to_string;
+
+    #[test]
+    fn formats_numbers_like_editor_text_templates() {
+        for (value, expected) in [
+            (json!(1), "1"),
+            (json!(1.0), "1"),
+            (json!(1.5), "1.5"),
+            (json!(-0.0), "0"),
+            (json!(-42.0), "-42"),
+            (json!(1e-7), "1e-7"),
+            (json!(1e20), "100000000000000000000"),
+            (json!(1e21), "1e+21"),
+        ] {
+            assert_eq!(value_to_string(&value), expected);
+        }
     }
 }

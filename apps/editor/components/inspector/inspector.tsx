@@ -69,6 +69,7 @@ import { KeyCaptureInput } from "./key-capture-input";
 import { KeyReferencePanel } from "./key-reference-panel";
 import { RuntimeDataPanel } from "./runtime-data-panel";
 import { VariableCodeInput, type VariableCompletion } from "./variable-code-input";
+import { VariableNameInput } from "./variable-name-input";
 
 type InspectorProps = {
 	activeTab: InspectorTab;
@@ -859,9 +860,10 @@ function VariableOperationConfigPanel({
 			/>
 			<p className="text-xs leading-4 text-baud-muted">{operationDefinition.description}</p>
 			<div>
-				<TextInput
+				<VariableNameInput
 					label="Variable name"
 					value={draftName}
+					variables={variableCompletions}
 					onChange={handleNameChange}
 					hasError={!!nameValidationMessage}
 				/>

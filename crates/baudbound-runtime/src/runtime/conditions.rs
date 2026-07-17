@@ -34,6 +34,15 @@ pub(crate) fn values_equal_for_condition(left: &Value, right: &Value) -> bool {
         return true;
     }
 
+    if (left.is_number() || right.is_number())
+        && let (Some(left), Some(right)) = (
+            number_from_value(Some(left)),
+            number_from_value(Some(right)),
+        )
+    {
+        return left == right;
+    }
+
     value_to_string(left) == value_to_string(right)
 }
 

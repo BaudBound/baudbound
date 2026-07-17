@@ -1,4 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
+import { conditionValuesEqual } from "@/data/nodes/condition-comparison";
 import { isConditionRow, isSwitchCaseRow } from "@/data/nodes/definitions/rows";
 import type { NodeSimulationApi } from "@/data/nodes/node-definition";
 import { numericContractApplies, validateNumericConfigValue } from "@/data/nodes/numeric-validation";
@@ -571,9 +572,11 @@ function evaluateIfNode(node: Node<ScriptNodeData>, context: SimulationContext) 
 }
 
 async function evaluateSwitchNode(node: Node<ScriptNodeData>, context: SimulationContext) {
-	const switchValue = String(resolveTemplate(getConfigString(node, "value"), context));
+	const switchValue = resolveTemplate(getConfigString(node, "value"), context);
 	const cases = Array.isArray(node.data.config.cases) ? node.data.config.cases.filter(isSwitchCaseRow) : [];
-	const matchedCase = cases.find((switchCase) => String(resolveTemplate(switchCase.value, context)) === switchValue);
+	const matchedCase = cases.find((switchCase) =>
+		conditionValuesEqual(switchValue, resolveTemplate(switchCase.value, context)),
+	);
 
 	if (!matchedCase) {
 		await pushStep(context, {
@@ -598,9 +601,9 @@ function compareValues(left: JsonValue, operator: string, right: JsonValue) {
 
 	switch (operator) {
 		case "==":
-			return leftText === rightText;
+			return conditionValuesEqual(left, right);
 		case "!=":
-			return leftText !== rightText;
+			return !conditionValuesEqual(left, right);
 		case ">":
 			return leftNumber > rightNumber;
 		case ">=":

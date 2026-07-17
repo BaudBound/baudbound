@@ -1,9 +1,3 @@
-import {
-  CircleCheckIcon,
-  InfoIcon,
-  Loader2Icon,
-  TriangleAlertIcon,
-} from "lucide-react";
 import type { CSSProperties } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
@@ -13,10 +7,10 @@ export function Toaster(props: ToasterProps) {
       className="toaster group"
       icons={{
         error: null,
-        info: <InfoIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
-        success: <CircleCheckIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
+        info: null,
+        loading: null,
+        success: null,
+        warning: null,
       }}
       style={
         {

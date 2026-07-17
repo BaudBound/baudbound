@@ -129,7 +129,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Configuration:** one or more condition rows with value, operator, optional inversion, target, and AND/OR combinator.
 - **Flow:** named `true` and `false` outputs.
 - **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, and null checks.
-- **Simulation/runtime:** values are resolved with their types before comparison. Inversion applies to one row before combinators.
+- **Simulation/runtime:** values are resolved with their types before comparison. A numeric variable or calculated result matches an equivalent numeric literal, so calculated `1.0` equals the literal `1`. Two text values still require exactly the same text. Inversion applies to one row before combinators.
 - **Example:** `{{status_code}} >= 400` routes errors to `true`.
 
 ### Color Match
@@ -150,7 +150,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `control.switch`. Capability `runtime.switch`. Low risk.
 - **Configuration:** variable-aware **Value** and ordered case rows with stable IDs, labels, and expected values.
 - **Flow:** one named output per case plus default behavior when no case matches.
-- **Runtime:** first typed-equal case wins.
+- **Runtime:** the first equal case wins. Numeric variables and calculated results match equivalent numeric literals even when their displayed formatting differs. Two text values still require exactly the same text.
 - **Example:** route `{{event_type}}` to `created`, `updated`, or default.
 
 ### Loop

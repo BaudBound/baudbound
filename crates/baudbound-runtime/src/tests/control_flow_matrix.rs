@@ -2,6 +2,83 @@ use serde_json::{Value, json};
 
 use crate::{execute_manual_program, runtime::compare_condition_values};
 
+#[derive(serde::Deserialize)]
+struct ConditionEqualityCase {
+    name: String,
+    left: Value,
+    right: Value,
+    expected: bool,
+}
+
+#[test]
+fn condition_equality_follows_the_shared_editor_parity_matrix() {
+    let cases: Vec<ConditionEqualityCase> = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baudbound-script/contracts/condition-equality-cases.json"
+    )))
+    .expect("condition equality contract should be valid JSON");
+
+    for case in cases {
+        assert_eq!(
+            compare_condition_values(&case.left, "==", &case.right),
+            Ok(case.expected),
+            "condition equality case {:?} produced an unexpected result",
+            case.name
+        );
+        assert_eq!(
+            compare_condition_values(&case.left, "!=", &case.right),
+            Ok(!case.expected),
+            "condition inequality case {:?} produced an unexpected result",
+            case.name
+        );
+    }
+}
+
+#[test]
+fn calculated_whole_number_matches_an_integer_condition_literal() {
+    let report = execute_manual_program(
+        &program(
+            vec![
+                json!({
+                    "id": "n-calculate",
+                    "action_type": "action.calculate",
+                    "type": "action",
+                    "config": {"expression": "3 % 2"},
+                    "runtime_outputs": []
+                }),
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{n-calculate.result}}",
+                            "operator": "==",
+                            "right": "1",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "numeric condition matched"),
+                log_node("n-false", "numeric condition did not match"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-calculate"),
+                edge("n-calculate", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "calculated-condition-equality",
+    )
+    .expect("calculated numeric condition should execute");
+
+    assert!(has_log(&report.logs, "numeric condition matched"));
+    assert!(!has_log(&report.logs, "numeric condition did not match"));
+}
+
 #[test]
 fn supports_every_exported_condition_operator() {
     let cases = [

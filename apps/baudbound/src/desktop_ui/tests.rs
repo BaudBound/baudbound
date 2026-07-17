@@ -31,13 +31,13 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         config_path: config_path.clone(),
         login_startup_registered: Mutex::new(None),
         runner_config: Mutex::new(runner_config.clone()),
-        core: Mutex::new(build_runner_core(
+        core: Arc::new(Mutex::new(build_runner_core(
             &runner_config,
             Arc::clone(&websocket_registry),
-        )),
+        ))),
         store,
         websocket_registry,
-        operation_lock: Mutex::new(()),
+        operation_lock: Arc::new(Mutex::new(())),
     };
     let app = test::mock_builder()
         .plugin(

@@ -33,6 +33,13 @@ const runnerKeyboardContractPath = join(
 	"windows-keyboard-keys.json",
 );
 const colorMatchCasesPath = join(repoRoot, "crates", "baudbound-script", "contracts", "color-match-cases.json");
+const conditionEqualityCasesPath = join(
+	repoRoot,
+	"crates",
+	"baudbound-script",
+	"contracts",
+	"condition-equality-cases.json",
+);
 
 test("Windows keyboard contract excludes unsupported macOS names and matches the generated runner contract", () => {
 	const editorContract = JSON.parse(read(editorKeyboardContractPath));
@@ -69,6 +76,19 @@ test("editor color matching follows the shared Rust parity matrix", async () => 
 		assert.ok(
 			Math.abs(evaluation.value.difference_percent - testCase.difference_percent) < 1e-12,
 			`${testCase.name}: ${evaluation.value.difference_percent}`,
+		);
+	}
+});
+
+test("editor condition equality follows the shared Rust parity matrix", async () => {
+	const { conditionValuesEqual } = await loadConditionComparison();
+	const cases = JSON.parse(read(conditionEqualityCasesPath));
+
+	for (const testCase of cases) {
+		assert.equal(
+			conditionValuesEqual(testCase.left, testCase.right),
+			testCase.expected,
+			`${testCase.name} produced an unexpected result`,
 		);
 	}
 });
@@ -823,6 +843,19 @@ function read(path) {
 async function loadColorMatcher() {
 	const typescript = await import("typescript");
 	const source = read(join(appRoot, "data", "nodes", "color-match.ts"));
+	const compiled = typescript.transpileModule(source, {
+		compilerOptions: {
+			module: typescript.ModuleKind.ESNext,
+			target: typescript.ScriptTarget.ES2022,
+		},
+	});
+	const moduleUrl = `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString("base64")}`;
+	return import(moduleUrl);
+}
+
+async function loadConditionComparison() {
+	const typescript = await import("typescript");
+	const source = read(join(appRoot, "data", "nodes", "condition-comparison.ts"));
 	const compiled = typescript.transpileModule(source, {
 		compilerOptions: {
 			module: typescript.ModuleKind.ESNext,

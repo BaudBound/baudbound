@@ -219,6 +219,7 @@ pub(crate) fn parse_hotkey(input: &str) -> Result<ParsedHotkey, String> {
     })
 }
 
+#[cfg(windows)]
 pub(crate) fn modifier_virtual_keys() -> Result<&'static BTreeMap<u32, u8>, String> {
     hotkey_catalog().map(|catalog| &catalog.modifier_virtual_keys)
 }
@@ -254,6 +255,7 @@ struct CatalogModifier {
 struct HotkeyCatalog {
     modifiers: Vec<CatalogModifier>,
     modifiers_by_alias: BTreeMap<String, CatalogModifier>,
+    #[cfg(windows)]
     modifier_virtual_keys: BTreeMap<u32, u8>,
     keys_by_alias: BTreeMap<String, ContractKey>,
 }
@@ -353,6 +355,7 @@ fn build_hotkey_catalog() -> Result<HotkeyCatalog, String> {
     Ok(HotkeyCatalog {
         modifiers,
         modifiers_by_alias,
+        #[cfg(windows)]
         modifier_virtual_keys,
         keys_by_alias,
     })
