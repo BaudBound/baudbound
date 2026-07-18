@@ -40,7 +40,29 @@ Open a terminal and run:
 curl -fsSL https://get.baudbound.app/linux | sh
 ```
 
-The Linux script requires `curl`, `jq`, and `sha256sum`. If `jq` is missing, the script stops and prints the command needed to install it on Debian, Ubuntu, Fedora, or Arch Linux. It installs the AppImage at `~/.local/opt/baudbound/BaudBound.AppImage` and creates the command `~/.local/bin/baudbound`.
+The command above uses `curl` to download the installer, so `curl` must already be available. If the terminal says that `curl` was not found, install it with the command for your distribution and then run the BaudBound installation command again.
+
+On Debian or Ubuntu, install `curl` with:
+
+```bash
+sudo apt install curl
+```
+
+On Fedora, install `curl` with:
+
+```bash
+sudo dnf install curl
+```
+
+On Arch Linux, install `curl` with:
+
+```bash
+sudo pacman -S --needed curl
+```
+
+After `curl` starts the installer, the script checks every other command it needs before it downloads the application or creates installation files. This includes `jq`, checksum tools, and standard file tools. If anything is missing, the script stops. It lists every missing command and shows the package installation command for Debian or Ubuntu, Fedora, and Arch Linux. Other distributions receive the package names needed for their package manager.
+
+After the dependency check passes, the script installs the AppImage at `~/.local/opt/baudbound/BaudBound.AppImage` and creates the command `~/.local/bin/baudbound`.
 
 Quit the desktop application or stop `baudbound serve` before updating. The script refuses to replace an AppImage that is still running.
 
@@ -66,51 +88,194 @@ The installer provides the desktop application. It does not guarantee that `baud
 
 #### Linux
 
-An AppImage is a portable executable. The steps below keep it in your home directory and create a `baudbound` command for your user account. They do not install a system package and do not require `sudo`.
+The AppImage contains both the BaudBound desktop application and its CLI. Starting it without a command opens the desktop application. Adding a command such as `--version` or `doctor` uses the CLI.
+
+The steps below install BaudBound only for your user account. They do not install a system package and do not require `sudo`.
+
+##### Install the AppImage
 
 1. Download the `.AppImage` from the latest published release on the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases).
-2. Open a terminal in the directory containing the download. Most browsers save it in `~/Downloads`.
-3. Confirm that only the new release matches the filename pattern:
 
-```text
-cd ~/Downloads
+2. Open a terminal. Move into the Downloads directory because this is where most browsers save the file:
+
+```bash
+cd "$HOME/Downloads"
+```
+
+3. List the downloaded BaudBound AppImage. This check helps you avoid copying an older release by mistake:
+
+```bash
 ls -1 BaudBound_*.AppImage
 ```
 
-If more than one file is printed, move the older AppImages elsewhere or use the exact new filename in the following `cp` command.
+Exactly one filename should be printed. If several files are printed, move the older files elsewhere or replace `BaudBound_*.AppImage` in the later copy command with the exact filename you want to install.
 
-4. Create the application and command directories, copy the AppImage, make it executable, and create the `baudbound` command:
+4. Create a permanent directory for the application:
 
-```text
+```bash
 mkdir -p "$HOME/.local/opt/baudbound"
-mkdir -p "$HOME/.local/bin"
+```
+
+5. Copy the downloaded AppImage into that directory. The destination has a stable name so updates can replace the same file later:
+
+```bash
 cp BaudBound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+```
+
+6. Give the AppImage permission to run:
+
+```bash
 chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+```
+
+##### Create the terminal command
+
+1. Create the standard per-user command directory:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+```
+
+2. Create a symbolic link named `baudbound`. This lets you type `baudbound` instead of the full AppImage path:
+
+```bash
 ln -sfn "$HOME/.local/opt/baudbound/BaudBound.AppImage" "$HOME/.local/bin/baudbound"
 ```
 
-The symbolic link gives the stable command `baudbound` while keeping the real AppImage at a stable, user-owned path. When an AppImage is launched through a symbolic link, its `APPIMAGE` environment variable resolves to the real file behind the link. Tauri's updater uses that resolved path, so it can replace `~/.local/opt/baudbound/BaudBound.AppImage` while the `baudbound` link remains unchanged. See the AppImage documentation for the [`APPIMAGE` and `ARGV0` behavior](https://docs.appimage.org/packaging-guide/environment-variables.html).
+The link remains unchanged when the AppImage is updated. Tauri's updater resolves the link to the real file and replaces `~/.local/opt/baudbound/BaudBound.AppImage`. See the AppImage documentation for the [`APPIMAGE` and `ARGV0` behavior](https://docs.appimage.org/packaging-guide/environment-variables.html).
 
-5. Check whether the shell can find it:
+3. Ask the shell where it finds the `baudbound` command:
 
-```text
+```bash
 command -v baudbound
 ```
 
-The command should print a path ending in `.local/bin/baudbound`. If it prints nothing, add the following line to `~/.profile`, then sign out and back in:
+The result should end with `.local/bin/baudbound`. If nothing is printed, add the following line to `~/.profile`. This tells new terminal sessions to search your per-user command directory:
 
-```text
+```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-6. Verify the version and open the application:
+Sign out and back in after changing `~/.profile`.
 
-```text
+4. Print the installed version. This confirms that the AppImage can start:
+
+```bash
 baudbound --version
+```
+
+##### Create the desktop launcher
+
+The following steps add BaudBound to the desktop application menu with its own icon. The launcher opens the graphical application without opening a terminal window.
+
+1. Create the directory where applications installed for your user keep their menu launchers:
+
+```bash
+mkdir -p "$HOME/.local/share/applications"
+```
+
+2. Create the directory where the BaudBound icon will be stored:
+
+```bash
+mkdir -p "$HOME/.local/share/icons/hicolor/128x128/apps"
+```
+
+3. Create a temporary directory for extracting the icon bundled inside the AppImage:
+
+```bash
+desktop_assets_dir="$(mktemp -d)"
+```
+
+4. Move into that temporary directory. This keeps the extracted application files out of your Downloads directory:
+
+```bash
+cd "$desktop_assets_dir"
+```
+
+5. Extract the files bundled in the AppImage. This does not start or reinstall BaudBound:
+
+```bash
+"$HOME/.local/opt/baudbound/BaudBound.AppImage" --appimage-extract >/dev/null
+```
+
+6. Copy the bundled application icon into your local icon directory:
+
+```bash
+cp -L "$desktop_assets_dir/squashfs-root/.DirIcon" "$HOME/.local/share/icons/hicolor/128x128/apps/baudbound.png"
+```
+
+7. Return to your Downloads directory before removing the temporary extraction directory:
+
+```bash
+cd "$HOME/Downloads"
+```
+
+8. Remove only the temporary files that were extracted in step 5:
+
+```bash
+rm -rf "$desktop_assets_dir"
+```
+
+9. Create the application menu launcher. This single command writes the launcher settings and expands `$HOME` to your real home directory:
+
+```bash
+cat > "$HOME/.local/share/applications/app.baudbound.runner.desktop" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=BaudBound
+Comment=Visual automation runner
+Exec=$HOME/.local/opt/baudbound/BaudBound.AppImage
+Icon=baudbound
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+EOF
+```
+
+`Terminal=false` tells the desktop environment to open only the BaudBound window. The launcher should appear in the application menu after a short delay. Sign out and back in if the menu does not refresh. You can pin BaudBound to the taskbar, dock, or favorites from that menu.
+
+##### Optional desktop icon
+
+Many Linux desktops do not show files or launchers directly on the desktop. Skip this section when your desktop does not support desktop icons. The application menu launcher created above will still work.
+
+1. Check whether `xdg-user-dir` is installed. This command finds the correct desktop directory even when it has a localized name:
+
+```bash
+command -v xdg-user-dir
+```
+
+If the command prints nothing, use the application menu launcher instead.
+
+2. Store the desktop directory path in a temporary shell variable:
+
+```bash
+desktop_dir="$(xdg-user-dir DESKTOP)"
+```
+
+3. Copy the application menu launcher onto the desktop:
+
+```bash
+cp "$HOME/.local/share/applications/app.baudbound.runner.desktop" "$desktop_dir/BaudBound.desktop"
+```
+
+4. Allow the copied desktop launcher to run:
+
+```bash
+chmod 0755 "$desktop_dir/BaudBound.desktop"
+```
+
+Some desktop environments show an **Allow Launching** action the first time you use a new desktop launcher. Choose that action if it appears.
+
+##### Open the desktop application
+
+Open the application menu and choose **BaudBound**. The Dashboard should open without a terminal window. You can also open it from a terminal with this command:
+
+```bash
 baudbound
 ```
 
-The final command should open the Dashboard.
+The terminal remains connected until you quit BaudBound when you start it this way. Use the application menu launcher for normal desktop use.
 
 If the AppImage reports a FUSE error, use the matching distribution tab in [Linux FUSE packages](#linux-fuse-packages). If `baudbound --version` works, no additional FUSE package is needed.
 
@@ -125,10 +290,15 @@ Use this section only when the AppImage reports a FUSE error.
 
 ### Debian and Ubuntu
 
-Update package metadata, then check which FUSE 2 runtime is available:
+Refresh the package information so `apt` knows which versions are currently available:
 
-```text
+```bash
 sudo apt update
+```
+
+Check which FUSE 2 runtime your distribution provides:
+
+```bash
 apt-cache policy libfuse2t64 libfuse2
 ```
 
@@ -182,11 +352,21 @@ The first launch creates the runner home and a default `config.toml` automatical
 
 Open **Doctor** in the desktop navigation. A successful check confirms that the configuration and runner storage are accessible and shows which native actions the current machine supports.
 
-These commands print the installed version, run diagnostics, and show the active configuration path:
+Print the installed version to confirm which release is running:
 
-```text
+```bash
 baudbound --version
+```
+
+Run the built-in checks for configuration, storage, and supported native features:
+
+```bash
 baudbound doctor
+```
+
+Print the configuration file path when you need to find or back up the active settings:
+
+```bash
 baudbound config path
 ```
 
@@ -233,10 +413,15 @@ Open the latest published release on the [BaudBound GitHub Releases page](https:
 
 **Option B: Terminal with curl**
 
-This option requires `curl` and `jq`. Confirm that both commands are installed:
+This option requires `curl` and `jq`. First, check that `curl` is installed. It downloads release information and the AppImage:
 
-```text
+```bash
 command -v curl
+```
+
+Check that `jq` is installed. It safely reads the AppImage URL from GitHub's structured release information:
+
+```bash
 command -v jq
 ```
 
@@ -244,15 +429,27 @@ Both commands must print a path. If either prints nothing, install that command 
 
 Fetch the AppImage URL from GitHub's latest published release and store it in `APPIMAGE_DOWNLOAD_URL`:
 
-```text
+```bash
 APPIMAGE_DOWNLOAD_URL="$(curl --fail --silent --show-error "https://api.github.com/repos/NATroutter/BaudBound/releases/latest" | jq -er '.assets | map(select(.name | endswith(".AppImage"))) | if length == 1 then .[0].browser_download_url else error("expected exactly one AppImage asset") end')"
+```
+
+Print the stored URL so you can confirm that it points to the official BaudBound GitHub release:
+
+```bash
 printf '%s\n' "$APPIMAGE_DOWNLOAD_URL"
 ```
 
-The printed URL must begin with `https://github.com/NATroutter/BaudBound/releases/download/` and end with `.AppImage`. Download that asset:
+The printed URL must begin with `https://github.com/NATroutter/BaudBound/releases/download/` and end with `.AppImage`.
 
-```text
+Create the Downloads directory if it does not already exist:
+
+```bash
 mkdir -p "$HOME/Downloads"
+```
+
+Download the AppImage to a predictable filename in that directory:
+
+```bash
 curl --fail --location --output "$HOME/Downloads/BaudBound.AppImage" "$APPIMAGE_DOWNLOAD_URL"
 ```
 
@@ -266,10 +463,15 @@ After completing either option, continue with step 4. Both options produce the s
 ls -lh "$HOME/Downloads/BaudBound.AppImage"
 ```
 
-5. Copy it over the currently installed AppImage and restore executable permissions:
+5. Copy the downloaded AppImage over the current installation:
 
-```text
+```bash
 cp "$HOME/Downloads/BaudBound.AppImage" "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+```
+
+Restore its executable permission because downloaded files may not keep that permission:
+
+```bash
 chmod 0755 "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 ```
 
