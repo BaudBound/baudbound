@@ -449,12 +449,13 @@ fn accept_next(host: &mut WebhookHost) {
 fn wait_for_host_completion(host: &mut WebhookHost, status: &mut ServeStatusTracker) {
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {
-        if host.poll(status) {
+        host.poll(status);
+        if !host.has_pending_execution() {
             return;
         }
         thread::sleep(Duration::from_millis(5));
     }
-    panic!("webhook execution did not complete before test deadline");
+    panic!("webhook executions did not complete before test deadline");
 }
 
 fn status_tracker() -> ServeStatusTracker {
