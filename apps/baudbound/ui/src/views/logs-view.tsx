@@ -8,6 +8,7 @@ import type { DashboardPayload } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
 
 type LogRow = {
+  actionType: string | null;
   level: string;
   message: string;
   nodeId: string | null;
@@ -43,11 +44,11 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
           <Input
             aria-label="Search logs"
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search message, script, node, run, or level"
+            placeholder="Search message, script, type, node, run, or level"
             value={searchTerm}
           />
         </CardHeader>
-        <CardContent className="p-0 max-[900px]:p-3">
+        <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
           {visibleRows.length === 0 ? (
             <div className="p-4">
               <EmptyState>No logs match the current search.</EmptyState>
@@ -60,6 +61,7 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
                   <th className="px-3 py-2">Level</th>
                   <th className="px-3 py-2">Script</th>
                   <th className="px-3 py-2">Node</th>
+                  <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Message</th>
                   <th className="px-3 py-2">Run</th>
                 </tr>
@@ -82,6 +84,12 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
                     </td>
                     <td className="px-3 py-3 font-mono text-xs" data-label="Node">
                       {row.nodeId ?? "runtime"}
+                    </td>
+                    <td
+                      className="px-3 py-3 font-mono text-xs text-muted-foreground"
+                      data-label="Type"
+                    >
+                      {row.actionType ?? "-"}
                     </td>
                     <td className="px-3 py-3 xl:max-w-[520px]" data-label="Message">
                       {row.message}
@@ -113,6 +121,7 @@ function logRows(dashboard: DashboardPayload): LogRow[] {
 
   return dashboard.recent_runs.flatMap((run) =>
     run.logs.map((log) => ({
+      actionType: log.action_type ?? null,
       level: log.level,
       message: log.message,
       nodeId: log.node_id ?? null,
@@ -128,6 +137,7 @@ function rowMatchesSearch(row: LogRow, searchTerm: string) {
   const query = searchTerm.trim().toLowerCase();
   if (!query) return true;
   return [
+    row.actionType ?? "",
     row.level,
     row.message,
     row.nodeId ?? "",

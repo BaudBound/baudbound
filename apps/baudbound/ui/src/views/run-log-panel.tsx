@@ -62,7 +62,7 @@ export function RunLogPanel({
         <Input
           aria-label="Search run logs"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search log message, node, or level"
+          placeholder="Search log message, type, node, or level"
           value={query}
         />
         <Select onValueChange={setLevelFilter} value={levelFilter}>
@@ -95,7 +95,7 @@ export function RunLogPanel({
         <EmptyState>No log entries match the current filters.</EmptyState>
       ) : (
         <div
-          className="max-h-[380px] overflow-auto rounded-md border border-border p-0 max-[900px]:border-0"
+          className="max-h-[380px] overflow-auto rounded-md border border-border p-0 max-[1280px]:border-0"
           ref={logViewportRef}
         >
           <table className="responsive-table w-full border-collapse text-sm">
@@ -105,6 +105,7 @@ export function RunLogPanel({
                 <th className="px-3 py-2">Time</th>
                 <th className="px-3 py-2">Level</th>
                 <th className="px-3 py-2">Node</th>
+                <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Message</th>
               </tr>
             </thead>
@@ -131,6 +132,12 @@ export function RunLogPanel({
                     data-label="Node"
                   >
                     {log.node_id ?? "-"}
+                  </td>
+                  <td
+                    className="px-3 py-2 font-mono text-xs text-muted-foreground"
+                    data-label="Type"
+                  >
+                    {log.action_type ?? "-"}
                   </td>
                   <td className="px-3 py-2" data-label="Message">
                     {log.message}

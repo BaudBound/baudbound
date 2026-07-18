@@ -338,6 +338,7 @@ mod tests {
         registry.log_emitted(
             &identity,
             &RuntimeLogEntry {
+                action_type: Some("action.log".to_owned()),
                 level: "info".to_owned(),
                 message: "running".to_owned(),
                 node_id: Some("n-log".to_owned()),
@@ -377,6 +378,7 @@ mod tests {
             registry.log_emitted(
                 &identity,
                 &RuntimeLogEntry {
+                    action_type: None,
                     level: "info".to_owned(),
                     message: index.to_string(),
                     node_id: None,
@@ -402,6 +404,7 @@ mod tests {
         registry.log_emitted(
             &identity,
             &RuntimeLogEntry {
+                action_type: None,
                 level: "info".to_owned(),
                 message: "running".to_owned(),
                 node_id: None,

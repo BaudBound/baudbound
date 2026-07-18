@@ -30,11 +30,15 @@ export function filterLogs(
     if (!query) {
       return true;
     }
-    return [log.level, log.node_id ?? "", log.message]
+    return [log.level, log.action_type ?? "", log.node_id ?? "", log.message]
       .join("\n")
       .toLowerCase()
       .includes(query);
   });
+}
+
+export function nodeActionType(logs: RunLogEntry[], nodeId: string) {
+  return logs.find((log) => log.node_id === nodeId && log.action_type)?.action_type ?? null;
 }
 
 export function runHasErrors(run: StoredRunRecord) {

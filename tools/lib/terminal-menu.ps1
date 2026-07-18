@@ -1,7 +1,8 @@
 function Select-TerminalMenu {
     param(
         [Parameter(Mandatory)][string]$Title,
-        [Parameter(Mandatory)][array]$Options
+        [Parameter(Mandatory)][array]$Options,
+        [string[]]$Details = @()
     )
 
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
@@ -21,6 +22,9 @@ function Select-TerminalMenu {
         while ($true) {
             [Console]::SetCursorPosition(0, $menuTop)
             Write-TerminalMenuLine $Title -Color Cyan
+            foreach ($detail in $Details) {
+                Write-TerminalMenuLine $detail -Color Red
+            }
             Write-TerminalMenuLine "Use Up/Down arrows and Enter. Press Escape to exit." -Color DarkGray
             Write-TerminalMenuLine "" -Color DarkGray
 

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import type { DashboardAction } from "@/lib/app-types";
 import type { DashboardPayload, StoredRunRecord } from "@/lib/runner-api";
-import { runStatusVariant, runSummary } from "@/lib/run-inspection";
+import { nodeActionType, runStatusVariant, runSummary } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 import { ActiveRunsPanel } from "@/views/active-runs-panel";
@@ -73,9 +73,9 @@ export function RunsView({
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       {dashboard.recent_runs.length > 0 ? (
-        <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        <div className="status-summary-grid grid min-w-0 gap-3">
           <StatusSummaryCard label="Total" value={dashboard.recent_runs.length} />
           <StatusSummaryCard
             label="Completed"
@@ -108,40 +108,41 @@ export function RunsView({
       {dashboard.recent_runs.length === 0 ? (
         <EmptyState>No run history has been recorded yet.</EmptyState>
       ) : (
-        <Card>
-            <CardHeader className="grid gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <CardTitle>Recent runs</CardTitle>
-                <div className="text-xs text-muted-foreground">
-                  Showing {visibleRuns.length} of {dashboard.recent_runs.length}
-                </div>
+        <Card className="min-w-0">
+          <CardHeader className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle>Recent runs</CardTitle>
+              <div className="text-xs text-muted-foreground">
+                Showing {visibleRuns.length} of {dashboard.recent_runs.length}
               </div>
-              <RunFilters
-                onScriptFilterChange={setScriptFilter}
-                onSearchTermChange={setSearchTerm}
-                onStatusFilterChange={setStatusFilter}
-                scriptFilter={scriptFilter}
-                scripts={dashboard.runner.scripts.map((script) => ({
-                  id: script.installed.id,
-                  name: script.installed.name,
-                }))}
-                searchTerm={searchTerm}
-                statusFilter={statusFilter}
-                statusOptions={statusOptions}
-              />
-            </CardHeader>
-            <CardContent className="p-0 max-[900px]:p-3">
-              {visibleRuns.length === 0 ? (
-                <div className="p-4">
-                  <EmptyState>No runs match the current filters.</EmptyState>
-                </div>
-              ) : (
-                <table className="responsive-table w-full border-collapse text-sm">
+            </div>
+            <RunFilters
+              onScriptFilterChange={setScriptFilter}
+              onSearchTermChange={setSearchTerm}
+              onStatusFilterChange={setStatusFilter}
+              scriptFilter={scriptFilter}
+              scripts={dashboard.runner.scripts.map((script) => ({
+                id: script.installed.id,
+                name: script.installed.name,
+              }))}
+              searchTerm={searchTerm}
+              statusFilter={statusFilter}
+              statusOptions={statusOptions}
+            />
+          </CardHeader>
+          <CardContent className="min-w-0 p-0 max-[1280px]:p-3">
+            {visibleRuns.length === 0 ? (
+              <div className="p-4">
+                <EmptyState>No runs match the current filters.</EmptyState>
+              </div>
+            ) : (
+              <table className="responsive-table w-full table-fixed border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                       <th className="px-3 py-2">Completed</th>
                       <th className="px-3 py-2">Script</th>
                       <th className="px-3 py-2">Trigger</th>
+                      <th className="px-3 py-2">Trigger type</th>
                       <th className="px-3 py-2">Status</th>
                       <th className="px-3 py-2">Run ID</th>
                       <th className="px-3 py-2">Recent log</th>
@@ -161,7 +162,7 @@ export function RunsView({
                           />
                           {expanded ? (
                             <tr className="border-b border-border bg-background/40">
-                              <td className="p-3" colSpan={6} data-label="">
+                              <td className="p-3" colSpan={7} data-label="">
                                 <RunDetailPanel run={run} scriptName={scriptName} />
                               </td>
                             </tr>
@@ -170,9 +171,9 @@ export function RunsView({
                       );
                     })}
                   </tbody>
-                </table>
-              )}
-            </CardContent>
+              </table>
+            )}
+          </CardContent>
         </Card>
       )}
     </div>
@@ -273,21 +274,33 @@ function RunRow({
       <td className="px-3 py-3" data-label="Script">
         <div className="font-medium">{scriptName}</div>
         {scriptName !== run.script_id ? (
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">{run.script_id}</div>
+          <div className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
+            {run.script_id}
+          </div>
         ) : null}
       </td>
       <td className="px-3 py-3" data-label="Trigger">
-        {run.trigger_node_id}
+        <span className="break-all">{run.trigger_node_id}</span>
+      </td>
+      <td
+        className="px-3 py-3 font-mono text-xs text-muted-foreground"
+        data-label="Trigger type"
+      >
+        <span className="break-all">
+          {nodeActionType(run.logs, run.trigger_node_id) ?? "-"}
+        </span>
       </td>
       <td className="px-3 py-3" data-label="Status">
         <Badge variant={runStatusVariant(run.status)}>{run.status}</Badge>
       </td>
       <td className="px-3 py-3" data-label="Run ID">
-        <span className="font-mono text-xs text-muted-foreground">{run.run_id}</span>
+        <span className="break-all font-mono text-xs text-muted-foreground">
+          {run.run_id}
+        </span>
       </td>
       <td className="max-w-[360px] px-3 py-3" data-label="Recent log">
         {lastLog ? (
-          <div>
+          <div className="break-words">
             <span className="text-muted-foreground">[{lastLog.level}] </span>
             {lastLog.node_id ? (
               <span className="text-muted-foreground">[{lastLog.node_id}] </span>
@@ -311,7 +324,12 @@ function runMatchesSearch(run: StoredRunRecord, scriptName: string, searchTerm: 
     scriptName,
     run.status,
     run.trigger_node_id,
-    ...run.logs.flatMap((log) => [log.level, log.node_id ?? "", log.message]),
+    ...run.logs.flatMap((log) => [
+      log.level,
+      log.action_type ?? "",
+      log.node_id ?? "",
+      log.message,
+    ]),
   ]
     .join("\n")
     .toLowerCase();

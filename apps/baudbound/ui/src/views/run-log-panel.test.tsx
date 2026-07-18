@@ -10,12 +10,14 @@ import { RunLogPanel } from "@/views/run-log-panel";
 
 const logs: RunLogEntry[] = [
   {
+    action_type: "action.beep",
     level: "info",
     message: "first action",
     node_id: "n-first",
     timestamp_unix_ms: Date.UTC(2026, 6, 17, 8, 15, 0),
   },
   {
+    action_type: "action.log",
     level: "info",
     message: "second action",
     node_id: "n-second",
@@ -46,6 +48,8 @@ describe("RunLogPanel", () => {
       );
       expect(markup).toContain("first action");
       expect(markup).toContain("second action");
+      expect(markup).toContain("action.beep");
+      expect(markup).toContain("action.log");
     },
   );
 });

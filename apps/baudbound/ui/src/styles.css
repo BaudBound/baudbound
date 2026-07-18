@@ -110,7 +110,11 @@ select {
   background: transparent;
 }
 
-@media (max-width: 900px) {
+.status-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+@media (max-width: 1280px) {
   .responsive-table {
     display: block;
   }

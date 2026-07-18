@@ -123,6 +123,8 @@ pub struct ScriptApproval {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RunLogEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<String>,
     pub level: String,
     pub message: String,
     #[serde(default)]

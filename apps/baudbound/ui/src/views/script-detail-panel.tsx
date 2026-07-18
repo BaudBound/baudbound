@@ -83,7 +83,7 @@ export function ScriptDetailPanel({
           {script.triggers.length === 0 ? (
             <p className="text-sm text-muted-foreground">No active trigger registrations.</p>
           ) : (
-            <div className="rounded-md border border-border p-0 max-[900px]:border-0 max-[900px]:p-0">
+            <div className="overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -117,7 +117,7 @@ export function ScriptDetailPanel({
           {scriptRuns.length === 0 ? (
             <EmptyState>No recent runs for this script.</EmptyState>
           ) : (
-            <div className="rounded-md border border-border p-0 max-[900px]:border-0 max-[900px]:p-0">
+            <div className="overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">

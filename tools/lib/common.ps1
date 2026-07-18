@@ -66,13 +66,26 @@ function Get-WorkflowRun {
         [Parameter(Mandatory)][string]$Workflow,
         [Parameter(Mandatory)][string]$Commit
     )
-    $json = Invoke-ExternalCapture "gh" @(
-        "run", "list", "--workflow", $Workflow, "--commit", $Commit,
-        "--limit", "10", "--json", "databaseId,status,conclusion,headSha,createdAt,url"
-    )
-    $runs = @($json | ConvertFrom-Json)
+    $runs = Get-WorkflowRuns -Workflow $Workflow -Commit $Commit -Limit 10
     if ($runs.Count -eq 0) {
         throw "No '$Workflow' run was found for commit $Commit."
     }
     return $runs[0]
+}
+
+function Get-WorkflowRuns {
+    param(
+        [Parameter(Mandatory)][string]$Workflow,
+        [Parameter(Mandatory)][string]$Commit,
+        [ValidateRange(1, 100)][int]$Limit = 20
+    )
+    $json = Invoke-ExternalCapture "gh" @(
+        "run", "list", "--workflow", $Workflow, "--commit", $Commit,
+        "--limit", [string]$Limit,
+        "--json", "databaseId,status,conclusion,headBranch,headSha,createdAt,url"
+    )
+    if (-not $json) {
+        return @()
+    }
+    return @($json | ConvertFrom-Json)
 }

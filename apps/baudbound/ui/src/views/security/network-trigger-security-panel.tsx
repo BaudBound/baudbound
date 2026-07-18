@@ -53,9 +53,9 @@ export function NetworkTriggerSecurityPanel({
           {rows.length} network trigger{rows.length === 1 ? "" : "s"}
         </Badge>
       </CardHeader>
-      <CardContent className="p-0 max-[900px]:p-3">
+      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
-          <div className="p-3 text-sm text-muted-foreground max-[900px]:p-0">
+          <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No installed scripts use Webhook or WebSocket triggers.
           </div>
         ) : (

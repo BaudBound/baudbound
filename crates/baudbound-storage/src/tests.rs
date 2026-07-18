@@ -798,6 +798,7 @@ fn test_run_record(run_id: &str, script_id: &str, completed_at_unix: u64) -> Sto
     StoredRunRecord {
         completed_at_unix,
         logs: vec![RunLogEntry {
+            action_type: None,
             level: "info".to_owned(),
             message: format!("{run_id} completed"),
             node_id: None,

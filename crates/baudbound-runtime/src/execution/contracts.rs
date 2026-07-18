@@ -55,6 +55,8 @@ pub struct RuntimeContext {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuntimeLogEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<String>,
     pub level: String,
     pub message: String,
     pub node_id: Option<String>,

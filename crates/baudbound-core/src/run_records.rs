@@ -13,6 +13,7 @@ pub(crate) fn stored_run_record_from_report(report: &RunReport) -> StoredRunReco
             .logs
             .iter()
             .map(|log| RunLogEntry {
+                action_type: log.action_type.clone(),
                 level: log.level.clone(),
                 message: log.message.clone(),
                 node_id: log.node_id.clone(),
@@ -82,6 +83,7 @@ fn terminal_run_record(
     StoredRunRecord {
         completed_at_unix: current_unix_timestamp(),
         logs: vec![RunLogEntry {
+            action_type: None,
             level: level.to_owned(),
             message,
             node_id: None,

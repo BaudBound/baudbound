@@ -17,7 +17,7 @@ platform acceptance testing, and publication as explicit operator decisions.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = "High")]
 param(
-    [ValidateSet("Verify", "Tag", "Watch", "Inspect", "Publish")]
+    [ValidateSet("Verify", "Tag", "Watch", "Retry", "Inspect", "Publish", "Remove")]
     [string]$Action,
 
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')]
@@ -28,7 +28,8 @@ param(
 
     [string]$DownloadDirectory,
     [switch]$ConfirmTag,
-    [switch]$ConfirmPublish
+    [switch]$ConfirmPublish,
+    [switch]$ConfirmRemoveDraft
 )
 
 Set-StrictMode -Version Latest
@@ -67,6 +68,8 @@ if ($interactiveSelection) {
         $ConfirmTag = $true
     } elseif ($Action -eq "Publish") {
         $ConfirmPublish = $true
+    } elseif ($Action -eq "Remove") {
+        $ConfirmRemoveDraft = $true
     }
 }
 
@@ -77,12 +80,40 @@ try {
     }
     Assert-Repository
 
-    switch ($Action) {
-        "Verify" { Invoke-QualityGate }
-        "Tag" { New-ReleaseTag }
-        "Watch" { Watch-ReleaseWorkflow }
-        "Inspect" { Inspect-DraftRelease }
-        "Publish" { Publish-Release }
+    $resumeAction = $null
+    while ($true) {
+        try {
+            switch ($Action) {
+                "Verify" { Invoke-QualityGate }
+                "Tag" { New-ReleaseTag }
+                "Watch" { Watch-ReleaseWorkflow }
+                "Retry" { Retry-ReleaseProcess }
+                "Inspect" { Inspect-DraftRelease }
+                "Publish" { Publish-Release }
+                "Remove" { Remove-DraftReleaseAndTag }
+            }
+            if ($resumeAction) {
+                $Action = $resumeAction
+                $resumeAction = $null
+                continue
+            }
+            break
+        } catch {
+            if (-not $interactiveSelection) {
+                throw
+            }
+            $failureAction = Select-ReleaseFailureAction -Action $Action -Message $_.Exception.Message
+            if ($failureAction -eq "RetryOperation") {
+                continue
+            }
+            if ($failureAction -eq "RetryWorkflow") {
+                $resumeAction = $Action
+                $Action = "Retry"
+                continue
+            }
+            Write-Warning "Release operation stopped. Completed steps were left unchanged."
+            break
+        }
     }
 } finally {
     Pop-Location

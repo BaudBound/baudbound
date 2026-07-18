@@ -312,7 +312,7 @@ export function App() {
           </div>
         ) : null}
 
-        <section className="min-h-0 flex-1 overflow-auto p-5 max-md:p-3">
+        <section className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-5 max-md:p-3">
           {!dashboard ? (
             <DashboardLoadState
               error={dashboardLoadError}

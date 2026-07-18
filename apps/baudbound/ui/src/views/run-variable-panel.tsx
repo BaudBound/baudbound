@@ -51,7 +51,7 @@ export function RunVariablePanel({
       {visibleRows.length === 0 ? (
         <EmptyState>No variables match the current search.</EmptyState>
       ) : (
-        <div className="max-h-[420px] overflow-auto rounded-md border border-border p-0 max-[900px]:border-0">
+        <div className="max-h-[420px] overflow-auto rounded-md border border-border p-0 max-[1280px]:border-0">
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">

@@ -64,6 +64,8 @@ After `curl` starts the installer, the script checks every other command it need
 
 After the dependency check passes, the script installs the AppImage at `~/.local/opt/baudbound/BaudBound.AppImage` and creates the command `~/.local/bin/baudbound`.
 
+The installer then asks `Create a desktop application launcher? [Y/n]`. Press Enter or type `y` to add BaudBound to the application menu with its icon. Type `n` when you only want the terminal command. The application itself is the same in both cases.
+
 Quit the desktop application or stop `baudbound serve` before updating. The script refuses to replace an AppImage that is still running.
 
 ## Manual installation

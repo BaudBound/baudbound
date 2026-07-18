@@ -39,9 +39,9 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
         </div>
         <Badge variant="muted">{rows.length}</Badge>
       </CardHeader>
-      <CardContent className="p-0 max-[900px]:p-3">
+      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
-          <div className="p-3 text-sm text-muted-foreground max-[900px]:p-0">
+          <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No trigger registrations are currently loaded.
           </div>
         ) : (

@@ -258,6 +258,7 @@ export type NativeDoctorCheck = {
 };
 
 export type RunLogEntry = {
+  action_type?: string | null;
   level: string;
   message: string;
   node_id?: string | null;

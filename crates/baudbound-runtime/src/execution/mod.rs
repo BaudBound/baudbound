@@ -124,7 +124,14 @@ impl<'a> RuntimeExecutor<'a> {
         message: impl Into<String>,
         node_id: Option<String>,
     ) {
+        let action_type = node_id.as_deref().and_then(|node_id| {
+            self.graph
+                .node(node_id)
+                .ok()
+                .map(|node| node.action_type.clone())
+        });
         let entry = RuntimeLogEntry {
+            action_type,
             level: level.to_owned(),
             message: message.into(),
             node_id,

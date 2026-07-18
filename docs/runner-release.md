@@ -67,6 +67,9 @@ The normal assisted release flow is:
 & $releaseTool -Action Tag -Version $version -ConfirmTag
 & $releaseTool -Action Watch -Version $version
 
+# Retry failed Runner CI or Runner Release workflow jobs:
+& $releaseTool -Action Retry -Version $version
+
 # After CI creates the draft release:
 & $releaseTool -Action Inspect -Version $version
 
@@ -74,7 +77,9 @@ The normal assisted release flow is:
 & $releaseTool -Action Publish -Version $version -ConfirmPublish
 ```
 
-`Tag` refuses to proceed unless the worktree is clean, the current branch is `master`, all versions agree, the tag is new, and Runner CI passed for the exact commit. `Publish` downloads and structurally validates the draft again, requires `-ConfirmPublish`, and still prompts before making the release public. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
+`Tag` refuses to proceed unless the worktree is clean, the current branch is `master`, all versions agree, the remote tag is new, and Runner CI passed for the exact commit. A failed tag push can be retried because the helper safely reuses a local tag only when it still points to the expected release commit. `Retry` reruns Runner CI before a tag exists or Runner Release after a tag exists, then watches the new attempt. `Publish` downloads and structurally validates the draft again, requires `-ConfirmPublish`, and still prompts before making the release public. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
+
+When an interactive operation fails, the helper shows recovery choices. You can retry the same operation, retry the GitHub release workflow, or exit without undoing completed steps.
 
 The remaining sections describe every operation in detail and provide the manual commands for recovery or auditing.
 
@@ -266,6 +271,12 @@ gh run watch $releaseRun --exit-status
 
 Do not rerun a deterministic compilation, test, version, or signing failure without fixing its cause.
 
+The helper detects whether the failure belongs to Runner CI or Runner Release, performs the recovery, and then watches the new attempt:
+
+```powershell
+& $releaseTool -Action Retry -Version $version
+```
+
 ## Inspect The Draft Release
 
 Confirm the release exists and remains a draft:
@@ -378,6 +389,17 @@ For releases after `2.0.0`, launch the previous installed desktop version and co
 5. the restarted application reports the new version.
 
 ## Failed Release And Rollback Rules
+
+An unpublished draft and its tag can be removed from the interactive menu. For direct invocation, run:
+
+```powershell
+& $releaseTool `
+  -Action Remove `
+  -Version $version `
+  -ConfirmRemoveDraft
+```
+
+The helper refuses to remove a published release. Interactive removal requires typing the exact tag before the normal PowerShell confirmation. It cancels active release workflow runs first, waits for them to stop, removes the draft and its assets, removes the remote tag, and then removes the local tag. The source commit remains on `master`.
 
 - Never move, recreate, or overwrite a tag after its release has been published.
 - Never replace an asset or signature in a published release.

@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { StoredRunRecord } from "@/lib/runner-api";
 import { runStatusVariant } from "@/lib/run-inspection";
-import { countLogsByLevel } from "@/lib/run-inspection";
+import { countLogsByLevel, nodeActionType } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunLogPanel } from "@/views/run-log-panel";
 import { RunVariablePanel } from "@/views/run-variable-panel";
@@ -32,6 +32,7 @@ export function RunDetailPanel({
                 ["Script", scriptName],
                 ["Script ID", run.script_id],
                 ["Trigger", run.trigger_node_id],
+                ["Trigger type", nodeActionType(run.logs, run.trigger_node_id) ?? "Unknown"],
                 ["Completed", formatUnixSeconds(run.completed_at_unix)],
               ]}
             />

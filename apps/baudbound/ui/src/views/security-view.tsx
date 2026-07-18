@@ -28,7 +28,7 @@ export function SecurityView({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div className="status-summary-grid grid min-w-0 gap-3">
         <StatusSummaryCard label="Installed" value={scripts.length} />
         <StatusSummaryCard label="Needs attention" tone="medium" value={attention.length} />
         <StatusSummaryCard
@@ -37,7 +37,8 @@ export function SecurityView({
           value={scripts.filter((script) => isApprovalCurrent(script.approval_status)).length}
         />
         <StatusSummaryCard
-          label="Unprotected network"
+          badgeLabel={unprotectedNetworkTriggers > 0 ? "Review" : "Protected"}
+          label="Unprotected"
           tone={unprotectedNetworkTriggers > 0 ? "destructive" : "good"}
           value={unprotectedNetworkTriggers}
         />
@@ -55,7 +56,7 @@ export function SecurityView({
           <CardHeader>
             <CardTitle>Script security review</CardTitle>
           </CardHeader>
-          <CardContent className="p-0 max-[900px]:p-3">
+          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">

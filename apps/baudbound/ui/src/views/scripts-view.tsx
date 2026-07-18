@@ -48,7 +48,7 @@ export function ScriptsView({
         <EmptyState>No scripts are installed.</EmptyState>
       ) : (
         <Card>
-          <CardContent className="p-0 max-[900px]:p-3">
+          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">

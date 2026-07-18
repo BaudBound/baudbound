@@ -3,11 +3,29 @@ function Select-ReleaseAction {
         [PSCustomObject]@{ Value = "Verify"; Label = "Verify release"; Description = "Run all local release quality gates." },
         [PSCustomObject]@{ Value = "Tag"; Label = "Create release tag"; Description = "Validate CI, then create and push the version tag." },
         [PSCustomObject]@{ Value = "Watch"; Label = "Watch release build"; Description = "Follow the tag-triggered GitHub release workflow." },
+        [PSCustomObject]@{ Value = "Retry"; Label = "Retry failed workflow"; Description = "Rerun failed Runner CI or release workflow jobs." },
         [PSCustomObject]@{ Value = "Inspect"; Label = "Inspect draft"; Description = "Download and validate draft release artifacts." },
         [PSCustomObject]@{ Value = "Publish"; Label = "Publish release"; Description = "Validate and publish the tested draft as latest." },
+        [PSCustomObject]@{ Value = "Remove"; Label = "Remove draft and tag"; Description = "Cancel active builds and remove an unpublished release tag." },
         [PSCustomObject]@{ Value = $null; Label = "Exit"; Description = "Close the release helper without making changes." }
     )
     return Select-TerminalMenu -Title "BaudBound runner release" -Options $options
+}
+
+function Select-ReleaseFailureAction {
+    param(
+        [Parameter(Mandatory)][string]$Action,
+        [Parameter(Mandatory)][string]$Message
+    )
+    $options = @(
+        [PSCustomObject]@{ Value = "RetryOperation"; Label = "Retry operation"; Description = "Run the failed $Action operation again." },
+        [PSCustomObject]@{ Value = "RetryWorkflow"; Label = "Retry failed workflow"; Description = "Rerun the failed GitHub workflow and resume this operation." },
+        [PSCustomObject]@{ Value = $null; Label = "Exit"; Description = "Leave the helper without changing completed work." }
+    )
+    return Select-TerminalMenu `
+        -Title "BaudBound release operation failed" `
+        -Details @("$Action failed", $Message) `
+        -Options $options
 }
 
 function Read-ReleaseVersion {

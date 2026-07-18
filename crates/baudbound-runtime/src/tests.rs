@@ -81,11 +81,24 @@ fn executes_manual_log_and_variable_operation() {
         report.variables.get("foo"),
         Some(&Value::String("bar".to_owned()))
     );
-    assert!(
+    assert!(report.logs.iter().any(|log| {
+        log.message == "foo=bar length=3"
+            && log.node_id.as_deref() == Some("n-log")
+            && log.action_type.as_deref() == Some("action.log")
+    }));
+    assert_eq!(
         report
             .logs
-            .iter()
-            .any(|log| log.message == "foo=bar length=3")
+            .first()
+            .and_then(|log| log.action_type.as_deref()),
+        Some("trigger.manual")
+    );
+    assert_eq!(
+        report
+            .logs
+            .last()
+            .and_then(|log| log.action_type.as_deref()),
+        None
     );
     assert!(report.logs.iter().all(|log| {
         log.timestamp_unix_ms >= started_at_unix_ms && log.timestamp_unix_ms <= completed_at_unix_ms
