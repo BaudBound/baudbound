@@ -16,9 +16,29 @@ function Invoke-External {
         [Parameter()][string[]]$Arguments = @()
     )
     Write-Host "  $Command $($Arguments -join ' ')" -ForegroundColor DarkGray
-    & $Command @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command '$Command $($Arguments -join ' ')' failed with exit code $LASTEXITCODE."
+    $recentOutput = [Collections.Generic.Queue[string]]::new()
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $Command @Arguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Host $line
+            $recentOutput.Enqueue($line)
+            if ($recentOutput.Count -gt 20) {
+                [void]$recentOutput.Dequeue()
+            }
+        }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        $details = if ($recentOutput.Count -gt 0) {
+            "`n" + ($recentOutput.ToArray() -join [Environment]::NewLine)
+        } else {
+            ""
+        }
+        throw "Command '$Command' failed with exit code $exitCode.$details"
     }
 }
 

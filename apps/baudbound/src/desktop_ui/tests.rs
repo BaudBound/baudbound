@@ -62,6 +62,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 
     let initial = invoke(&webview, "dashboard_state", json!({}));
     assert_eq!(initial["runner"]["total_script_count"], 0);
+    assert_eq!(initial["secret_storage_available"], false);
 
     let package_path = temporary_directory.path().join("desktop-workflow.bbs");
     fs::write(&package_path, create_test_package()).expect("test package should be written");

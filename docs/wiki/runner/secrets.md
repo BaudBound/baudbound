@@ -29,7 +29,15 @@ Values are scoped by stable script identity and secret name. Two scripts declari
 
 ## Desktop storage
 
-Desktop builds store the encryption key through the operating-system credential vault. Encrypted secret records are kept in runner durable storage. The UI and CLI never return secret plaintext in list or status responses.
+Windows desktop installations protect the encryption key through Windows Credential Manager.
+
+Linux desktop installations use the standard Secret Service interface. GNOME Keyring, KWallet, and other compatible credential managers can provide this interface. Follow [Linux encrypted secret storage](installation.md#linux-encrypted-secret-storage) before configuring production secrets.
+
+The credential service must be available in the same graphical user session as BaudBound. This matters when using VNC or another remote desktop session because it may not share the credential service started by a local login.
+
+When the credential vault is unavailable, BaudBound does not replace it with an unencrypted file. The desktop application continues without secret access, the Security page displays a warning, and scripts requiring secrets cannot resolve their values.
+
+Encrypted secret records are kept in runner durable storage. The UI and CLI never return secret plaintext in list or status responses.
 
 To configure a value in the desktop application, open **Security**, select the installed script, find the required secret, and choose its set or update action. Enter the value only into the secret prompt. The normal script details, runs, and logs do not display it.
 

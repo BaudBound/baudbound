@@ -138,6 +138,34 @@ Loopback accepts only local clients. A public bind is refused when a matching tr
 
 Use [Webhooks, WebSockets, and Network Access](network-listeners.md) for local request tests and exposure guidance.
 
+### Encrypted secret storage is unavailable
+
+Open the Security page and check whether BaudBound reports that encrypted secret storage is unavailable.
+
+On Linux, check Secret Service from the same terminal and graphical session used to launch BaudBound:
+
+```bash
+busctl --user list | grep org.freedesktop.secrets
+```
+
+A process ID means the service is running. A result containing only `activatable` means the provider is installed but did not start.
+
+Test the provider independently from BaudBound:
+
+```bash
+printf 'baudbound-test' | secret-tool store --label='BaudBound test' application baudbound-test
+```
+
+Remove the test value after a successful check:
+
+```bash
+secret-tool clear application baudbound-test
+```
+
+If the storage command fails, repair the desktop credential service before troubleshooting BaudBound. If it succeeds but BaudBound still reports unavailable storage, restart BaudBound from the same desktop session.
+
+VNC and other remote desktop sessions may require their own credential service startup configuration. Follow [Linux encrypted secret storage](installation.md#linux-encrypted-secret-storage) for installation and verification instructions.
+
 ### File or process action fails
 
 Log the resolved path or executable identifier without logging credentials. Check the runner account's permissions and working environment. Desktop-only actions require an active desktop target/session. Windows-title lookup modes are Windows Desktop-only. Use process-name or PID modes where documented on Linux.

@@ -10,9 +10,18 @@ function Get-ReleaseDownloadDirectory {
 }
 
 function Assert-ReleaseArtifacts {
-    param([Parameter(Mandatory)][string]$Directory)
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [Parameter(Mandatory)][string]$ReleaseAssetsPath
+    )
     $validator = Join-Path $script:RepositoryRoot "apps/baudbound/scripts/verify-release-assets.mjs"
-    Invoke-External "node" @($validator, $Directory, $script:Tag, "NATroutter/BaudBound")
+    Invoke-External "node" @(
+        $validator,
+        $Directory,
+        $script:Tag,
+        "NATroutter/BaudBound",
+        $ReleaseAssetsPath
+    )
 }
 
 function Inspect-DraftRelease {
@@ -41,7 +50,19 @@ function Inspect-DraftRelease {
 
     Write-Step "Downloading draft artifacts to $directory"
     Invoke-External "gh" @("release", "download", $script:Tag, "--dir", $directory)
-    Assert-ReleaseArtifacts -Directory $directory
+    $releaseAssetsPath = "$directory-release-assets.json"
+    try {
+        [IO.File]::WriteAllText(
+            $releaseAssetsPath,
+            $releaseJson,
+            [Text.UTF8Encoding]::new($false)
+        )
+        Assert-ReleaseArtifacts `
+            -Directory $directory `
+            -ReleaseAssetsPath $releaseAssetsPath
+    } finally {
+        Remove-Item -LiteralPath $releaseAssetsPath -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "`nDraft metadata and updater artifacts passed structural validation." -ForegroundColor Green
     Get-ChildItem -LiteralPath $directory -File | Sort-Object Name | Format-Table Name, Length

@@ -70,7 +70,16 @@ fn run(cli: Cli, command: Command) -> Result<()> {
     ));
     let core = core.with_action_handler(action_handler);
     let secret_cipher = if matches!(&command, Command::Ui { .. }) {
-        Some(secrets::desktop_secret_cipher()?)
+        match secrets::desktop_secret_cipher() {
+            Ok(cipher) => Some(cipher),
+            Err(error) => {
+                tracing::warn!(
+                    error = %format!("{error:#}"),
+                    "encrypted secret storage is unavailable; continuing without secret access"
+                );
+                None
+            }
+        }
     } else {
         secrets::headless_secret_cipher_from_environment()?
     };

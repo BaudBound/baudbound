@@ -23,7 +23,10 @@ function Select-TerminalMenu {
             [Console]::SetCursorPosition(0, $menuTop)
             Write-TerminalMenuLine $Title -Color Cyan
             foreach ($detail in $Details) {
-                Write-TerminalMenuLine $detail -Color Red
+                $detailWidth = [Math]::Max(1, [Console]::WindowWidth - 1)
+                foreach ($detailLine in (Split-TerminalMenuText -Text $detail -Width $detailWidth)) {
+                    Write-TerminalMenuLine $detailLine -Color Red
+                }
             }
             Write-TerminalMenuLine "Use Up/Down arrows and Enter. Press Escape to exit." -Color DarkGray
             Write-TerminalMenuLine "" -Color DarkGray
@@ -51,6 +54,28 @@ function Select-TerminalMenu {
     } finally {
         [Console]::CursorVisible = $originalCursorVisibility
     }
+}
+
+function Split-TerminalMenuText {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][ValidateRange(1, 1000)][int]$Width
+    )
+
+    $result = [Collections.Generic.List[string]]::new()
+    foreach ($logicalLine in ($Text -split "\r?\n")) {
+        $remaining = $logicalLine
+        while ($remaining.Length -gt $Width) {
+            $breakAt = $remaining.LastIndexOf(" ", $Width)
+            if ($breakAt -lt [Math]::Min(12, [Math]::Floor($Width / 3))) {
+                $breakAt = $Width
+            }
+            $result.Add($remaining.Substring(0, $breakAt).TrimEnd())
+            $remaining = $remaining.Substring($breakAt).TrimStart()
+        }
+        $result.Add($remaining)
+    }
+    return $result.ToArray()
 }
 
 function Write-TerminalMenuLine {

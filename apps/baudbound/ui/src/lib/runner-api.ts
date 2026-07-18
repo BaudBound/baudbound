@@ -309,6 +309,7 @@ export type DashboardPayload = {
   native_doctor_checks: NativeDoctorCheck[];
   recent_runs: StoredRunRecord[];
   runner: RunnerStatus;
+  secret_storage_available: boolean;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
   serial_devices: SerialDeviceStatus[];
   service_health: ServiceHealthDocument;

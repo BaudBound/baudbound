@@ -1,4 +1,4 @@
-import { KeyRound, LockKeyhole, Trash2 } from "lucide-react";
+import { KeyRound, LockKeyhole, TriangleAlert, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +67,19 @@ export function SecretManagementPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
+          {!dashboard.secret_storage_available ? (
+            <div className="flex gap-2 rounded-md border border-baud-amber/40 bg-baud-amber/5 p-3 text-sm text-baud-amber">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <div className="font-medium">Encrypted secret storage is unavailable</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  BaudBound could not access the operating system credential vault. Other runner
+                  features remain available, but scripts cannot read or save secrets until the
+                  vault is available.
+                </p>
+              </div>
+            </div>
+          ) : null}
           {scriptsWithSecrets.length === 0 ? (
             <div className="rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
               Installed scripts do not declare any secret references.
@@ -101,7 +114,9 @@ export function SecretManagementPanel({
                         </div>
                         <div className="flex flex-wrap justify-end gap-2 max-sm:justify-start">
                           <Button
-                            disabled={busyActions.has(setActionId)}
+                            disabled={
+                              !dashboard.secret_storage_available || busyActions.has(setActionId)
+                            }
                             size="sm"
                             variant="outline"
                             onClick={() => {
@@ -117,7 +132,10 @@ export function SecretManagementPanel({
                           </Button>
                           {secret.configured ? (
                             <Button
-                              disabled={busyActions.has(removeActionId)}
+                              disabled={
+                                !dashboard.secret_storage_available ||
+                                busyActions.has(removeActionId)
+                              }
                               size="sm"
                               variant="destructive"
                               onClick={() =>

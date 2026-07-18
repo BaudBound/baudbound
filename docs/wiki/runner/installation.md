@@ -11,6 +11,70 @@ BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is 
 
 Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
+## Linux encrypted secret storage
+
+BaudBound encrypts script secret values before storing them. On Linux, the desktop application requires a service that implements the standard Secret Service interface.
+
+Most GNOME desktop installations use GNOME Keyring. Other desktop environments may provide a compatible service through KWallet or another credential manager.
+
+The BaudBound installer does not install a credential manager automatically. The correct provider depends on the Linux desktop environment, and installing multiple providers can create conflicts.
+
+Without an available Secret Service, BaudBound can still open and run scripts that do not use secrets. The Security page reports that encrypted secret storage is unavailable. Scripts that require secrets cannot use those values until the service is available.
+
+### Install a Secret Service provider {.tabset}
+
+#### Debian and Ubuntu
+
+Install GNOME Keyring, its login integration, and the testing tool:
+
+```bash
+sudo apt install gnome-keyring libpam-gnome-keyring libsecret-tools
+```
+
+Restart the machine or sign out of the graphical desktop and sign back in. This allows the login session to start and unlock the credential vault.
+
+#### Fedora
+
+```bash
+sudo dnf install gnome-keyring libsecret
+```
+
+Restart the machine or sign out of the graphical desktop and sign back in.
+
+#### Arch Linux
+
+```bash
+sudo pacman -S gnome-keyring libsecret
+```
+
+Restart the machine or sign out of the graphical desktop and sign back in.
+
+### Verify the service
+
+Run this command from the same desktop session that will run BaudBound:
+
+```bash
+busctl --user list | grep org.freedesktop.secrets
+```
+
+A working service displays a process ID and the credential manager process. A result containing only `activatable` means the service is installed but is not currently running.
+
+You can test encrypted storage with:
+
+```bash
+printf 'baudbound-test' | secret-tool store --label='BaudBound test' application baudbound-test
+```
+
+Remove the test value afterward:
+
+```bash
+secret-tool clear application baudbound-test
+```
+
+Remote desktop and VNC sessions may have a separate desktop session. The Secret Service must be running inside the same user session as BaudBound. A credential vault that works during a local login might not automatically start inside a VNC session.
+
+Headless services do not use the desktop credential vault. They use the protected `BAUDBOUND_SECRET_KEY` environment value described in [Secrets](secrets.md).
+
 ## Automatic installation and updates
 
 These commands install BaudBound when it is missing and update it when an older version is installed. The downloaded release file is checked against the SHA-256 digest published by GitHub before it is opened or installed.
