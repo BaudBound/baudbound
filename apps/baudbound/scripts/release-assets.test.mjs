@@ -16,6 +16,47 @@ test("accepts matching Windows and Linux updater artifacts", (context) => {
   assert.equal(result.version, "2.0.0");
 });
 
+test("accepts Tauri GitHub API URLs that match release asset metadata", (context) => {
+  const releaseAssets = [];
+  const directory = createRelease(context, (manifest) => {
+    setApiUrl(manifest, releaseAssets, "windows-x86_64", 1001);
+    setApiUrl(manifest, releaseAssets, "linux-x86_64", 1002);
+  });
+  const result = validateReleaseAssets({
+    directory,
+    releaseAssets,
+    repository: REPOSITORY,
+    tag: TAG,
+  });
+
+  assert.deepEqual(result.platforms, ["linux-x86_64", "windows-x86_64"]);
+});
+
+test("rejects a Tauri API URL that is absent from release asset metadata", (context) => {
+  const directory = createRelease(context, (manifest) => {
+    manifest.platforms["linux-x86_64"].url = apiUrl(1002);
+  });
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, releaseAssets: [], repository: REPOSITORY, tag: TAG }),
+    /does not match an uploaded release asset/,
+  );
+});
+
+test("rejects a Tauri API URL for another repository", (context) => {
+  const releaseAssets = [];
+  const directory = createRelease(context, (manifest) => {
+    const url = "https://api.github.com/repos/another/project/releases/assets/1002";
+    manifest.platforms["linux-x86_64"].url = url;
+    releaseAssets.push({ apiUrl: url, name: "BaudBound_2.0.0_amd64.AppImage" });
+  });
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, releaseAssets, repository: REPOSITORY, tag: TAG }),
+    /API URL must target NATroutter\/BaudBound/,
+  );
+});
+
 test("rejects a manifest signature that differs from the uploaded signature", (context) => {
   const directory = createRelease(context, (manifest) => {
     manifest.platforms["windows-x86_64"].signature = "tampered";
@@ -81,6 +122,17 @@ function releaseEntry(asset, signature) {
     signature,
     url: `https://github.com/${REPOSITORY}/releases/download/${TAG}/${asset}`,
   };
+}
+
+function setApiUrl(manifest, releaseAssets, platform, assetId) {
+  const entry = manifest.platforms[platform];
+  const name = decodeURIComponent(entry.url.split("/").at(-1));
+  entry.url = apiUrl(assetId);
+  releaseAssets.push({ apiUrl: entry.url, name });
+}
+
+function apiUrl(assetId) {
+  return `https://api.github.com/repos/${REPOSITORY}/releases/assets/${assetId}`;
 }
 
 function write(directory, name, contents) {

@@ -3,9 +3,10 @@ import { basename, resolve } from "node:path";
 
 const SUPPORTED_PLATFORMS = ["windows", "linux"];
 
-export function validateReleaseAssets({ directory, repository, tag }) {
+export function validateReleaseAssets({ directory, releaseAssets = [], repository, tag }) {
   const version = validateInputs({ directory, repository, tag });
   const assets = readAssets(directory);
+  const releaseAssetsByApiUrl = indexReleaseAssets(releaseAssets);
   requireInstallers(assets, version);
 
   const manifest = readManifest(directory, assets);
@@ -29,6 +30,7 @@ export function validateReleaseAssets({ directory, repository, tag }) {
       entry: manifest.platforms[platformName],
       family,
       platformName,
+      releaseAssetsByApiUrl,
       repository,
       tag,
     });
@@ -86,7 +88,15 @@ function readManifest(directory, assets) {
   }
 }
 
-function validatePlatform({ assets, entry, family, platformName, repository, tag }) {
+function validatePlatform({
+  assets,
+  entry,
+  family,
+  platformName,
+  releaseAssetsByApiUrl,
+  repository,
+  tag,
+}) {
   assert(isRecord(entry), `updater platform ${platformName} must be an object`);
   assert(typeof entry.signature === "string" && entry.signature.trim(), `${platformName} signature is missing`);
 
@@ -98,11 +108,13 @@ function validatePlatform({ assets, entry, family, platformName, repository, tag
   }
 
   assert(url.protocol === "https:", `${platformName} URL must use HTTPS`);
-  assert(url.hostname === "github.com", `${platformName} URL must use github.com`);
-  const expectedPrefix = `/${repository}/releases/download/${tag}/`;
-  assert(url.pathname.startsWith(expectedPrefix), `${platformName} URL must target ${repository} release ${tag}`);
-
-  const assetName = decodeURIComponent(basename(url.pathname));
+  const assetName = resolveUpdaterAssetName({
+    platformName,
+    releaseAssetsByApiUrl,
+    repository,
+    tag,
+    url,
+  });
   assert(assets.has(assetName), `${platformName} URL points to missing asset ${assetName}`);
   assert(
     isUpdaterPayload(family, assetName),
@@ -113,6 +125,41 @@ function validatePlatform({ assets, entry, family, platformName, repository, tag
   assert(assets.has(signatureName), `${platformName} updater asset is missing ${signatureName}`);
   const signature = readFileSync(assets.get(signatureName), "utf8").trim();
   assert(signature === entry.signature.trim(), `${platformName} signature does not match ${signatureName}`);
+}
+
+function resolveUpdaterAssetName({ platformName, releaseAssetsByApiUrl, repository, tag, url }) {
+  if (url.hostname === "github.com") {
+    const expectedPrefix = `/${repository}/releases/download/${tag}/`;
+    assert(url.pathname.startsWith(expectedPrefix), `${platformName} URL must target ${repository} release ${tag}`);
+    return decodeURIComponent(basename(url.pathname));
+  }
+
+  if (url.hostname === "api.github.com") {
+    const expectedPath = new RegExp(`^/repos/${escapeRegExp(repository)}/releases/assets/\\d+$`);
+    assert(expectedPath.test(url.pathname), `${platformName} API URL must target ${repository}`);
+    const assetName = releaseAssetsByApiUrl.get(url.href);
+    assert(assetName, `${platformName} API URL does not match an uploaded release asset`);
+    return assetName;
+  }
+
+  throw new ReleaseAssetError(`${platformName} URL must use github.com or api.github.com`);
+}
+
+function indexReleaseAssets(releaseAssets) {
+  assert(Array.isArray(releaseAssets), "release asset metadata must be an array");
+  const byApiUrl = new Map();
+  for (const asset of releaseAssets) {
+    assert(isRecord(asset), "release asset metadata entry must be an object");
+    assert(typeof asset.name === "string" && asset.name.trim(), "release asset metadata name is missing");
+    assert(typeof asset.apiUrl === "string" && asset.apiUrl.trim(), "release asset metadata API URL is missing");
+    assert(!byApiUrl.has(asset.apiUrl), `release asset metadata repeats API URL ${asset.apiUrl}`);
+    byApiUrl.set(asset.apiUrl, asset.name);
+  }
+  return byApiUrl;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isUpdaterPayload(family, assetName) {

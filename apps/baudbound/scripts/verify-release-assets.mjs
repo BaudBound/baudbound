@@ -1,10 +1,19 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateReleaseAssets } from "./release-assets.mjs";
 
-const [directory, tag, repository = "NATroutter/BaudBound"] = process.argv.slice(2);
+const [directory, tag, repository = "NATroutter/BaudBound", releaseAssetsPath] = process.argv.slice(2);
 
 try {
-  const result = validateReleaseAssets({ directory: resolve(directory ?? ""), repository, tag });
+  const releaseAssets = releaseAssetsPath
+    ? JSON.parse(readFileSync(resolve(releaseAssetsPath), "utf8")).assets
+    : [];
+  const result = validateReleaseAssets({
+    directory: resolve(directory ?? ""),
+    releaseAssets,
+    repository,
+    tag,
+  });
   console.log(
     `Release ${tag} passed artifact validation for ${result.platforms.join(", ")} ` +
       `with ${result.assets.length} assets.`,

@@ -199,6 +199,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/baudbound-release"
           gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/baudbound-release"
+          gh release view "$GITHUB_REF_NAME" \
+            --json assets \
+            > "$RUNNER_TEMP/baudbound-release-assets.json"
 
       - name: Verify updater manifest and artifacts
         run: >-
@@ -206,3 +209,4 @@ jobs:
           "$RUNNER_TEMP/baudbound-release"
           "$GITHUB_REF_NAME"
           "NATroutter/BaudBound"
+          "$RUNNER_TEMP/baudbound-release-assets.json"
