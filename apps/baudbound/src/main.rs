@@ -1,4 +1,4 @@
-use std::{io::IsTerminal, sync::Arc};
+use std::{io::IsTerminal, process::ExitCode, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
@@ -11,6 +11,7 @@ use desktop_actions::SystemDesktopActionAdapter;
 mod cli;
 mod commands;
 mod desktop_actions;
+mod desktop_startup;
 mod desktop_ui;
 mod output;
 mod paths;
@@ -18,16 +19,34 @@ mod secrets;
 mod service;
 mod time_format;
 mod updates;
+mod windows_console;
 
 use cli::{Cli, Command};
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    let mut cli = Cli::parse();
+    let command = cli.command.take().unwrap_or_else(cli::default_command);
+    let desktop_launch = matches!(command, Command::Ui { .. });
+    windows_console::detach_for_desktop_release(&command);
+
+    match run(cli, command) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            if desktop_launch {
+                desktop_startup::report_error(&error);
+            } else {
+                eprintln!("Error: {error:#}");
+            }
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cli: Cli, command: Command) -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let cli = Cli::parse();
-    let command = cli.command.unwrap_or_else(cli::default_command);
     let runner_home = paths::default_runner_home();
     let config_path = cli
         .config
