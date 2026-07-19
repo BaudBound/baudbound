@@ -413,7 +413,6 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
     let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
-    let webhook_port = available_tcp_port();
     fs::write(
         &package_path,
         create_test_package("CLI Lifecycle", "reload-hook", "reload"),
@@ -426,7 +425,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
             "serve",
             "--webhooks",
             "--webhook-port",
-            &webhook_port.to_string(),
+            "0",
             "--reload-interval-seconds",
             "1",
         ],
@@ -466,7 +465,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     let webhook = service_row(&reloaded_status, "webhook");
     assert_eq!(webhook["active"], true);
     assert_eq!(webhook["registrations"], 1);
-    assert_eq!(webhook["target"], format!("127.0.0.1:{webhook_port}"));
+    assert_eq!(webhook["target"], "127.0.0.1:0");
 
     assert_success(run_baudbound(
         &runner_home,
@@ -566,14 +565,6 @@ fn spawn_baudbound<const N: usize>(runner_home: &Path, args: [&str; N]) -> Child
         .stderr(Stdio::piped())
         .spawn()
         .expect("baudbound command should spawn")
-}
-
-fn available_tcp_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("test should bind an ephemeral local port")
-        .local_addr()
-        .expect("test listener should have a local address")
-        .port()
 }
 
 fn wait_for_service_status(
