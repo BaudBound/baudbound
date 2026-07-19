@@ -412,24 +412,11 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
 fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
-    let package_path = temporary_directory.path().join("cli-lifecycle.bbs");
-    fs::write(
-        &package_path,
-        create_test_package("CLI Lifecycle", "reload-hook", "reload"),
-    )
-    .expect("test package should be written");
+    let package_path = temporary_directory.path().join("scheduled-log.bbs");
+    fs::write(&package_path, create_schedule_package())
+        .expect("schedule test package should be written");
 
-    let serve = spawn_baudbound(
-        &runner_home,
-        [
-            "serve",
-            "--webhooks",
-            "--webhook-port",
-            "0",
-            "--reload-interval-seconds",
-            "1",
-        ],
-    );
+    let serve = spawn_baudbound(&runner_home, ["serve", "--reload-interval-seconds", "1"]);
 
     let initial_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running"
@@ -456,20 +443,19 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "cli-lifecycle"],
+        ["script", "approve", "scheduled-log"],
     ));
 
     let reloaded_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 1
     });
-    let webhook = service_row(&reloaded_status, "webhook");
-    assert_eq!(webhook["active"], true);
-    assert_eq!(webhook["registrations"], 1);
-    assert_eq!(webhook["target"], "127.0.0.1:0");
+    let schedule = service_row(&reloaded_status, "schedule");
+    assert_eq!(schedule["active"], true);
+    assert_eq!(schedule["registrations"], 1);
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "disable", "cli-lifecycle"],
+        ["script", "disable", "scheduled-log"],
     ));
     let disabled_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 0
@@ -478,7 +464,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "enable", "cli-lifecycle"],
+        ["script", "enable", "scheduled-log"],
     ));
     wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 1
@@ -486,7 +472,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "revoke-approval", "cli-lifecycle"],
+        ["script", "revoke-approval", "scheduled-log"],
     ));
     let revoked_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 0
@@ -495,7 +481,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "cli-lifecycle"],
+        ["script", "approve", "scheduled-log"],
     ));
     let reapproved_status =
         wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
