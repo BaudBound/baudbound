@@ -35,6 +35,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell otherwise decodes piped native output with the active OEM code page.
+$previousConsoleInputEncoding = [Console]::InputEncoding
+$previousConsoleOutputEncoding = [Console]::OutputEncoding
+$previousOutputEncoding = $OutputEncoding
+$utf8Encoding = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8Encoding
+[Console]::OutputEncoding = $utf8Encoding
+$OutputEncoding = $utf8Encoding
+
 $script:RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:ReleaseWorkflow = "runner-release.yml"
 $script:CiWorkflow = "runner-ci.yml"
@@ -117,4 +126,7 @@ try {
     }
 } finally {
     Pop-Location
+    [Console]::InputEncoding = $previousConsoleInputEncoding
+    [Console]::OutputEncoding = $previousConsoleOutputEncoding
+    $OutputEncoding = $previousOutputEncoding
 }

@@ -42,6 +42,25 @@ function Invoke-External {
     }
 }
 
+function Invoke-ExternalInteractive {
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter()][string[]]$Arguments = @()
+    )
+    Write-Host "  $Command $($Arguments -join ' ')" -ForegroundColor DarkGray
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $Command @Arguments
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "Command '$Command $($Arguments -join ' ')' failed with exit code $exitCode."
+    }
+}
+
 function Invoke-ExternalCapture {
     param(
         [Parameter(Mandatory)][string]$Command,

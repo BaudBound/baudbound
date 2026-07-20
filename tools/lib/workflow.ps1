@@ -56,7 +56,7 @@ function Watch-ReleaseWorkflow {
     }
     Write-Step "Watching the Runner Release workflow"
     $run = Get-WorkflowRun -Workflow $script:ReleaseWorkflow -Commit $commit
-    Invoke-External "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+    Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
     Write-Host "`nRelease workflow passed. Inspect the draft before publishing." -ForegroundColor Green
 }
 
@@ -119,7 +119,7 @@ function Retry-WorkflowRun {
     $run = $Run
     if ($run.status -ne "completed") {
         Write-Step "$Name is $($run.status). Watching the existing run"
-        Invoke-External "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+        Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
         return
     }
     if ($run.conclusion -eq "success") {
@@ -133,7 +133,7 @@ function Retry-WorkflowRun {
     } else {
         Invoke-External "gh" @("run", "rerun", [string]$run.databaseId)
     }
-    Invoke-External "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+    Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
     Write-Host "`n$Name passed after retry." -ForegroundColor Green
 }
 
@@ -226,13 +226,6 @@ function Remove-DraftReleaseAndTag {
     if (-not $release -and -not $localTagExists -and -not $remoteTagExists) {
         throw "No draft release or tag named '$script:Tag' exists."
     }
-    if ($interactiveSelection) {
-        $typedTag = Read-Host "Type '$script:Tag' to confirm permanent draft and tag removal"
-        if ($typedTag -cne $script:Tag) {
-            throw "Draft removal confirmation did not match '$script:Tag'."
-        }
-    }
-
     if ($script:ReleaseCmdlet.ShouldProcess(
         "draft release and tag $script:Tag",
         "Cancel active release workflows and permanently remove the unpublished release"
