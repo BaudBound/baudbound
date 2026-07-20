@@ -19,13 +19,26 @@ function Select-ReleaseFailureAction {
     )
     $options = @(
         [PSCustomObject]@{ Value = "RetryOperation"; Label = "Retry operation"; Description = "Run the failed $Action operation again." },
-        [PSCustomObject]@{ Value = "RetryWorkflow"; Label = "Retry failed workflow"; Description = "Rerun the failed GitHub workflow and resume this operation." },
         [PSCustomObject]@{ Value = $null; Label = "Exit"; Description = "Leave the helper without changing completed work." }
     )
+    if (Test-ReleaseActionSupportsWorkflowRetry -Action $Action) {
+        $workflowRetry = [PSCustomObject]@{
+            Value = "RetryWorkflow"
+            Label = "Retry failed workflow"
+            Description = "Rerun the related GitHub workflow and resume this operation."
+        }
+        $options = @($options[0], $workflowRetry, $options[1])
+    }
     return Select-TerminalMenu `
         -Title "BaudBound release operation failed" `
         -Details @("$Action failed", $Message) `
         -Options $options
+}
+
+function Test-ReleaseActionSupportsWorkflowRetry {
+    param([Parameter(Mandatory)][string]$Action)
+
+    return $Action -in @("Tag", "Watch", "Inspect", "Publish")
 }
 
 function Read-ReleaseVersion {
@@ -33,7 +46,7 @@ function Read-ReleaseVersion {
 
     $configPath = Join-Path $RepositoryRoot "apps/baudbound/tauri.conf.json"
     $currentVersion = (Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json).version
-    $versionPattern = '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'
+    $versionPattern = '^\d+\.\d+\.\d+$'
 
     while ($true) {
         $value = Read-Host "Release version [$currentVersion]"

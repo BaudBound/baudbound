@@ -97,7 +97,11 @@ function Write-TerminalMenuLine {
 
     $availableWidth = [Math]::Max(1, [Console]::WindowWidth - 1)
     $visibleText = if ($Text.Length -gt $availableWidth) {
-        $Text.Substring(0, [Math]::Max(0, $availableWidth - 3)) + "..."
+        if ($availableWidth -le 3) {
+            "." * $availableWidth
+        } else {
+            $Text.Substring(0, $availableWidth - 3) + "..."
+        }
     } else {
         $Text
     }

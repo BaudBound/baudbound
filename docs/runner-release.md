@@ -63,7 +63,7 @@ The normal assisted release flow is:
 # After manually updating the three version files:
 & $releaseTool -Action Verify -Version $version
 
-# After reviewing, committing, pushing, and waiting for Runner CI:
+# After reviewing, committing, and pushing the release commit:
 & $releaseTool -Action Tag -Version $version -ConfirmTag
 & $releaseTool -Action Watch -Version $version
 
@@ -77,9 +77,9 @@ The normal assisted release flow is:
 & $releaseTool -Action Publish -Version $version -ConfirmPublish
 ```
 
-`Tag` refuses to proceed unless the worktree is clean, the current branch is `master`, all versions agree, the remote tag is new, and Runner CI passed for the exact commit. A failed tag push can be retried because the helper safely reuses a local tag only when it still points to the expected release commit. `Retry` reruns Runner CI before a tag exists or Runner Release after a tag exists, then watches the new attempt. `Publish` downloads and structurally validates the draft again, requires `-ConfirmPublish`, and still prompts before making the release public. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
+`Tag` refuses to proceed unless the worktree is clean, the current branch is `master`, all versions agree, and any existing remote tag points to the exact release commit. It also requires Runner CI to pass for that commit. When GitHub path filtering skipped Runner CI, the helper starts it with `workflow_dispatch` and waits for it. A failed tag push can be retried because the helper safely reuses a matching local or remote tag. `Retry` handles Runner CI until the tag reaches GitHub. After the remote tag exists, it handles Runner Release instead. `Publish` requires the release workflow to have passed, downloads the draft, and validates its structure again. Use `-Confirm:$false` only in a controlled non-interactive environment where the explicit confirmation switch has already been reviewed.
 
-When an interactive operation fails, the helper shows recovery choices. You can retry the same operation, retry the GitHub release workflow, or exit without undoing completed steps.
+When an interactive operation fails, the helper always lets you retry that operation or exit without undoing completed steps. Operations associated with GitHub Actions also offer a workflow retry. The helper waits for newly dispatched workflows to appear instead of failing during GitHub's short registration delay.
 
 The remaining sections describe every operation in detail and provide the manual commands for recovery or auditing.
 
@@ -212,6 +212,14 @@ Wait for the normal `Runner CI` workflow to pass before creating the tag. With G
 gh auth status
 gh run list --workflow runner-ci.yml --commit (git rev-parse HEAD)
 ```
+
+GitHub can skip Runner CI when the release commit only changes files outside the workflow path filters. In that case, start Runner CI manually for `master`:
+
+```powershell
+gh workflow run runner-ci.yml --ref master
+```
+
+The release helper performs this check and dispatch automatically.
 
 Open the matching run or watch it by ID:
 
@@ -399,7 +407,7 @@ An unpublished draft and its tag can be removed from the interactive menu. For d
   -ConfirmRemoveDraft
 ```
 
-The helper refuses to remove a published release. Interactive removal requires typing the exact tag before the normal PowerShell confirmation. It cancels active release workflow runs first, waits for them to stop, removes the draft and its assets, removes the remote tag, and then removes the local tag. The source commit remains on `master`.
+The helper refuses to remove a published release. PowerShell shows a confirmation before removal. The helper cancels active release workflow runs first, waits for them to stop, removes the draft and its assets, removes the remote tag, and then removes the local tag. The source commit remains on `master`.
 
 - Never move, recreate, or overwrite a tag after its release has been published.
 - Never replace an asset or signature in a published release.

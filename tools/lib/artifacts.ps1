@@ -19,13 +19,15 @@ function Assert-ReleaseArtifacts {
         $validator,
         $Directory,
         $script:Tag,
-        "NATroutter/BaudBound",
+        $script:Repository,
         $ReleaseAssetsPath
     )
 }
 
 function Inspect-DraftRelease {
     Require-Command "gh"
+    Write-Step "Checking the Runner Release workflow"
+    Assert-ReleaseWorkflowPassed | Out-Null
     Write-Step "Checking draft release metadata"
     $releaseJson = Invoke-ExternalCapture "gh" @(
         "release", "view", $script:Tag,
@@ -74,26 +76,49 @@ function Publish-Release {
     if (-not $ConfirmPublish) {
         throw "Publication requires -ConfirmPublish after Windows and Linux testing."
     }
-    Inspect-DraftRelease
-    if ($script:ReleaseCmdlet.ShouldProcess("GitHub release $script:Tag", "Publish and mark as latest")) {
+    Require-Command "gh"
+    $release = Get-GitHubRelease
+    if (-not $release) {
+        throw "Release '$script:Tag' does not exist."
+    }
+    if ($release.isPrerelease) {
+        throw "Release '$script:Tag' is unexpectedly marked as a prerelease."
+    }
+
+    if ($release.isDraft) {
+        Inspect-DraftRelease
+        if (-not $script:ReleaseCmdlet.ShouldProcess("GitHub release $script:Tag", "Publish and mark as latest")) {
+            return
+        }
         Write-Step "Publishing $script:Tag"
         Invoke-External "gh" @("release", "edit", $script:Tag, "--draft=false", "--latest")
-        $endpoint = "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json"
-        Write-Step "Verifying the public updater manifest"
-        $publicVersion = $null
-        for ($attempt = 1; $attempt -le 6; $attempt++) {
-            $publicVersion = (Invoke-RestMethod -Uri $endpoint).version
-            if ($publicVersion -eq $Version) {
-                break
-            }
-            if ($attempt -lt 6) {
-                Write-Host "  Attempt $attempt returned '$publicVersion'; retrying in 10 seconds."
-                Start-Sleep -Seconds 10
-            }
-        }
-        if ($publicVersion -ne $Version) {
-            throw "The public updater manifest reports '$publicVersion', expected '$Version'."
-        }
-        Write-Host "`nPublished $script:Tag and verified its updater manifest." -ForegroundColor Green
+    } else {
+        Write-Host "`nRelease $script:Tag is already public. Verifying the updater manifest again." -ForegroundColor Yellow
     }
+    Assert-PublicUpdaterManifest
+    Write-Host "`nPublished $script:Tag and verified its updater manifest." -ForegroundColor Green
+}
+
+function Assert-PublicUpdaterManifest {
+    $endpoint = "https://github.com/$script:Repository/releases/latest/download/latest.json"
+    Write-Step "Verifying the public updater manifest"
+    $publicVersion = $null
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        try {
+            $publicVersion = (Invoke-RestMethod -Uri $endpoint).version
+            $lastError = $null
+            if ($publicVersion -eq $Version) {
+                return
+            }
+            $lastError = "manifest reported '$publicVersion'"
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        if ($attempt -lt 6) {
+            Write-Host "  Attempt $attempt failed ($lastError). Retrying in 10 seconds."
+            Start-Sleep -Seconds 10
+        }
+    }
+    throw "The public updater manifest did not report '$Version' after 6 attempts. Last result: $lastError"
 }

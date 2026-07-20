@@ -15,6 +15,14 @@ function Invoke-QualityGate {
     Write-Step "Running Rust workspace tests"
     Invoke-External "cargo" @("test", "--workspace", "--locked")
 
+    Write-Step "Testing release artifact contracts"
+    $artifactTests = @(
+        Get-ChildItem "apps/baudbound/scripts" -Filter "*.test.mjs" |
+            Sort-Object Name |
+            ForEach-Object FullName
+    )
+    Invoke-External "node" (@("--test") + $artifactTests)
+
     Write-Step "Verifying editor schemas and contracts"
     Invoke-External "pnpm" @("--dir", "apps/editor", "schemas:check")
     Invoke-External "pnpm" @("--dir", "apps/editor", "test")
@@ -26,5 +34,5 @@ function Invoke-QualityGate {
     Write-Step "Checking the pending Git diff"
     Invoke-External "git" @("diff", "--check")
     Write-Host "`nLocal release gate passed for $script:Tag." -ForegroundColor Green
-    Write-Host "Commit and push the version changes, then wait for Runner CI before tagging."
+    Write-Host "Commit and push the release commit. The Tag operation will require Runner CI for that exact commit."
 }

@@ -20,7 +20,7 @@ param(
     [ValidateSet("Verify", "Tag", "Watch", "Retry", "Inspect", "Publish", "Remove")]
     [string]$Action,
 
-    [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')]
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
 
     [ValidateNotNullOrEmpty()]
@@ -47,6 +47,7 @@ $OutputEncoding = $utf8Encoding
 $script:RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:ReleaseWorkflow = "runner-release.yml"
 $script:CiWorkflow = "runner-ci.yml"
+$script:Repository = "NATroutter/BaudBound"
 $script:ReleaseCmdlet = $PSCmdlet
 
 $script:ReleaseToolLib = Join-Path $PSScriptRoot "lib"
@@ -84,10 +85,23 @@ if ($interactiveSelection) {
 
 Push-Location $script:RepositoryRoot
 try {
-    foreach ($command in @("git", "node")) {
+    $requiredCommands = @("git")
+    switch ($Action) {
+        "Verify" { $requiredCommands += @("node", "pnpm", "cargo") }
+        "Tag" { $requiredCommands += @("node", "gh") }
+        "Watch" { $requiredCommands += "gh" }
+        "Retry" { $requiredCommands += "gh" }
+        "Inspect" { $requiredCommands += @("node", "gh") }
+        "Publish" { $requiredCommands += @("node", "gh") }
+        "Remove" { $requiredCommands += "gh" }
+    }
+    foreach ($command in ($requiredCommands | Select-Object -Unique)) {
         Require-Command $command
     }
     Assert-Repository
+    if ($Action -ne "Verify") {
+        Assert-GitHubRepository
+    }
 
     $resumeAction = $null
     while ($true) {

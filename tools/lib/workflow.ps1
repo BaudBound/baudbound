@@ -7,16 +7,16 @@ function New-ReleaseTag {
     Assert-ReleaseBranch
     Assert-ReleaseVersion
 
-    Write-Step "Verifying local $ReleaseBranch matches origin/$ReleaseBranch"
-    Invoke-External "git" @("fetch", "--quiet", "origin", $ReleaseBranch)
     $localCommit = Invoke-ExternalCapture "git" @("rev-parse", "HEAD")
-    $remoteCommit = Invoke-ExternalCapture "git" @("rev-parse", "origin/$ReleaseBranch")
-    if ($localCommit -ne $remoteCommit) {
-        throw "Local HEAD $localCommit does not match origin/$ReleaseBranch $remoteCommit."
-    }
+    Assert-RemoteReleaseCommit -Commit $localCommit
 
-    if (Invoke-ExternalCapture "git" @("ls-remote", "--tags", "origin", "refs/tags/$script:Tag")) {
-        throw "Remote tag '$script:Tag' already exists. Use Watch or Retry instead of moving it."
+    $remoteTagCommit = Get-RemoteTagCommit
+    if ($remoteTagCommit) {
+        if ($remoteTagCommit -ne $localCommit) {
+            throw "Remote tag '$script:Tag' points to $remoteTagCommit instead of release commit $localCommit. Tags are never moved automatically."
+        }
+        Write-Host "`nRemote tag $script:Tag already points to the expected release commit. No push is needed." -ForegroundColor Green
+        return
     }
 
     $localTagExists = [bool](Invoke-ExternalCapture "git" @("tag", "--list", $script:Tag))
@@ -28,11 +28,8 @@ function New-ReleaseTag {
         Write-Step "Reusing local tag $script:Tag after an incomplete push"
     }
 
-    Write-Step "Checking Runner CI for $localCommit"
-    $run = Get-WorkflowRun -Workflow $script:CiWorkflow -Commit $localCommit
-    if ($run.status -ne "completed" -or $run.conclusion -ne "success") {
-        throw "Runner CI has not passed (status=$($run.status), conclusion=$($run.conclusion)). $($run.url)"
-    }
+    Ensure-RunnerCiPassed -Commit $localCommit | Out-Null
+    Assert-RemoteReleaseCommit -Commit $localCommit
 
     if ($script:ReleaseCmdlet.ShouldProcess("origin/$script:Tag", "Create and push the annotated release tag")) {
         if (-not $localTagExists) {
@@ -48,16 +45,66 @@ function New-ReleaseTag {
     }
 }
 
+function Assert-RemoteReleaseCommit {
+    param([Parameter(Mandatory)][string]$Commit)
+
+    Write-Step "Verifying release commit matches origin/$ReleaseBranch"
+    Invoke-External "git" @("fetch", "--quiet", "origin", $ReleaseBranch)
+    $remoteCommit = Invoke-ExternalCapture "git" @("rev-parse", "origin/$ReleaseBranch")
+    if ($Commit -ne $remoteCommit) {
+        throw "Release commit $Commit does not match origin/$ReleaseBranch $remoteCommit. Pull the current branch before continuing."
+    }
+}
+
 function Watch-ReleaseWorkflow {
     Require-Command "gh"
-    $commit = Invoke-ExternalCapture "git" @("rev-list", "-n", "1", $script:Tag)
-    if (-not $commit) {
-        throw "Tag '$script:Tag' is unavailable locally. Run 'git fetch --tags'."
-    }
+    $commit = Resolve-RemoteReleaseTagCommit
     Write-Step "Watching the Runner Release workflow"
-    $run = Get-WorkflowRun -Workflow $script:ReleaseWorkflow -Commit $commit
+    $run = Wait-WorkflowRun `
+        -Workflow $script:ReleaseWorkflow `
+        -Commit $commit `
+        -Predicate { param($Candidate) $Candidate.headBranch -eq $script:Tag }
     Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
     Write-Host "`nRelease workflow passed. Inspect the draft before publishing." -ForegroundColor Green
+}
+
+function Start-RunnerCiWorkflow {
+    param([Parameter(Mandatory)][string]$Commit)
+
+    Assert-RemoteReleaseCommit -Commit $Commit
+    Write-Step "Starting Runner CI for release commit $Commit"
+    Invoke-External "gh" @("workflow", "run", $script:CiWorkflow, "--ref", $ReleaseBranch)
+    return Wait-WorkflowRun `
+        -Workflow $script:CiWorkflow `
+        -Commit $Commit `
+        -Predicate { param($Candidate) $Candidate.event -eq "workflow_dispatch" }
+}
+
+function Ensure-RunnerCiPassed {
+    param([Parameter(Mandatory)][string]$Commit)
+
+    Write-Step "Checking Runner CI for $Commit"
+    $run = Wait-WorkflowRun `
+        -Workflow $script:CiWorkflow `
+        -Commit $Commit `
+        -MaxAttempts 5 `
+        -PollIntervalSeconds 3 `
+        -AllowMissing
+    if (-not $run) {
+        Write-Host "  No exact Runner CI run exists because GitHub may have skipped the push workflow."
+        $run = Start-RunnerCiWorkflow -Commit $Commit
+    }
+
+    if ($run.status -ne "completed") {
+        Write-Step "Runner CI is $($run.status). Watching run $($run.databaseId)"
+        Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+        $run = Get-WorkflowRunById -RunId $run.databaseId
+    }
+    if ($run.conclusion -ne "success") {
+        throw "Runner CI failed (conclusion=$($run.conclusion)). Retry run $($run.databaseId) before tagging. $($run.url)"
+    }
+    Write-Host "`nRunner CI passed for the exact release commit." -ForegroundColor Green
+    return $run
 }
 
 function Resolve-ReleaseTagCommit {
@@ -101,14 +148,30 @@ function Get-RemoteTagCommit {
     return $null
 }
 
-function Get-ReleaseWorkflowRun {
-    $commit = Resolve-ReleaseTagCommit
-    $runs = @(Get-WorkflowRuns -Workflow $script:ReleaseWorkflow -Commit $commit)
-    $tagRuns = @($runs | Where-Object { $_.headBranch -eq $script:Tag })
-    if ($tagRuns.Count -eq 0) {
-        throw "No Runner Release workflow was found for $script:Tag at commit $commit."
+function Resolve-RemoteReleaseTagCommit {
+    if (-not (Get-RemoteTagCommit)) {
+        throw "Tag '$script:Tag' has not been pushed to origin, so no Runner Release workflow can exist. Run the Tag operation first."
     }
-    return $tagRuns[0]
+    return Resolve-ReleaseTagCommit
+}
+
+function Get-ReleaseWorkflowRun {
+    $commit = Resolve-RemoteReleaseTagCommit
+    return Wait-WorkflowRun `
+        -Workflow $script:ReleaseWorkflow `
+        -Commit $commit `
+        -Predicate { param($Candidate) $Candidate.headBranch -eq $script:Tag }
+}
+
+function Assert-ReleaseWorkflowPassed {
+    $run = Get-ReleaseWorkflowRun
+    if ($run.status -ne "completed") {
+        throw "Runner Release is still $($run.status). Watch run $($run.databaseId) before inspecting artifacts. $($run.url)"
+    }
+    if ($run.conclusion -ne "success") {
+        throw "Runner Release failed (conclusion=$($run.conclusion)). Retry run $($run.databaseId) before inspecting artifacts. $($run.url)"
+    }
+    return $run
 }
 
 function Retry-WorkflowRun {
@@ -120,6 +183,7 @@ function Retry-WorkflowRun {
     if ($run.status -ne "completed") {
         Write-Step "$Name is $($run.status). Watching the existing run"
         Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+        Write-Host "`n$Name passed." -ForegroundColor Green
         return
     }
     if ($run.conclusion -eq "success") {
@@ -139,9 +203,8 @@ function Retry-WorkflowRun {
 
 function Retry-ReleaseProcess {
     Require-Command "gh"
-    $localTagExists = [bool](Invoke-ExternalCapture "git" @("tag", "--list", $script:Tag))
     $remoteTagExists = [bool](Get-RemoteTagCommit)
-    if ($localTagExists -or $remoteTagExists) {
+    if ($remoteTagExists) {
         $run = Get-ReleaseWorkflowRun
         Retry-WorkflowRun -Run $run -Name "Runner Release workflow"
         return
@@ -149,35 +212,36 @@ function Retry-ReleaseProcess {
 
     Assert-ReleaseBranch
     $commit = Invoke-ExternalCapture "git" @("rev-parse", "HEAD")
-    $run = Get-WorkflowRun -Workflow $script:CiWorkflow -Commit $commit
+    $run = Wait-WorkflowRun `
+        -Workflow $script:CiWorkflow `
+        -Commit $commit `
+        -MaxAttempts 5 `
+        -PollIntervalSeconds 3 `
+        -AllowMissing
+    if (-not $run) {
+        $run = Start-RunnerCiWorkflow -Commit $commit
+    }
     Retry-WorkflowRun -Run $run -Name "Runner CI workflow"
 }
 
-function Get-DraftRelease {
-    $arguments = @(
-        "release", "view", $script:Tag,
-        "--json", "tagName,name,isDraft,isPrerelease,url"
+function Get-GitHubRelease {
+    $json = Invoke-ExternalCapture "gh" @(
+        "release", "list", "--limit", "1000",
+        "--json", "tagName,name,isDraft,isPrerelease"
     )
-    Write-Host "  gh $($arguments -join ' ')" -ForegroundColor DarkGray
-    $previousErrorActionPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        $output = & gh @arguments 2>&1
-        $exitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-    $outputText = ($output -join [Environment]::NewLine).Trim()
-    if ($exitCode -ne 0) {
-        if ($outputText -eq "release not found") {
-            return $null
-        }
-        throw "Command 'gh $($arguments -join ' ')' failed with exit code $exitCode.`n$outputText"
-    }
-    if (-not $outputText) {
+    if (-not $json) {
         return $null
     }
-    return $outputText | ConvertFrom-Json
+    $matches = @(
+        ($json | ConvertFrom-Json) | Where-Object { $_.tagName -eq $script:Tag }
+    )
+    if ($matches.Count -eq 0) {
+        return $null
+    }
+    if ($matches.Count -gt 1) {
+        throw "GitHub returned more than one release named '$script:Tag'."
+    }
+    return $matches[0]
 }
 
 function Wait-WorkflowCancellation {
@@ -195,6 +259,11 @@ function Wait-WorkflowCancellation {
 }
 
 function Stop-ActiveReleaseWorkflows {
+    $localTagExists = [bool](Invoke-ExternalCapture "git" @("tag", "--list", $script:Tag))
+    $remoteTagExists = [bool](Get-RemoteTagCommit)
+    if (-not $localTagExists -and -not $remoteTagExists) {
+        return
+    }
     $commit = Resolve-ReleaseTagCommit
     $runs = @(Get-WorkflowRuns -Workflow $script:ReleaseWorkflow -Commit $commit)
     $activeRuns = @(
@@ -217,7 +286,7 @@ function Remove-DraftReleaseAndTag {
     }
     Require-Command "gh"
 
-    $release = Get-DraftRelease
+    $release = Get-GitHubRelease
     if ($release -and -not $release.isDraft) {
         throw "Release '$script:Tag' is published. Published releases and tags cannot be removed by this helper."
     }
@@ -243,7 +312,7 @@ function Remove-DraftReleaseAndTag {
             Write-Step "Removing remote tag $script:Tag"
             Invoke-External "git" @("push", "origin", "--delete", $script:Tag)
         }
-        if (Get-DraftRelease) {
+        if (Get-GitHubRelease) {
             throw "GitHub still reports release '$script:Tag' after deletion. The local tag was preserved."
         }
         if (Get-RemoteTagCommit) {
