@@ -66,7 +66,7 @@ fn run(cli: Cli, command: Command) -> Result<()> {
         .with_websocket_sink(Arc::clone(&websocket_registry));
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
-        SystemDesktopActionAdapter,
+        SystemDesktopActionAdapter::default(),
     ));
     let core = core.with_action_handler(action_handler);
     let secret_cipher = if matches!(&command, Command::Ui { .. }) {

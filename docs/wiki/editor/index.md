@@ -77,7 +77,7 @@ Use `Ctrl+Z` to undo and `Ctrl+Y` or `Ctrl+Shift+Z` to redo project changes. Use
 
 Canvas context menus apply to the object under the pointer. `Escape` closes an open canvas menu.
 
-Hotkey and Keyboard node fields use a key-capture control. Focus that control before pressing the intended combination. Ordinary editor shortcuts are suppressed while an editable field has focus, preventing a captured `Ctrl+C` from copying a node. Both nodes use the exact Windows names documented in the [node key reference](node-reference.md#supported-windows-node-keys).
+Hotkey and Keyboard node fields use a key-capture control. Focus that control before pressing the intended combination. Ordinary editor shortcuts are suppressed while an editable field has focus, preventing a captured `Ctrl+C` from copying a node. Both nodes use the exact Windows names documented in the [node key reference](node-reference.md#supported-windows-node-keys). The Keyboard node can perform a normal press, hold keys down, or release keys held by the current run.
 
 ## Comments
 

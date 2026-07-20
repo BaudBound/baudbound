@@ -405,11 +405,21 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### Keyboard
 
 - **Action type:** `action.keyboard`. Capability `action.keyboard`. Permission `keyboard_control`. High risk. Windows Desktop only. Fallible.
-- **Configuration:** one or more distinct supported keys captured by the editor or added with the key-reference buttons. Separate chord members with `+`, for example `G`, `F1`, `K+L`, or `Ctrl+Shift+S`.
+- **Configuration:** choose an input action and one or more distinct supported keys. The editor can capture the keys or add them with the key reference buttons. Separate chord members with `+`, for example `G`, `F1`, `K+L`, or `Ctrl+Shift+S`.
 - **Supported keys:** uses the same [Supported Windows node keys](#supported-windows-node-keys) as the Hotkey trigger. Unsupported names are rejected instead of being guessed.
 - **Platform:** Windows Desktop only.
-- **Output:** sent key/status or error.
+- **Output:** the normalized key expression, the performed input action, or an error.
 - **Review:** ensure the intended application has focus. Use Type Text for words and arbitrary text.
+
+The input action controls what happens to every key in the configured chord.
+
+| Input action | Behavior |
+| --- | --- |
+| Press and release | Performs a normal key press. Modifier keys are pressed first, the final key is pressed and released, then the modifiers are released. |
+| Press down | Holds every configured key. A later Keyboard node can release the same keys. |
+| Release | Releases only keys held by the current run. Using Release without a matching Press down is safe and does nothing. |
+
+Held keys belong to the run that pressed them. The runner releases them automatically when that run completes, fails, or is stopped. When concurrent runs hold the same key, the physical key is released only after every owning run has released it or ended.
 
 #### Supported Windows node keys
 
@@ -441,10 +451,18 @@ Firmware-managed keys such as `Fn` and Windows secure-attention input such as `C
 ### Mouse Click
 
 - **Action type:** `action.mouse`. Capability `action.mouse`. Permission `mouse_control`. High risk. Windows Desktop only. Fallible.
-- **Configuration:** left/right/middle/back/forward button and single/double click.
-- **Output:** click details or error.
+- **Configuration:** choose left, right, middle, back, or forward and then choose an input action. Single and double click are available for Press and release.
+- **Output:** the mouse button, the performed input action, click type when applicable, or an error.
 - **Platform:** Windows Desktop only.
 - **Runtime:** acts at the current pointer position.
+
+| Input action | Behavior |
+| --- | --- |
+| Press and release | Performs a single or double click. |
+| Press down | Holds the selected mouse button. |
+| Release | Releases the selected button only when the current run holds it. |
+
+Held mouse buttons use the same run ownership and automatic cleanup as held keyboard keys. The runner releases them when the run completes, fails, or is stopped.
 
 ### Move Mouse
 

@@ -1,6 +1,8 @@
 #[cfg(windows)]
 use super::dialogs::message_box_result;
 #[cfg(windows)]
+use super::input::InputAction;
+#[cfg(windows)]
 use super::mouse::{normalize_mouse_button, normalize_mouse_click_type};
 use super::*;
 use super::{audio::beep_config, config::required_i32, screen::pixel_color_map};
@@ -70,9 +72,47 @@ fn normalizes_mouse_buttons() {
 #[test]
 #[cfg(windows)]
 fn normalizes_mouse_click_types() {
-    assert_eq!(normalize_mouse_click_type("double"), "double");
-    assert_eq!(normalize_mouse_click_type("triple"), "triple");
-    assert_eq!(normalize_mouse_click_type("unknown"), "single");
+    assert_eq!(
+        normalize_mouse_click_type("single").as_deref(),
+        Some("single")
+    );
+    assert_eq!(
+        normalize_mouse_click_type("double").as_deref(),
+        Some("double")
+    );
+    assert_eq!(normalize_mouse_click_type("triple"), None);
+    assert_eq!(normalize_mouse_click_type("unknown"), None);
+}
+
+#[test]
+#[cfg(windows)]
+fn parses_shared_keyboard_and_mouse_input_actions() {
+    let request = |input_action: Option<&str>| RuntimeActionRequest {
+        action: None,
+        action_type: "action.keyboard".to_owned(),
+        config: input_action.map_or_else(Map::new, |value| {
+            Map::from_iter([("inputAction".to_owned(), Value::String(value.to_owned()))])
+        }),
+        node_id: "n-keyboard".to_owned(),
+    };
+
+    assert_eq!(
+        InputAction::from_request(&request(None)).unwrap(),
+        InputAction::Press
+    );
+    assert_eq!(
+        InputAction::from_request(&request(Some("press"))).unwrap(),
+        InputAction::Press
+    );
+    assert_eq!(
+        InputAction::from_request(&request(Some("down"))).unwrap(),
+        InputAction::Down
+    );
+    assert_eq!(
+        InputAction::from_request(&request(Some("up"))).unwrap(),
+        InputAction::Up
+    );
+    assert!(InputAction::from_request(&request(Some("toggle"))).is_err());
 }
 
 #[test]
@@ -111,7 +151,7 @@ fn pre_cancelled_message_box_returns_without_opening_native_ui() {
         variables: Default::default(),
     };
 
-    let error = SystemDesktopActionAdapter
+    let error = SystemDesktopActionAdapter::default()
         .message_box(&request, &context)
         .expect_err("pre-cancelled message box should not open");
 
@@ -139,7 +179,7 @@ fn message_box_is_rejected_without_a_native_cancellable_backend() {
         variables: Default::default(),
     };
 
-    let error = SystemDesktopActionAdapter
+    let error = SystemDesktopActionAdapter::default()
         .message_box(&request, &context)
         .expect_err("message box should be unavailable without a native backend");
 
@@ -180,7 +220,7 @@ fn parses_signed_screen_coordinates() {
 
 #[test]
 fn asset_sound_requires_package_context_before_audio_io() {
-    let adapter = SystemDesktopActionAdapter;
+    let adapter = SystemDesktopActionAdapter::default();
     let request = RuntimeActionRequest {
         action: None,
         action_type: "action.sound.play".to_owned(),
@@ -215,7 +255,7 @@ fn asset_sound_requires_package_context_before_audio_io() {
 #[cfg(windows)]
 #[test]
 fn windows_process_title_actions_handle_missing_windows_safely() {
-    let adapter = SystemDesktopActionAdapter;
+    let adapter = SystemDesktopActionAdapter::default();
     let request = RuntimeActionRequest {
         action: None,
         action_type: "action.process.status".to_owned(),

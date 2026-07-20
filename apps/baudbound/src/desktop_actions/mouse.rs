@@ -1,40 +1,52 @@
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
-use enigo::{Button, Direction, Mouse};
+use baudbound_runtime::{
+    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+};
+use enigo::Button;
 use serde_json::{Map, Number, Value};
 
 use super::{
     config::{config_bool, config_string, failed_error, required_i32},
-    input::native_input,
+    input::{InputAction, NativeInputState},
 };
 
 pub(super) fn run_mouse_click(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
+    input_state: &NativeInputState,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let button = normalize_mouse_button(
         request,
         &config_string(request, "button").unwrap_or_else(|| "left".to_owned()),
     )?;
-    let click_type = normalize_mouse_click_type(
-        &config_string(request, "clickType").unwrap_or_else(|| "single".to_owned()),
-    );
-    let click_count = match click_type.as_str() {
-        "double" => 2,
-        "triple" => 3,
-        _ => 1,
+    let input_action = InputAction::from_request(request)?;
+    let click_type = if input_action == InputAction::Press {
+        normalize_mouse_click_type(
+            &config_string(request, "clickType").unwrap_or_else(|| "single".to_owned()),
+        )
+        .ok_or_else(|| failed_error(request, "mouse click type must be single or double"))?
+    } else {
+        "single".to_owned()
     };
-    let mut enigo = native_input(request)?;
-    for _ in 0..click_count {
-        enigo
-            .button(button.token, Direction::Click)
-            .map_err(|source| failed_error(request, format!("mouse click failed: {source}")))?;
-    }
+    let click_count = usize::from(click_type == "double") + 1;
+    input_state.mouse(
+        request,
+        &context.identity.run_id,
+        button,
+        input_action,
+        click_count,
+    )?;
 
-    Ok(RuntimeActionResult {
-        output_data: Map::from_iter([
-            ("button".to_owned(), Value::String(button.name.to_owned())),
-            ("click_type".to_owned(), Value::String(click_type)),
-        ]),
-    })
+    let mut output_data = Map::from_iter([
+        ("button".to_owned(), Value::String(button.name.to_owned())),
+        (
+            "input_action".to_owned(),
+            Value::String(input_action.as_str().to_owned()),
+        ),
+    ]);
+    if input_action == InputAction::Press {
+        output_data.insert("click_type".to_owned(), Value::String(click_type));
+    }
+    Ok(RuntimeActionResult { output_data })
 }
 
 pub(super) fn run_mouse_move(
@@ -126,11 +138,11 @@ fn native_extended_mouse_button(
     ))
 }
 
-pub(super) fn normalize_mouse_click_type(value: &str) -> String {
+pub(super) fn normalize_mouse_click_type(value: &str) -> Option<String> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "double" => "double",
-        "triple" => "triple",
-        _ => "single",
+        "single" => Some("single"),
+        "double" => Some("double"),
+        _ => None,
     }
-    .to_owned()
+    .map(str::to_owned)
 }

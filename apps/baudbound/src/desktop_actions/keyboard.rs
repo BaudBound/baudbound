@@ -1,18 +1,22 @@
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
-use enigo::{Direction, Enigo, Key, Keyboard};
+use baudbound_runtime::{
+    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+};
+use enigo::Keyboard;
 use serde_json::{Map, Number, Value};
 
 mod keymap;
 
-use keymap::{ParsedKeyCombo, parse_key_combo};
+use keymap::parse_key_combo;
 
 use super::{
     config::{failed_error, required_string},
-    input::native_input,
+    input::{InputAction, NativeInputState, native_input},
 };
 
 pub(super) fn run_keyboard(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
+    input_state: &NativeInputState,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let key = required_string(request, "key")?;
     let combo = parse_key_combo(&key).map_err(|message| {
@@ -21,11 +25,23 @@ pub(super) fn run_keyboard(
             format!("invalid keyboard key expression: {message}"),
         )
     })?;
-    let mut enigo = native_input(request)?;
-    press_key_combo(request, &mut enigo, &combo)?;
+    let input_action = InputAction::from_request(request)?;
+    input_state.keyboard(
+        request,
+        &context.identity.run_id,
+        &combo.canonical_keys,
+        &combo.keys,
+        input_action,
+    )?;
 
     Ok(RuntimeActionResult {
-        output_data: Map::from_iter([("key".to_owned(), Value::String(combo.expression.clone()))]),
+        output_data: Map::from_iter([
+            (
+                "input_action".to_owned(),
+                Value::String(input_action.as_str().to_owned()),
+            ),
+            ("key".to_owned(), Value::String(combo.expression.clone())),
+        ]),
     })
 }
 
@@ -47,59 +63,4 @@ pub(super) fn run_keyboard_type_text(
             ("text".to_owned(), Value::String(text)),
         ]),
     })
-}
-
-fn press_key_combo(
-    request: &RuntimeActionRequest,
-    enigo: &mut Enigo,
-    combo: &ParsedKeyCombo,
-) -> Result<(), RuntimeActionError> {
-    let Some((last_key, held_keys)) = combo.keys.split_last() else {
-        return Err(failed_error(request, "key chord is empty"));
-    };
-    let mut pressed_keys = Vec::new();
-    for key in held_keys {
-        if let Err(source) = enigo.key(*key, Direction::Press) {
-            let release_error = release_keys(enigo, &pressed_keys);
-            let detail = release_error.map_or_else(
-                || source.to_string(),
-                |release| format!("{source}; key cleanup also failed: {release}"),
-            );
-            return Err(failed_error(request, format!("key press failed: {detail}")));
-        }
-        pressed_keys.push(*key);
-    }
-
-    let key_error = enigo
-        .key(*last_key, Direction::Click)
-        .err()
-        .map(|source| source.to_string());
-    let release_error = release_keys(enigo, &pressed_keys);
-
-    if let Some(source) = key_error {
-        let detail = release_error.map_or(source.clone(), |release| {
-            format!("{source}; key cleanup also failed: {release}")
-        });
-        return Err(failed_error(request, format!("key press failed: {detail}")));
-    }
-    if let Some(source) = release_error {
-        return Err(failed_error(
-            request,
-            format!("key release failed: {source}"),
-        ));
-    }
-
-    Ok(())
-}
-
-fn release_keys(enigo: &mut Enigo, keys: &[Key]) -> Option<String> {
-    let mut first_error = None;
-    for key in keys.iter().rev() {
-        if let Err(source) = enigo.key(*key, Direction::Release)
-            && first_error.is_none()
-        {
-            first_error = Some(source.to_string());
-        }
-    }
-    first_error
 }

@@ -17,6 +17,11 @@ export function requiredConfig(config: Record<string, JsonValue>, key: string, l
 	return configString(config, key).trim() ? "" : `must define ${label}.`;
 }
 
+export function configOption(config: Record<string, JsonValue>, key: string, label: string, values: readonly string[]) {
+	const value = configString(config, key).trim();
+	return values.includes(value) ? "" : `${label} must be one of: ${values.join(", ")}.`;
+}
+
 export function requiredStaticConfig(config: Record<string, JsonValue>, key: string, label: string) {
 	const value = configString(config, key).trim();
 	if (!value) {

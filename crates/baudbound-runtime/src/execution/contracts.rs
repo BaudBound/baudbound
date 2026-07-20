@@ -111,6 +111,8 @@ pub trait RuntimeActionHandler: Send + Sync {
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
+
+    fn run_finished(&self, _identity: &RunIdentity) {}
 }
 
 pub trait RuntimeRunObserver: Send + Sync {

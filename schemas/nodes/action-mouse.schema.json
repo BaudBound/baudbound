@@ -64,6 +64,14 @@
 				},
 				"customName": {
 					"type": "string"
+				},
+				"inputAction": {
+					"type": "string",
+					"enum": [
+						"press",
+						"down",
+						"up"
+					]
 				}
 			}
 		}

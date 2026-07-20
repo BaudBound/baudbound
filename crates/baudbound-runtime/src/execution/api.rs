@@ -9,15 +9,17 @@ use super::{
     RuntimeExecutor, RuntimeRunObserver, UnsupportedActionHandler,
 };
 
-struct RunObservationGuard {
+struct RunObservationGuard<'a> {
+    action_handler: &'a dyn RuntimeActionHandler,
     identity: RunIdentity,
     observer: Option<std::sync::Arc<dyn RuntimeRunObserver>>,
 }
 
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-impl Drop for RunObservationGuard {
+impl Drop for RunObservationGuard<'_> {
     fn drop(&mut self) {
+        self.action_handler.run_finished(&self.identity);
         if let Some(observer) = &self.observer {
             observer.run_finished(&self.identity);
         }
@@ -125,11 +127,16 @@ fn execute_graph_from_trigger(
     };
     let observer = resources.observer.clone();
     let cancellation = resources.cancellation.clone();
+    let action_handler = resources.action_handler;
     let mut executor = RuntimeExecutor::new(graph, identity.clone(), trigger_payload, resources)?;
     if let Some(observer) = &observer {
         observer.run_started(&identity, cancellation);
     }
-    let _observation = RunObservationGuard { identity, observer };
+    let _observation = RunObservationGuard {
+        action_handler,
+        identity,
+        observer,
+    };
     match executor.run_from_trigger() {
         Ok(report) => Ok(executor.redact_report(report)),
         Err(RuntimeError::Cancelled) => Err(RuntimeError::Cancelled),

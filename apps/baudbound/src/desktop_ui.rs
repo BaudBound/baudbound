@@ -1047,7 +1047,7 @@ fn build_runner_core(
         .with_run_observer(active_runs);
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
-        SystemDesktopActionAdapter,
+        SystemDesktopActionAdapter::default(),
     ));
     core.with_action_handler(action_handler)
 }

@@ -123,6 +123,12 @@ export const mouseClickTypeOptions: SelectOption[] = [
 	{ label: "Double click", value: "double" },
 ];
 
+export const inputActionOptions: SelectOption[] = [
+	{ label: "Press and release", value: "press" },
+	{ label: "Press down", value: "down" },
+	{ label: "Release", value: "up" },
+];
+
 export const fileWriteModeOptions: SelectOption[] = [
 	{ label: "Overwrite file", value: "overwrite" },
 	{ label: "Append to file", value: "append" },

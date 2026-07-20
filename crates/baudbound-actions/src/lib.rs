@@ -84,6 +84,8 @@ pub trait WebSocketMessageSink: Send + Sync {
 }
 
 pub trait DesktopActionAdapter: Send + Sync {
+    fn run_finished(&self, _identity: &baudbound_runtime::RunIdentity) {}
+
     fn beep(
         &self,
         request: &RuntimeActionRequest,
@@ -331,6 +333,10 @@ where
             "action.window.focus" => self.adapter.window_focus(request, context),
             _ => self.headless.execute_action(request, context),
         }
+    }
+
+    fn run_finished(&self, identity: &baudbound_runtime::RunIdentity) {
+        self.adapter.run_finished(identity);
     }
 }
 

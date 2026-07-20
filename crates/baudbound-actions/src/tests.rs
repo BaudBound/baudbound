@@ -41,9 +41,17 @@ impl WebSocketMessageSink for FakeWebSocketSink {
 #[derive(Default)]
 struct FakeDesktopAdapter {
     called: Mutex<Vec<String>>,
+    finished_runs: Mutex<Vec<RunIdentity>>,
 }
 
 impl DesktopActionAdapter for FakeDesktopAdapter {
+    fn run_finished(&self, identity: &RunIdentity) {
+        self.finished_runs
+            .lock()
+            .expect("fake adapter lock should not be poisoned")
+            .push(identity.clone());
+    }
+
     fn beep(
         &self,
         request: &RuntimeActionRequest,
@@ -518,6 +526,31 @@ fn desktop_action_handler_routes_desktop_actions_to_adapter() {
             .expect("fake adapter lock should not be poisoned")
             .as_slice(),
         &["action.notification".to_owned()]
+    );
+}
+
+#[test]
+fn desktop_action_handler_forwards_run_cleanup_to_adapter() {
+    let handler = DesktopActionHandler::new(
+        HeadlessActionHandler::default(),
+        FakeDesktopAdapter::default(),
+    );
+    let identity = RunIdentity {
+        run_id: "run-cleanup".to_owned(),
+        script_id: "script-cleanup".to_owned(),
+        trigger_node_id: "trigger-cleanup".to_owned(),
+    };
+
+    handler.run_finished(&identity);
+
+    assert_eq!(
+        handler
+            .adapter
+            .finished_runs
+            .lock()
+            .expect("fake adapter lock should not be poisoned")
+            .as_slice(),
+        &[identity]
     );
 }
 

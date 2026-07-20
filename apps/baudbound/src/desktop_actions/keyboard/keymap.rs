@@ -9,6 +9,7 @@ use serde::Deserialize;
 #[derive(Debug)]
 pub(super) struct ParsedKeyCombo {
     pub(super) expression: String,
+    pub(super) canonical_keys: Vec<String>,
     pub(super) keys: Vec<Key>,
 }
 
@@ -60,6 +61,7 @@ pub(super) fn parse_key_combo(input: &str) -> Result<ParsedKeyCombo, String> {
 
     Ok(ParsedKeyCombo {
         expression: expression_parts.join("+"),
+        canonical_keys: expression_parts,
         keys,
     })
 }

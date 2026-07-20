@@ -278,6 +278,42 @@ test("hotkey capture accepts plain and modified keys from the shared Windows cat
 	await expect(page.getByText("Variable writes, calculations, and action configs are valid.")).toBeVisible();
 });
 
+test("keyboard and mouse actions share press hold and release controls", async ({ page }) => {
+	await openEditor(page);
+	await page.getByRole("button", { name: "Open project settings" }).click();
+	await page.getByRole("button", { name: "Target runtime" }).click();
+	await page.getByRole("option", { name: "Windows Desktop" }).click();
+	await page.getByRole("button", { name: "Save Settings" }).click();
+
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Keyboard");
+	await page.getByRole("button", { name: /Keyboard high/ }).click();
+	const inspector = page.getByRole("complementary", { name: "Inspector" });
+	const keyboardAction = inspector.getByText("Input action", { exact: true }).locator("..").getByRole("button");
+	await expect(keyboardAction).toContainText("Press and release");
+	await keyboardAction.click();
+	await page.getByRole("option", { name: "Press down" }).click();
+	await expect(keyboardAction).toContainText("Press down");
+
+	await page.getByRole("textbox", { name: "Search blocks" }).fill("Mouse Click");
+	await page.getByRole("button", { name: /Mouse Click high/ }).click();
+	const mouseAction = inspector.getByText("Input action", { exact: true }).locator("..").getByRole("button");
+	const clickType = inspector.getByText("Click", { exact: true }).locator("..").getByRole("button");
+	await expect(mouseAction).toContainText("Press and release");
+	await expect(clickType).toBeVisible();
+
+	await mouseAction.click();
+	await page.getByRole("option", { name: "Press down" }).click();
+	await expect(clickType).toHaveCount(0);
+
+	await mouseAction.click();
+	await page.getByRole("option", { name: "Release", exact: true }).click();
+	await expect(clickType).toHaveCount(0);
+
+	await mouseAction.click();
+	await page.getByRole("option", { name: "Press and release" }).click();
+	await expect(clickType).toBeVisible();
+});
+
 test("Windows key reference buttons build a key expression", async ({ page }) => {
 	await openEditor(page);
 	await page.getByRole("button", { name: "Open project settings" }).click();

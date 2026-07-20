@@ -31,7 +31,7 @@ import {
 	type SwitchCaseRow,
 } from "@/data/nodes/definitions/rows";
 import type { NodeConfigField } from "@/data/nodes/node-definition";
-import { getNodeConfigFields } from "@/data/nodes/registry";
+import { createDefaultNodeConfig, getNodeConfigFields } from "@/data/nodes/registry";
 import { builtInVariableNames } from "@/data/project/built-in-variables";
 import { createSerialDeviceOptions, serialLineEndingOptions } from "@/data/project/serial";
 import {
@@ -234,14 +234,20 @@ function PropertiesPanel({
 		);
 	}
 
-	const fields = getNodeConfigFields(selectedNode.data.actionType);
+	const defaultConfig = createDefaultNodeConfig(selectedNode.data.actionType);
+	const fields = getNodeConfigFields(selectedNode.data.actionType).filter(
+		(field) =>
+			!field.visibleWhen ||
+			valueToInputString(selectedNode.data.config[field.visibleWhen.key] ?? defaultConfig[field.visibleWhen.key]) ===
+				field.visibleWhen.equals,
+	);
 	const variableCompletions = createVariableCompletions(variables);
 	const visibleFields =
-		selectedNode.data.actionType === "runtime.set_variable" ||
-		selectedNode.data.actionType === "action.text.format" ||
-		usesKeyReference(selectedNode.data.actionType)
+		selectedNode.data.actionType === "runtime.set_variable" || selectedNode.data.actionType === "action.text.format"
 			? []
-			: fields;
+			: usesKeyReference(selectedNode.data.actionType)
+				? fields.filter((field) => field.key !== "key")
+				: fields;
 	const showsKeyReference = usesKeyReference(selectedNode.data.actionType);
 
 	return (
@@ -1149,7 +1155,8 @@ function NodeSpecificHelp({ actionType }: { actionType: ActionType }) {
 	if (actionType === "action.keyboard") {
 		return (
 			<p className="mb-3 rounded border border-baud-border bg-baud-soft px-3 py-2 text-xs leading-4 text-baud-muted">
-				Presses any supported Windows key chord. Use Type Text when you need to enter words or arbitrary text.
+				Press, hold, or release any supported Windows key chord. Held keys are released automatically when the run ends.
+				Use Type Text when you need to enter words or arbitrary text.
 			</p>
 		);
 	}

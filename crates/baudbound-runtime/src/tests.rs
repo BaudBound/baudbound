@@ -764,6 +764,61 @@ fn executes_external_action_handler_and_exposes_output_reference() {
 }
 
 #[test]
+fn notifies_action_handler_when_a_failed_run_finishes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug, Default)]
+    struct LifecycleActionHandler {
+        finished_runs: AtomicUsize,
+    }
+
+    impl RuntimeActionHandler for LifecycleActionHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Err(RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: "expected test failure".to_owned(),
+            })
+        }
+
+        fn run_finished(&self, identity: &RunIdentity) {
+            assert_eq!(identity.script_id, "script-lifecycle");
+            self.finished_runs.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let handler = LifecycleActionHandler::default();
+    let error = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-external",
+                        "action_type": "action.text.format",
+                        "type": "action",
+                        "action": "format_text",
+                        "config": { "operation": "uppercase", "input": "test" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-external")]
+                }
+            }
+        }),
+        "script-lifecycle",
+        &handler,
+    )
+    .expect_err("the external action should fail");
+
+    assert!(error.to_string().contains("expected test failure"));
+    assert_eq!(handler.finished_runs.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn rejects_out_of_range_resolved_numeric_config_before_action_dispatch() {
     use std::sync::atomic::{AtomicBool, Ordering};
 

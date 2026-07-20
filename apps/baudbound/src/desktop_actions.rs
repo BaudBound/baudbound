@@ -34,9 +34,25 @@ use screen::{run_active_window, run_pixel_get, run_window_focus};
 use unsupported_input::{run_keyboard, run_keyboard_type_text, run_mouse_click, run_mouse_move};
 
 #[derive(Debug, Default)]
-pub struct SystemDesktopActionAdapter;
+pub struct SystemDesktopActionAdapter {
+    #[cfg(windows)]
+    input_state: input::NativeInputState,
+}
 
 impl DesktopActionAdapter for SystemDesktopActionAdapter {
+    fn run_finished(&self, identity: &baudbound_runtime::RunIdentity) {
+        #[cfg(windows)]
+        if let Err(error) = self.input_state.release_run(&identity.run_id) {
+            tracing::error!(
+                run_id = %identity.run_id,
+                error = %error,
+                "failed to release native input held by a completed run"
+            );
+        }
+        #[cfg(not(windows))]
+        let _ = identity;
+    }
+
     fn beep(
         &self,
         request: &RuntimeActionRequest,
@@ -88,9 +104,15 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
     fn keyboard(
         &self,
         request: &RuntimeActionRequest,
-        _context: &RuntimeContext,
+        context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_keyboard(request)
+        #[cfg(windows)]
+        return run_keyboard(request, context, &self.input_state);
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            run_keyboard(request)
+        }
     }
 
     fn keyboard_type_text(
@@ -104,9 +126,15 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
     fn mouse_click(
         &self,
         request: &RuntimeActionRequest,
-        _context: &RuntimeContext,
+        context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_mouse_click(request)
+        #[cfg(windows)]
+        return run_mouse_click(request, context, &self.input_state);
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            run_mouse_click(request)
+        }
     }
 
     fn mouse_move(

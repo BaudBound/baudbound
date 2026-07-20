@@ -46,6 +46,7 @@ type NodeConfigFieldBase = {
 	required?: boolean;
 	usesVariables?: boolean;
 	help?: string;
+	visibleWhen?: NumericConfigCondition;
 };
 
 export type NodeConfigField = NodeConfigFieldBase &
