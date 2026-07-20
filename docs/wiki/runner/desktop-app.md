@@ -174,7 +174,7 @@ Enable **Restart desktop background runner after saving** when listener, target,
 
 Linux login startup uses the current user's desktop session autostart directory. It works only after a graphical login. Use [Linux Background Service](linux-background-service.md) when triggers must start before login or on a headless machine.
 
-The login startup badge reports the operating system registration state. If it reports a mismatch, save Config again. BaudBound rewrites enabled login entries during startup so the registration points to the current executable and resolved config path.
+The login startup badge reports the operating system registration state. If it reports a mismatch, save Config again. BaudBound rewrites enabled login entries during startup so the registration points to the current executable and resolved config path. The generated entry starts BaudBound with `--gui --autostart`. This opens the graphical application and lets it apply **Hide window when launched at login**. Normal shortcuts do not need either flag.
 
 ## Doctor
 <!-- desktop-tab:diagnostics -->

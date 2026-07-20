@@ -57,7 +57,7 @@ $script:ReleaseToolLib = Join-Path $PSScriptRoot "lib"
 . (Join-Path $script:ReleaseToolLib "workflow.ps1")
 . (Join-Path $script:ReleaseToolLib "artifacts.ps1")
 
-$interactiveSelection = -not $Action
+$interactiveSelection = -not $PSBoundParameters.ContainsKey("Action")
 if ($interactiveSelection) {
     $selectedAction = Select-ReleaseAction
     if (-not $selectedAction) {

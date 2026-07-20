@@ -12,12 +12,14 @@ You do not need the CLI for normal desktop use. Use it for a headless Linux runn
 Install BaudBound first and confirm that the shell can find the executable with `baudbound --version`. [Installation and Updates](installation.md) creates the `baudbound` command for the supported installation paths.
 
 ```text
-baudbound [--config PATH] [COMMAND]
+baudbound [--config PATH] [--gui | COMMAND]
 baudbound --help
 baudbound --version
 ```
 
-`--config` is optional and global, so it can be used with any command. Without a command, BaudBound opens the desktop application when a graphical session is available. In a headless Linux session it prints runner status.
+`--config` is optional and global, so it can be used with any command or with `--gui`. Without a command, BaudBound opens the desktop application when a graphical session is available. In a headless Linux session it prints runner status.
+
+Use `baudbound --gui` when you need to request the graphical application explicitly. Do not combine `--gui` with a CLI command.
 
 Type only the command text shown inside a code block. Do not type labels such as `PowerShell`, `Linux shell`, or the placeholder words described below. Press Enter after typing a command and wait for it to finish before entering the next one.
 
@@ -73,7 +75,9 @@ The time format command updates the active `config.toml` with an atomic file rep
 | `baudbound status --json` | Prints the same status as machine-readable JSON. |
 | `baudbound doctor` | Checks configuration, storage, platform integration, and native desktop action support. |
 | `baudbound doctor --json` | Prints diagnostic results as JSON. |
-| `baudbound ui` | Explicitly opens the desktop application. |
+| `baudbound --gui` | Explicitly opens the desktop application. |
+
+Normal Windows shortcuts, Linux application menu launchers, and direct AppImage launches do not need `--gui`. BaudBound adds `--gui --autostart` to the operating system login entry when **Launch at login** is enabled. The hidden `--autostart` flag tells the desktop application that it was opened by login startup so it can apply the configured tray behavior. Users should not add this flag to normal shortcuts or commands.
 
 ### Updates
 

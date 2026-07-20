@@ -156,6 +156,8 @@ The installer provides the desktop application. It does not guarantee that `baud
 
 The AppImage contains both the BaudBound desktop application and its CLI. Starting it without a command opens the desktop application. Adding a command such as `--version` or `doctor` uses the CLI.
 
+The application menu launcher does not need special arguments. `baudbound --gui` is available when you need to request the graphical application explicitly from a terminal. The `--autostart` flag is reserved for the login entry created by BaudBound and should not be added to a normal launcher.
+
 The steps below install BaudBound only for your user account. They do not install a system package and do not require `sudo`.
 
 ##### Install the AppImage

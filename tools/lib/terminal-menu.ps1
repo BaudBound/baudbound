@@ -12,6 +12,7 @@ function Select-TerminalMenu {
         throw "The interactive menu requires at least one option."
     }
 
+    Clear-TerminalMenuInput
     Clear-Host
     $selected = 0
     $menuTop = [Console]::CursorTop
@@ -54,6 +55,16 @@ function Select-TerminalMenu {
     } finally {
         [Console]::CursorVisible = $originalCursorVisibility
     }
+}
+
+function Clear-TerminalMenuInput {
+    $settleUntil = [DateTime]::UtcNow.AddMilliseconds(150)
+    do {
+        while ([Console]::KeyAvailable) {
+            [void][Console]::ReadKey($true)
+        }
+        Start-Sleep -Milliseconds 10
+    } while ([DateTime]::UtcNow -lt $settleUntil)
 }
 
 function Split-TerminalMenuText {

@@ -46,7 +46,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("BaudBound")
-                .args(["ui", "--autostart"])
+                .args(["--gui", "--autostart"])
                 .build(),
         )
         .manage(coordinate_picker::CoordinatePickerState::default())

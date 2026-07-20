@@ -11,11 +11,11 @@ The native BaudBound runner validates `.bbs` packages, installs scripts, recalcu
 
 | Mode | Start it with | Best for | Long-running triggers |
 | --- | --- | --- | --- |
-| **Desktop application** | Launch BaudBound or run `baudbound ui` | Interactive Windows/Linux users | Start and supervise from Service or tray |
+| **Desktop application** | Launch BaudBound or run `baudbound --gui` | Interactive Windows/Linux users | Start and supervise from Service or tray |
 | **CLI command** | `baudbound COMMAND` | Scripting, inspection, package lifecycle, and one manual run | Command exits after its task |
 | **Foreground service** | `baudbound serve` | Testing listeners or external service-manager supervision | Active while process remains running |
 
-Running `baudbound` without a subcommand opens the desktop UI when a desktop session is available. In a headless session it prints status instead of trying to open a window.
+Running `baudbound` without a subcommand opens the desktop UI when a desktop session is available. In a headless session it prints status instead of trying to open a window. Use `baudbound --gui` to request the desktop UI explicitly.
 
 ## One runner home
 

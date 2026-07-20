@@ -1,7 +1,7 @@
-use crate::cli::Command;
+use crate::cli::LaunchMode;
 
-pub fn detach_for_desktop_release(command: &Command) {
-    let desktop_command = is_desktop_command(command);
+pub fn detach_for_desktop_release(launch_mode: &LaunchMode) {
+    let desktop_command = is_desktop_launch(launch_mode);
 
     #[cfg(all(windows, not(debug_assertions)))]
     if desktop_command {
@@ -16,18 +16,20 @@ pub fn detach_for_desktop_release(command: &Command) {
     let _ = desktop_command;
 }
 
-fn is_desktop_command(command: &Command) -> bool {
-    matches!(command, Command::Ui { .. })
+fn is_desktop_launch(launch_mode: &LaunchMode) -> bool {
+    matches!(launch_mode, LaunchMode::Desktop { .. })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_desktop_command;
-    use crate::cli::Command;
+    use super::is_desktop_launch;
+    use crate::cli::{Command, LaunchMode};
 
     #[test]
     fn detaches_only_for_the_desktop_ui() {
-        assert!(is_desktop_command(&Command::Ui { autostart: false }));
-        assert!(!is_desktop_command(&Command::Status { json: false }));
+        assert!(is_desktop_launch(&LaunchMode::Desktop { autostart: false }));
+        assert!(!is_desktop_launch(&LaunchMode::Command(Command::Status {
+            json: false
+        })));
     }
 }

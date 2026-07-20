@@ -92,7 +92,7 @@ pub fn run_desktop_ui(
     let autostart_args = [
         "--config".to_owned(),
         config_path.display().to_string(),
-        "ui".to_owned(),
+        "--gui".to_owned(),
         "--autostart".to_owned(),
     ];
     tauri::Builder::default()

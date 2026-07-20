@@ -21,15 +21,15 @@ mod time_format;
 mod updates;
 mod windows_console;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, LaunchMode};
 
 fn main() -> ExitCode {
     let mut cli = Cli::parse();
-    let command = cli.command.take().unwrap_or_else(cli::default_command);
-    let desktop_launch = matches!(command, Command::Ui { .. });
-    windows_console::detach_for_desktop_release(&command);
+    let launch_mode = cli.take_launch_mode().unwrap_or_else(|error| error.exit());
+    let desktop_launch = matches!(launch_mode, LaunchMode::Desktop { .. });
+    windows_console::detach_for_desktop_release(&launch_mode);
 
-    match run(cli, command) {
+    match run(cli, launch_mode) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             if desktop_launch {
@@ -42,7 +42,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli, command: Command) -> Result<()> {
+fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -52,11 +52,11 @@ fn run(cli: Cli, command: Command) -> Result<()> {
         .config
         .clone()
         .unwrap_or_else(|| paths::default_config_path(&runner_home));
-    let command = match command {
-        Command::Config { command } => {
+    let launch_mode = match launch_mode {
+        LaunchMode::Command(Command::Config { command }) => {
             return commands::config::handle_config_command(&config_path, command);
         }
-        command => command,
+        launch_mode => launch_mode,
     };
 
     let runner_config = RunnerConfig::load_or_init(&config_path)
@@ -69,7 +69,7 @@ fn run(cli: Cli, command: Command) -> Result<()> {
         SystemDesktopActionAdapter::default(),
     ));
     let core = core.with_action_handler(action_handler);
-    let secret_cipher = if matches!(&command, Command::Ui { .. }) {
+    let secret_cipher = if matches!(&launch_mode, LaunchMode::Desktop { .. }) {
         match secrets::desktop_secret_cipher() {
             Ok(cipher) => Some(cipher),
             Err(error) => {
@@ -94,16 +94,28 @@ fn run(cli: Cli, command: Command) -> Result<()> {
     if let Some(secret_cipher) = secret_cipher {
         store = store.with_secret_cipher(secret_cipher);
     }
-    check_for_automatic_cli_update(&command, &runner_config, &store);
+    if let LaunchMode::Command(command) = &launch_mode {
+        check_for_automatic_cli_update(command, &runner_config, &store);
+    }
 
-    dispatch_command(
-        command,
-        &config_path,
-        &runner_config,
-        &websocket_registry,
-        &core,
-        &store,
-    )
+    match launch_mode {
+        LaunchMode::Desktop { autostart } => desktop_ui::run_desktop_ui(
+            config_path,
+            core,
+            store,
+            runner_config,
+            websocket_registry,
+            autostart,
+        ),
+        LaunchMode::Command(command) => dispatch_command(
+            command,
+            &config_path,
+            &runner_config,
+            &websocket_registry,
+            &core,
+            &store,
+        ),
+    }
 }
 
 fn check_for_automatic_cli_update(
@@ -155,14 +167,6 @@ fn dispatch_command(
         Command::Status { json } => {
             commands::status::print_app_status(runner_config, core, store, json)
         }
-        Command::Ui { autostart } => desktop_ui::run_desktop_ui(
-            config_path.to_path_buf(),
-            core.clone(),
-            store.clone(),
-            runner_config.clone(),
-            Arc::clone(websocket_registry),
-            autostart,
-        ),
         Command::Doctor { json } => commands::doctor::print_desktop_doctor(json),
         Command::Validate { package } => commands::package::validate_package(core, package),
         Command::Inspect { target, json } => commands::package::inspect_package(core, target, json),

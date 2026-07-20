@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum, error::ErrorKind};
 
 #[derive(Debug, Parser)]
 #[command(name = "baudbound")]
@@ -10,8 +10,46 @@ pub struct Cli {
     /// Path to runner TOML configuration. Defaults to BAUDBOUND_CONFIG or <BAUDBOUND_HOME>/config.toml.
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
+    /// Open the native desktop runner interface.
+    #[arg(long)]
+    pub gui: bool,
+    /// Marks a desktop-session login launch.
+    #[arg(long, hide = true, requires = "gui")]
+    pub autostart: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+#[derive(Debug)]
+pub enum LaunchMode {
+    Desktop { autostart: bool },
+    Command(Command),
+}
+
+impl Cli {
+    pub fn take_launch_mode(&mut self) -> Result<LaunchMode, clap::Error> {
+        if self.gui && self.command.is_some() {
+            return Err(Self::command().error(
+                ErrorKind::ArgumentConflict,
+                "--gui cannot be combined with a CLI command",
+            ));
+        }
+        if self.autostart && !self.gui {
+            return Err(Self::command().error(
+                ErrorKind::MissingRequiredArgument,
+                "--autostart requires --gui",
+            ));
+        }
+        if self.gui {
+            return Ok(LaunchMode::Desktop {
+                autostart: self.autostart,
+            });
+        }
+        if let Some(command) = self.command.take() {
+            return Ok(LaunchMode::Command(command));
+        }
+        Ok(default_launch_mode())
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -26,12 +64,6 @@ pub enum Command {
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
-    },
-    /// Open the native desktop runner UI.
-    Ui {
-        /// Marks a desktop-session autostart launch.
-        #[arg(long, hide = true)]
-        autostart: bool,
     },
     /// Check native desktop action support on this machine.
     Doctor {
@@ -372,15 +404,15 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
     Ok(parsed)
 }
 
-pub fn default_command() -> Command {
-    default_command_for_session(desktop_session_available())
+pub fn default_launch_mode() -> LaunchMode {
+    default_launch_mode_for_session(desktop_session_available())
 }
 
-fn default_command_for_session(has_desktop_session: bool) -> Command {
+fn default_launch_mode_for_session(has_desktop_session: bool) -> LaunchMode {
     if has_desktop_session {
-        Command::Ui { autostart: false }
+        LaunchMode::Desktop { autostart: false }
     } else {
-        Command::Status { json: false }
+        LaunchMode::Command(Command::Status { json: false })
     }
 }
 
@@ -406,10 +438,10 @@ mod tests {
     use clap::Parser;
 
     #[cfg(windows)]
-    use super::default_command;
+    use super::default_launch_mode;
     use super::{
-        Cli, Command, ConfigCommand, ConfigKey, NetworkTriggerTypeValue, ScriptCommand,
-        SecretCommand, TimeFormatValue, TriggerAuthCommand, default_command_for_session,
+        Cli, Command, ConfigCommand, ConfigKey, LaunchMode, NetworkTriggerTypeValue, ScriptCommand,
+        SecretCommand, TimeFormatValue, TriggerAuthCommand, default_launch_mode_for_session,
         parse_positive_usize,
     };
 
@@ -481,9 +513,23 @@ mod tests {
 
     #[test]
     fn parses_internal_desktop_autostart_launch() {
-        let cli = Cli::try_parse_from(["baudbound", "ui", "--autostart"])
+        let mut cli = Cli::try_parse_from(["baudbound", "--gui", "--autostart"])
             .expect("desktop autostart marker should parse");
-        assert!(matches!(cli.command, Some(Command::Ui { autostart: true })));
+        assert!(matches!(
+            cli.take_launch_mode()
+                .expect("desktop launch mode should resolve"),
+            LaunchMode::Desktop { autostart: true }
+        ));
+    }
+
+    #[test]
+    fn rejects_removed_ui_subcommand_and_invalid_gui_combinations() {
+        assert!(Cli::try_parse_from(["baudbound", "ui"]).is_err());
+        assert!(Cli::try_parse_from(["baudbound", "--autostart"]).is_err());
+
+        let mut cli = Cli::try_parse_from(["baudbound", "--gui", "status"])
+            .expect("parser should preserve enough context for launch-mode validation");
+        assert!(cli.take_launch_mode().is_err());
     }
 
     #[test]
@@ -545,14 +591,14 @@ mod tests {
     }
 
     #[test]
-    fn default_command_matches_session_type() {
+    fn default_launch_mode_matches_session_type() {
         assert!(matches!(
-            default_command_for_session(true),
-            Command::Ui { autostart: false }
+            default_launch_mode_for_session(true),
+            LaunchMode::Desktop { autostart: false }
         ));
         assert!(matches!(
-            default_command_for_session(false),
-            Command::Status { json: false }
+            default_launch_mode_for_session(false),
+            LaunchMode::Command(Command::Status { json: false })
         ));
     }
 
@@ -560,8 +606,8 @@ mod tests {
     #[test]
     fn defaults_to_desktop_ui_on_windows() {
         assert!(matches!(
-            default_command(),
-            Command::Ui { autostart: false }
+            default_launch_mode(),
+            LaunchMode::Desktop { autostart: false }
         ));
     }
 }
