@@ -64,8 +64,60 @@ function Watch-ReleaseWorkflow {
         -Workflow $script:ReleaseWorkflow `
         -Commit $commit `
         -Predicate { param($Candidate) $Candidate.headBranch -eq $script:Tag }
-    Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+    Watch-WorkflowRun -Run $run -Name "Runner Release workflow" | Out-Null
     Write-Host "`nRelease workflow passed. Inspect the draft before publishing." -ForegroundColor Green
+}
+
+function Get-WorkflowFailureSummary {
+    param([Parameter(Mandatory)][long]$RunId)
+
+    $json = Invoke-ExternalCapture "gh" @(
+        "run", "view", [string]$RunId, "--json", "jobs"
+    )
+    $details = $json | ConvertFrom-Json
+    $failures = [Collections.Generic.List[string]]::new()
+    foreach ($job in @($details.jobs | Where-Object { $_.conclusion -eq "failure" })) {
+        $failedSteps = @(
+            $job.steps |
+                Where-Object { $_.conclusion -eq "failure" } |
+                ForEach-Object name
+        )
+        if ($failedSteps.Count -gt 0) {
+            $failures.Add("$($job.name): $($failedSteps -join ', ')")
+        } else {
+            $failures.Add($job.name)
+        }
+    }
+    if ($failures.Count -eq 0) {
+        return "No failed job details were reported by GitHub."
+    }
+    return $failures -join " | "
+}
+
+function Watch-WorkflowRun {
+    param(
+        [Parameter(Mandatory)]$Run,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    try {
+        Invoke-ExternalInteractive "gh" @(
+            "run", "watch", [string]$Run.databaseId, "--exit-status"
+        )
+    } catch {
+        $current = Get-WorkflowRunById -RunId $Run.databaseId
+        if ($current.status -eq "completed" -and $current.conclusion -ne "success") {
+            $summary = Get-WorkflowFailureSummary -RunId $Run.databaseId
+            throw "$Name failed (conclusion=$($current.conclusion)). Failed job or step: $summary. $($current.url)"
+        }
+        throw
+    }
+
+    $current = Get-WorkflowRunById -RunId $Run.databaseId
+    if ($current.status -ne "completed" -or $current.conclusion -ne "success") {
+        throw "$Name ended unexpectedly (status=$($current.status), conclusion=$($current.conclusion)). $($current.url)"
+    }
+    return $current
 }
 
 function Start-RunnerCiWorkflow {
@@ -97,8 +149,7 @@ function Ensure-RunnerCiPassed {
 
     if ($run.status -ne "completed") {
         Write-Step "Runner CI is $($run.status). Watching run $($run.databaseId)"
-        Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
-        $run = Get-WorkflowRunById -RunId $run.databaseId
+        $run = Watch-WorkflowRun -Run $run -Name "Runner CI workflow"
     }
     if ($run.conclusion -ne "success") {
         throw "Runner CI failed (conclusion=$($run.conclusion)). Retry run $($run.databaseId) before tagging. $($run.url)"
@@ -182,7 +233,7 @@ function Retry-WorkflowRun {
     $run = $Run
     if ($run.status -ne "completed") {
         Write-Step "$Name is $($run.status). Watching the existing run"
-        Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+        Watch-WorkflowRun -Run $run -Name $Name | Out-Null
         Write-Host "`n$Name passed." -ForegroundColor Green
         return
     }
@@ -197,7 +248,7 @@ function Retry-WorkflowRun {
     } else {
         Invoke-External "gh" @("run", "rerun", [string]$run.databaseId)
     }
-    Invoke-ExternalInteractive "gh" @("run", "watch", [string]$run.databaseId, "--exit-status")
+    Watch-WorkflowRun -Run $run -Name $Name | Out-Null
     Write-Host "`n$Name passed after retry." -ForegroundColor Green
 }
 

@@ -264,6 +264,8 @@ $releaseRun = gh run list `
 gh run watch $releaseRun --exit-status
 ```
 
+Watch returns a nonzero exit code when the workflow fails. This means the workflow reported a failure, not that watching stopped working. The release helper reads the completed run and displays the failed job and step in its recovery screen.
+
 If it fails, inspect only the failed logs:
 
 ```powershell

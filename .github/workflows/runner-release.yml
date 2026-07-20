@@ -70,11 +70,17 @@ jobs:
       - name: Test release artifact contracts
         run: node --test apps/baudbound/scripts/*.test.mjs
 
-      - name: Check RustSec advisories
+      - name: Check Linux RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
         with:
           command: check advisories
-          arguments: --all-features --locked --target x86_64-unknown-linux-gnu --target x86_64-pc-windows-msvc
+          arguments: --all-features --locked --target x86_64-unknown-linux-gnu
+
+      - name: Check Windows RustSec advisories
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          command: check advisories
+          arguments: --all-features --locked --target x86_64-pc-windows-msvc
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
