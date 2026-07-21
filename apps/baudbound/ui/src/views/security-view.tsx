@@ -4,11 +4,33 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusSummaryCard } from "@/components/status-summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
 import type { DashboardAction } from "@/lib/app-types";
 import { approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
+import { useSortableRows } from "@/lib/table-sorting";
 import { SecretManagementPanel } from "@/views/secret-management-panel";
 import { NetworkTriggerSecurityPanel } from "@/views/security/network-trigger-security-panel";
+
+type SecuritySortColumn =
+  | "approval"
+  | "issues"
+  | "package"
+  | "permissions"
+  | "risk"
+  | "script";
+
+const securitySortSelectors: Record<
+  SecuritySortColumn,
+  (script: ScriptStatus) => number | string
+> = {
+  approval: (script) => approvalLabel(script.approval_status),
+  issues: (script) => securityIssue(script) ?? "",
+  package: (script) => script.installed.package_file_name,
+  permissions: (script) => script.declared_permissions.join("\n"),
+  risk: (script) => riskOrder(script.installed.risk_level),
+  script: (script) => script.installed.name,
+};
 
 export function SecurityView({
   busyActions,
@@ -22,7 +44,13 @@ export function SecurityView({
   runAction: DashboardAction;
 }) {
   const scripts = dashboard.runner.scripts;
-  const attention = scripts.filter(scriptNeedsAttention);
+  const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
+    scripts,
+    securitySortSelectors,
+  );
+  const attention = scripts.filter(
+    (script) => script.installed.enabled && scriptNeedsAttention(script),
+  );
   const networkAuth = Object.values(dashboard.trigger_auth_statuses).flat();
   const unprotectedNetworkTriggers = networkAuth.filter((auth) => !auth.auth_enabled).length;
 
@@ -60,16 +88,28 @@ export function SecurityView({
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2">Script</th>
-                  <th className="px-3 py-2">Approval</th>
-                  <th className="px-3 py-2">Risk</th>
-                  <th className="px-3 py-2">Permissions</th>
-                  <th className="px-3 py-2">Package</th>
-                  <th className="px-3 py-2">Issues</th>
+                  <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
+                    Script
+                  </SortableTableHeader>
+                  <SortableTableHeader column="approval" onSort={toggleSort} sortState={sortState}>
+                    Approval
+                  </SortableTableHeader>
+                  <SortableTableHeader column="risk" onSort={toggleSort} sortState={sortState}>
+                    Risk
+                  </SortableTableHeader>
+                  <SortableTableHeader column="permissions" onSort={toggleSort} sortState={sortState}>
+                    Permissions
+                  </SortableTableHeader>
+                  <SortableTableHeader column="package" onSort={toggleSort} sortState={sortState}>
+                    Package
+                  </SortableTableHeader>
+                  <SortableTableHeader column="issues" onSort={toggleSort} sortState={sortState}>
+                    Issues
+                  </SortableTableHeader>
                 </tr>
               </thead>
               <tbody>
-                {scripts.map((script) => (
+                {sortedScripts.map((script) => (
                   <tr className="border-b border-border last:border-b-0" key={script.installed.id}>
                     <td className="px-3 py-3" data-label="Script">
                       <div className="font-medium">{script.installed.name}</div>
@@ -160,4 +200,11 @@ function riskVariant(risk: string) {
   if (risk === "medium") return "medium";
   if (risk === "low") return "good";
   return "muted";
+}
+
+function riskOrder(risk: string) {
+  if (risk === "low") return 0;
+  if (risk === "medium") return 1;
+  if (risk === "high") return 2;
+  return 3;
 }

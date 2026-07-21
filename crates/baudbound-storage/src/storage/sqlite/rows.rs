@@ -104,6 +104,7 @@ pub(super) fn row_to_approval(row: &Row<'_>) -> rusqlite::Result<ScriptApproval>
 pub(super) fn row_to_run_record(row: &Row<'_>) -> rusqlite::Result<StoredRunRecord> {
     let logs_json = row.get::<_, String>(5)?;
     let variables_json = row.get::<_, String>(6)?;
+    let variable_scopes_json = row.get::<_, String>(7)?;
     let completed_at_unix = row_i64_to_u64(4, row.get(4)?)?;
     let mut logs = serde_json::from_str::<Vec<RunLogEntry>>(&logs_json).map_err(|source| {
         rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(source))
@@ -117,6 +118,9 @@ pub(super) fn row_to_run_record(row: &Row<'_>) -> rusqlite::Result<StoredRunReco
     let variables = serde_json::from_str(&variables_json).map_err(|source| {
         rusqlite::Error::FromSqlConversionFailure(6, Type::Text, Box::new(source))
     })?;
+    let variable_scopes = serde_json::from_str(&variable_scopes_json).map_err(|source| {
+        rusqlite::Error::FromSqlConversionFailure(7, Type::Text, Box::new(source))
+    })?;
     Ok(StoredRunRecord {
         run_id: row.get(0)?,
         script_id: row.get(1)?,
@@ -124,6 +128,7 @@ pub(super) fn row_to_run_record(row: &Row<'_>) -> rusqlite::Result<StoredRunReco
         trigger_node_id: row.get(3)?,
         completed_at_unix,
         logs,
+        variable_scopes,
         variables,
     })
 }

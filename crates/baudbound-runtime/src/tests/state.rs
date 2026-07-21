@@ -6,10 +6,10 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    RunIdentity, RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeDefaultVariableScope,
-    RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver, RuntimeSecretDeclaration,
-    RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler, VersionedRuntimeVariable,
-    execute_manual_program_with_state,
+    RunIdentity, RunVariableScope, RuntimeCancellationToken, RuntimeDefaultVariable,
+    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
+    VersionedRuntimeVariable, execute_manual_program_with_state,
 };
 
 #[derive(Default)]
@@ -133,6 +133,10 @@ fn persists_incremented_values_between_runs() {
     assert_eq!(
         second.variables.get("counter").and_then(Value::as_f64),
         Some(2.0)
+    );
+    assert_eq!(
+        second.variable_scopes.get("counter"),
+        Some(&RunVariableScope::Persistent)
     );
 }
 
@@ -285,6 +289,8 @@ fn loads_required_secret_and_redacts_reports() {
     .expect("secret-backed run should execute");
 
     assert!(!report.variables.contains_key("api_key"));
+    assert!(!report.variable_scopes.contains_key("api_key"));
+    assert!(!report.variable_scopes.contains_key("api_key.$type"));
     assert_eq!(report.variables.get("counter"), Some(&json!("[REDACTED]")));
     assert!(
         report

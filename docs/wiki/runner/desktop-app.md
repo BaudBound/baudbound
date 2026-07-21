@@ -24,6 +24,7 @@ The interface refreshes automatically while it is open and when the window regai
 | **Logs** | Searching recent log messages across runs |
 | **Config** | Shared, runner, and desktop application configuration |
 | **Doctor** | Native support, registered triggers, serial-reader health, paths, runtime facts, and corrective diagnostics |
+| **About** | Runner version, project links, licensing, credits, update status, and release notes |
 
 ## Dashboard
 <!-- desktop-tab:dashboard -->
@@ -37,7 +38,7 @@ The **Review queue** highlights scripts with package, approval, secret, compatib
 ## Scripts
 <!-- desktop-tab:scripts -->
 
-Choose **Import package** to select a `.bbs` file. Import validates the package before modifying runner storage. A rejected package does not replace an installed revision.
+Choose **Import** to select a `.bbs` file. The file picker is attached to the BaudBound window. After you select a file, the window regains focus and the import begins. Import validates the package before modifying runner storage. A rejected package does not replace an installed revision. If the file picker or import fails, BaudBound displays the reason in a notification.
 
 Importing a package does not create network credentials. When you approve a package that contains Webhook or WebSocket triggers, BaudBound creates the required tokens and opens a one time token dialog. Save every displayed token before continuing. Only token hashes are stored, so a closed token dialog cannot be reopened. Use Security to generate a replacement if a token is lost. Updating a package preserves tokens for unchanged network triggers. Tokens for newly added network triggers appear after you approve the updated package.
 
@@ -47,7 +48,9 @@ Each script row provides frequent actions directly:
 - **Stop** replaces **Run** while that script is running. It requests cancellation for every active run of that script.
 - **Approve** appears when the current revision needs review.
 - The row expander shows package identity, health, declared permissions, triggers, and recent runs.
-- The action menu contains less frequent operations such as update, enable or disable, revoke approval, secret management, and removal.
+- The action menu contains **About**, enable or disable, and removal.
+
+Choose **About** from a script action menu to read the information supplied by its verified package. This includes its description, author, website, repository, creation details, tags, format versions, target runtime, and minimum runner version. Empty optional fields are hidden. Website and repository links open in the system browser only after you select them.
 
 Multiple rows can remain expanded. The displayed package name is not the stable script identity. The ID shown with it controls update matching.
 
@@ -202,3 +205,12 @@ When automatic update checks are enabled under Config, the signed updater checks
 - **Restart and install** asks the background runner to stop, installs the verified update, and restarts the application.
 
 Do not terminate the application while installation is replacing files. If download or verification repeatedly fails, use the recovery steps in [Installation and Updates](installation.md).
+
+## About
+<!-- desktop-tab:about -->
+
+About identifies the installed BaudBound version and provides links to the website, documentation, source repository, and issue tracker. It also records the project owner, software license, content license, trademark notice, and copyright attribution.
+
+The update panel uses the same signed updater as the automatic update dialog. **Check for updates** contacts the official release feed immediately. It does not install anything by itself. The panel reports whether the installed version is current, whether a newer version is available, or why a check failed.
+
+When an update is available, the panel shows its version and GitHub release notes. Release notes support normal Markdown formatting. Embedded HTML is not executed, and links open through the operating system browser. You can download the signed update from this panel and restart to install it after verification succeeds.

@@ -45,6 +45,8 @@ baudbound script import "$HOME/Downloads/desk-lights.bbs"
 
 Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. Import does not create Webhook or WebSocket credentials. Those credentials are created only after you review and approve the package. A failed import does not install a partially accepted package.
 
+In the desktop app, open the script action menu and choose **About** to read the descriptive information stored in the verified package manifest. The dialog shows the author, description, website, repository, tags, creation details, minimum runner version, target runtime, and package identity when those values are available. These fields describe the package but do not replace the approval review. Always review permissions, capabilities, risk, and package integrity separately.
+
 The runner stages validation before durable installation. Rejection leaves existing script records, package files, approvals, variables, secrets, and registrations unchanged.
 
 Display names are not guaranteed unique. The manifest ID is stable and unambiguous. When a name matches more than one installed script, use the ID printed by `baudbound script list` or inspection rather than guessing.
@@ -131,8 +133,8 @@ Removal deletes the installed package copy and script row. Database foreign-key 
 
 | CLI task | Scripts view |
 | --- | --- |
-| `baudbound script import PACKAGE` | **Import package** |
-| `baudbound script list` / `baudbound script inspect SCRIPT` | Script row and expandable details |
+| `baudbound script import PACKAGE` | **Import** |
+| `baudbound script list` / `baudbound script inspect SCRIPT` | Script row, **About**, and expandable details |
 | `baudbound script approve SCRIPT` | Approval review dialog |
 | `baudbound script enable SCRIPT` / `baudbound script disable SCRIPT` | Row action menu |
 | `baudbound script run SCRIPT` | **Run** button |

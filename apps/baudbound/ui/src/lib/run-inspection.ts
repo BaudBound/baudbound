@@ -1,9 +1,12 @@
-import type { RunLogEntry, StoredRunRecord } from "@/lib/runner-api";
+import type { RunLogEntry, StoredRunRecord, VariableScope } from "@/lib/runner-api";
+
+export type DisplayVariableScope = VariableScope | "unknown";
 
 export type VariableRow = {
   name: string;
   preview: string;
   raw: unknown;
+  scope: DisplayVariableScope;
   type: string;
 };
 
@@ -41,30 +44,21 @@ export function nodeActionType(logs: RunLogEntry[], nodeId: string) {
   return logs.find((log) => log.node_id === nodeId && log.action_type)?.action_type ?? null;
 }
 
-export function runHasErrors(run: StoredRunRecord) {
-  return run.status === "failed" || run.logs.some((log) => log.level === "error");
-}
-
-export function runSummary(runs: StoredRunRecord[]) {
-  return {
-    completed: runs.filter((run) => run.status === "completed").length,
-    failed: runs.filter((run) => run.status === "failed").length,
-    cancelled: runs.filter((run) => run.status === "cancelled").length,
-    withErrors: runs.filter(runHasErrors).length,
-  };
-}
-
 export function runStatusVariant(status: StoredRunRecord["status"]) {
   if (status === "completed") return "good" as const;
   return status === "cancelled" ? ("medium" as const) : ("destructive" as const);
 }
 
-export function variableRows(variables: Record<string, unknown>): VariableRow[] {
+export function variableRows(
+  variables: Record<string, unknown>,
+  scopes: Record<string, VariableScope> = {},
+): VariableRow[] {
   return Object.entries(variables)
     .map(([name, value]) => ({
       name,
       preview: previewValue(value),
       raw: value,
+      scope: scopes[name] ?? (isMetadataVariable(name) ? "metadata" : "unknown"),
       type: valueType(value),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -76,8 +70,39 @@ export function filterVariables(rows: VariableRow[], query: string) {
     return rows;
   }
   return rows.filter((row) =>
-    [row.name, row.type, row.preview].join("\n").toLowerCase().includes(normalized),
+    [row.name, row.scope, row.type, row.preview]
+      .join("\n")
+      .toLowerCase()
+      .includes(normalized),
   );
+}
+
+const metadataVariableSuffixes = [".$length", ".$count", ".$type", ".$is_empty"];
+
+function isMetadataVariable(name: string) {
+  return metadataVariableSuffixes.some((suffix) => name.endsWith(suffix));
+}
+
+export function filterVariableMetadata(rows: VariableRow[], showMetadata: boolean) {
+  if (showMetadata) {
+    return rows;
+  }
+  return rows.filter(
+    (row) => row.scope !== "metadata" && !isMetadataVariable(row.name),
+  );
+}
+
+export function variableScopeLabel(scope: DisplayVariableScope) {
+  const labels: Record<DisplayVariableScope, string> = {
+    global: "Global",
+    metadata: "Metadata",
+    node_output: "Node output",
+    persistent: "Persistent",
+    runtime: "Runtime",
+    secret: "Secret",
+    unknown: "Unknown",
+  };
+  return labels[scope];
 }
 
 export function stringifyJson(value: unknown) {

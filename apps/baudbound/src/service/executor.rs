@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc, Mutex,
         mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel},
@@ -18,7 +19,11 @@ pub(super) type TriggerRunner =
     dyn Fn(TriggerEvent) -> Result<RunReport, String> + Send + Sync + 'static;
 
 pub(super) struct TriggerExecutor {
+    active_scripts: HashSet<String>,
     completion_receiver: Receiver<TriggerCompletion>,
+    deferred_jobs: HashMap<String, VecDeque<TriggerJob>>,
+    local_completions: VecDeque<TriggerCompletion>,
+    max_pending_jobs: usize,
     next_job_id: u64,
     pending_jobs: usize,
     sender: Option<SyncSender<TriggerJob>>,
@@ -80,20 +85,37 @@ impl TriggerExecutor {
         event: TriggerEvent,
         source: &'static str,
     ) -> Result<u64, TriggerSubmitError> {
+        if self.sender.is_none() {
+            return Err(TriggerSubmitError::Stopped);
+        }
+        if self.pending_jobs >= self.max_pending_jobs {
+            return Err(TriggerSubmitError::Full);
+        }
+
         let job_id = self.next_job_id;
         self.next_job_id = self
             .next_job_id
             .checked_add(1)
             .ok_or(TriggerSubmitError::Stopped)?;
-        let Some(sender) = &self.sender else {
-            return Err(TriggerSubmitError::Stopped);
-        };
-        match sender.try_send(TriggerJob {
+        let job = TriggerJob {
             event,
             job_id,
             source,
-        }) {
+        };
+        let script_id = job.event.script_id.clone();
+        if self.active_scripts.contains(&script_id) {
+            self.deferred_jobs
+                .entry(script_id)
+                .or_default()
+                .push_back(job);
+            self.pending_jobs = self.pending_jobs.saturating_add(1);
+            return Ok(job_id);
+        }
+
+        let sender = self.sender.as_ref().ok_or(TriggerSubmitError::Stopped)?;
+        match sender.try_send(job) {
             Ok(()) => {
+                self.active_scripts.insert(script_id);
                 self.pending_jobs = self.pending_jobs.saturating_add(1);
                 Ok(job_id)
             }
@@ -103,8 +125,12 @@ impl TriggerExecutor {
     }
 
     pub(super) fn try_completion(&mut self) -> Option<TriggerCompletion> {
-        let completion = self.completion_receiver.try_recv().ok()?;
+        let completion = self
+            .local_completions
+            .pop_front()
+            .or_else(|| self.completion_receiver.try_recv().ok())?;
         self.pending_jobs = self.pending_jobs.saturating_sub(1);
+        self.schedule_next_for_script(&completion.event.script_id);
         Some(completion)
     }
 
@@ -164,13 +190,52 @@ impl TriggerExecutor {
         }
 
         Ok(Self {
+            active_scripts: HashSet::new(),
             completion_receiver,
+            deferred_jobs: HashMap::new(),
+            local_completions: VecDeque::new(),
+            max_pending_jobs: worker_count.max(1).saturating_add(queue_capacity.max(1)),
             next_job_id: 1,
             pending_jobs: 0,
             sender: Some(sender),
             cancellation,
             workers,
         })
+    }
+
+    fn schedule_next_for_script(&mut self, script_id: &str) {
+        let next_job = self
+            .deferred_jobs
+            .get_mut(script_id)
+            .and_then(VecDeque::pop_front);
+        if self
+            .deferred_jobs
+            .get(script_id)
+            .is_some_and(VecDeque::is_empty)
+        {
+            self.deferred_jobs.remove(script_id);
+        }
+
+        let Some(job) = next_job else {
+            self.active_scripts.remove(script_id);
+            return;
+        };
+        let Some(sender) = &self.sender else {
+            self.queue_stopped_completion(job);
+            return;
+        };
+        if let Err(error) = sender.send(job) {
+            self.queue_stopped_completion(error.0);
+        }
+    }
+
+    fn queue_stopped_completion(&mut self, job: TriggerJob) {
+        self.local_completions.push_back(TriggerCompletion {
+            event: job.event,
+            job_id: job.job_id,
+            result: Err("trigger execution workers are unavailable".to_owned()),
+            source: job.source,
+        });
     }
 
     pub(super) fn shutdown(&mut self) -> Result<(), String> {

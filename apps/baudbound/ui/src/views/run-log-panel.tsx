@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import {
   Select,
   SelectContent,
@@ -13,9 +14,23 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
+import { useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 
 const allLevels = "all";
+
+type RunLogSortColumn = "level" | "message" | "node" | "time" | "type";
+
+const runLogSortSelectors: Record<
+  RunLogSortColumn,
+  (log: RunLogEntry) => number | string
+> = {
+  level: (log) => log.level,
+  message: (log) => log.message,
+  node: (log) => log.node_id ?? "",
+  time: (log) => log.timestamp_unix_ms,
+  type: (log) => log.action_type ?? "",
+};
 
 export function RunLogPanel({
   emptyMessage = "No log entries were recorded for this run.",
@@ -33,9 +48,13 @@ export function RunLogPanel({
   const logViewportRef = useRef<HTMLDivElement>(null);
   const levelCounts = useMemo(() => countLogsByLevel(logs), [logs]);
   const levels = useMemo(() => logLevels(logs), [logs]);
-  const visibleLogs = useMemo(
+  const filteredLogs = useMemo(
     () => filterLogs(logs, { level: levelFilter, query }),
     [levelFilter, logs, query],
+  );
+  const { sortedRows: visibleLogs, sortState, toggleSort } = useSortableRows(
+    filteredLogs,
+    runLogSortSelectors,
   );
 
   useEffect(() => {
@@ -102,11 +121,21 @@ export function RunLogPanel({
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2">#</th>
-                <th className="px-3 py-2">Time</th>
-                <th className="px-3 py-2">Level</th>
-                <th className="px-3 py-2">Node</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Message</th>
+                <SortableTableHeader column="time" onSort={toggleSort} sortState={sortState}>
+                  Time
+                </SortableTableHeader>
+                <SortableTableHeader column="level" onSort={toggleSort} sortState={sortState}>
+                  Level
+                </SortableTableHeader>
+                <SortableTableHeader column="node" onSort={toggleSort} sortState={sortState}>
+                  Node
+                </SortableTableHeader>
+                <SortableTableHeader column="type" onSort={toggleSort} sortState={sortState}>
+                  Type
+                </SortableTableHeader>
+                <SortableTableHeader column="message" onSort={toggleSort} sortState={sortState}>
+                  Message
+                </SortableTableHeader>
               </tr>
             </thead>
             <tbody>

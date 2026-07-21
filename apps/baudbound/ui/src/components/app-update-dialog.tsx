@@ -1,7 +1,6 @@
 import { CheckCircle2, Download, RefreshCw, TriangleAlert } from "lucide-react";
-import { useCallback } from "react";
-
 import { Button } from "@/components/ui/button";
+import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
 import {
   Dialog,
   DialogContent,
@@ -10,26 +9,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useAppUpdater } from "@/hooks/use-app-updater";
+import type { AppUpdaterController } from "@/hooks/use-app-updater";
 import { updateProgressPercent } from "@/lib/update-progress";
 
 export function AppUpdateDialog({
-  automaticCheck,
-  onError,
+  updater,
 }: {
-  automaticCheck: boolean;
-  onError: (message: string) => void;
+  updater: AppUpdaterController;
 }) {
-  const stableErrorHandler = useCallback((message: string) => onError(message), [onError]);
-  const { dismiss, download, installAndRestart, retry, state } = useAppUpdater(
-    stableErrorHandler,
-    automaticCheck,
-  );
-  const open =
+  const { dialogOpen, dismiss, download, installAndRestart, retry, state } = updater;
+  const open = dialogOpen && (
     state.phase === "available" ||
     state.phase === "downloading" ||
     state.phase === "ready" ||
-    state.phase === "error";
+    state.phase === "error"
+  );
   const canDismiss = state.phase === "available" || state.phase === "error";
   const progressPercent = updateProgressPercent(state.progress);
 
@@ -51,8 +45,8 @@ export function AppUpdateDialog({
         ) : null}
 
         {state.phase === "available" && state.releaseNotes ? (
-          <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background p-3 text-sm leading-6 text-muted-foreground">
-            {state.releaseNotes}
+          <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-background p-3">
+            <LazyMarkdownContent source={state.releaseNotes} />
           </div>
         ) : null}
 

@@ -293,6 +293,7 @@ test("select config fields produce enum values in generated node schemas", () =>
 		"HEAD",
 		"OPTIONS",
 	]);
+	assert.deepEqual(httpSchema.$defs.config.properties.bodyFormat.enum, ["json", "text"]);
 	assert.deepEqual(variableSchema.$defs.config.properties.operation.enum, [
 		"set",
 		"increment",

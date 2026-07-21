@@ -583,6 +583,11 @@ function NodesSection() {
 						and channel values. Process, window, serial, sound, message box, and file nodes expose operation-specific
 						data when relevant.
 					</InfoCard>
+					<InfoCard>
+						HTTP Request JSON bodies resolve variables as JSON values. String content is escaped safely, including
+						quotes, backslashes, carriage returns, and newlines. Text body mode sends resolved text without JSON
+						processing.
+					</InfoCard>
 				</div>
 			</div>
 		</section>

@@ -2,12 +2,14 @@ import { Activity, ListTree } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type {
   DashboardPayload,
   TriggerDispatchActivity,
   TriggerRegistrationStatus,
 } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
+import { useSortableRows } from "@/lib/table-sorting";
 import {
   SerialReaderStatusPanel,
   type SerialTriggerRegistration,
@@ -19,8 +21,28 @@ type TriggerRow = TriggerRegistrationStatus & {
   scriptName: string;
 };
 
+type TriggerSortColumn = "health" | "node" | "script" | "target" | "type";
+
+const triggerSortSelectors: Record<
+  TriggerSortColumn,
+  (row: TriggerRow) => number | string
+> = {
+  health: (row) => {
+    if (!row.activity || row.activity.total_dispatch_count === 0) return 0;
+    return row.activity.failed_dispatch_count > 0 ? 2 : 1;
+  },
+  node: (row) => row.node_id,
+  script: (row) => row.scriptName,
+  target: (row) => row.target ?? row.device_id ?? "",
+  type: (row) => triggerDisplayName(row.runner_type),
+};
+
 export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPayload }) {
   const rows = triggerRows(dashboard);
+  const { sortedRows, sortState, toggleSort } = useSortableRows(
+    rows,
+    triggerSortSelectors,
+  );
   const serialRows = rows.filter(
     (row): row is TriggerRow & SerialTriggerRegistration => row.runner_type === "serial_input",
   );
@@ -35,6 +57,7 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Triggers loaded automatically from enabled and approved scripts.
+            Run totals cover the current background runner session and reset when it restarts.
           </p>
         </div>
         <Badge variant="muted">{rows.length}</Badge>
@@ -48,15 +71,25 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                <th className="px-3 py-2">Script</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Node</th>
-                <th className="px-3 py-2">Health</th>
-                <th className="px-3 py-2">Target</th>
+                <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
+                  Script
+                </SortableTableHeader>
+                <SortableTableHeader column="type" onSort={toggleSort} sortState={sortState}>
+                  Type
+                </SortableTableHeader>
+                <SortableTableHeader column="node" onSort={toggleSort} sortState={sortState}>
+                  Node
+                </SortableTableHeader>
+                <SortableTableHeader column="health" onSort={toggleSort} sortState={sortState}>
+                  Health
+                </SortableTableHeader>
+                <SortableTableHeader column="target" onSort={toggleSort} sortState={sortState}>
+                  Target
+                </SortableTableHeader>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <tr
                   className="border-b border-border last:border-b-0"
                   key={`${row.scriptId}:${row.node_id}`}

@@ -16,6 +16,7 @@ export function ScriptProblemPanel({
   scripts: ScriptStatus[];
 }) {
   const scriptsWithProblems = scripts
+    .filter((script) => script.installed.enabled)
     .map((script) => ({ problems: scriptProblems(script), script }))
     .filter(({ problems }) => problems.length > 0);
 

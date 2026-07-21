@@ -1,10 +1,12 @@
 import { FileUp } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { DashboardAction } from "@/lib/app-types";
 import {
   type ActionPayload,
+  type PackageFileSelection,
   importScriptPackage,
   selectPackageFile,
   updateScriptPackage,
@@ -59,9 +61,16 @@ export function ScriptPackageToolbar({
 async function selectAndRunPackageAction(
   actionId: string,
   runAction: DashboardAction,
-  action: (packagePath: string) => Promise<ActionPayload>,
+  action: (selection: PackageFileSelection) => Promise<ActionPayload>,
 ) {
-  const packagePath = await selectPackageFile();
-  if (!packagePath) return;
-  runAction(actionId, () => action(packagePath));
+  const operation = actionId === "import-package" ? "import" : "update";
+  let selection: PackageFileSelection | null;
+  try {
+    selection = await selectPackageFile(operation);
+  } catch (error) {
+    toast.error(`Package selection failed: ${String(error)}`);
+    return;
+  }
+  if (!selection) return;
+  await runAction(actionId, () => action(selection));
 }

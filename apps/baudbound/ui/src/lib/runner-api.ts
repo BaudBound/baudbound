@@ -5,6 +5,11 @@ export type PackageHashStatus =
   | { actual: string; expected: string; state: "mismatch" }
   | { message?: string; state: "error" };
 
+export type PackageFileSelection = {
+  confirmation_id: string;
+  package_path: string;
+};
+
 export type ApprovalStatus =
   | { state: "current" }
   | { state: "missing" }
@@ -63,9 +68,22 @@ export type ScriptStatus = {
   approval_status: ApprovalStatus;
   declared_permissions: string[];
   installed: InstalledScript;
+  metadata: ScriptMetadata | null;
   package_error: string | null;
   package_hash_status: PackageHashStatus;
   triggers: TriggerRegistrationStatus[];
+};
+
+export type ScriptMetadata = {
+  author: string;
+  created_at: string;
+  created_with: string;
+  description: string;
+  minimum_runner_version: string;
+  repository: string;
+  tags: string[];
+  updated_at: string;
+  website: string;
 };
 
 export type RunnerStatus = {
@@ -80,6 +98,7 @@ export type RunnerStatus = {
 
 export type DesktopBackgroundRunnerState = {
   message: string;
+  revision: number;
   running: boolean;
   started_at_unix: number | null;
   state: "failed" | "running" | "stopped" | "stopping";
@@ -245,10 +264,16 @@ export type ServiceStatusDocument = {
   pid: number;
   reload_interval_seconds: number;
   services: ServiceStatusService[];
+  status_revision?: number;
   started_at_unix: number;
   state: string;
   storage_root: string;
   time_format: TimeFormat;
+};
+
+export type ServiceStatusEvent = {
+  service_health: ServiceHealthDocument;
+  service_status: ServiceStatusDocument;
 };
 
 export type ServiceHealthDocument = {
@@ -305,8 +330,25 @@ export type StoredRunRecord = {
   script_id: string;
   status: "cancelled" | "completed" | "failed";
   trigger_node_id: string;
+  variable_scopes: Record<string, VariableScope>;
   variables: Record<string, unknown>;
 };
+
+export type RunStatistics = {
+  cancelled: number;
+  completed: number;
+  failed: number;
+  total: number;
+  with_errors: number;
+};
+
+export type VariableScope =
+  | "global"
+  | "metadata"
+  | "node_output"
+  | "persistent"
+  | "runtime"
+  | "secret";
 
 export type DashboardPayload = {
   active_runs: ActiveRun[];
@@ -314,10 +356,13 @@ export type DashboardPayload = {
   automatic_update_checks: boolean;
   config_path: string;
   desktop_background: DesktopBackgroundRunnerState;
+  desktop_background_start_blocker: string | null;
+  desktop_platform: "linux" | "unsupported" | "windows";
   launch_at_login_desired: boolean;
   launch_at_login_registered: boolean | null;
   native_doctor_checks: NativeDoctorCheck[];
   recent_runs: StoredRunRecord[];
+  run_statistics: RunStatistics;
   runner: RunnerStatus;
   secret_vault: SecretVaultSnapshot;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
@@ -566,8 +611,8 @@ export function cancelCoordinatePicker(sessionId: string) {
   return invoke<void>("cancel_coordinate_picker", { sessionId });
 }
 
-export function selectPackageFile() {
-  return invoke<string | null>("select_package_file");
+export function selectPackageFile(operation: "import" | "update") {
+  return invoke<PackageFileSelection | null>("select_package_file", { operation });
 }
 
 export function approveScript(reference: string) {
@@ -582,20 +627,18 @@ export function revokeScriptApproval(reference: string) {
   return invoke<ActionPayload>("revoke_script_approval", { reference });
 }
 
-export function importScriptPackage(packagePath: string) {
-  return invokeSensitive<ActionPayload>(
-    "import_script_package",
-    { kind: "import_script_package", package_path: packagePath },
-    { packagePath },
-  );
+export function importScriptPackage(selection: PackageFileSelection) {
+  return invoke<ActionPayload>("import_script_package", {
+    confirmationId: selection.confirmation_id,
+    packagePath: selection.package_path,
+  });
 }
 
-export function updateScriptPackage(packagePath: string) {
-  return invokeSensitive<ActionPayload>(
-    "update_script_package",
-    { kind: "update_script_package", package_path: packagePath },
-    { packagePath },
-  );
+export function updateScriptPackage(selection: PackageFileSelection) {
+  return invoke<ActionPayload>("update_script_package", {
+    confirmationId: selection.confirmation_id,
+    packagePath: selection.package_path,
+  });
 }
 
 export function startBackgroundRunner() {
@@ -644,6 +687,10 @@ export function stopRun(runId: string) {
 
 export function stopScriptRuns(reference: string) {
   return invoke<ActionPayload>("stop_script_runs", { reference });
+}
+
+export function stopManualScriptRuns(reference: string) {
+  return invoke<ActionPayload>("stop_manual_script_runs", { reference });
 }
 
 export function setScriptEnabled(reference: string, enabled: boolean) {

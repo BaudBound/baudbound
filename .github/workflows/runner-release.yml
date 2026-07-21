@@ -35,7 +35,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             librsvg2-dev \
             libxdo-dev \
-            patchelf
+            patchelf \
+            xdg-utils
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -133,7 +134,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             librsvg2-dev \
             libxdo-dev \
-            patchelf
+            patchelf \
+            xdg-utils
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

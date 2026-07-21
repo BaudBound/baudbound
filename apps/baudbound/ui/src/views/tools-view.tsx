@@ -14,7 +14,7 @@ export function ToolsView({
 }) {
   return (
     <div className="grid gap-4">
-      <MonitorDiscovery />
+      {dashboard.desktop_platform === "windows" ? <MonitorDiscovery /> : null}
       <SerialScanner
         busyActions={busyActions}
         configuredDeviceIds={new Set(dashboard.serial_devices.map((device) => device.device_id))}

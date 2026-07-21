@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
 use baudbound_core::{CoreError, RunnerCore};
 use baudbound_runtime::RuntimeError;
@@ -8,7 +11,7 @@ use tauri::{Runtime, State, WebviewWindow};
 use super::{
     ActionPayload, DesktopUiState, build_dashboard_payload,
     command_guard::{SensitiveOperation, SensitiveOperationGuard},
-    consume_sensitive_operation,
+    consume_sensitive_operation, current_core,
 };
 
 #[tauri::command]
@@ -90,6 +93,35 @@ pub(super) fn stop_script_runs(
         dashboard,
         message: format!(
             "Stop requested for {stopped} active {} of {reference}.",
+            if stopped == 1 { "run" } else { "runs" }
+        ),
+    })
+}
+
+#[tauri::command]
+pub(super) fn stop_manual_script_runs(
+    reference: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    let manual_trigger_ids = current_core(&state)
+        .map_err(|error| error.to_string())?
+        .list_trigger_registrations(&state.store, Some(&reference))
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|trigger| trigger.action_type == "trigger.manual")
+        .map(|trigger| trigger.node_id)
+        .collect::<BTreeSet<_>>();
+    let stopped = state
+        .active_runs
+        .stop_script_trigger_runs(&reference, &manual_trigger_ids);
+    if stopped == 0 {
+        return Err(format!("{reference} has no active manual runs to stop."));
+    }
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload {
+        dashboard,
+        message: format!(
+            "Stop requested for {stopped} active manual {} of {reference}.",
             if stopped == 1 { "run" } else { "runs" }
         ),
     })

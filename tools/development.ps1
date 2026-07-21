@@ -26,6 +26,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$previousConsoleInputEncoding = [Console]::InputEncoding
+$previousConsoleOutputEncoding = [Console]::OutputEncoding
+$previousOutputEncoding = $OutputEncoding
+$utf8Encoding = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8Encoding
+[Console]::OutputEncoding = $utf8Encoding
+$OutputEncoding = $utf8Encoding
+
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $toolLib = Join-Path $PSScriptRoot "lib"
 . (Join-Path $toolLib "terminal-menu.ps1")
@@ -85,4 +93,7 @@ try {
     }
 } finally {
     Pop-Location
+    [Console]::InputEncoding = $previousConsoleInputEncoding
+    [Console]::OutputEncoding = $previousConsoleOutputEncoding
+    $OutputEncoding = $previousOutputEncoding
 }

@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import {
   Activity,
-  HeartPulse,
+  RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -32,15 +32,20 @@ import {
   navigationItems,
   pageSubtitle,
   pageTitle,
+  utilityNavigationItems,
 } from "@/lib/navigation";
 import {
   type ActionPayload,
   type ActiveRunEvent,
+  type DesktopBackgroundRunnerState,
   type DashboardPayload,
   type GeneratedTriggerToken,
+  type ServiceStatusEvent,
   getDashboardState,
 } from "@/lib/runner-api";
 import { createDesktopTimeFormatter, DesktopTimeProvider } from "@/lib/time-format";
+import { useAppUpdater } from "@/hooks/use-app-updater";
+import { AboutView } from "@/views/about-view";
 import { DashboardView } from "@/views/dashboard-view";
 import { DiagnosticsView } from "@/views/diagnostics-view";
 import { LogsView } from "@/views/logs-view";
@@ -55,6 +60,8 @@ const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
 );
 const activeRunEventChannel = "runner-active-run";
+const serviceStatusEventChannel = "runner-service-status";
+const desktopRunnerEventChannel = "runner-desktop-background";
 const secretVaultEventChannel = "runner-secret-vault";
 
 export function App() {
@@ -65,6 +72,8 @@ export function App() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [generatedTriggerTokens, setGeneratedTriggerTokens] = useState<GeneratedTriggerToken[]>([]);
   const dashboardRef = useRef<DashboardPayload | null>(null);
+  const backgroundStopPending = useRef(false);
+  const backgroundStopRequestAcknowledged = useRef(false);
   const pendingActiveRunEvents = useRef<ActiveRunEvent[]>([]);
   const refreshInFlight = useRef(false);
   const refreshQueued = useRef(false);
@@ -76,25 +85,63 @@ export function App() {
       toast.error(notice.message);
     }
   }, []);
+  const completeBackgroundStopNotification = useCallback(() => {
+    if (!backgroundStopPending.current) return;
+    backgroundStopPending.current = false;
+    backgroundStopRequestAcknowledged.current = false;
+    pushNotice({
+      kind: "success",
+      message: "Desktop background runner stopped.",
+    });
+  }, [pushNotice]);
   const reportUpdateError = useCallback(
     (message: string) => pushNotice({ kind: "error", message }),
     [pushNotice],
   );
+  const updater = useAppUpdater(
+    reportUpdateError,
+    dashboard?.automatic_update_checks ?? false,
+  );
 
   const installDashboard = useCallback((incoming: DashboardPayload) => {
     const current = dashboardRef.current;
+    let acceptedIncoming =
+      current &&
+      incoming.desktop_background.revision < current.desktop_background.revision
+        ? { ...incoming, desktop_background: current.desktop_background }
+        : incoming;
+    if (
+      current?.service_status &&
+      (incoming.service_status?.status_revision ?? 0) <
+        (current.service_status.status_revision ?? 0)
+    ) {
+      acceptedIncoming = {
+        ...acceptedIncoming,
+        service_health: current.service_health,
+        service_status: current.service_status,
+      };
+    }
     let activeState = mergeActiveRunState(
-      current ? activeRunState(current) : activeRunState(incoming),
-      activeRunState(incoming),
+      current ? activeRunState(current) : activeRunState(acceptedIncoming),
+      activeRunState(acceptedIncoming),
     );
     for (const event of pendingActiveRunEvents.current) {
       activeState = applyActiveRunEvent(activeState, event);
     }
     pendingActiveRunEvents.current = [];
-    const next = withActiveRunState(incoming, activeState);
+    const next = withActiveRunState(acceptedIncoming, activeState);
     dashboardRef.current = next;
     setDashboard(next);
-  }, []);
+    if (
+      acceptedIncoming.desktop_background.state === "stopped" &&
+      backgroundStopRequestAcknowledged.current
+    ) {
+      completeBackgroundStopNotification();
+    } else if (acceptedIncoming.desktop_background.state === "failed") {
+      backgroundStopPending.current = false;
+      backgroundStopRequestAcknowledged.current = false;
+    }
+  }, [completeBackgroundStopNotification]);
 
   const refresh = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -125,6 +172,42 @@ export function App() {
     },
     [installDashboard, pushNotice],
   );
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
+    void listen<DesktopBackgroundRunnerState>(desktopRunnerEventChannel, (event) => {
+      const current = dashboardRef.current;
+      if (!current) {
+        void refresh({ silent: true });
+        return;
+      }
+      if (event.payload.revision <= current.desktop_background.revision) return;
+      installDashboard({ ...current, desktop_background: event.payload });
+      setLastUpdatedAt(new Date());
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize desktop runner state events: ${String(error)}`,
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [installDashboard, pushNotice, refresh]);
 
   useEffect(() => {
     let disposed = false;
@@ -176,6 +259,51 @@ export function App() {
     let disposed = false;
     let removeListener: (() => void) | undefined;
 
+    void listen<ServiceStatusEvent>(serviceStatusEventChannel, (event) => {
+      const current = dashboardRef.current;
+      if (!current) {
+        void refresh({ silent: true });
+        return;
+      }
+      if (
+        (event.payload.service_status.status_revision ?? 0) <
+        (current.service_status?.status_revision ?? 0)
+      ) {
+        return;
+      }
+      installDashboard({
+        ...current,
+        service_health: event.payload.service_health,
+        service_status: event.payload.service_status,
+      });
+      setLastUpdatedAt(new Date());
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize runner status events: ${String(error)}`,
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [installDashboard, pushNotice, refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
     void listen(secretVaultEventChannel, () => {
       void refresh({ silent: true });
     })
@@ -220,6 +348,11 @@ export function App() {
   const runAction = useCallback<DashboardAction>(
     async (actionId: string, action: () => Promise<ActionPayload>) => {
       if (busyActions.has(actionId)) return false;
+      const tracksBackgroundStop = actionId === "background-stop";
+      if (tracksBackgroundStop) {
+        backgroundStopPending.current = true;
+        backgroundStopRequestAcknowledged.current = false;
+      }
       setBusyActions((current) => new Set(current).add(actionId));
       try {
         const result = await action();
@@ -233,8 +366,18 @@ export function App() {
         }
         setLastUpdatedAt(new Date());
         pushNotice({ kind: "success", message: result.message });
+        if (tracksBackgroundStop) {
+          backgroundStopRequestAcknowledged.current = true;
+          if (dashboardRef.current?.desktop_background.state === "stopped") {
+            completeBackgroundStopNotification();
+          }
+        }
         return true;
       } catch (error) {
+        if (tracksBackgroundStop) {
+          backgroundStopPending.current = false;
+          backgroundStopRequestAcknowledged.current = false;
+        }
         pushNotice({ kind: "error", message: String(error) });
         return false;
       } finally {
@@ -245,7 +388,7 @@ export function App() {
         });
       }
     },
-    [busyActions, installDashboard, pushNotice],
+    [busyActions, completeBackgroundStopNotification, installDashboard, pushNotice],
   );
 
   const activePageLabel = useMemo(() => pageTitle(activeTab), [activeTab]);
@@ -264,7 +407,7 @@ export function App() {
             <div className="truncate text-xs text-muted-foreground">Desktop runner</div>
           </div>
         </div>
-        <nav className="min-h-0 overflow-auto pr-1 max-lg:hidden">
+        <nav className="min-h-0 flex-1 overflow-auto pr-1 max-lg:hidden">
           {navigationGroups.map((group) => (
             <div className="mb-4 min-w-0" key={group.label}>
               <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -288,6 +431,25 @@ export function App() {
               </div>
             </div>
           ))}
+        </nav>
+        <nav
+          aria-label="Application information"
+          className="mt-auto grid shrink-0 gap-1 border-t border-border pt-3 max-lg:hidden"
+        >
+          {utilityNavigationItems.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <Button
+                data-active={activeTab === tab.id}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                variant="tab"
+              >
+                <Icon className="size-4" />
+                {tab.label}
+              </Button>
+            );
+          })}
         </nav>
         <nav className="hidden min-w-0 flex-wrap gap-1.5 max-lg:flex" aria-label="Runner sections">
           {navigationItems.map((tab) => {
@@ -322,9 +484,12 @@ export function App() {
               </Badge>
             ) : null}
             {lastUpdatedAt ? (
-              <Badge variant="muted">
-                <HeartPulse className="mr-1 size-3" />
-                Updated {desktopTime.formatTime(lastUpdatedAt)}
+              <Badge
+                title="When the desktop interface last received runner data"
+                variant="muted"
+              >
+                <RefreshCw className="mr-1 size-3" />
+                Refreshed {desktopTime.formatTime(lastUpdatedAt)}
               </Badge>
             ) : null}
           </div>
@@ -395,15 +560,14 @@ export function App() {
                 runAction={runAction}
               />
             </Suspense>
+          ) : activeTab === "about" ? (
+            <AboutView updater={updater} />
           ) : (
             <DiagnosticsView dashboard={dashboard} />
           )}
         </section>
       </main>
-        <AppUpdateDialog
-          automaticCheck={dashboard?.automatic_update_checks ?? false}
-          onError={reportUpdateError}
-        />
+        <AppUpdateDialog updater={updater} />
         <OneTimeTriggerTokensDialog
           onDone={() => setGeneratedTriggerTokens([])}
           tokens={generatedTriggerTokens}

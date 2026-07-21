@@ -2,6 +2,7 @@
 
 mod compatibility;
 mod config;
+mod execution_queue;
 mod package;
 mod run_records;
 mod runtime_state;
@@ -34,6 +35,7 @@ use compatibility::{
     CompatibilityError, default_host_target_runtime_names, runner_target_runtime_names,
     validate_package_for_runner,
 };
+use execution_queue::{AcquireError, ScriptExecutionQueue};
 use package::{
     import_request_from_package, network_trigger_definitions, validate_package_security,
 };
@@ -60,7 +62,8 @@ pub use package::PackageInspection;
 pub use secrets::InstalledSecretStatus;
 pub use serial::{SerialDeviceConfig, serial_device_configs_from_settings};
 pub use status::{
-    ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptStatus, TriggerRegistrationStatus,
+    ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptMetadata, ScriptStatus,
+    TriggerRegistrationStatus,
 };
 pub use triggers::CoreTriggerDispatcher;
 
@@ -78,6 +81,7 @@ pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
+    execution_queue: Arc<ScriptExecutionQueue>,
     run_observer: Option<Arc<dyn RuntimeRunObserver>>,
     serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
     supported_target_runtimes: Vec<String>,
@@ -89,6 +93,7 @@ impl Default for RunnerCore {
         Self {
             action_handler: None,
             action_limits: ActionLimits::default(),
+            execution_queue: Arc::new(ScriptExecutionQueue::default()),
             run_observer: None,
             serial_connections: Arc::new(baudbound_actions::SerialConnectionRegistry::default()),
             supported_target_runtimes: default_host_target_runtime_names(),
@@ -110,6 +115,7 @@ impl RunnerCore {
                 max_file_read_bytes: config.limits.max_file_read_bytes,
                 max_http_response_bytes: config.limits.max_http_response_bytes,
             },
+            execution_queue: Arc::new(ScriptExecutionQueue::default()),
             run_observer: None,
             serial_connections,
             supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
@@ -141,6 +147,12 @@ impl RunnerCore {
         T: WebSocketMessageSink + 'static,
     {
         self.websocket_sink = Some(sink);
+        self
+    }
+
+    #[must_use]
+    pub fn with_execution_queue_from(mut self, existing: &Self) -> Self {
+        self.execution_queue = Arc::clone(&existing.execution_queue);
         self
     }
 
@@ -478,6 +490,31 @@ impl RunnerCore {
             cycle.push(installed.id);
             return Err(CoreError::SubScriptCycle(cycle.join(" -> ")));
         }
+        let _execution_permit = if call_stack.is_empty() {
+            self.execution_queue
+                .acquire(&installed.id, &cancellation)
+                .map_err(|error| match error {
+                    AcquireError::Cancelled => {
+                        CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
+                    }
+                    AcquireError::Busy => unreachable!("blocking acquisition cannot be busy"),
+                })?
+        } else {
+            let owner_script_id = call_stack
+                .last()
+                .expect("non-empty sub-script call stack should have an owner");
+            self.execution_queue
+                .acquire_nested(owner_script_id, &installed.id, &cancellation)
+                .map_err(|error| match error {
+                    AcquireError::Busy => CoreError::SubScriptDeadlock {
+                        owner: owner_script_id.clone(),
+                        target: installed.id.clone(),
+                    },
+                    AcquireError::Cancelled => {
+                        CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
+                    }
+                })?
+        };
         call_stack.push(installed.id.clone());
 
         let package = load_script_package(&installed.package_path)?;
@@ -660,10 +697,15 @@ impl RunnerCore {
             },
         };
 
+        let metadata = package
+            .as_ref()
+            .map(|package| ScriptMetadata::from(&package.manifest));
+
         ScriptStatus {
             approval_status,
             declared_permissions,
             installed: script,
+            metadata,
             package_error,
             package_hash_status,
             triggers,
@@ -715,6 +757,8 @@ pub enum CoreError {
     Storage(#[from] StorageError),
     #[error("script {0} is disabled")]
     ScriptDisabled(String),
+    #[error("sub-script execution would deadlock while {owner} waits for {target}")]
+    SubScriptDeadlock { owner: String, target: String },
     #[error("sub-script cycle detected: {0}")]
     SubScriptCycle(String),
     #[error("secret configuration is invalid: {0}")]

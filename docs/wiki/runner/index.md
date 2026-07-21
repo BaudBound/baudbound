@@ -41,6 +41,8 @@ See [Storage, Backups, and Recovery](storage-backups.md) for exact paths and bac
 
 Fan-out connections are not parallel work. The runtime completes the first destination branch before starting the next destination from the same output. This matches editor simulation. Node IDs and canvas positions do not decide the order.
 
+BaudBound runs only one instance of an installed script at a time. When another trigger starts the same script while it is already running, the new run waits in the trigger queue. Runs for different installed scripts can use separate workers and execute at the same time. This keeps persistent variables predictable inside one script without preventing independent automations from running together.
+
 Changing installed package bytes or importing an updated revision makes approval invalid or stale.
 
 ## Desktop background runner

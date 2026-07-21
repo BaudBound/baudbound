@@ -6,7 +6,7 @@ use crate::runtime::{
 use serde_json::Number;
 use serde_json::Value;
 
-use super::{RuntimeError, RuntimeExecutor, RuntimeNode};
+use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn evaluate_color_match(
@@ -61,22 +61,27 @@ impl RuntimeExecutor<'_> {
         self.set_variable(
             format!("{}.matches", node.id),
             Value::Bool(evaluation.matches),
+            RunVariableScope::NodeOutput,
         );
         self.set_variable(
             format!("{}.difference_percent", node.id),
             color_match_number(node, evaluation.difference_percent)?,
+            RunVariableScope::NodeOutput,
         );
         self.set_variable(
             format!("{}.red_difference", node.id),
             Value::from(evaluation.red_difference),
+            RunVariableScope::NodeOutput,
         );
         self.set_variable(
             format!("{}.green_difference", node.id),
             Value::from(evaluation.green_difference),
+            RunVariableScope::NodeOutput,
         );
         self.set_variable(
             format!("{}.blue_difference", node.id),
             Value::from(evaluation.blue_difference),
+            RunVariableScope::NodeOutput,
         );
         Ok(evaluation.matches)
     }

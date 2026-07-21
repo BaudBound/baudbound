@@ -1,8 +1,24 @@
 use anyhow::{Context, Result};
 use baudbound_core::{RunnerCore, TriggerRegistration};
 use baudbound_storage::SqliteRunnerStore;
+use baudbound_triggers::SerialInputService;
 
 use super::options::ServeOptions;
+
+pub fn validate_serve_start(
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
+    options: &ServeOptions,
+) -> Result<()> {
+    let registrations = core
+        .list_trigger_registrations(store, None)
+        .context("failed to load trigger registrations")?;
+    if options.serial_enabled {
+        SerialInputService::validate(registrations, &options.serial_connections)
+            .context("serial input configuration is not ready")?;
+    }
+    Ok(())
+}
 
 pub fn print_serve_preflight(
     core: &RunnerCore,

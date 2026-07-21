@@ -58,6 +58,83 @@ fn initializes_and_reopens_versioned_schema() {
 }
 
 #[test]
+fn migrates_version_seven_run_records_to_variable_scopes() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let database_path = temporary_directory
+        .path()
+        .join("runner")
+        .join("runner.sqlite3");
+    std::fs::create_dir_all(
+        database_path
+            .parent()
+            .expect("database should have a parent"),
+    )
+    .expect("database directory should be created");
+    let connection = rusqlite::Connection::open(&database_path).expect("database should open");
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE run_records (
+                run_id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                trigger_node_id TEXT NOT NULL,
+                completed_at_unix INTEGER NOT NULL,
+                logs_json TEXT NOT NULL,
+                variables_json TEXT NOT NULL
+            );
+            INSERT INTO run_records (
+                run_id, script_id, status, trigger_node_id, completed_at_unix,
+                logs_json, variables_json
+            ) VALUES (
+                'run-before-migration', 'script-1', 'completed', 'n-trigger', 1,
+                '[{"level":"error","message":"failed action"}]', '{}'
+            );
+            PRAGMA user_version = 7;
+            "#,
+        )
+        .expect("version seven schema should be created");
+    drop(connection);
+
+    let store = SqliteRunnerStore::open(&database_path).expect("schema should migrate");
+    assert_eq!(
+        store
+            .schema_version()
+            .expect("schema version should be readable"),
+        CURRENT_SCHEMA_VERSION
+    );
+    assert_eq!(
+        store
+            .run_statistics()
+            .expect("migrated run statistics should load"),
+        RunStatistics {
+            cancelled: 0,
+            completed: 1,
+            failed: 0,
+            total: 1,
+            with_errors: 1,
+        }
+    );
+    store
+        .append_run_record(test_run_record(
+            "run-1",
+            "script-1",
+            current_test_timestamp(),
+        ))
+        .expect("scoped run record should append after migration");
+    let records = store
+        .list_run_records(None, None)
+        .expect("migrated run records should list");
+    assert_eq!(
+        records[0]
+            .variable_scopes
+            .get("counter")
+            .map(String::as_str),
+        Some("runtime")
+    );
+}
+
+#[test]
 fn round_trips_the_normalized_update_check_cache() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
@@ -679,6 +756,13 @@ fn appends_orders_and_filters_run_records() {
             .collect::<Vec<_>>(),
         ["run-3", "run-2"]
     );
+    assert_eq!(
+        all_records[0]
+            .variable_scopes
+            .get("counter")
+            .map(String::as_str),
+        Some("runtime")
+    );
     let script_records = store
         .list_run_records(Some("Script One"), None)
         .expect("script records should list");
@@ -688,6 +772,58 @@ fn appends_orders_and_filters_run_records() {
             .map(|record| record.run_id.as_str())
             .collect::<Vec<_>>(),
         ["run-3", "run-1"]
+    );
+}
+
+#[test]
+fn summarizes_all_retained_run_records() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let now = current_test_timestamp();
+
+    let mut completed_with_error = test_run_record("run-completed", "script-1", now - 2);
+    completed_with_error.logs.push(RunLogEntry {
+        action_type: Some("action.test".to_owned()),
+        level: "error".to_owned(),
+        message: "action reported an error".to_owned(),
+        node_id: Some("n-action".to_owned()),
+        timestamp_unix_ms: (now - 2) * 1_000,
+    });
+    let mut failed = test_run_record("run-failed", "script-1", now - 1);
+    failed.status = "failed".to_owned();
+    let mut cancelled = test_run_record("run-cancelled", "script-1", now);
+    cancelled.status = "cancelled".to_owned();
+
+    for record in [completed_with_error, failed, cancelled] {
+        store.append_run_record(record).expect("run should append");
+    }
+
+    assert_eq!(
+        store.run_statistics().expect("statistics should load"),
+        RunStatistics {
+            cancelled: 1,
+            completed: 1,
+            failed: 1,
+            total: 3,
+            with_errors: 2,
+        }
+    );
+
+    store.clear_run_logs().expect("logs should clear");
+    assert_eq!(
+        store
+            .run_statistics()
+            .expect("statistics should update after clearing logs")
+            .with_errors,
+        1
+    );
+
+    store.clear_run_records().expect("history should clear");
+    assert_eq!(
+        store
+            .run_statistics()
+            .expect("empty statistics should load"),
+        RunStatistics::default()
     );
 }
 
@@ -878,7 +1014,8 @@ fn test_run_record(run_id: &str, script_id: &str, completed_at_unix: u64) -> Sto
         script_id: script_id.to_owned(),
         status: "completed".to_owned(),
         trigger_node_id: "n-trigger".to_owned(),
-        variables: BTreeMap::new(),
+        variable_scopes: BTreeMap::from([("counter".to_owned(), "runtime".to_owned())]),
+        variables: BTreeMap::from([("counter".to_owned(), serde_json::json!(1))]),
     }
 }
 

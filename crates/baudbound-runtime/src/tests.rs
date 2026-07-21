@@ -81,6 +81,14 @@ fn executes_manual_log_and_variable_operation() {
         report.variables.get("foo"),
         Some(&Value::String("bar".to_owned()))
     );
+    assert_eq!(
+        report.variable_scopes.get("foo"),
+        Some(&RunVariableScope::Runtime)
+    );
+    assert_eq!(
+        report.variable_scopes.get("foo.$length"),
+        Some(&RunVariableScope::Metadata)
+    );
     assert!(report.logs.iter().any(|log| {
         log.message == "foo=bar length=3"
             && log.node_id.as_deref() == Some("n-log")
@@ -692,6 +700,10 @@ fn calculates_expression_and_exposes_result_reference() {
     .expect("calculate should execute");
 
     assert_eq!(report.variables.get("n-calc.result"), Some(&json!(10.0)));
+    assert_eq!(
+        report.variable_scopes.get("n-calc.result"),
+        Some(&RunVariableScope::NodeOutput)
+    );
     assert!(report.logs.iter().any(|log| log.message == "result=10"));
 }
 
@@ -761,6 +773,70 @@ fn executes_external_action_handler_and_exposes_output_reference() {
             .iter()
             .any(|log| log.message == "external=hello")
     );
+}
+
+#[test]
+fn dispatches_json_http_bodies_with_safely_serialized_variables() {
+    #[derive(Debug)]
+    struct JsonBodyActionHandler;
+
+    impl RuntimeActionHandler for JsonBodyActionHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            assert_eq!(request.action_type, "action.http");
+            let body = request
+                .config
+                .get("body")
+                .and_then(Value::as_str)
+                .expect("HTTP body should be resolved to text");
+            assert_eq!(
+                serde_json::from_str::<Value>(body).expect("HTTP body should remain valid JSON"),
+                json!({"data": "scanner value\r"})
+            );
+            Ok(RuntimeActionResult {
+                output_data: Map::new(),
+            })
+        }
+    }
+
+    execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-var", "scanner_data", "set", "string", "scanner value\r"),
+                        {
+                            "id": "n-http",
+                            "action_type": "action.http",
+                            "type": "action",
+                            "action": "http_request",
+                            "config": {
+                                "method": "POST",
+                                "url": "https://example.com",
+                                "timeoutSeconds": "30",
+                                "headers": [{"name": "Content-Type", "value": "application/json"}],
+                                "bodyFormat": "json",
+                                "body": "{\"data\":\"{{scanner_data}}\"}"
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-var"),
+                        edge("n-var", "out", "n-http")
+                    ]
+                }
+            }
+        }),
+        "script-json-http-body",
+        &JsonBodyActionHandler,
+    )
+    .expect("JSON HTTP body should reach the action handler safely");
 }
 
 #[test]

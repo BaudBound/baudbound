@@ -2,6 +2,7 @@ import { KeyRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
 import type {
   DashboardPayload,
@@ -9,6 +10,7 @@ import type {
   TriggerAuthStatus,
 } from "@/lib/runner-api";
 import { isApprovalCurrent } from "@/lib/status-format";
+import { type SortValue, useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 import { NetworkTriggerAuthControls } from "@/views/security/network-trigger-auth";
 
@@ -19,6 +21,18 @@ export type NetworkTriggerAuthRow = {
   scriptId: string;
   scriptName: string;
   triggerType: NetworkTriggerType;
+};
+
+type NetworkAuthSortColumn = "created" | "lastRotation" | "script" | "trigger";
+
+const networkAuthSortSelectors: Record<
+  NetworkAuthSortColumn,
+  (row: NetworkTriggerAuthRow) => SortValue
+> = {
+  created: (row) => row.auth?.created_at_unix,
+  lastRotation: (row) => row.auth?.rotated_at_unix,
+  script: (row) => row.scriptName,
+  trigger: (row) => `${row.triggerType}\n${row.nodeId}`,
 };
 
 export function NetworkTriggerSecurityPanel({
@@ -34,6 +48,10 @@ export function NetworkTriggerSecurityPanel({
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   const rows = networkTriggerAuthRows(dashboard);
+  const { sortedRows, sortState, toggleSort } = useSortableRows(
+    rows,
+    networkAuthSortSelectors,
+  );
 
   return (
     <Card>
@@ -62,15 +80,23 @@ export function NetworkTriggerSecurityPanel({
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                <th className="px-3 py-2">Script</th>
-                <th className="px-3 py-2">Trigger</th>
-                <th className="px-3 py-2">Created</th>
-                <th className="px-3 py-2">Last rotation</th>
+                <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
+                  Script
+                </SortableTableHeader>
+                <SortableTableHeader column="trigger" onSort={toggleSort} sortState={sortState}>
+                  Trigger
+                </SortableTableHeader>
+                <SortableTableHeader column="created" onSort={toggleSort} sortState={sortState}>
+                  Created
+                </SortableTableHeader>
+                <SortableTableHeader column="lastRotation" onSort={toggleSort} sortState={sortState}>
+                  Last rotation
+                </SortableTableHeader>
                 <th className="px-3 py-2">Authentication</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <tr
                   className="border-b border-border last:border-b-0"
                   key={`${row.scriptId}:${row.nodeId}:${row.triggerType}`}

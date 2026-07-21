@@ -7,8 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
 import { clearRunLogs, type DashboardPayload } from "@/lib/runner-api";
+import { useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 
 const clearLogsAction = "logs-clear";
@@ -24,6 +26,25 @@ type LogRow = {
   timestampUnixMs: number;
 };
 
+type LogSortColumn =
+  | "level"
+  | "message"
+  | "node"
+  | "run"
+  | "script"
+  | "time"
+  | "type";
+
+const logSortSelectors: Record<LogSortColumn, (row: LogRow) => number | string> = {
+  level: (row) => row.level,
+  message: (row) => row.message,
+  node: (row) => row.nodeId ?? "runtime",
+  run: (row) => row.runId,
+  script: (row) => row.scriptName,
+  time: (row) => row.timestampUnixMs,
+  type: (row) => row.actionType ?? "",
+};
+
 export function LogsView({
   busyActions,
   dashboard,
@@ -37,9 +58,13 @@ export function LogsView({
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const rows = useMemo(() => logRows(dashboard), [dashboard]);
-  const visibleRows = useMemo(
+  const filteredRows = useMemo(
     () => rows.filter((row) => rowMatchesSearch(row, searchTerm)),
     [rows, searchTerm],
+  );
+  const { sortedRows: visibleRows, sortState, toggleSort } = useSortableRows(
+    filteredRows,
+    logSortSelectors,
   );
 
   if (rows.length === 0) {
@@ -83,13 +108,27 @@ export function LogsView({
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2">Time</th>
-                  <th className="px-3 py-2">Level</th>
-                  <th className="px-3 py-2">Script</th>
-                  <th className="px-3 py-2">Node</th>
-                  <th className="px-3 py-2">Type</th>
-                  <th className="px-3 py-2">Message</th>
-                  <th className="px-3 py-2">Run</th>
+                  <SortableTableHeader column="time" onSort={toggleSort} sortState={sortState}>
+                    Time
+                  </SortableTableHeader>
+                  <SortableTableHeader column="level" onSort={toggleSort} sortState={sortState}>
+                    Level
+                  </SortableTableHeader>
+                  <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
+                    Script
+                  </SortableTableHeader>
+                  <SortableTableHeader column="node" onSort={toggleSort} sortState={sortState}>
+                    Node
+                  </SortableTableHeader>
+                  <SortableTableHeader column="type" onSort={toggleSort} sortState={sortState}>
+                    Type
+                  </SortableTableHeader>
+                  <SortableTableHeader column="message" onSort={toggleSort} sortState={sortState}>
+                    Message
+                  </SortableTableHeader>
+                  <SortableTableHeader column="run" onSort={toggleSort} sortState={sortState}>
+                    Run
+                  </SortableTableHeader>
                 </tr>
               </thead>
               <tbody>

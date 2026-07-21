@@ -12,10 +12,12 @@ use anyhow::{Context, Result, anyhow};
 use baudbound_core::RunnerCore;
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
+use serde_json::Value;
 
 use crate::console;
 
 use super::{
+    ServiceStatusNotifier,
     dispatch::{
         dispatch_due_schedules, dispatch_hotkey_stdin_events, dispatch_startup_events,
         queue_trigger_event, queue_trigger_events, record_trigger_completions,
@@ -42,6 +44,7 @@ pub fn serve_triggers(
 
 pub struct ServeRuntimeControl {
     shutdown_requested: Arc<AtomicBool>,
+    status_change_notifier: Option<ServiceStatusNotifier>,
     stop_label: &'static str,
 }
 
@@ -49,6 +52,7 @@ impl ServeRuntimeControl {
     fn cli() -> Result<Self> {
         Ok(Self {
             shutdown_requested: install_shutdown_handler()?,
+            status_change_notifier: None,
             stop_label: "Shutdown requested",
         })
     }
@@ -56,8 +60,14 @@ impl ServeRuntimeControl {
     pub fn desktop(shutdown_requested: Arc<AtomicBool>) -> Self {
         Self {
             shutdown_requested,
+            status_change_notifier: None,
             stop_label: "Desktop background runner stop requested",
         }
+    }
+
+    pub fn with_status_change_notifier(mut self, notifier: ServiceStatusNotifier) -> Self {
+        self.status_change_notifier = Some(notifier);
+        self
     }
 }
 
@@ -79,7 +89,18 @@ pub fn serve_triggers_with_control(
     let cancellation = RuntimeCancellationToken::new();
     let mut trigger_executor = TriggerExecutor::new(core, store, "listener", cancellation.clone())
         .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;
-    let mut status = ServeStatusTracker::start(service_control.descriptor().clone());
+    let status_revision = store
+        .read_service_status()
+        .context("failed to read the previous runner service status")?
+        .as_ref()
+        .and_then(|status| status.get("status_revision"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let mut status = ServeStatusTracker::start(
+        service_control.descriptor().clone(),
+        control.status_change_notifier.clone(),
+        status_revision,
+    );
     let mut services =
         load_trigger_services(core, store, &options, &trigger_sender, &cancellation)?;
     let mut dispatched_any_event =
@@ -95,7 +116,7 @@ pub fn serve_triggers_with_control(
                 &mut services,
                 &mut trigger_executor,
                 &cancellation,
-                &status,
+                &mut status,
             )?;
             return Ok(());
         }
@@ -130,7 +151,7 @@ pub fn serve_triggers_with_control(
                 &mut services,
                 &mut trigger_executor,
                 &cancellation,
-                &status,
+                &mut status,
             )?;
             return Ok(());
         }
@@ -148,7 +169,7 @@ pub fn serve_triggers_with_control(
                 &mut services,
                 &mut trigger_executor,
                 &cancellation,
-                &status,
+                &mut status,
             )?;
             return Ok(());
         }
@@ -201,7 +222,7 @@ pub fn serve_triggers_with_control(
             next_reload_check = Instant::now() + options.reload_check_interval;
             status.write_running(store, &options, &services)?;
         }
-        status.write_heartbeat_if_due(store, &options, &services)?;
+        status.write_if_changed_or_due(store, &options, &services)?;
 
         if let Some(host) = services.webhook_host.as_mut() {
             dispatched_any_event |= host.poll(&mut status);
@@ -233,7 +254,7 @@ pub fn serve_triggers_with_control(
                 &mut services,
                 &mut trigger_executor,
                 &cancellation,
-                &status,
+                &mut status,
             )?;
             return Ok(());
         }
@@ -288,7 +309,7 @@ fn stop_runtime(
     services: &mut super::triggers::TriggerServices,
     trigger_executor: &mut TriggerExecutor,
     cancellation: &RuntimeCancellationToken,
-    status: &ServeStatusTracker,
+    status: &mut ServeStatusTracker,
 ) -> Result<()> {
     let stopped_status = status.prepare_stopped(store, options, services);
     cancellation.cancel();

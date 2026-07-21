@@ -106,6 +106,13 @@ impl SerialInputService {
         })
     }
 
+    pub fn validate(
+        registrations: impl IntoIterator<Item = TriggerRegistration>,
+        connections: &SerialConnectionRegistry,
+    ) -> Result<(), TriggerError> {
+        serial_reader_groups(registrations, connections).map(|_| ())
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.handles.is_empty()

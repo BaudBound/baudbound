@@ -166,7 +166,7 @@ export function VariableCodeInput({
 						style={textLayerStyle}
 						className={cn(
 							"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word px-2.5 py-2 font-mono text-sm leading-5",
-							multiline ? "min-h-8" : "h-8 whitespace-pre",
+							multiline ? "min-h-24" : "h-8 whitespace-pre",
 						)}
 					>
 						{value ? (
@@ -199,7 +199,7 @@ export function VariableCodeInput({
 						}}
 						className={cn(
 							"relative z-10 block w-full border-0 bg-transparent px-2.5 py-2 font-mono text-sm leading-5 text-transparent caret-baud-text outline-none selection:bg-baud-red/30",
-							multiline ? "min-h-8 resize-y overflow-auto" : "h-8 resize-none overflow-hidden whitespace-nowrap",
+							multiline ? "min-h-24 resize-y overflow-auto" : "h-8 resize-none overflow-hidden whitespace-nowrap",
 						)}
 					/>
 				</div>

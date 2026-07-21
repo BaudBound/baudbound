@@ -17,5 +17,10 @@ mod webhooks;
 
 pub(crate) use ipc::{ServiceControlCommand, redact_service_control, request_service_control};
 pub use options::{RunnerConfigSerialPortRebindSink, ServeOptions, ServeOverrides};
-pub use preflight::print_serve_preflight;
+pub use preflight::{print_serve_preflight, validate_serve_start};
 pub use runtime::{ServeRuntimeControl, serve_triggers, serve_triggers_with_control};
+
+pub type ServiceStatusNotifier = Arc<dyn Fn(&Value) + Send + Sync>;
+use std::sync::Arc;
+
+use serde_json::Value;

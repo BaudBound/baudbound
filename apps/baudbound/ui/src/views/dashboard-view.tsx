@@ -15,7 +15,9 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
   const { formatUnixSeconds } = useDesktopTime();
   const latestRuns = dashboard.recent_runs.slice(0, 5);
   const scriptsNeedingReview = dashboard.runner.scripts.filter(
-    (script) => !isApprovalCurrent(script.approval_status) || script.package_error,
+    (script) =>
+      script.installed.enabled &&
+      (!isApprovalCurrent(script.approval_status) || script.package_error),
   );
 
   return (

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -146,6 +146,51 @@ impl ActiveRunRegistry {
                 .runs
                 .iter()
                 .filter(|(_, entry)| entry.script_id == script_id && !entry.cancellation_requested)
+                .map(|(run_id, _)| run_id.clone())
+                .collect::<Vec<_>>();
+            let mut cancellations = Vec::with_capacity(run_ids.len());
+            for run_id in run_ids {
+                let cancellation = {
+                    let entry = state
+                        .runs
+                        .get_mut(&run_id)
+                        .expect("collected active run should remain present");
+                    entry.cancellation_requested = true;
+                    entry.cancellation.clone()
+                };
+                let revision = state.next_revision();
+                self.publish(ActiveRunEvent::CancellationRequested {
+                    revision,
+                    run_id: run_id.clone(),
+                });
+                cancellations.push((run_id, cancellation));
+            }
+            cancellations
+        };
+        for (_, cancellation) in &cancellations {
+            cancellation.cancel();
+        }
+        cancellations.len()
+    }
+
+    pub(super) fn stop_script_trigger_runs(
+        &self,
+        script_id: &str,
+        trigger_node_ids: &BTreeSet<String>,
+    ) -> usize {
+        let cancellations = {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let run_ids = state
+                .runs
+                .iter()
+                .filter(|(_, entry)| {
+                    entry.script_id == script_id
+                        && trigger_node_ids.contains(&entry.trigger_node_id)
+                        && !entry.cancellation_requested
+                })
                 .map(|(run_id, _)| run_id.clone())
                 .collect::<Vec<_>>();
             let mut cancellations = Vec::with_capacity(run_ids.len());
@@ -366,6 +411,27 @@ mod tests {
         assert!(first_token.is_cancelled());
         assert!(!second_token.is_cancelled());
         assert!(registry.snapshot().runs[0].cancellation_requested);
+    }
+
+    #[test]
+    fn stops_only_runs_started_by_selected_triggers() {
+        let registry = ActiveRunRegistry::default();
+        let manual_token = RuntimeCancellationToken::new();
+        let schedule_token = RuntimeCancellationToken::new();
+        let mut manual_identity = identity("run-manual", "script-1");
+        manual_identity.trigger_node_id = "n-manual".to_owned();
+        let mut schedule_identity = identity("run-schedule", "script-1");
+        schedule_identity.trigger_node_id = "n-schedule".to_owned();
+        registry.run_started(&manual_identity, manual_token.clone());
+        registry.run_started(&schedule_identity, schedule_token.clone());
+
+        assert_eq!(
+            registry
+                .stop_script_trigger_runs("script-1", &BTreeSet::from(["n-manual".to_owned()]),),
+            1
+        );
+        assert!(manual_token.is_cancelled());
+        assert!(!schedule_token.is_cancelled());
     }
 
     #[test]

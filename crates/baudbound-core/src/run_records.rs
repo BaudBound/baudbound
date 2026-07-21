@@ -24,6 +24,11 @@ pub(crate) fn stored_run_record_from_report(report: &RunReport) -> StoredRunReco
         script_id: report.identity.script_id.clone(),
         status: "completed".to_owned(),
         trigger_node_id: report.identity.trigger_node_id.clone(),
+        variable_scopes: report
+            .variable_scopes
+            .iter()
+            .map(|(name, scope)| (name.clone(), scope.as_str().to_owned()))
+            .collect(),
         variables: report.variables.clone(),
     }
 }
@@ -93,6 +98,7 @@ fn terminal_run_record(
         script_id: package.manifest.id.clone(),
         status: status.to_owned(),
         trigger_node_id,
+        variable_scopes: Default::default(),
         variables: Default::default(),
     }
 }

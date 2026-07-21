@@ -65,6 +65,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 
     let initial = invoke(&webview, "dashboard_state", json!({}));
     assert_eq!(initial["runner"]["total_script_count"], 0);
+    assert_eq!(initial["run_statistics"]["total"], 0);
     assert_eq!(initial["secret_vault"]["status"], "initializing");
 
     let package_path = temporary_directory.path().join("desktop-workflow.bbs");
@@ -84,7 +85,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         &webview,
         "prepare_sensitive_operation",
         json!({
-            "operation": {"kind": "import_script_package", "package_path": package_path}
+            "operation": {"kind": "reset_runner_config", "restart_background": false}
         }),
     );
     let wrong_operation = try_invoke(
@@ -98,18 +99,31 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     .expect_err("confirmation for another operation must fail");
     assert!(wrong_operation.contains("different action"));
 
-    let import_challenge = invoke(
+    let generic_package_confirmation = try_invoke(
         &webview,
         "prepare_sensitive_operation",
         json!({
             "operation": {"kind": "import_script_package", "package_path": package_path}
         }),
-    );
+    )
+    .expect_err("package operations must require a native picker authorization");
+    assert!(generic_package_confirmation.contains("native file picker"));
+
+    let import_confirmation_id = app
+        .state::<SensitiveOperationGuard>()
+        .prepare_package_selection(
+            &SensitiveOperation::ImportScriptPackage {
+                package_path: package_path.display().to_string(),
+            },
+            &app.state::<DesktopUiState>(),
+        )
+        .expect("native package selection should be authorized")
+        .into_confirmation_id();
     let imported = invoke(
         &webview,
         "import_script_package",
         json!({
-            "confirmationId": import_challenge["confirmation_id"],
+            "confirmationId": import_confirmation_id,
             "packagePath": package_path
         }),
     );
@@ -124,20 +138,23 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         &webview,
         "import_script_package",
         json!({
-            "confirmationId": import_challenge["confirmation_id"],
+            "confirmationId": import_confirmation_id,
             "packagePath": package_path
         }),
     )
     .expect_err("single-use confirmation must not be reusable");
     assert!(reused.contains("missing or already used"));
 
-    let changed_package_challenge = invoke(
-        &webview,
-        "prepare_sensitive_operation",
-        json!({
-            "operation": {"kind": "update_script_package", "package_path": package_path}
-        }),
-    );
+    let changed_package_confirmation_id = app
+        .state::<SensitiveOperationGuard>()
+        .prepare_package_selection(
+            &SensitiveOperation::UpdateScriptPackage {
+                package_path: package_path.display().to_string(),
+            },
+            &app.state::<DesktopUiState>(),
+        )
+        .expect("native package update selection should be authorized")
+        .into_confirmation_id();
     let mut changed_package = create_test_package();
     changed_package.push(0);
     fs::write(&package_path, changed_package).expect("changed package should be written");
@@ -145,7 +162,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         &webview,
         "update_script_package",
         json!({
-            "confirmationId": changed_package_challenge["confirmation_id"],
+            "confirmationId": changed_package_confirmation_id,
             "packagePath": package_path
         }),
     )
@@ -171,6 +188,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         json!({"reference": "desktop-workflow"}),
     );
     assert_eq!(run["dashboard"]["recent_runs"][0]["status"], "completed");
+    assert_eq!(run["dashboard"]["run_statistics"]["total"], 1);
+    assert_eq!(run["dashboard"]["run_statistics"]["completed"], 1);
     assert_eq!(
         run["dashboard"]["recent_runs"][0]["logs"][1]["message"],
         "desktop bridge"
@@ -201,6 +220,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     );
     assert_eq!(cleared_runs["message"], "Cleared 1 stored run.");
     assert_eq!(cleared_runs["dashboard"]["recent_runs"], json!([]));
+    assert_eq!(cleared_runs["dashboard"]["run_statistics"]["total"], 0);
 
     let disabled = invoke(
         &webview,

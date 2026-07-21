@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Info, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -29,6 +29,7 @@ export function ScriptRow({
   expanded,
   onToggleDetails,
   onReviewApproval,
+  onShowAbout,
   runAction,
   script,
 }: {
@@ -37,6 +38,7 @@ export function ScriptRow({
   expanded: boolean;
   onToggleDetails: (scriptId: string) => void;
   onReviewApproval: (scriptId: string) => void;
+  onShowAbout: (scriptId: string) => void;
   runAction: DashboardAction;
   script: ScriptStatus;
 }) {
@@ -51,10 +53,9 @@ export function ScriptRow({
   const runUnavailableReason = manualRunUnavailableReason(script);
   const canRun = runUnavailableReason === null;
   const runTitle = runUnavailableReason ?? "Run";
-  const isStarting = busyActions.has(runScriptAction) && activeRuns.length === 0;
-  const runControl = isStarting ? "stop" : scriptRunControl(script, activeRuns);
-  const isRunning = activeRuns.length > 0;
-  const isStopping = isRunning && activeRuns.every((run) => run.cancellation_requested);
+  const runControl = scriptRunControl(script, activeRuns);
+  const isStopping =
+    activeRuns.length > 0 && activeRuns.every((run) => run.cancellation_requested);
 
   return (
     <tr
@@ -106,43 +107,45 @@ export function ScriptRow({
       <td className="hidden px-3 py-3 xl:table-cell" data-label="Target">
         {script.installed.target_runtime}
       </td>
-      <td className="px-3 py-3" data-label="Actions">
-        <div className="flex w-fit gap-1.5">
+      <td className="px-3 py-3" data-label="Run">
+        <div className="flex justify-start">
           {runControl === "stop" ? (
             <Button
               aria-label={`Stop ${script.installed.name}`}
               className="size-8 p-0"
-              disabled={isStarting || isStopping || busyActions.has(stopScriptAction)}
+              disabled={isStopping || busyActions.has(stopScriptAction)}
               onClick={() =>
                 runAction(stopScriptAction, () => stopScriptRuns(reference))
               }
               size="sm"
               title={
-                isStarting
-                  ? "Starting"
-                  : isStopping
-                    ? "Stop requested"
+                isStopping
+                  ? "Stop requested"
                     : `Stop ${activeRuns.length} active run${activeRuns.length === 1 ? "" : "s"}`
               }
               variant="destructive"
             >
               <Square />
             </Button>
-          ) : runControl === "run" ? (
-            <Button
-              aria-label={`Run ${script.installed.name}`}
-              className="size-8 p-0"
-              disabled={!canRun || busyActions.has(runScriptAction)}
-              onClick={() => runAction(runScriptAction, () => runScript(reference))}
-              size="sm"
-              title={runTitle}
-              variant="default"
-            >
-              <Play />
-            </Button>
           ) : (
-            <span aria-hidden="true" className="size-8 shrink-0" />
+            <span title={runTitle}>
+              <Button
+                aria-label={`Run ${script.installed.name}`}
+                className="size-8 p-0"
+                disabled={!canRun || busyActions.has(runScriptAction)}
+                onClick={() => runAction(runScriptAction, () => runScript(reference))}
+                size="sm"
+                title={runTitle}
+                variant="default"
+              >
+                <Play />
+              </Button>
+            </span>
           )}
+        </div>
+      </td>
+      <td className="px-3 py-3" data-label="Actions">
+        <div className="flex justify-start gap-1.5">
           <Button
             aria-label={`Review approval for ${script.installed.name}`}
             className="size-8 p-0"
@@ -156,6 +159,12 @@ export function ScriptRow({
           </Button>
           <ActionMenu
             items={[
+              {
+                icon: Info,
+                id: "about",
+                label: "About",
+                onSelect: () => onShowAbout(reference),
+              },
               {
                 disabled: busyActions.has(toggleAction),
                 icon: Power,

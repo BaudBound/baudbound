@@ -135,9 +135,16 @@ pub(super) struct ConfirmationChallenge {
 }
 
 struct PendingChallenge {
+    authorization: ChallengeAuthorization,
     digest: [u8; 32],
     expires_at: Instant,
     operation_kind: &'static str,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ChallengeAuthorization {
+    FocusedMainWindow,
+    NativePackagePicker,
 }
 
 #[derive(Default)]
@@ -150,6 +157,41 @@ impl SensitiveOperationGuard {
         &self,
         operation: &SensitiveOperation,
         state: &DesktopUiState,
+    ) -> Result<ConfirmationChallenge, String> {
+        if matches!(
+            operation,
+            SensitiveOperation::ImportScriptPackage { .. }
+                | SensitiveOperation::UpdateScriptPackage { .. }
+        ) {
+            return Err("package import and update must use the native file picker".to_owned());
+        }
+        self.prepare_with_authorization(operation, state, ChallengeAuthorization::FocusedMainWindow)
+    }
+
+    pub(super) fn prepare_package_selection(
+        &self,
+        operation: &SensitiveOperation,
+        state: &DesktopUiState,
+    ) -> Result<ConfirmationChallenge, String> {
+        if !matches!(
+            operation,
+            SensitiveOperation::ImportScriptPackage { .. }
+                | SensitiveOperation::UpdateScriptPackage { .. }
+        ) {
+            return Err("native package selection can only authorize import or update".to_owned());
+        }
+        self.prepare_with_authorization(
+            operation,
+            state,
+            ChallengeAuthorization::NativePackagePicker,
+        )
+    }
+
+    fn prepare_with_authorization(
+        &self,
+        operation: &SensitiveOperation,
+        state: &DesktopUiState,
+        authorization: ChallengeAuthorization,
     ) -> Result<ConfirmationChallenge, String> {
         let digest = operation_digest(operation, state)?;
         let mut pending = self
@@ -165,6 +207,7 @@ impl SensitiveOperationGuard {
         pending.insert(
             confirmation_id.clone(),
             PendingChallenge {
+                authorization,
                 digest,
                 expires_at,
                 operation_kind: operation.kind(),
@@ -188,6 +231,35 @@ impl SensitiveOperationGuard {
         operation: &SensitiveOperation,
         state: &DesktopUiState,
     ) -> Result<(), String> {
+        self.consume_with_authorization(
+            confirmation_id,
+            operation,
+            state,
+            ChallengeAuthorization::FocusedMainWindow,
+        )
+    }
+
+    pub(super) fn consume_package_selection(
+        &self,
+        confirmation_id: &str,
+        operation: &SensitiveOperation,
+        state: &DesktopUiState,
+    ) -> Result<(), String> {
+        self.consume_with_authorization(
+            confirmation_id,
+            operation,
+            state,
+            ChallengeAuthorization::NativePackagePicker,
+        )
+    }
+
+    fn consume_with_authorization(
+        &self,
+        confirmation_id: &str,
+        operation: &SensitiveOperation,
+        state: &DesktopUiState,
+        authorization: ChallengeAuthorization,
+    ) -> Result<(), String> {
         let challenge = self
             .pending
             .lock()
@@ -198,6 +270,9 @@ impl SensitiveOperationGuard {
             })?;
         if challenge.expires_at <= Instant::now() {
             return Err("sensitive operation confirmation has expired".to_owned());
+        }
+        if challenge.authorization != authorization {
+            return Err("sensitive operation confirmation came from an invalid source".to_owned());
         }
         if challenge.operation_kind != operation.kind() {
             return Err("sensitive operation confirmation is for a different action".to_owned());
@@ -218,16 +293,29 @@ impl SensitiveOperationGuard {
     }
 }
 
-pub(super) fn ensure_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if window.label() != "main" {
-        return Err("sensitive operations are only allowed from the main window".to_owned());
+impl ConfirmationChallenge {
+    pub(super) fn into_confirmation_id(self) -> String {
+        self.confirmation_id
     }
+}
+
+pub(super) fn ensure_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    ensure_main_window_source(window)?;
     #[cfg(not(test))]
     if !window
         .is_focused()
         .map_err(|error| format!("failed to verify the desktop window focus: {error}"))?
     {
         return Err("focus the BaudBound window before confirming this operation".to_owned());
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_main_window_source<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("sensitive operations are only allowed from the main window".to_owned());
     }
     Ok(())
 }

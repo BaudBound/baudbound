@@ -2,9 +2,33 @@ import { Details } from "@/components/details";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { type ScriptStatus, type StoredRunRecord } from "@/lib/runner-api";
 import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
 import { useDesktopTime } from "@/lib/time-format";
+import { useSortableRows } from "@/lib/table-sorting";
+
+type TriggerSortColumn = "action" | "node" | "runnerType";
+type RecentRunSortColumn = "completed" | "runId" | "status" | "trigger";
+
+const triggerSortSelectors: Record<
+  TriggerSortColumn,
+  (trigger: ScriptStatus["triggers"][number]) => string
+> = {
+  action: (trigger) => trigger.action_type,
+  node: (trigger) => trigger.node_id,
+  runnerType: (trigger) => trigger.runner_type,
+};
+
+const recentRunSortSelectors: Record<
+  RecentRunSortColumn,
+  (run: StoredRunRecord) => number | string
+> = {
+  completed: (run) => run.completed_at_unix,
+  runId: (run) => run.run_id,
+  status: (run) => run.status,
+  trigger: (run) => run.trigger_node_id,
+};
 
 export function ScriptDetailPanel({
   recentRuns,
@@ -17,6 +41,16 @@ export function ScriptDetailPanel({
   const scriptRuns = recentRuns
     .filter((run) => run.script_id === script.installed.id)
     .slice(0, 5);
+  const {
+    sortedRows: sortedTriggers,
+    sortState: triggerSortState,
+    toggleSort: toggleTriggerSort,
+  } = useSortableRows(script.triggers, triggerSortSelectors);
+  const {
+    sortedRows: sortedRuns,
+    sortState: runSortState,
+    toggleSort: toggleRunSort,
+  } = useSortableRows(scriptRuns, recentRunSortSelectors);
 
   return (
     <Card>
@@ -87,13 +121,19 @@ export function ScriptDetailPanel({
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                    <th className="px-3 py-2">Node</th>
-                    <th className="px-3 py-2">Action</th>
-                    <th className="px-3 py-2">Runner type</th>
+                    <SortableTableHeader column="node" onSort={toggleTriggerSort} sortState={triggerSortState}>
+                      Node
+                    </SortableTableHeader>
+                    <SortableTableHeader column="action" onSort={toggleTriggerSort} sortState={triggerSortState}>
+                      Action
+                    </SortableTableHeader>
+                    <SortableTableHeader column="runnerType" onSort={toggleTriggerSort} sortState={triggerSortState}>
+                      Runner type
+                    </SortableTableHeader>
                   </tr>
                 </thead>
                 <tbody>
-                  {script.triggers.map((trigger) => (
+                  {sortedTriggers.map((trigger) => (
                     <tr className="border-b border-border last:border-b-0" key={trigger.node_id}>
                       <td className="px-3 py-2" data-label="Node">
                         {trigger.node_id}
@@ -121,14 +161,22 @@ export function ScriptDetailPanel({
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                    <th className="px-3 py-2">Completed</th>
-                    <th className="px-3 py-2">Trigger</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Run ID</th>
+                    <SortableTableHeader column="completed" onSort={toggleRunSort} sortState={runSortState}>
+                      Completed
+                    </SortableTableHeader>
+                    <SortableTableHeader column="trigger" onSort={toggleRunSort} sortState={runSortState}>
+                      Trigger
+                    </SortableTableHeader>
+                    <SortableTableHeader column="status" onSort={toggleRunSort} sortState={runSortState}>
+                      Status
+                    </SortableTableHeader>
+                    <SortableTableHeader column="runId" onSort={toggleRunSort} sortState={runSortState}>
+                      Run ID
+                    </SortableTableHeader>
                   </tr>
                 </thead>
                 <tbody>
-                  {scriptRuns.map((run) => (
+                  {sortedRuns.map((run) => (
                     <tr className="border-b border-border last:border-b-0" key={run.run_id}>
                       <td className="px-3 py-2" data-label="Completed">
                         {formatUnixSeconds(run.completed_at_unix)}

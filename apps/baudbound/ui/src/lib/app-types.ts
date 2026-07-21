@@ -9,7 +9,8 @@ export type TabId =
   | "logs"
   | "service"
   | "config"
-  | "diagnostics";
+  | "diagnostics"
+  | "about";
 
 export type Notice = {
   kind: "error" | "success";

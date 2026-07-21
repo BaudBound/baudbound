@@ -1,12 +1,12 @@
 use crate::RuntimeVariableScope;
 use crate::runtime::{
     coerce_variable_value, config_string, empty_value_for_type, number_from_value, number_value,
-    refresh_derived_variable_metadata, required_config_string, resolve_template_value,
-    set_object_field, validate_variable_name, value_kind,
+    required_config_string, resolve_template_value, set_object_field, validate_variable_name,
+    value_kind,
 };
 use serde_json::{Map, Value};
 
-use super::{RuntimeError, RuntimeExecutor, RuntimeNode};
+use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn execute_variable_operation(
@@ -49,7 +49,7 @@ impl RuntimeExecutor<'_> {
                 &value_type,
                 current,
             )?;
-            self.set_variable(name.clone(), value);
+            self.set_variable(name.clone(), value, RunVariableScope::Runtime);
         }
 
         self.push_runtime_log(
@@ -74,6 +74,10 @@ impl RuntimeExecutor<'_> {
                 "stored variable operation requires a runner state store".to_owned(),
             )
         })?;
+        let run_scope = match scope {
+            RuntimeVariableScope::Persistent => RunVariableScope::Persistent,
+            RuntimeVariableScope::Global => RunVariableScope::Global,
+        };
 
         for _ in 0..MAX_COMPARE_AND_SET_ATTEMPTS {
             self.ensure_not_cancelled()?;
@@ -83,11 +87,8 @@ impl RuntimeExecutor<'_> {
             let expected_version = stored.as_ref().map(|variable| variable.version);
             let current = stored.map(|variable| variable.value);
             match &current {
-                Some(value) => self.set_variable(name.to_owned(), value.clone()),
-                None => {
-                    self.context.variables.remove(name);
-                    refresh_derived_variable_metadata(&mut self.context.variables, name);
-                }
+                Some(value) => self.set_variable(name.to_owned(), value.clone(), run_scope),
+                None => self.remove_variable(name),
             }
             let next = self
                 .calculate_variable_operation_value(node, name, operation, value_type, current)?;
@@ -101,7 +102,7 @@ impl RuntimeExecutor<'_> {
                 )
                 .map_err(RuntimeError::State)?
             {
-                self.set_variable(name.to_owned(), next);
+                self.set_variable(name.to_owned(), next, run_scope);
                 return Ok(());
             }
         }

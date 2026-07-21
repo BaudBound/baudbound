@@ -1,13 +1,12 @@
 import type { ActiveRun, ScriptStatus } from "@/lib/runner-api";
 
-export type ScriptRunControl = "run" | "stop" | null;
+export type ScriptRunControl = "run" | "stop";
 
 export function scriptRunControl(
   script: ScriptStatus,
   activeRuns: ActiveRun[],
 ): ScriptRunControl {
-  if (activeRuns.length > 0) return "stop";
-  return script.triggers.some((trigger) => trigger.action_type === "trigger.manual")
-    ? "run"
-    : null;
+  return activeRuns.some((run) => run.script_id === script.installed.id)
+    ? "stop"
+    : "run";
 }

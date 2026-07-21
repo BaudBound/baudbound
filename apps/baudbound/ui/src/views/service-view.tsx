@@ -46,8 +46,12 @@ function ServiceControlPanel({
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   const desktopRunner = dashboard.desktop_background;
+  const desktopRunnerIsRunning = desktopRunner.state === "running";
+  const desktopRunnerIsStopping =
+    desktopRunner.state === "stopping" || busyActions.has("background-stop");
   const desktopRunnerRunning =
-    desktopRunner.state === "running" || desktopRunner.state === "stopping";
+    desktopRunnerIsRunning || desktopRunnerIsStopping;
+  const startBlocker = dashboard.desktop_background_start_blocker;
 
   return (
     <Card>
@@ -82,18 +86,28 @@ function ServiceControlPanel({
         </div>
 
         <div className="grid grid-cols-3 gap-2 lg:flex lg:justify-end">
+          <span className="w-full lg:w-auto" title={startBlocker ?? undefined}>
+            <Button
+              className="w-full lg:w-auto"
+              disabled={
+                desktopRunnerRunning ||
+                Boolean(startBlocker) ||
+                busyActions.has("background-start")
+              }
+              onClick={() => runAction("background-start", () => startBackgroundRunner())}
+              variant="secondary"
+            >
+              <Play />
+              {busyActions.has("background-start") ? "Working..." : "Start"}
+            </Button>
+          </span>
           <Button
             className="w-full lg:w-auto"
-            disabled={desktopRunnerRunning || busyActions.has("background-start")}
-            onClick={() => runAction("background-start", () => startBackgroundRunner())}
-            variant="secondary"
-          >
-            <Play />
-            {busyActions.has("background-start") ? "Working..." : "Start"}
-          </Button>
-          <Button
-            className="w-full lg:w-auto"
-            disabled={!desktopRunnerRunning || busyActions.has("background-reload")}
+            disabled={
+              !desktopRunnerIsRunning ||
+              desktopRunnerIsStopping ||
+              busyActions.has("background-reload")
+            }
             onClick={() => runAction("background-reload", () => reloadBackgroundRunner())}
             variant="outline"
           >
@@ -102,12 +116,12 @@ function ServiceControlPanel({
           </Button>
           <Button
             className="w-full lg:w-auto"
-            disabled={!desktopRunnerRunning || busyActions.has("background-stop")}
+            disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping}
             onClick={() => runAction("background-stop", () => stopBackgroundRunner())}
             variant="destructive"
           >
             <Square />
-            {busyActions.has("background-stop") ? "Working..." : "Stop"}
+            {desktopRunnerIsStopping ? "Stopping..." : "Stop"}
           </Button>
         </div>
       </CardContent>

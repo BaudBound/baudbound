@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::runtime::value_to_string;
+use crate::runtime::{DERIVED_VARIABLE_METADATA_SUFFIXES, value_to_string};
 
 use super::{RunReport, RuntimeExecutor};
 
@@ -12,8 +12,10 @@ impl RuntimeExecutor<'_> {
     pub(super) fn redact_report(&self, mut report: RunReport) -> RunReport {
         for name in &self.secret_names {
             report.variables.remove(name);
-            for suffix in [".$length", ".$count", ".$type", ".$is_empty"] {
+            report.variable_scopes.remove(name);
+            for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
                 report.variables.remove(&format!("{name}{suffix}"));
+                report.variable_scopes.remove(&format!("{name}{suffix}"));
             }
         }
         for value in report.variables.values_mut() {

@@ -499,6 +499,23 @@ fn rejects_serial_input_when_runner_device_is_missing() {
 }
 
 #[test]
+fn service_validation_rejects_missing_serial_device_configuration() {
+    let error = SerialInputService::validate(
+        [serial_input_registration(
+            json!({ "deviceId": "missing-device" }),
+        )],
+        &SerialConnectionRegistry::default(),
+    )
+    .expect_err("service validation should reject an unconfigured serial device");
+
+    assert!(
+        error
+            .to_string()
+            .contains("[serial.devices.missing-device]")
+    );
+}
+
+#[test]
 fn builds_serial_input_trigger_event_payload() {
     let registration = serial_input_registration(json!({
         "deviceId": "main-device"
@@ -630,6 +647,7 @@ fn extracts_waiting_webhook_response_from_run_report() {
             trigger_node_id: "n-webhook".to_owned(),
         },
         logs: Vec::new(),
+        variable_scopes: BTreeMap::new(),
         variables: BTreeMap::from([
             ("n-response.sent".to_owned(), Value::Bool(true)),
             (
@@ -683,6 +701,7 @@ fn waiting_webhook_uses_fallback_when_no_response_node_sent() {
             trigger_node_id: "n-webhook".to_owned(),
         },
         logs: Vec::new(),
+        variable_scopes: BTreeMap::new(),
         variables: BTreeMap::new(),
     };
 

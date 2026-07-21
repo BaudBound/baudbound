@@ -74,6 +74,7 @@ function scriptWithNetworkTrigger(
       script_language_version: 1,
       target_runtime: "windows-desktop",
     },
+    metadata: null,
     package_error: null,
     package_hash_status: { state: "valid" },
     triggers: [

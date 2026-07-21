@@ -7,7 +7,7 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{
-    ApproveScriptRequest, ImportScriptRequest, InstalledScript, ScriptApproval,
+    ApproveScriptRequest, ImportScriptRequest, InstalledScript, RunStatistics, ScriptApproval,
     ScriptApprovalResult, ScriptStore, SecretCipher, SecretStatus, StorageError, StoredRunRecord,
     StoredVariable, StoredVariableScope,
     storage::filesystem::{
@@ -26,7 +26,8 @@ mod secrets;
 mod update_cache;
 
 use conversions::{
-    bool_to_sqlite, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite, usize_to_sqlite,
+    bool_to_sqlite, row_i64_to_usize, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite,
+    usize_to_sqlite,
 };
 use rows::{resolve_script, row_to_approval, row_to_installed_script, row_to_run_record};
 pub use run_retention::RunRetentionPolicy;
@@ -152,7 +153,12 @@ impl SqliteRunnerStore {
         let connection = self.connection()?;
         connection
             .execute(
-                "UPDATE run_records SET logs_json = '[]' WHERE logs_json <> '[]'",
+                r#"
+                UPDATE run_records
+                SET logs_json = '[]',
+                    has_errors = CASE WHEN status = 'failed' THEN 1 ELSE 0 END
+                WHERE logs_json <> '[]'
+                "#,
                 [],
             )
             .map_err(|source| StorageError::Sqlite {
@@ -474,6 +480,13 @@ impl ScriptStore for SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
+        let variable_scopes_json =
+            serde_json::to_string(&record.variable_scopes).map_err(|source| {
+                StorageError::Json {
+                    path: self.path.clone(),
+                    source,
+                }
+            })?;
         let policy = *self
             .run_retention
             .read()
@@ -485,6 +498,7 @@ impl ScriptStore for SqliteRunnerStore {
             &record,
             &logs_json,
             &variables_json,
+            &variable_scopes_json,
             policy,
         )
     }
@@ -664,7 +678,7 @@ impl ScriptStore for SqliteRunnerStore {
                 .prepare(
                     r#"
                     SELECT run_id, script_id, status, trigger_node_id, completed_at_unix,
-                        logs_json, variables_json
+                        logs_json, variables_json, variable_scopes_json
                     FROM run_records
                     WHERE script_id = ?1
                     ORDER BY completed_at_unix DESC, rowid DESC
@@ -694,7 +708,7 @@ impl ScriptStore for SqliteRunnerStore {
                 .prepare(
                     r#"
                     SELECT run_id, script_id, status, trigger_node_id, completed_at_unix,
-                        logs_json, variables_json
+                        logs_json, variables_json, variable_scopes_json
                     FROM run_records
                     ORDER BY completed_at_unix DESC, rowid DESC
                     LIMIT ?1
@@ -717,6 +731,36 @@ impl ScriptStore for SqliteRunnerStore {
                 })?
         };
         Ok(records)
+    }
+
+    fn run_statistics(&self) -> Result<RunStatistics, StorageError> {
+        let connection = self.connection()?;
+        connection
+            .query_row(
+                r#"
+                SELECT
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(has_errors), 0)
+                FROM run_records
+                "#,
+                [],
+                |row| {
+                    Ok(RunStatistics {
+                        total: row_i64_to_usize(0, row.get(0)?)?,
+                        completed: row_i64_to_usize(1, row.get(1)?)?,
+                        failed: row_i64_to_usize(2, row.get(2)?)?,
+                        cancelled: row_i64_to_usize(3, row.get(3)?)?,
+                        with_errors: row_i64_to_usize(4, row.get(4)?)?,
+                    })
+                },
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })
     }
 
     fn remove_script(&self, reference: &str) -> Result<InstalledScript, StorageError> {

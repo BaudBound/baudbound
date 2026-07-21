@@ -63,6 +63,7 @@ windows-sys = { version = "0.61.2", features = [
 	"Win32_UI_HiDpi",
 	"Win32_UI_WindowsAndMessaging",
 ] }
+tauri-plugin-opener = "2.5.3"
 
 [dev-dependencies]
 rusqlite.workspace = true

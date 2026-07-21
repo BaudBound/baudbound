@@ -1,7 +1,7 @@
 use crate::runtime::{RuntimeFrame, required_config_string, validate_variable_name};
 use serde_json::{Number, Value};
 
-use super::{RuntimeError, RuntimeExecutor};
+use super::{RunVariableScope, RuntimeError, RuntimeExecutor};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn process_frame(
@@ -262,10 +262,15 @@ impl RuntimeExecutor<'_> {
         let index_variable = required_config_string(&node, "indexVariable")?;
         validate_variable_name(&node, &item_variable)?;
         validate_variable_name(&node, &index_variable)?;
-        self.set_variable(item_variable, items[index].clone());
+        self.set_variable(
+            item_variable,
+            items[index].clone(),
+            RunVariableScope::Runtime,
+        );
         self.set_variable(
             index_variable,
             Value::Number(Number::from(u64::try_from(index).unwrap_or(u64::MAX))),
+            RunVariableScope::Runtime,
         );
         self.push_runtime_log(
             "info",

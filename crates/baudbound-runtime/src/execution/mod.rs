@@ -1,4 +1,7 @@
-use crate::runtime::{RuntimeFrame, RuntimeGraph, refresh_derived_variable_metadata};
+use crate::runtime::{
+    DERIVED_VARIABLE_METADATA_SUFFIXES, RuntimeFrame, RuntimeGraph,
+    refresh_derived_variable_metadata,
+};
 use crate::{RuntimeCancellationToken, RuntimeStateStore};
 use serde_json::Value;
 use std::sync::Arc;
@@ -25,6 +28,7 @@ struct RuntimeExecutor<'a> {
     action_handler: &'a dyn RuntimeActionHandler,
     cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
+    variable_scopes: std::collections::BTreeMap<String, RunVariableScope>,
     secret_names: Vec<String>,
     secret_values: Vec<Value>,
 }
@@ -57,6 +61,7 @@ impl<'a> RuntimeExecutor<'a> {
             action_handler: resources.action_handler,
             cancellation: resources.cancellation,
             state_store: resources.state_store,
+            variable_scopes: initial_state.variable_scopes,
             secret_names: initial_state.secret_names,
             secret_values: initial_state.secret_values,
         })
@@ -87,6 +92,7 @@ impl<'a> RuntimeExecutor<'a> {
         Ok(RunReport {
             identity: self.context.identity.clone(),
             logs: self.logs.clone(),
+            variable_scopes: self.variable_scopes.clone(),
             variables: self.context.variables.clone(),
         })
     }
@@ -95,12 +101,20 @@ impl<'a> RuntimeExecutor<'a> {
         match self.context.trigger_payload.clone() {
             Value::Object(payload) => {
                 for (key, value) in payload {
-                    self.set_variable(format!("{trigger_node_id}.{key}"), value);
+                    self.set_variable(
+                        format!("{trigger_node_id}.{key}"),
+                        value,
+                        RunVariableScope::NodeOutput,
+                    );
                 }
             }
             Value::Null => {}
             value => {
-                self.set_variable(format!("{trigger_node_id}.payload"), value);
+                self.set_variable(
+                    format!("{trigger_node_id}.payload"),
+                    value,
+                    RunVariableScope::NodeOutput,
+                );
             }
         }
     }
@@ -113,9 +127,23 @@ impl<'a> RuntimeExecutor<'a> {
         }
     }
 
-    fn set_variable(&mut self, name: String, value: Value) {
+    fn set_variable(&mut self, name: String, value: Value, scope: RunVariableScope) {
         self.context.variables.insert(name.clone(), value);
+        self.variable_scopes.insert(name.clone(), scope);
         refresh_derived_variable_metadata(&mut self.context.variables, &name);
+        for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
+            self.variable_scopes
+                .insert(format!("{name}{suffix}"), RunVariableScope::Metadata);
+        }
+    }
+
+    fn remove_variable(&mut self, name: &str) {
+        self.context.variables.remove(name);
+        self.variable_scopes.remove(name);
+        refresh_derived_variable_metadata(&mut self.context.variables, name);
+        for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
+            self.variable_scopes.remove(&format!("{name}{suffix}"));
+        }
     }
 
     fn push_runtime_log(

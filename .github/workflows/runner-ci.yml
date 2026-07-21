@@ -89,7 +89,8 @@ jobs:
             libudev-dev \
             librsvg2-dev \
             libxdo-dev \
-            patchelf
+            patchelf \
+            xdg-utils
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

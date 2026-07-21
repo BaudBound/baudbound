@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import {
   Select,
   SelectContent,
@@ -17,13 +18,22 @@ import {
 } from "@/components/ui/select";
 import type { DashboardAction } from "@/lib/app-types";
 import { clearRunHistory, type DashboardPayload, type StoredRunRecord } from "@/lib/runner-api";
-import { nodeActionType, runStatusVariant, runSummary } from "@/lib/run-inspection";
+import { nodeActionType, runStatusVariant } from "@/lib/run-inspection";
+import { useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 import { ActiveRunsPanel } from "@/views/active-runs-panel";
 
 const allFilterValue = "__all__";
 const clearHistoryAction = "runs-clear-history";
+
+type RunSortColumn =
+  | "recentLog"
+  | "runId"
+  | "script"
+  | "status"
+  | "trigger"
+  | "triggerType";
 
 export function RunsView({
   busyActions,
@@ -53,8 +63,7 @@ export function RunsView({
     () => Array.from(new Set(dashboard.recent_runs.map((run) => run.status))).sort(),
     [dashboard.recent_runs],
   );
-  const summary = useMemo(() => runSummary(dashboard.recent_runs), [dashboard.recent_runs]);
-  const visibleRuns = useMemo(
+  const filteredRuns = useMemo(
     () =>
       dashboard.recent_runs.filter((run) => {
         if (scriptFilter !== allFilterValue && run.script_id !== scriptFilter) return false;
@@ -62,6 +71,23 @@ export function RunsView({
         return runMatchesSearch(run, scriptNames.get(run.script_id) ?? run.script_id, searchTerm);
       }),
     [dashboard.recent_runs, scriptFilter, scriptNames, searchTerm, statusFilter],
+  );
+  const runSortSelectors = useMemo<
+    Record<RunSortColumn, (run: StoredRunRecord) => string>
+  >(
+    () => ({
+      recentLog: (run) => run.logs.at(-1)?.message ?? "",
+      runId: (run) => run.run_id,
+      script: (run) => scriptNames.get(run.script_id) ?? run.script_id,
+      status: (run) => run.status,
+      trigger: (run) => run.trigger_node_id,
+      triggerType: (run) => nodeActionType(run.logs, run.trigger_node_id) ?? "",
+    }),
+    [scriptNames],
+  );
+  const { sortedRows: visibleRuns, sortState, toggleSort } = useSortableRows(
+    filteredRuns,
+    runSortSelectors,
   );
   function toggleRunDetails(runId: string) {
     setExpandedRunIds((current) => {
@@ -77,30 +103,33 @@ export function RunsView({
 
   return (
     <div className="grid min-w-0 gap-4">
-      {dashboard.recent_runs.length > 0 ? (
-        <div className="status-summary-grid grid min-w-0 gap-3">
-          <StatusSummaryCard label="Total" value={dashboard.recent_runs.length} />
-          <StatusSummaryCard
-            label="Completed"
-            tone="good"
-            value={summary.completed}
-          />
-          <StatusSummaryCard
-            label="Failed"
-            tone="destructive"
-            value={summary.failed}
-          />
-          <StatusSummaryCard
-            label="Cancelled"
-            tone="medium"
-            value={summary.cancelled}
-          />
-          <StatusSummaryCard
-            label="With errors"
-            tone="medium"
-            value={summary.withErrors}
-          />
-        </div>
+      {dashboard.run_statistics.total > 0 ? (
+        <section className="grid min-w-0 gap-2">
+          <h2 className="text-sm font-medium">Retained run history</h2>
+          <div className="status-summary-grid grid min-w-0 gap-3">
+            <StatusSummaryCard label="Total" value={dashboard.run_statistics.total} />
+            <StatusSummaryCard
+              label="Completed"
+              tone="good"
+              value={dashboard.run_statistics.completed}
+            />
+            <StatusSummaryCard
+              label="Failed"
+              tone="destructive"
+              value={dashboard.run_statistics.failed}
+            />
+            <StatusSummaryCard
+              label="Cancelled"
+              tone="medium"
+              value={dashboard.run_statistics.cancelled}
+            />
+            <StatusSummaryCard
+              label="With errors"
+              tone="medium"
+              value={dashboard.run_statistics.with_errors}
+            />
+          </div>
+        </section>
       ) : null}
       <ActiveRunsPanel
         busyActions={busyActions}
@@ -154,12 +183,24 @@ export function RunsView({
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                       <th className="px-3 py-2">Completed</th>
-                      <th className="px-3 py-2">Script</th>
-                      <th className="px-3 py-2">Trigger</th>
-                      <th className="px-3 py-2">Trigger type</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Run ID</th>
-                      <th className="px-3 py-2">Recent log</th>
+                      <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
+                        Script
+                      </SortableTableHeader>
+                      <SortableTableHeader column="trigger" onSort={toggleSort} sortState={sortState}>
+                        Trigger
+                      </SortableTableHeader>
+                      <SortableTableHeader column="triggerType" onSort={toggleSort} sortState={sortState}>
+                        Trigger type
+                      </SortableTableHeader>
+                      <SortableTableHeader column="status" onSort={toggleSort} sortState={sortState}>
+                        Status
+                      </SortableTableHeader>
+                      <SortableTableHeader column="runId" onSort={toggleSort} sortState={sortState}>
+                        Run ID
+                      </SortableTableHeader>
+                      <SortableTableHeader column="recentLog" onSort={toggleSort} sortState={sortState}>
+                        Recent log
+                      </SortableTableHeader>
                     </tr>
                   </thead>
                   <tbody>

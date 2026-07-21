@@ -9,16 +9,6 @@ use super::{
 };
 use crate::paths::current_unix_timestamp;
 
-pub(super) fn write_serve_status(
-    store: &SqliteRunnerStore,
-    options: &ServeOptions,
-    services: &TriggerServices,
-    snapshot: ServeStatusSnapshot<'_>,
-) -> Result<()> {
-    let document = build_serve_status_document(store, options, services, snapshot);
-    write_serve_status_document(store, &document)
-}
-
 pub(super) fn build_serve_status_document(
     store: &SqliteRunnerStore,
     options: &ServeOptions,
@@ -56,6 +46,7 @@ pub(super) fn build_serve_status_document(
                 })
             })
             .collect::<Vec<_>>(),
+        "status_revision": snapshot.status_revision,
         "started_at_unix": snapshot.started_at_unix,
         "state": snapshot.state,
         "storage_root": store.root(),
@@ -75,6 +66,7 @@ pub(super) struct ServeStatusSnapshot<'a> {
     pub(super) activity: &'a ServiceActivity,
     pub(super) last_reload_at_unix: u64,
     pub(super) service_control: &'a ServiceControlDescriptor,
+    pub(super) status_revision: u64,
     pub(super) started_at_unix: u64,
     pub(super) state: &'a str,
 }

@@ -7,7 +7,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::{StorageError, StoredRunRecord};
 
-use super::conversions::{u64_to_sqlite, usize_to_sqlite};
+use super::conversions::{bool_to_sqlite, u64_to_sqlite, usize_to_sqlite};
 
 pub const DEFAULT_MAX_RUN_RECORDS: usize = 10_000;
 pub const DEFAULT_MAX_RUN_AGE_DAYS: u64 = 30;
@@ -61,6 +61,7 @@ pub(super) fn append_run_record_with_retention(
     record: &StoredRunRecord,
     logs_json: &str,
     variables_json: &str,
+    variable_scopes_json: &str,
     policy: RunRetentionPolicy,
 ) -> Result<(), StorageError> {
     policy.validate()?;
@@ -72,9 +73,10 @@ pub(super) fn append_run_record_with_retention(
             r#"
             INSERT INTO run_records (
                 run_id, script_id, status, trigger_node_id,
-                completed_at_unix, logs_json, variables_json
+                completed_at_unix, logs_json, variables_json, variable_scopes_json,
+                has_errors
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 record.run_id,
@@ -84,6 +86,10 @@ pub(super) fn append_run_record_with_retention(
                 u64_to_sqlite(record.completed_at_unix)?,
                 logs_json,
                 variables_json,
+                variable_scopes_json,
+                bool_to_sqlite(
+                    record.status == "failed" || record.logs.iter().any(|log| log.level == "error")
+                ),
             ],
         )
         .map_err(|source| sqlite_error(database_path, source))?;

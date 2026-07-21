@@ -851,7 +851,6 @@ async function executeHttpRequestNode(
 ): Promise<NodeExecutionResult> {
 	const method = normalizeHttpMethod(getConfigString(node, "method"));
 	const url = String(resolveTemplate(getConfigString(node, "url"), context)).trim();
-	const body = String(resolveTemplate(getConfigString(node, "body"), context));
 	const timeoutSeconds = Number(getConfigString(node, "timeoutSeconds"));
 	const headers = createHttpHeaders(node, context);
 	const startedAt = performance.now();
@@ -867,6 +866,7 @@ async function executeHttpRequestNode(
 	context.signal?.addEventListener("abort", forwardAbort, { once: true });
 
 	try {
+		const body = resolveHttpRequestBody(node, context, headers);
 		const response = await window.fetch(url, {
 			method,
 			headers,
@@ -904,6 +904,43 @@ async function executeHttpRequestNode(
 		window.clearTimeout(timeoutId);
 		context.signal?.removeEventListener("abort", forwardAbort);
 	}
+}
+
+function resolveHttpRequestBody(node: Node<ScriptNodeData>, context: SimulationContext, headers: Headers) {
+	const body = getConfigString(node, "body");
+	if (!body.trim()) {
+		return "";
+	}
+
+	const configuredFormat = getConfigString(node, "bodyFormat");
+	const contentType = headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+	const inferredJson =
+		contentType === "application/json" || (contentType.startsWith("application/") && contentType.endsWith("+json"));
+	if (configuredFormat === "text" || (configuredFormat !== "json" && !inferredJson)) {
+		return String(resolveTemplate(body, context));
+	}
+
+	const parsed = JSON.parse(body) as JsonValue;
+	return JSON.stringify(resolveJsonBodyTemplate(parsed, context));
+}
+
+function resolveJsonBodyTemplate(value: JsonValue, context: SimulationContext): JsonValue {
+	if (typeof value === "string") {
+		return resolveTemplate(value, context);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveJsonBodyTemplate(item, context));
+	}
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				String(resolveTemplate(key, context)),
+				resolveJsonBodyTemplate(item, context),
+			]),
+		);
+	}
+
+	return value;
 }
 
 function createHttpHeaders(node: Node<ScriptNodeData>, context: SimulationContext) {

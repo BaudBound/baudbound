@@ -49,6 +49,38 @@ pub(crate) fn resolve_template_value(template: &str, variables: &BTreeMap<String
     Value::String(render_template(template, variables))
 }
 
+pub(crate) fn render_json_template(
+    template: &str,
+    variables: &BTreeMap<String, Value>,
+) -> Result<String, serde_json::Error> {
+    let value = serde_json::from_str::<Value>(template)?;
+    serde_json::to_string(&resolve_json_template_value(value, variables))
+}
+
+fn resolve_json_template_value(value: Value, variables: &BTreeMap<String, Value>) -> Value {
+    match value {
+        Value::String(value) => resolve_template_value(&value, variables),
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(|value| resolve_json_template_value(value, variables))
+                .collect(),
+        ),
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        render_template(&key, variables),
+                        resolve_json_template_value(value, variables),
+                    )
+                })
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
 pub(crate) fn resolve_config_map(
     config: &Map<String, Value>,
     variables: &BTreeMap<String, Value>,

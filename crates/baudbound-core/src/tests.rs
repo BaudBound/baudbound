@@ -933,6 +933,12 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].declared_permissions,
         ["webhook_public_bind"]
     );
+    let metadata = status.scripts[0]
+        .metadata
+        .as_ref()
+        .expect("verified package metadata should be available");
+    assert_eq!(metadata.created_with, "BaudBound Test");
+    assert_eq!(metadata.minimum_runner_version, "0.1.0");
 
     core.approve_installed(&store, "network-trigger")
         .expect("package should approve");
@@ -947,6 +953,15 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].approval_status,
         ApprovalStatus::Current
     ));
+
+    let installed_package_path = status.scripts[0].installed.package_path.clone();
+    fs::write(&installed_package_path, b"tampered package")
+        .expect("installed package should be changed for the status check");
+    let disabled_problem = core.status(&store).expect("disabled status should build");
+    assert!(disabled_problem.scripts[0].has_problem());
+    assert_eq!(disabled_problem.problem_count, 0);
+    fs::copy(&package_path, &installed_package_path)
+        .expect("installed package should be restored after the status check");
 
     let revoked = core
         .revoke_approval(&store, "network-trigger")

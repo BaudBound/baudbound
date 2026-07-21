@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -153,6 +153,50 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
             PRAGMA user_version = 7;
             COMMIT;
             "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 8 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE run_records
+                    ADD COLUMN variable_scopes_json TEXT NOT NULL DEFAULT '{}';
+                PRAGMA user_version = 8;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 9 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE run_records
+                    ADD COLUMN has_errors INTEGER NOT NULL DEFAULT 0
+                    CHECK (has_errors IN (0, 1));
+                UPDATE run_records
+                SET has_errors = CASE
+                    WHEN status = 'failed' OR EXISTS (
+                        SELECT 1
+                        FROM json_each(run_records.logs_json) AS log
+                        WHERE json_extract(log.value, '$.level') = 'error'
+                    ) THEN 1
+                    ELSE 0
+                END;
+                PRAGMA user_version = 9;
+                COMMIT;
+                "#,
             )
             .map_err(|source| StorageError::Sqlite {
                 path: path.to_path_buf(),

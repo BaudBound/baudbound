@@ -31,6 +31,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
   const nativeDoctorChecks = dashboard.native_doctor_checks ?? [];
   const checks = doctorChecks(dashboard);
   const warningCount = checks.filter((check) => check.state === "warn").length;
+  const idleCount = checks.filter((check) => check.state === "idle").length;
   const unsupportedNativeCount = nativeDoctorChecks.filter(
     (check) => !check.available,
   ).length;
@@ -43,8 +44,12 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
             <Stethoscope className="size-4 text-muted-foreground" />
             <CardTitle>Doctor checks</CardTitle>
           </div>
-          <Badge variant={warningCount > 0 ? "medium" : "good"}>
-            {warningCount > 0 ? `${warningCount} warnings` : "Ready"}
+          <Badge variant={warningCount > 0 ? "medium" : idleCount > 0 ? "muted" : "good"}>
+            {warningCount > 0
+              ? `${warningCount} warnings`
+              : idleCount > 0
+                ? `${idleCount} idle`
+                : "Ready"}
           </Badge>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
@@ -105,7 +110,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
               rows={[
                 ["Desktop loop", dashboard.desktop_background.state],
                 ["Target runtimes", dashboard.runner.supported_target_runtimes.join(", ")],
-                ["Run records", dashboard.recent_runs.length.toString()],
+                ["Retained run records", dashboard.run_statistics.total.toString()],
               ]}
             />
           </CardContent>
@@ -159,7 +164,7 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
   const hasScripts = dashboard.runner.total_script_count > 0;
   const hasEnabledScripts = dashboard.runner.enabled_script_count > 0;
   const hasTargetRuntimes = dashboard.runner.supported_target_runtimes.length > 0;
-  const hasRunRecords = dashboard.recent_runs.length > 0;
+  const hasRunRecords = dashboard.run_statistics.total > 0;
   const needsReview = dashboard.runner.problem_count > 0;
   const serialDevices = dashboard.serial_devices ?? [];
   const scripts = dashboard.runner.scripts ?? [];
@@ -257,7 +262,7 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
     },
     {
       detail: hasRunRecords
-        ? `${dashboard.recent_runs.length} recent run record${dashboard.recent_runs.length === 1 ? "" : "s"} available.`
+        ? `${dashboard.run_statistics.total} retained run record${dashboard.run_statistics.total === 1 ? "" : "s"} available.`
         : "Run history will appear after scripts execute.",
       icon: <AlertTriangle className="size-4" />,
       label: "Run history",

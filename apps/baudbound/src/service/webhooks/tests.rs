@@ -460,7 +460,7 @@ fn wait_for_host_completion(host: &mut WebhookHost, status: &mut ServeStatusTrac
 
 fn status_tracker() -> ServeStatusTracker {
     let server = ServiceControlServer::bind().expect("test IPC server should bind");
-    ServeStatusTracker::start(server.descriptor().clone())
+    ServeStatusTracker::start(server.descriptor().clone(), None, 0)
 }
 
 fn report(event: &TriggerEvent, variables: std::collections::BTreeMap<String, Value>) -> RunReport {
@@ -471,6 +471,7 @@ fn report(event: &TriggerEvent, variables: std::collections::BTreeMap<String, Va
             trigger_node_id: event.node_id.clone(),
         },
         logs: Vec::new(),
+        variable_scopes: Default::default(),
         variables,
     }
 }

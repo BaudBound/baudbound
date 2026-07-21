@@ -1,9 +1,13 @@
 use crate::runtime::{
     config_string, duration_from_amount, evaluate_calculation_expression, number_from_value,
-    number_value, render_template, resolve_config_map, value_to_string,
+    number_value, render_template, resolve_config_map, resolve_http_request_config,
+    value_to_string,
 };
 
-use super::{RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor, RuntimeNode};
+use super::{
+    RunVariableScope, RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor,
+    RuntimeNode,
+};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
@@ -30,7 +34,16 @@ impl RuntimeExecutor<'_> {
 
     fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
         self.ensure_not_cancelled()?;
-        let config = resolve_config_map(&node.config, &self.context.variables);
+        let config = if node.action_type == "action.http" {
+            resolve_http_request_config(&node.config, &self.context.variables).map_err(
+                |message| RuntimeError::Action {
+                    node_id: node.id.clone(),
+                    message,
+                },
+            )?
+        } else {
+            resolve_config_map(&node.config, &self.context.variables)
+        };
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::Action {
                 node_id: node.id.clone(),
@@ -57,7 +70,11 @@ impl RuntimeExecutor<'_> {
         self.ensure_not_cancelled()?;
 
         for (key, value) in result.output_data {
-            self.set_variable(format!("{}.{}", node.id, key), value);
+            self.set_variable(
+                format!("{}.{}", node.id, key),
+                value,
+                RunVariableScope::NodeOutput,
+            );
         }
 
         self.push_runtime_log(
@@ -111,7 +128,11 @@ impl RuntimeExecutor<'_> {
             }
         })?;
         let value = number_value(node, result)?;
-        self.set_variable(format!("{}.result", node.id), value.clone());
+        self.set_variable(
+            format!("{}.result", node.id),
+            value.clone(),
+            RunVariableScope::NodeOutput,
+        );
         self.push_runtime_log(
             "info",
             format!(

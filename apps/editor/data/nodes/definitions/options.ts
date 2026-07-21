@@ -28,6 +28,11 @@ export const httpMethodOptions: SelectOption[] = [
 	{ label: "OPTIONS", value: "OPTIONS" },
 ];
 
+export const httpBodyFormatOptions: SelectOption[] = [
+	{ label: "JSON", value: "json" },
+	{ label: "Text", value: "text" },
+];
+
 export const fileWatchEventOptions: SelectOption[] = [
 	{ label: "Created", value: "created" },
 	{ label: "Modified", value: "modified" },

@@ -76,7 +76,34 @@ pub fn unix_timestamp_millis_now() -> u64 {
 pub struct RunReport {
     pub identity: RunIdentity,
     pub logs: Vec<RuntimeLogEntry>,
+    #[serde(default)]
+    pub variable_scopes: BTreeMap<String, RunVariableScope>,
     pub variables: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunVariableScope {
+    Global,
+    Metadata,
+    NodeOutput,
+    Persistent,
+    Runtime,
+    Secret,
+}
+
+impl RunVariableScope {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Metadata => "metadata",
+            Self::NodeOutput => "node_output",
+            Self::Persistent => "persistent",
+            Self::Runtime => "runtime",
+            Self::Secret => "secret",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

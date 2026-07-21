@@ -3,13 +3,16 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Number, Value};
 
 use crate::{RuntimeError, RuntimeNode};
+
+pub(crate) const DERIVED_VARIABLE_METADATA_SUFFIXES: [&str; 4] =
+    [".$length", ".$count", ".$type", ".$is_empty"];
+
 pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(), RuntimeError> {
     if name.starts_with("system_")
         || name.starts_with("manifest_")
-        || name.ends_with(".$length")
-        || name.ends_with(".$count")
-        || name.ends_with(".$type")
-        || name.ends_with(".$is_empty")
+        || DERIVED_VARIABLE_METADATA_SUFFIXES
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
     {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),

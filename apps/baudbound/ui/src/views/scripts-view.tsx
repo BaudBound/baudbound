@@ -2,13 +2,45 @@ import { Fragment, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
-import type { DashboardPayload } from "@/lib/runner-api";
+import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import { useSortableRows } from "@/lib/table-sorting";
 import { ScriptApprovalDialog } from "@/views/script-approval-dialog";
+import { ScriptAboutDialog } from "@/views/script-about-dialog";
 import { ScriptDetailPanel } from "@/views/script-detail-panel";
 import { ScriptPackageToolbar } from "@/views/script-package-toolbar";
 import { ScriptProblemPanel } from "@/views/script-problem-panel";
 import { ScriptRow } from "@/views/script-row";
+
+type ScriptSortColumn =
+  | "approval"
+  | "hash"
+  | "name"
+  | "risk"
+  | "state"
+  | "target"
+  | "triggers";
+
+const scriptSortSelectors: Record<
+  ScriptSortColumn,
+  (script: ScriptStatus) => boolean | number | string
+> = {
+  approval: (script) => script.approval_status.state,
+  hash: (script) => script.package_hash_status.state,
+  name: (script) => script.installed.name,
+  risk: (script) => riskOrder(script.installed.risk_level),
+  state: (script) => script.installed.enabled,
+  target: (script) => script.installed.target_runtime,
+  triggers: (script) => script.triggers.length,
+};
+
+function riskOrder(risk: string) {
+  if (risk === "low") return 0;
+  if (risk === "medium") return 1;
+  if (risk === "high") return 2;
+  return 3;
+}
 
 export function ScriptsView({
   busyActions,
@@ -21,9 +53,17 @@ export function ScriptsView({
 }) {
   const [expandedScriptIds, setExpandedScriptIds] = useState<Set<string>>(new Set());
   const [approvalScriptId, setApprovalScriptId] = useState<string | null>(null);
+  const [aboutScriptId, setAboutScriptId] = useState<string | null>(null);
+  const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
+    dashboard.runner.scripts,
+    scriptSortSelectors,
+  );
   const approvalScript = dashboard.runner.scripts.find(
     (script) => script.installed.id === approvalScriptId,
   );
+  const aboutScript = dashboard.runner.scripts.find(
+    (script) => script.installed.id === aboutScriptId,
+  ) ?? null;
 
   function toggleScriptDetails(scriptId: string) {
     setExpandedScriptIds((current) => {
@@ -52,18 +92,43 @@ export function ScriptsView({
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">State</th>
-                  <th className="px-3 py-2">Risk</th>
-                  <th className="hidden px-3 py-2 xl:table-cell">Hash</th>
-                  <th className="px-3 py-2">Approval</th>
-                  <th className="px-3 py-2">Triggers</th>
-                  <th className="hidden px-3 py-2 xl:table-cell">Target</th>
+                  <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>
+                    Name
+                  </SortableTableHeader>
+                  <SortableTableHeader column="state" onSort={toggleSort} sortState={sortState}>
+                    State
+                  </SortableTableHeader>
+                  <SortableTableHeader column="risk" onSort={toggleSort} sortState={sortState}>
+                    Risk
+                  </SortableTableHeader>
+                  <SortableTableHeader
+                    className="hidden xl:table-cell"
+                    column="hash"
+                    onSort={toggleSort}
+                    sortState={sortState}
+                  >
+                    Hash
+                  </SortableTableHeader>
+                  <SortableTableHeader column="approval" onSort={toggleSort} sortState={sortState}>
+                    Approval
+                  </SortableTableHeader>
+                  <SortableTableHeader column="triggers" onSort={toggleSort} sortState={sortState}>
+                    Triggers
+                  </SortableTableHeader>
+                  <SortableTableHeader
+                    className="hidden xl:table-cell"
+                    column="target"
+                    onSort={toggleSort}
+                    sortState={sortState}
+                  >
+                    Target
+                  </SortableTableHeader>
+                  <th className="px-3 py-2">Run</th>
                   <th className="px-3 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {dashboard.runner.scripts.map((script) => {
+                {sortedScripts.map((script) => {
                   const expanded = expandedScriptIds.has(script.installed.id);
                   return (
                     <Fragment key={script.installed.id}>
@@ -74,13 +139,14 @@ export function ScriptsView({
                         busyActions={busyActions}
                         expanded={expanded}
                         onReviewApproval={setApprovalScriptId}
+                        onShowAbout={setAboutScriptId}
                         onToggleDetails={toggleScriptDetails}
                         runAction={runAction}
                         script={script}
                       />
                       {expanded ? (
                         <tr className="border-b border-border bg-background/40">
-                          <td className="p-3" colSpan={8} data-label="">
+                          <td className="p-3" colSpan={9} data-label="">
                             <ScriptDetailPanel
                               recentRuns={dashboard.recent_runs}
                               script={script}
@@ -108,6 +174,13 @@ export function ScriptsView({
           revokeBusy={busyActions.has(`revoke-approval:${approvalScript.installed.id}`)}
         />
       ) : null}
+      <ScriptAboutDialog
+        onOpenChange={(open) => {
+          if (!open) setAboutScriptId(null);
+        }}
+        open={aboutScript !== null}
+        script={aboutScript}
+      />
     </div>
   );
 }

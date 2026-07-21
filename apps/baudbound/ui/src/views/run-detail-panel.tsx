@@ -2,8 +2,13 @@ import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { StoredRunRecord } from "@/lib/runner-api";
-import { runStatusVariant } from "@/lib/run-inspection";
-import { countLogsByLevel, nodeActionType } from "@/lib/run-inspection";
+import {
+  countLogsByLevel,
+  filterVariableMetadata,
+  nodeActionType,
+  runStatusVariant,
+  variableRows,
+} from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunLogPanel } from "@/views/run-log-panel";
 import { RunVariablePanel } from "@/views/run-variable-panel";
@@ -19,6 +24,10 @@ export function RunDetailPanel({
   const logCounts = countLogsByLevel(run.logs);
   const errorCount = logCounts.error ?? 0;
   const warningCount = (logCounts.warn ?? 0) + (logCounts.warning ?? 0);
+  const dataVariableCount = filterVariableMetadata(
+    variableRows(run.variables, run.variable_scopes),
+    false,
+  ).length;
 
   return (
     <Card>
@@ -51,7 +60,7 @@ export function RunDetailPanel({
               <Badge variant={warningCount > 0 ? "medium" : "muted"}>
                 {warningCount} warnings
               </Badge>
-              <Badge variant="muted">{Object.keys(run.variables).length} variables</Badge>
+              <Badge variant="muted">{dataVariableCount} variables</Badge>
             </div>
           </section>
         </div>
@@ -63,7 +72,10 @@ export function RunDetailPanel({
 
         <section>
           <h3 className="mb-2 text-sm font-medium">Variables</h3>
-          <RunVariablePanel variables={run.variables} />
+          <RunVariablePanel
+            variableScopes={run.variable_scopes}
+            variables={run.variables}
+          />
         </section>
       </CardContent>
     </Card>

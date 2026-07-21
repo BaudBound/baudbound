@@ -3,6 +3,7 @@ import {
   FileClock,
   FileCog,
   Gauge,
+  Info,
   MonitorCog,
   ScrollText,
   ShieldCheck,
@@ -47,10 +48,18 @@ export const navigationGroups: Array<{ items: NavigationItem[]; label: string }>
   },
 ];
 
-export const navigationItems = navigationGroups.flatMap((group) => group.items);
+export const utilityNavigationItems: NavigationItem[] = [
+  { icon: Info, id: "about", label: "About" },
+];
+
+export const navigationItems = [
+  ...navigationGroups.flatMap((group) => group.items),
+  ...utilityNavigationItems,
+];
 
 export function pageTitle(activeTab: TabId) {
   const labels: Record<TabId, string> = {
+    about: "About",
     config: "Config",
     dashboard: "Dashboard",
     diagnostics: "Doctor",
@@ -66,6 +75,9 @@ export function pageTitle(activeTab: TabId) {
 
 export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | null) {
   if (!dashboard) return "Loading runner state...";
+  if (activeTab === "about") {
+    return "Application information, project links, and updates";
+  }
   if (activeTab === "scripts") {
     return `${dashboard.runner.total_script_count} installed scripts`;
   }
@@ -82,7 +94,7 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
     return dashboard.config_path;
   }
   if (activeTab === "runs") {
-    return `${dashboard.recent_runs.length} recent run records`;
+    return `${dashboard.run_statistics.total} retained run records`;
   }
   if (activeTab === "logs") {
     return "Recent run output and action messages";
@@ -90,5 +102,5 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
   if (activeTab === "diagnostics") {
     return "Readiness checks and troubleshooting signals";
   }
-  return dashboard.storage_root;
+  return "Runner status, installed scripts, and recent activity";
 }

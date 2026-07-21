@@ -115,6 +115,7 @@ mod tests {
                 trigger_node_id: "trigger-1".to_owned(),
             },
             logs: Vec::new(),
+            variable_scopes: Default::default(),
             variables: Default::default(),
         };
 

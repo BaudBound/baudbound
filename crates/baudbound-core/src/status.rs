@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use baudbound_script::ScriptPackage;
+use baudbound_script::{Manifest, ScriptPackage};
 use baudbound_storage::{InstalledScript, ScriptApproval, ScriptStore};
 use baudbound_triggers::TriggerRegistration;
 use serde::Serialize;
@@ -33,7 +33,10 @@ impl RunnerStatus {
             .filter(|script| script.installed.enabled)
             .map(|script| script.triggers.len())
             .sum();
-        let problem_count = scripts.iter().filter(|script| script.has_problem()).count();
+        let problem_count = scripts
+            .iter()
+            .filter(|script| script.installed.enabled && script.has_problem())
+            .count();
         Self {
             disabled_script_count: scripts.len().saturating_sub(enabled_script_count),
             enabled_script_count,
@@ -51,9 +54,39 @@ pub struct ScriptStatus {
     pub approval_status: ApprovalStatus,
     pub declared_permissions: Vec<String>,
     pub installed: InstalledScript,
+    pub metadata: Option<ScriptMetadata>,
     pub package_error: Option<String>,
     pub package_hash_status: PackageHashStatus,
     pub triggers: Vec<TriggerRegistrationStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScriptMetadata {
+    pub author: String,
+    pub created_at: String,
+    pub created_with: String,
+    pub description: String,
+    pub minimum_runner_version: String,
+    pub repository: String,
+    pub tags: Vec<String>,
+    pub updated_at: String,
+    pub website: String,
+}
+
+impl From<&Manifest> for ScriptMetadata {
+    fn from(manifest: &Manifest) -> Self {
+        Self {
+            author: manifest.author.clone(),
+            created_at: manifest.created_at.clone(),
+            created_with: manifest.created_with.clone(),
+            description: manifest.description.clone(),
+            minimum_runner_version: manifest.minimum_runner_version.clone(),
+            repository: manifest.repository.clone(),
+            tags: manifest.tags.clone(),
+            updated_at: manifest.updated_at.clone(),
+            website: manifest.website.clone(),
+        }
+    }
 }
 
 impl ScriptStatus {

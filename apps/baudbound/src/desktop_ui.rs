@@ -21,7 +21,7 @@ use crate::commands::{
     service_health::service_health_document,
 };
 use crate::desktop_actions::SystemDesktopActionAdapter;
-use crate::service::{ServeOptions, ServeOverrides};
+use crate::service::{ServeOptions, ServeOverrides, validate_serve_start};
 
 mod active_runs;
 mod background;
@@ -35,7 +35,9 @@ mod tools;
 
 use active_runs::{ActiveRunRegistry, ActiveRunSnapshot};
 use background::{DesktopRunnerSnapshot, DesktopRunnerSupervisor};
-use command_guard::{SensitiveOperation, SensitiveOperationGuard, ensure_main_window};
+use command_guard::{
+    SensitiveOperation, SensitiveOperationGuard, ensure_main_window, ensure_main_window_source,
+};
 macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
@@ -55,6 +57,7 @@ macro_rules! desktop_command_handler {
             read_runner_config,
             manual_runs::run_script,
             manual_runs::stop_run,
+            manual_runs::stop_manual_script_runs,
             manual_runs::stop_script_runs,
             save_runner_config,
             save_runner_config_model,
@@ -110,6 +113,7 @@ pub fn run_desktop_ui(
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(SensitiveOperationGuard::default())
@@ -129,6 +133,9 @@ pub fn run_desktop_ui(
         .setup(move |app| {
             app.state::<DesktopUiState>()
                 .active_runs
+                .connect_event_sink(app.handle().clone());
+            app.state::<DesktopUiState>()
+                .background_runner
                 .connect_event_sink(app.handle().clone());
             desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
@@ -185,6 +192,17 @@ fn consume_sensitive_operation<R: tauri::Runtime>(
     guard.consume(confirmation_id, operation, state)
 }
 
+fn consume_package_selection<R: tauri::Runtime>(
+    confirmation_id: &str,
+    operation: &SensitiveOperation,
+    guard: &SensitiveOperationGuard,
+    state: &DesktopUiState,
+    window: &tauri::WebviewWindow<R>,
+) -> Result<(), String> {
+    ensure_main_window_source(window)?;
+    guard.consume_package_selection(confirmation_id, operation, state)
+}
+
 #[tauri::command]
 fn dashboard_state(state: State<'_, DesktopUiState>) -> Result<DashboardPayload, String> {
     build_dashboard_payload(&state).map_err(|error| error.to_string())
@@ -231,11 +249,56 @@ fn record_update_check(
 }
 
 #[tauri::command]
-fn select_package_file() -> Option<String> {
-    rfd::FileDialog::new()
+async fn select_package_file<R: tauri::Runtime>(
+    operation: PackageFileOperation,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<Option<PackageFileSelection>, String> {
+    ensure_main_window(&window)?;
+    let selected = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
         .add_filter("BaudBound package", &["bbs"])
         .pick_file()
-        .map(|path| path.display().to_string())
+        .await;
+
+    selected
+        .map(|file| {
+            let package_path = file
+                .path()
+                .to_str()
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| "the selected package path is not valid UTF-8".to_owned())?;
+            let sensitive_operation = operation.sensitive_operation(package_path.clone());
+            let challenge = guard.prepare_package_selection(&sensitive_operation, &state)?;
+            Ok(PackageFileSelection {
+                confirmation_id: challenge.into_confirmation_id(),
+                package_path,
+            })
+        })
+        .transpose()
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PackageFileOperation {
+    Import,
+    Update,
+}
+
+impl PackageFileOperation {
+    fn sensitive_operation(self, package_path: String) -> SensitiveOperation {
+        match self {
+            Self::Import => SensitiveOperation::ImportScriptPackage { package_path },
+            Self::Update => SensitiveOperation::UpdateScriptPackage { package_path },
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct PackageFileSelection {
+    confirmation_id: String,
+    package_path: String,
 }
 
 #[tauri::command]
@@ -289,7 +352,7 @@ fn import_script_package<R: tauri::Runtime>(
     state: State<'_, DesktopUiState>,
     window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
-    consume_sensitive_operation(
+    consume_package_selection(
         &confirmation_id,
         &SensitiveOperation::ImportScriptPackage {
             package_path: package_path.clone(),
@@ -320,7 +383,7 @@ fn update_script_package<R: tauri::Runtime>(
     state: State<'_, DesktopUiState>,
     window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
-    consume_sensitive_operation(
+    consume_package_selection(
         &confirmation_id,
         &SensitiveOperation::UpdateScriptPackage {
             package_path: package_path.clone(),
@@ -687,6 +750,7 @@ fn reset_runner_config<R: tauri::Runtime>(
 
 pub(super) fn start_background_runner_message(state: &DesktopUiState) -> Result<String> {
     let (core, options) = current_runtime(state)?;
+    validate_serve_start(&core, &state.store, &options)?;
     state
         .background_runner
         .start(core, state.store.clone(), options)
@@ -757,9 +821,22 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         })
         .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
     let recent_runs = state.store.list_run_records(None, Some(50))?;
+    let run_statistics = state.store.run_statistics()?;
     let active_runs = state.active_runs.snapshot();
     let desktop_background = state.background_runner.snapshot()?;
     let runner_config = current_runner_config(state)?;
+    let desktop_background_start_blocker = if desktop_background.running {
+        None
+    } else {
+        let start_options = state
+            .background_options
+            .lock()
+            .map_err(|_| anyhow!("desktop background options lock is poisoned"))?
+            .clone();
+        validate_serve_start(&core, &state.store, &start_options)
+            .err()
+            .map(|error| error.to_string())
+    };
     let serial_devices = serial_device_payloads(&runner_config);
     let service_status = state.store.read_service_status()?;
     let service_health = service_health_document(service_status.as_ref());
@@ -772,6 +849,8 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         active_runs: active_runs.runs,
         active_runs_revision: active_runs.revision,
         desktop_background,
+        desktop_background_start_blocker,
+        desktop_platform: desktop_platform(),
         automatic_update_checks: runner_config.updates.automatic_checks,
         launch_at_login_desired: runner_config.desktop.launch_at_login,
         launch_at_login_registered: *state
@@ -780,6 +859,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
             .map_err(|_| anyhow!("login startup state lock is poisoned"))?,
         native_doctor_checks,
         recent_runs,
+        run_statistics,
         runner,
         secret_vault: state.secret_vault.snapshot(),
         secret_statuses,
@@ -810,10 +890,13 @@ struct DashboardPayload {
     automatic_update_checks: bool,
     config_path: String,
     desktop_background: DesktopRunnerSnapshot,
+    desktop_background_start_blocker: Option<String>,
+    desktop_platform: &'static str,
     launch_at_login_desired: bool,
     launch_at_login_registered: Option<bool>,
     native_doctor_checks: Vec<DoctorCheck>,
     recent_runs: Vec<StoredRunRecord>,
+    run_statistics: baudbound_storage::RunStatistics,
     runner: baudbound_core::RunnerStatus,
     secret_vault: secret_vault::SecretVaultSnapshot,
     secret_statuses: std::collections::BTreeMap<String, Vec<baudbound_core::InstalledSecretStatus>>,
@@ -823,6 +906,16 @@ struct DashboardPayload {
     storage_root: String,
     time_format: TimeFormat,
     trigger_auth_statuses: std::collections::BTreeMap<String, Vec<TriggerAuthStatus>>,
+}
+
+fn desktop_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unsupported"
+    }
 }
 
 #[derive(Serialize)]
@@ -1055,11 +1148,13 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
             runner_config.runner.run_history_max_records,
             runner_config.runner.run_history_max_age_days,
         ))?;
+    let existing_core = current_core(state)?;
     let next_core = build_runner_core(
         &runner_config,
         Arc::clone(&state.websocket_registry),
         Arc::clone(&state.active_runs),
-    );
+    )
+    .with_execution_queue_from(&existing_core);
     let serial_connections = next_core.serial_connections();
     let next_background_options = desktop_background_options(
         &runner_config,

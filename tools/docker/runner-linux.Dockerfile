@@ -22,6 +22,7 @@ RUN apt-get update \
         libxdo-dev \
         patchelf \
         pkg-config \
+        xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=node /usr/local/ /usr/local/

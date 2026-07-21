@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::*;
 
 #[test]
-fn executes_trigger_jobs_concurrently() {
+fn executes_different_scripts_concurrently() {
     let barrier = Arc::new(Barrier::new(3));
     let active = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
@@ -34,16 +34,72 @@ fn executes_trigger_jobs_concurrently() {
         .expect("test trigger executor should start");
 
     executor
-        .submit_from(event("one"), "test")
+        .submit_from(event_for_script("script-1", "one"), "test")
         .expect("first job should queue");
     executor
-        .submit_from(event("two"), "test")
+        .submit_from(event_for_script("script-2", "two"), "test")
         .expect("second job should queue");
     barrier.wait();
 
     let completions = wait_for_completions(&mut executor, 2);
     assert_eq!(completions.len(), 2);
     assert_eq!(peak.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn serializes_runs_for_the_same_script() {
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
+    let runner = {
+        let release_receiver = std::sync::Mutex::new(release_receiver);
+        Arc::new(move |event: TriggerEvent| {
+            started_sender
+                .send(event.node_id.clone())
+                .expect("worker-start signal should send");
+            release_receiver
+                .lock()
+                .expect("release receiver lock should not be poisoned")
+                .recv()
+                .expect("worker release signal should send");
+            Ok(report_for_event(&event))
+        }) as Arc<TriggerRunner>
+    };
+    let mut executor = TriggerExecutor::with_runner(2, 2, "test", runner)
+        .expect("test trigger executor should start");
+
+    executor
+        .submit_from(event("first"), "test")
+        .expect("first job should queue");
+    assert_eq!(
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first job should start"),
+        "first"
+    );
+    executor
+        .submit_from(event("second"), "test")
+        .expect("second job should queue");
+    assert!(
+        started_receiver
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "second run for the same script started before the first completed"
+    );
+
+    release_sender
+        .send(())
+        .expect("first worker release signal should send");
+    assert_eq!(wait_for_completions(&mut executor, 1).len(), 1);
+    assert_eq!(
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second job should start after first completion"),
+        "second"
+    );
+    release_sender
+        .send(())
+        .expect("second worker release signal should send");
+    assert_eq!(wait_for_completions(&mut executor, 1).len(), 1);
 }
 
 #[test]
@@ -78,11 +134,12 @@ fn rejects_work_when_the_bounded_queue_is_full() {
     );
 
     release.wait();
+    assert_eq!(wait_for_completions(&mut executor, 1).len(), 1);
     started_receiver
         .recv_timeout(Duration::from_secs(1))
         .expect("worker should start queued job");
     release.wait();
-    assert_eq!(wait_for_completions(&mut executor, 2).len(), 2);
+    assert_eq!(wait_for_completions(&mut executor, 1).len(), 1);
 }
 
 #[test]
@@ -169,10 +226,14 @@ fn wait_for_completions(executor: &mut TriggerExecutor, count: usize) -> Vec<Tri
 }
 
 fn event(node_id: &str) -> TriggerEvent {
+    event_for_script("script-1", node_id)
+}
+
+fn event_for_script(script_id: &str, node_id: &str) -> TriggerEvent {
     TriggerEvent {
         node_id: node_id.to_owned(),
         payload: Value::Null,
-        script_id: "script-1".to_owned(),
+        script_id: script_id.to_owned(),
     }
 }
 
@@ -184,6 +245,7 @@ fn report_for_event(event: &TriggerEvent) -> RunReport {
             trigger_node_id: event.node_id.clone(),
         },
         logs: Vec::new(),
+        variable_scopes: BTreeMap::new(),
         variables: BTreeMap::new(),
     }
 }

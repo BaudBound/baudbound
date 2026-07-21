@@ -359,7 +359,12 @@ function PropertiesPanel({
 							<ConfigField
 								key={field.key}
 								field={field}
-								value={selectedNode.data.config[field.key]}
+								value={
+									selectedNode.data.config[field.key] ??
+									(selectedNode.data.actionType === "action.http" && field.key === "bodyFormat"
+										? defaultConfig[field.key]
+										: undefined)
+								}
 								variableCompletions={variableCompletions}
 								onChange={(value) => onUpdateNodeConfig(selectedNode.id, field.key, value)}
 							/>

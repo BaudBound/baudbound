@@ -75,7 +75,7 @@ The selected scope controls ownership and lifetime:
 | `persistent` | Stored for this script and loaded into later runs of the same script. | Medium-risk persistent write |
 | `global` | Stored once by name and shared with every script using that global name. | High-risk cross-script write |
 
-Persistent and global writes are versioned so concurrent runs cannot silently overwrite an update made between reading and writing. Use global variables sparingly because unrelated scripts can intentionally share and change the same value.
+The runner executes only one run of a specific installed script at a time. A later run of the same script waits until the active run finishes, so persistent variables provide predictable state between its runs. Different scripts can run at the same time. Global writes remain versioned so two different scripts cannot silently overwrite an update made between reading and writing. Use global variables sparingly because unrelated scripts can intentionally share and change the same value.
 
 A stored variable is loaded at run start when the script contains a Variable Operation declaration for that name and scope. Do not declare the same variable name with conflicting scopes in one script.
 

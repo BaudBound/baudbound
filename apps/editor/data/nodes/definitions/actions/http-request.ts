@@ -1,10 +1,10 @@
 import type { Node } from "@xyflow/react";
 import { Globe } from "lucide-react";
-import type { ScriptNodeData } from "@/lib/types";
+import type { JsonValue, ScriptNodeData } from "@/lib/types";
 import type { SimulationContext } from "@/utils/simulation-types";
 import type { NodeSimulationApi } from "../../node-definition";
 import { defineNode } from "../../node-definition";
-import { httpMethodOptions } from "../options";
+import { httpBodyFormatOptions, httpMethodOptions } from "../options";
 import { createHeaderRow } from "../rows";
 import { fallible } from "../runtime-outputs";
 import { requiredConfig, staticHttpUrlConfig, staticPositiveNumberConfig } from "../validators";
@@ -29,6 +29,14 @@ export const httpRequestNode = defineNode({
 				maximumInclusive: true,
 			},
 		},
+		{
+			key: "bodyFormat",
+			label: "Body format",
+			type: "select",
+			options: httpBodyFormatOptions,
+			required: false,
+			help: "JSON safely serializes variables. Text sends the resolved body without JSON processing.",
+		},
 		{ key: "body", label: "Body", type: "textarea", usesVariables: true },
 	],
 	defaultConfig: () => ({
@@ -37,6 +45,7 @@ export const httpRequestNode = defineNode({
 		headers: [createHeaderRow("Accept", "application/json"), createHeaderRow("Content-Type", "application/json")],
 		userAgent: "BaudBound/{{manifest_name}}",
 		timeoutSeconds: "30",
+		bodyFormat: "json",
 		body: "",
 	}),
 	description: "Send an HTTP request.",
@@ -86,6 +95,7 @@ export const httpRequestNode = defineNode({
 			requiredConfig(config, "url", "request URL"),
 			staticHttpUrlConfig(config, "url", "request URL"),
 			staticPositiveNumberConfig(config, "timeoutSeconds", "timeout seconds"),
+			validateHttpBody(config),
 		].filter(Boolean),
 	simulation: {
 		createOutput: ({ api, context, node }) => api.executeHttpRequest(node, context),
@@ -97,6 +107,44 @@ export const httpRequestNode = defineNode({
 		],
 	},
 });
+
+function validateHttpBody(config: Record<string, JsonValue>) {
+	const body = typeof config.body === "string" ? config.body : "";
+	if (!body.trim() || !usesJsonBody(config)) {
+		return "";
+	}
+
+	try {
+		JSON.parse(body);
+		return "";
+	} catch (error) {
+		return `JSON request body is invalid: ${error instanceof Error ? error.message : String(error)}.`;
+	}
+}
+
+function usesJsonBody(config: Record<string, JsonValue>) {
+	if (config.bodyFormat === "json") {
+		return true;
+	}
+	if (config.bodyFormat === "text") {
+		return false;
+	}
+
+	return Array.isArray(config.headers) && config.headers.some(isJsonContentTypeHeader);
+}
+
+function isJsonContentTypeHeader(value: JsonValue) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return false;
+	}
+	const name = typeof value.name === "string" ? value.name : "";
+	const headerValue = typeof value.value === "string" ? value.value : "";
+	const mediaType = headerValue.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+	return (
+		name.toLowerCase() === "content-type" &&
+		(mediaType === "application/json" || (mediaType.startsWith("application/") && mediaType.endsWith("+json")))
+	);
+}
 
 function getHttpExecutionDetail(api: NodeSimulationApi, node: Node<ScriptNodeData>, context: SimulationContext) {
 	const output = context.nodeOutputs[node.id];

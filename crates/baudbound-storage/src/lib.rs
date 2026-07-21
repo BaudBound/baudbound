@@ -142,7 +142,18 @@ pub struct StoredRunRecord {
     pub status: String,
     pub trigger_node_id: String,
     #[serde(default)]
+    pub variable_scopes: BTreeMap<String, String>,
+    #[serde(default)]
     pub variables: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RunStatistics {
+    pub cancelled: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub total: usize,
+    pub with_errors: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -231,6 +242,7 @@ pub trait ScriptStore: Send + Sync {
         script_reference: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StoredRunRecord>, StorageError>;
+    fn run_statistics(&self) -> Result<RunStatistics, StorageError>;
     fn remove_script(&self, reference: &str) -> Result<InstalledScript, StorageError>;
     fn revoke_script_approval(
         &self,

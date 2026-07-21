@@ -3,19 +3,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::runtime::{
-    RuntimeGraph, refresh_derived_variable_metadata, required_config_string, validate_variable_name,
+    DERIVED_VARIABLE_METADATA_SUFFIXES, RuntimeGraph, refresh_derived_variable_metadata,
+    required_config_string, validate_variable_name,
 };
 use crate::{
     RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeSecretDeclaration,
     RuntimeStateStore, RuntimeVariableScope,
 };
 
-use super::RuntimeError;
 use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
+use super::{RunVariableScope, RuntimeError};
 
 pub(super) struct InitialRuntimeState {
     pub(super) secret_names: Vec<String>,
     pub(super) secret_values: Vec<Value>,
+    pub(super) variable_scopes: BTreeMap<String, RunVariableScope>,
     pub(super) variables: BTreeMap<String, Value>,
 }
 
@@ -27,6 +29,7 @@ pub(super) fn load_initial_state(
     secrets: &[RuntimeSecretDeclaration],
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
+    let mut variable_scopes = BTreeMap::new();
     let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
     let mut declared_variables = BTreeMap::<String, (String, String)>::new();
 
@@ -97,8 +100,13 @@ pub(super) fn load_initial_state(
         .iter()
         .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
     {
-        variables.insert(variable.name.clone(), variable.value.clone());
-        refresh_derived_variable_metadata(&mut variables, &variable.name);
+        insert_initial_variable(
+            &mut variables,
+            &mut variable_scopes,
+            variable.name.clone(),
+            variable.value.clone(),
+            RunVariableScope::Runtime,
+        );
     }
     if let Some(store) = state_store {
         for variable in default_variables
@@ -106,16 +114,30 @@ pub(super) fn load_initial_state(
             .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent)
         {
             let value = load_or_initialize_persistent_default(store, script_id, variable)?;
-            variables.insert(variable.name.clone(), value);
-            refresh_derived_variable_metadata(&mut variables, &variable.name);
+            insert_initial_variable(
+                &mut variables,
+                &mut variable_scopes,
+                variable.name.clone(),
+                value,
+                RunVariableScope::Persistent,
+            );
         }
         for (name, scope) in declarations {
             if let Some(stored) = store
                 .load_variable(scope, script_id, &name)
                 .map_err(RuntimeError::State)?
             {
-                variables.insert(name.clone(), stored.value);
-                refresh_derived_variable_metadata(&mut variables, &name);
+                let run_scope = match scope {
+                    RuntimeVariableScope::Persistent => RunVariableScope::Persistent,
+                    RuntimeVariableScope::Global => RunVariableScope::Global,
+                };
+                insert_initial_variable(
+                    &mut variables,
+                    &mut variable_scopes,
+                    name,
+                    stored.value,
+                    run_scope,
+                );
             }
         }
         for secret in secrets {
@@ -125,7 +147,13 @@ pub(super) fn load_initial_state(
             {
                 Some(value) => {
                     validate_secret_value(secret, &value)?;
-                    variables.insert(secret.name.clone(), value.clone());
+                    insert_initial_variable(
+                        &mut variables,
+                        &mut variable_scopes,
+                        secret.name.clone(),
+                        value.clone(),
+                        RunVariableScope::Secret,
+                    );
                     secret_values.push(value);
                 }
                 None if secret.required => {
@@ -142,8 +170,24 @@ pub(super) fn load_initial_state(
     Ok(InitialRuntimeState {
         secret_names,
         secret_values,
+        variable_scopes,
         variables,
     })
+}
+
+fn insert_initial_variable(
+    variables: &mut BTreeMap<String, Value>,
+    scopes: &mut BTreeMap<String, RunVariableScope>,
+    name: String,
+    value: Value,
+    scope: RunVariableScope,
+) {
+    variables.insert(name.clone(), value);
+    scopes.insert(name.clone(), scope);
+    refresh_derived_variable_metadata(variables, &name);
+    for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
+        scopes.insert(format!("{name}{suffix}"), RunVariableScope::Metadata);
+    }
 }
 
 fn validate_secret_value(
