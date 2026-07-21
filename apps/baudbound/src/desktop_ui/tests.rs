@@ -22,22 +22,25 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let store = SqliteRunnerStore::open(runner_home.join("runner.sqlite3"))
         .expect("SQLite runner store should open");
     let active_runs = Arc::new(ActiveRunRegistry::default());
+    let core = build_runner_core(
+        &runner_config,
+        Arc::clone(&websocket_registry),
+        Arc::clone(&active_runs),
+    );
     let state = DesktopUiState {
         active_runs: Arc::clone(&active_runs),
         background_options: Mutex::new(desktop_background_options(
             &runner_config,
             Arc::clone(&websocket_registry),
             config_path.clone(),
+            core.serial_connections(),
         )),
         background_runner: DesktopRunnerSupervisor::default(),
         config_path: config_path.clone(),
         login_startup_registered: Mutex::new(None),
         runner_config: Mutex::new(runner_config.clone()),
-        core: Arc::new(Mutex::new(build_runner_core(
-            &runner_config,
-            Arc::clone(&websocket_registry),
-            active_runs,
-        ))),
+        core: Arc::new(Mutex::new(core)),
+        secret_vault: secret_vault::SecretVaultController::default(),
         store,
         websocket_registry,
         operation_lock: Arc::new(Mutex::new(())),
@@ -62,7 +65,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 
     let initial = invoke(&webview, "dashboard_state", json!({}));
     assert_eq!(initial["runner"]["total_script_count"], 0);
-    assert_eq!(initial["secret_storage_available"], false);
+    assert_eq!(initial["secret_vault"]["status"], "initializing");
 
     let package_path = temporary_directory.path().join("desktop-workflow.bbs");
     fs::write(&package_path, create_test_package()).expect("test package should be written");
@@ -177,6 +180,27 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
             .as_u64()
             .is_some_and(|value| value > 0)
     );
+
+    let cleared_logs = invoke_sensitive(
+        &webview,
+        "clear_run_logs",
+        json!({"kind": "clear_run_logs"}),
+        json!({}),
+    );
+    assert_eq!(cleared_logs["message"], "Cleared stored logs from 1 run.");
+    assert_eq!(
+        cleared_logs["dashboard"]["recent_runs"][0]["logs"],
+        json!([])
+    );
+
+    let cleared_runs = invoke_sensitive(
+        &webview,
+        "clear_run_history",
+        json!({"kind": "clear_run_history"}),
+        json!({}),
+    );
+    assert_eq!(cleared_runs["message"], "Cleared 1 stored run.");
+    assert_eq!(cleared_runs["dashboard"]["recent_runs"], json!([]));
 
     let disabled = invoke(
         &webview,

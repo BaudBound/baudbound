@@ -416,12 +416,12 @@ fn indexes_serial_devices_from_runner_config() {
     let handler = HeadlessActionHandler::from_serial_devices([serial_device_config()]);
 
     let device = handler
-        .serial_devices
-        .get("main-device")
+        .serial_connections
+        .config("main-device")
         .expect("serial device should be indexed");
 
     assert_eq!(device.port, "COM3");
-    assert_eq!(device.baud_rate, 115_200);
+    assert_eq!(device.baud_rate, 9_600);
 }
 
 #[test]
@@ -473,16 +473,20 @@ fn serial_device_config() -> SerialDeviceConfig {
     SerialDeviceConfig {
         auto_reconnect: true,
         auto_rebind_port: false,
-        baud_rate: 115_200,
+        baud_rate: 9_600,
         data_bits: 8,
         device_id: "main-device".to_owned(),
+        dtr_on_open: "deasserted".to_owned(),
         flow_control: "none".to_owned(),
         manufacturer: None,
+        max_message_bytes: 1_048_576,
+        message_gap_ms: 100,
+        open_stabilization_ms: 500,
         parity: "none".to_owned(),
         port: "COM3".to_owned(),
         product_id: None,
         product: None,
-        read_mode: "line".to_owned(),
+        read_mode: "idle_gap".to_owned(),
         serial_number: None,
         stop_bits: "1".to_owned(),
         validate_usb_identity: false,

@@ -1,11 +1,17 @@
+import { Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { DashboardPayload } from "@/lib/runner-api";
+import type { DashboardAction } from "@/lib/app-types";
+import { clearRunLogs, type DashboardPayload } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
+
+const clearLogsAction = "logs-clear";
 
 type LogRow = {
   actionType: string | null;
@@ -18,8 +24,17 @@ type LogRow = {
   timestampUnixMs: number;
 };
 
-export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
+export function LogsView({
+  busyActions,
+  dashboard,
+  runAction,
+}: {
+  busyActions: Set<string>;
+  dashboard: DashboardPayload;
+  runAction: DashboardAction;
+}) {
   const { formatUnixMilliseconds } = useDesktopTime();
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const rows = useMemo(() => logRows(dashboard), [dashboard]);
   const visibleRows = useMemo(
@@ -37,8 +52,19 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
         <CardHeader className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>Run logs</CardTitle>
-            <div className="text-xs text-muted-foreground">
-              Showing {visibleRows.length} of {rows.length}
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="text-xs text-muted-foreground">
+                Showing {visibleRows.length} of {rows.length}
+              </div>
+              <Button
+                disabled={busyActions.has(clearLogsAction)}
+                onClick={() => setConfirmClearOpen(true)}
+                size="sm"
+                variant="outline"
+              >
+                <Trash2 />
+                Clear logs
+              </Button>
             </div>
           </div>
           <Input
@@ -107,6 +133,18 @@ export function LogsView({ dashboard }: { dashboard: DashboardPayload }) {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        confirmLabel="Clear logs"
+        description="Delete every stored log entry from completed runs, including runs older than those currently shown. Run records, statuses, variables, and identifiers are preserved. Running scripts can add new logs."
+        destructive
+        disabled={busyActions.has(clearLogsAction)}
+        onConfirm={async () => {
+          await runAction(clearLogsAction, clearRunLogs);
+        }}
+        onOpenChange={setConfirmClearOpen}
+        open={confirmClearOpen}
+        title="Clear stored logs?"
+      />
     </div>
   );
 }

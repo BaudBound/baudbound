@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use baudbound_actions::SerialConnectionRegistry;
 use baudbound_core::{RunnerConfig, serial_device_configs_from_settings};
 use baudbound_triggers::{
     SerialDeviceConfig as TriggerSerialDeviceConfig, SerialPortRebindSink,
@@ -27,6 +28,7 @@ pub struct ServeOptions {
     pub(crate) schedules_enabled: bool,
     pub(crate) serial_enabled: bool,
     pub(crate) serial_devices: Vec<TriggerSerialDeviceConfig>,
+    pub(crate) serial_connections: Arc<SerialConnectionRegistry>,
     pub(crate) serial_port_rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     pub(crate) startup_enabled: bool,
     pub(crate) webhook_allow_browser_origins: BTreeSet<String>,
@@ -64,6 +66,8 @@ impl ServeOptions {
         run_schedules_immediately: bool,
         websocket_registry: Arc<WebSocketConnectionRegistry>,
     ) -> Self {
+        let serial_devices = serial_device_configs_from_settings(&config.serial.devices);
+        let serial_connections = Arc::new(SerialConnectionRegistry::new(serial_devices.clone()));
         Self {
             file_watch_enabled: config.triggers.file_watch_enabled,
             hotkeys_enabled: config.triggers.hotkeys_enabled,
@@ -89,27 +93,8 @@ impl ServeOptions {
             run_schedules_immediately,
             schedules_enabled: config.triggers.schedules_enabled,
             serial_enabled: config.triggers.serial_enabled,
-            serial_devices: serial_device_configs_from_settings(&config.serial.devices)
-                .into_iter()
-                .map(|device| TriggerSerialDeviceConfig {
-                    auto_reconnect: device.auto_reconnect,
-                    auto_rebind_port: device.auto_rebind_port,
-                    baud_rate: device.baud_rate,
-                    data_bits: device.data_bits,
-                    device_id: device.device_id,
-                    flow_control: device.flow_control,
-                    manufacturer: device.manufacturer,
-                    parity: device.parity,
-                    port: device.port,
-                    product_id: device.product_id,
-                    product: device.product,
-                    read_mode: device.read_mode,
-                    serial_number: device.serial_number,
-                    stop_bits: device.stop_bits,
-                    validate_usb_identity: device.validate_usb_identity,
-                    vendor_id: device.vendor_id,
-                })
-                .collect(),
+            serial_devices,
+            serial_connections,
             serial_port_rebind_sink: None,
             startup_enabled: config.triggers.startup_enabled,
             webhook_allow_browser_origins: config
@@ -147,6 +132,12 @@ impl ServeOptions {
     #[must_use]
     pub fn with_serial_port_rebind_sink(mut self, sink: Arc<dyn SerialPortRebindSink>) -> Self {
         self.serial_port_rebind_sink = Some(sink);
+        self
+    }
+
+    #[must_use]
+    pub fn with_serial_connections(mut self, connections: Arc<SerialConnectionRegistry>) -> Self {
+        self.serial_connections = connections;
         self
     }
 }
@@ -197,11 +188,32 @@ impl SerialPortRebindSink for RunnerConfigSerialPortRebindSink {
         let next_contents = document.to_string();
         RunnerConfig::from_toml(&next_contents, &self.config_path)
             .map_err(|source| source.to_string())?;
-        std::fs::write(&self.config_path, next_contents).map_err(|source| {
-            format!(
-                "failed to write runner config {}: {source}",
-                self.config_path.display()
-            )
-        })
+        RunnerConfig::write_atomic(&self.config_path, &next_contents)
+            .map_err(|source| source.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serial_port_rebind_preserves_the_config_document() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# keep this comment\n[serial.devices.controller]\nport = \"COM3\"\n",
+        )
+        .expect("test config should be written");
+        let sink = RunnerConfigSerialPortRebindSink::new(path.clone());
+
+        sink.update_serial_device_port("controller", "COM7")
+            .expect("rebind should be persisted");
+
+        let contents = std::fs::read_to_string(&path).expect("config should remain readable");
+        let config = RunnerConfig::from_toml(&contents, &path).expect("config should stay valid");
+        assert!(contents.contains("# keep this comment"));
+        assert_eq!(config.serial.devices["controller"].port, "COM7");
     }
 }

@@ -1,6 +1,7 @@
 use baudbound_storage::SqliteRunnerStore;
 
 use super::triggers::TriggerServices;
+use crate::console;
 
 pub(super) fn print_service_summary(services: &TriggerServices, store: &SqliteRunnerStore) {
     print_count(
@@ -43,11 +44,11 @@ pub(super) fn print_service_summary(services: &TriggerServices, store: &SqliteRu
         None,
     );
     if !services.hotkey_service.is_empty() {
-        println!(
+        console::info(format_args!(
             "Serving {} desktop hotkey trigger{} from stdin.",
             services.hotkey_service.len(),
             plural(services.hotkey_service.len()),
-        );
+        ));
     }
     print_count(
         !services.native_hotkey_service.is_empty(),
@@ -63,18 +64,18 @@ fn print_count(should_print: bool, count: usize, label: &str, store: Option<&Sql
     }
 
     if label == "startup trigger" {
-        println!("Queued {count} {label}{}.", plural(count));
+        console::info(format_args!("Queued {count} {label}{}.", plural(count)));
         return;
     }
 
     if let Some(store) = store {
-        println!(
+        console::info(format_args!(
             "Serving {count} {label}{} from {}.",
             plural(count),
             store.root().display()
-        );
+        ));
     } else {
-        println!("Serving {count} {label}{}.", plural(count));
+        console::info(format_args!("Serving {count} {label}{}.", plural(count)));
     }
 }
 

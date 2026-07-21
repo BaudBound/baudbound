@@ -174,6 +174,8 @@ const conditionComparisonRows = [
 	{ label: "Regex match", description: "Passes when Value matches the selected safe regex pattern." },
 	{ label: "Is empty", description: "Passes when Value is empty text." },
 	{ label: "Is null", description: "Passes when Value is null or the text null." },
+	{ label: "Is True", description: "If / Else only. Passes when Value is the boolean true." },
+	{ label: "Is False", description: "If / Else only. Passes when Value is the boolean false." },
 ];
 
 const nodeBehaviorRows = [
@@ -472,9 +474,10 @@ function ExpressionsSection() {
 			<div className="space-y-3">
 				<SectionTitle icon={Calculator} title="If / Else Comparisons" />
 				<InfoCard>
-					If / Else and While do not use typed expression syntax. Each condition row has a Value field, a comparison
-					dropdown, and a Target field. Enable Invert condition on a row to flip that row result before it is combined
-					with AND or OR.
+					If / Else and While do not use typed expression syntax. Each condition row has a Value field and a comparison
+					dropdown. Comparisons against another value also show a Target field. Is True and Is False are available on If
+					/ Else and accept only real boolean values. Enable Invert condition on a row to flip that row result before it
+					is combined with AND or OR.
 				</InfoCard>
 				<DocTable
 					columns={["Dropdown option", "Description"]}

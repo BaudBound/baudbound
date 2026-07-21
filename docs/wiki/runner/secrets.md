@@ -35,7 +35,9 @@ Linux desktop installations use the standard Secret Service interface. GNOME Key
 
 The credential service must be available in the same graphical user session as BaudBound. This matters when using VNC or another remote desktop session because it may not share the credential service started by a local login.
 
-When the credential vault is unavailable, BaudBound does not replace it with an unencrypted file. The desktop application continues without secret access, the Security page displays a warning, and scripts requiring secrets cannot resolve their values.
+BaudBound connects to the credential vault in the background so a slow provider cannot delay the desktop window. The Security page displays the current connection state and provides a Retry button after a failure.
+
+When the credential vault is unavailable, BaudBound does not replace it with an unencrypted file. The desktop application continues without secret access and scripts requiring secrets cannot resolve their values.
 
 Encrypted secret records are kept in runner durable storage. The UI and CLI never return secret plaintext in list or status responses.
 

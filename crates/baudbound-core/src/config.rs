@@ -19,6 +19,15 @@ pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
 pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
+pub const DEFAULT_SERIAL_BAUD_RATE: u32 = 9_600;
+pub const DEFAULT_SERIAL_DTR_ON_OPEN: &str = "deasserted";
+pub const DEFAULT_SERIAL_MESSAGE_GAP_MS: u64 = 100;
+pub const DEFAULT_SERIAL_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_SERIAL_OPEN_STABILIZATION_MS: u64 = 500;
+pub const DEFAULT_SERIAL_READ_MODE: &str = "idle_gap";
+pub const MAX_SERIAL_OPEN_STABILIZATION_MS: u64 = 60_000;
+pub const MAX_SERIAL_MESSAGE_GAP_MS: u64 = 60_000;
+pub const MAX_SERIAL_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 pub use baudbound_actions::{
     DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
 };
@@ -150,33 +159,7 @@ impl RunnerConfig {
             &self.websockets.allow_browser_origins,
         )?;
         for (device_id, device) in &self.serial.devices {
-            if !device.auto_rebind_port {
-                continue;
-            }
-            if !device.validate_usb_identity {
-                return Err(RunnerConfigError::Validate {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "serial device {device_id:?} enables auto_rebind_port but validate_usb_identity is false"
-                    ),
-                });
-            }
-            if blank_optional(&device.vendor_id) {
-                return Err(RunnerConfigError::Validate {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "serial device {device_id:?} enables auto_rebind_port but vendor_id is not set"
-                    ),
-                });
-            }
-            if blank_optional(&device.product_id) {
-                return Err(RunnerConfigError::Validate {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "serial device {device_id:?} enables auto_rebind_port but product_id is not set"
-                    ),
-                });
-            }
+            validate_serial_device(path, device_id, device)?;
         }
         Ok(())
     }
@@ -268,12 +251,16 @@ websockets_enabled = false
 #
 # [serial.devices.main_controller]
 # port = "COM3"
-# baud_rate = 115200
+# baud_rate = 9600
 # data_bits = 8
+# dtr_on_open = "deasserted"
 # parity = "none"
 # stop_bits = "1"
 # flow_control = "none"
-# read_mode = "line"
+# read_mode = "idle_gap"
+# message_gap_ms = 100
+# max_message_bytes = 1048576
+# open_stabilization_ms = 500
 # auto_reconnect = true
 # validate_usb_identity = false
 # auto_rebind_port = false
@@ -401,8 +388,12 @@ pub struct SerialDeviceSettings {
     pub auto_rebind_port: bool,
     pub baud_rate: u32,
     pub data_bits: u8,
+    pub dtr_on_open: String,
     pub flow_control: String,
     pub manufacturer: Option<String>,
+    pub max_message_bytes: usize,
+    pub message_gap_ms: u64,
+    pub open_stabilization_ms: u64,
     pub parity: String,
     pub port: String,
     pub product_id: Option<String>,
@@ -419,15 +410,19 @@ impl Default for SerialDeviceSettings {
         Self {
             auto_reconnect: true,
             auto_rebind_port: false,
-            baud_rate: 115_200,
+            baud_rate: DEFAULT_SERIAL_BAUD_RATE,
             data_bits: 8,
+            dtr_on_open: DEFAULT_SERIAL_DTR_ON_OPEN.to_owned(),
             flow_control: "none".to_owned(),
             manufacturer: None,
+            max_message_bytes: DEFAULT_SERIAL_MAX_MESSAGE_BYTES,
+            message_gap_ms: DEFAULT_SERIAL_MESSAGE_GAP_MS,
+            open_stabilization_ms: DEFAULT_SERIAL_OPEN_STABILIZATION_MS,
             parity: "none".to_owned(),
             port: String::new(),
             product_id: None,
             product: None,
-            read_mode: "line".to_owned(),
+            read_mode: DEFAULT_SERIAL_READ_MODE.to_owned(),
             serial_number: None,
             stop_bits: "1".to_owned(),
             validate_usb_identity: false,
@@ -553,12 +548,109 @@ pub enum RunnerConfigError {
     },
 }
 
-fn blank_optional(value: &Option<String>) -> bool {
-    value
+fn validate_serial_device(
+    path: &Path,
+    device_id: &str,
+    device: &SerialDeviceSettings,
+) -> Result<(), RunnerConfigError> {
+    let invalid = |message: String| RunnerConfigError::Validate {
+        path: path.to_path_buf(),
+        message: format!("serial device {device_id:?} {message}"),
+    };
+
+    if device.baud_rate == 0 {
+        return Err(invalid("baud_rate must be greater than zero".to_owned()));
+    }
+    if !matches!(device.data_bits, 5..=8) {
+        return Err(invalid("data_bits must be 5, 6, 7, or 8".to_owned()));
+    }
+    if !matches!(
+        device.dtr_on_open.as_str(),
+        "deasserted" | "asserted" | "preserve"
+    ) {
+        return Err(invalid(
+            "dtr_on_open must be one of deasserted, asserted, or preserve".to_owned(),
+        ));
+    }
+    if !matches!(device.parity.as_str(), "none" | "even" | "odd") {
+        return Err(invalid(
+            "parity must be one of none, even, or odd".to_owned(),
+        ));
+    }
+    if !matches!(device.stop_bits.as_str(), "1" | "2") {
+        return Err(invalid("stop_bits must be 1 or 2".to_owned()));
+    }
+    if !matches!(
+        device.flow_control.as_str(),
+        "none" | "software" | "hardware"
+    ) {
+        return Err(invalid(
+            "flow_control must be one of none, software, or hardware".to_owned(),
+        ));
+    }
+    if !matches!(device.read_mode.as_str(), "line" | "idle_gap" | "raw") {
+        return Err(invalid(
+            "read_mode must be one of line, idle_gap, or raw".to_owned(),
+        ));
+    }
+    if device.message_gap_ms == 0 || device.message_gap_ms > MAX_SERIAL_MESSAGE_GAP_MS {
+        return Err(invalid(format!(
+            "message_gap_ms must be between 1 and {MAX_SERIAL_MESSAGE_GAP_MS}"
+        )));
+    }
+    if device.max_message_bytes == 0 || device.max_message_bytes > MAX_SERIAL_MESSAGE_BYTES {
+        return Err(invalid(format!(
+            "max_message_bytes must be between 1 and {MAX_SERIAL_MESSAGE_BYTES}"
+        )));
+    }
+    if device.open_stabilization_ms > MAX_SERIAL_OPEN_STABILIZATION_MS {
+        return Err(invalid(format!(
+            "open_stabilization_ms must be between 0 and {MAX_SERIAL_OPEN_STABILIZATION_MS}"
+        )));
+    }
+    if device.validate_usb_identity {
+        validate_usb_id(path, device_id, "vendor_id", &device.vendor_id)?;
+        validate_usb_id(path, device_id, "product_id", &device.product_id)?;
+    }
+    if device.auto_rebind_port && !device.validate_usb_identity {
+        return Err(invalid(
+            "enables auto_rebind_port but validate_usb_identity is false".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_usb_id(
+    path: &Path,
+    device_id: &str,
+    field: &str,
+    value: &Option<String>,
+) -> Result<(), RunnerConfigError> {
+    let Some(value) = value
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .is_none()
+    else {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!(
+                "serial device {device_id:?} enables validate_usb_identity but {field} is not set"
+            ),
+        });
+    };
+    let digits = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    if digits.is_empty() || digits.len() > 4 || !digits.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!(
+                "serial device {device_id:?} {field} must be a 1 to 4 digit hexadecimal value"
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn validate_browser_origins(
@@ -678,10 +770,12 @@ mod tests {
                 port = "COM3"
                 baud_rate = 115200
                 data_bits = 8
+                dtr_on_open = "asserted"
                 parity = "none"
                 stop_bits = "1"
                 flow_control = "none"
                 read_mode = "line"
+                open_stabilization_ms = 750
                 auto_reconnect = true
                 auto_rebind_port = true
                 validate_usb_identity = true
@@ -733,6 +827,8 @@ mod tests {
             .expect("serial device should parse");
         assert_eq!(device.port, "COM3");
         assert_eq!(device.baud_rate, 115_200);
+        assert_eq!(device.dtr_on_open, "asserted");
+        assert_eq!(device.open_stabilization_ms, 750);
         assert!(device.auto_rebind_port);
         assert_eq!(device.vendor_id.as_deref(), Some("1A86"));
         assert_eq!(device.serial_number.as_deref(), Some("ABC123"));
@@ -862,6 +958,85 @@ mod tests {
         .expect_err("auto rebind without product id should fail");
 
         assert!(matches!(error, RunnerConfigError::Validate { .. }));
+    }
+
+    #[test]
+    fn serial_device_defaults_use_idle_gap_at_9600_baud() {
+        let config = RunnerConfig::from_toml(
+            "[serial.devices.controller]\nport = \"COM3\"",
+            "runner.toml",
+        )
+        .expect("default serial device should parse");
+        let device = &config.serial.devices["controller"];
+
+        assert_eq!(device.baud_rate, DEFAULT_SERIAL_BAUD_RATE);
+        assert_eq!(device.dtr_on_open, DEFAULT_SERIAL_DTR_ON_OPEN);
+        assert_eq!(device.read_mode, DEFAULT_SERIAL_READ_MODE);
+        assert_eq!(device.message_gap_ms, DEFAULT_SERIAL_MESSAGE_GAP_MS);
+        assert_eq!(device.max_message_bytes, DEFAULT_SERIAL_MAX_MESSAGE_BYTES);
+        assert_eq!(
+            device.open_stabilization_ms,
+            DEFAULT_SERIAL_OPEN_STABILIZATION_MS
+        );
+    }
+
+    #[test]
+    fn serial_framing_settings_round_trip_through_toml() {
+        let mut config = RunnerConfig::default();
+        config.serial.devices.insert(
+            "controller".to_owned(),
+            SerialDeviceSettings {
+                max_message_bytes: 32_768,
+                message_gap_ms: 275,
+                port: "COM7".to_owned(),
+                read_mode: "line".to_owned(),
+                ..SerialDeviceSettings::default()
+            },
+        );
+
+        let contents = config
+            .to_pretty_toml()
+            .expect("serial config should serialize");
+        let restored = RunnerConfig::from_toml(&contents, "runner.toml")
+            .expect("serialized serial config should parse");
+        let device = &restored.serial.devices["controller"];
+
+        assert_eq!(device.baud_rate, DEFAULT_SERIAL_BAUD_RATE);
+        assert_eq!(device.read_mode, "line");
+        assert_eq!(device.message_gap_ms, 275);
+        assert_eq!(device.max_message_bytes, 32_768);
+    }
+
+    #[test]
+    fn rejects_unknown_serial_framing_and_out_of_range_limits() {
+        for contents in [
+            "[serial.devices.controller]\nport = \"COM3\"\nread_mode = \"packet\"",
+            "[serial.devices.controller]\nport = \"COM3\"\nmessage_gap_ms = 0",
+            "[serial.devices.controller]\nport = \"COM3\"\nmax_message_bytes = 0",
+            "[serial.devices.controller]\nport = \"COM3\"\ndtr_on_open = \"pulse\"",
+            "[serial.devices.controller]\nport = \"COM3\"\nopen_stabilization_ms = 60001",
+        ] {
+            let error = RunnerConfig::from_toml(contents, "runner.toml")
+                .expect_err("invalid serial framing must be rejected");
+            assert!(matches!(error, RunnerConfigError::Validate { .. }));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_usb_identity_hex_values() {
+        let error = RunnerConfig::from_toml(
+            r#"
+                [serial.devices.controller]
+                port = "COM3"
+                validate_usb_identity = true
+                vendor_id = "not-hex"
+                product_id = "7523"
+            "#,
+            "runner.toml",
+        )
+        .expect_err("invalid USB identity should fail");
+
+        assert!(error.to_string().contains("vendor_id"));
     }
 
     #[test]

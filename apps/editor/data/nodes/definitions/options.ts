@@ -61,6 +61,20 @@ export const comparisonOperatorOptions: SelectOption[] = [
 	{ label: "is null", value: "is_null" },
 ];
 
+export const booleanConditionOperatorOptions: SelectOption[] = [
+	{ label: "Is True", value: "is_true" },
+	{ label: "Is False", value: "is_false" },
+];
+
+export const ifElseComparisonOperatorOptions: SelectOption[] = [
+	...comparisonOperatorOptions,
+	...booleanConditionOperatorOptions,
+];
+
+export function isBooleanConditionOperator(operator: string) {
+	return booleanConditionOperatorOptions.some((option) => option.value === operator);
+}
+
 export const combinatorOptions: SelectOption[] = [
 	{ label: "AND", value: "and" },
 	{ label: "OR", value: "or" },

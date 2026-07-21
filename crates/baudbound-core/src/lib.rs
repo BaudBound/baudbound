@@ -47,12 +47,14 @@ pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistratio
 pub use compatibility::{DESKTOP_ONLY_ACTIONS, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
     DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
+    DEFAULT_SERIAL_BAUD_RATE, DEFAULT_SERIAL_DTR_ON_OPEN, DEFAULT_SERIAL_MAX_MESSAGE_BYTES,
+    DEFAULT_SERIAL_MESSAGE_GAP_MS, DEFAULT_SERIAL_OPEN_STABILIZATION_MS, DEFAULT_SERIAL_READ_MODE,
     DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, DEFAULT_WEBHOOK_BIND,
     DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
     DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
-    LimitSettings, RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings,
-    SerialSettings, TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings,
-    WebhookSettings,
+    LimitSettings, MAX_SERIAL_MESSAGE_BYTES, MAX_SERIAL_MESSAGE_GAP_MS, RunnerConfig,
+    RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings, TimeFormat,
+    TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
 };
 pub use package::PackageInspection;
 pub use secrets::InstalledSecretStatus;
@@ -77,7 +79,7 @@ pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
     run_observer: Option<Arc<dyn RuntimeRunObserver>>,
-    serial_devices: Vec<baudbound_actions::SerialDeviceConfig>,
+    serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
     supported_target_runtimes: Vec<String>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
 }
@@ -88,7 +90,7 @@ impl Default for RunnerCore {
             action_handler: None,
             action_limits: ActionLimits::default(),
             run_observer: None,
-            serial_devices: Vec::new(),
+            serial_connections: Arc::new(baudbound_actions::SerialConnectionRegistry::default()),
             supported_target_runtimes: default_host_target_runtime_names(),
             websocket_sink: None,
         }
@@ -98,6 +100,9 @@ impl Default for RunnerCore {
 impl RunnerCore {
     #[must_use]
     pub fn from_config(config: &RunnerConfig) -> Self {
+        let serial_connections = Arc::new(baudbound_actions::SerialConnectionRegistry::new(
+            action_serial_devices_from_config(config),
+        ));
         Self {
             action_handler: None,
             action_limits: ActionLimits {
@@ -106,7 +111,7 @@ impl RunnerCore {
                 max_http_response_bytes: config.limits.max_http_response_bytes,
             },
             run_observer: None,
-            serial_devices: action_serial_devices_from_config(config),
+            serial_connections,
             supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
             websocket_sink: None,
         }
@@ -137,6 +142,11 @@ impl RunnerCore {
     {
         self.websocket_sink = Some(sink);
         self
+    }
+
+    #[must_use]
+    pub fn serial_connections(&self) -> Arc<baudbound_actions::SerialConnectionRegistry> {
+        Arc::clone(&self.serial_connections)
     }
 
     #[must_use]
@@ -583,9 +593,9 @@ impl RunnerCore {
 
     #[must_use]
     pub fn headless_action_handler(&self) -> HeadlessActionHandler {
-        let mut action_handler =
-            HeadlessActionHandler::from_serial_devices(self.serial_devices.clone())
-                .with_limits(self.action_limits);
+        let mut action_handler = HeadlessActionHandler::default()
+            .with_serial_connections(Arc::clone(&self.serial_connections))
+            .with_limits(self.action_limits);
         if let Some(sink) = &self.websocket_sink {
             action_handler = action_handler.with_websocket_sink(Arc::clone(sink));
         }

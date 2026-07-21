@@ -42,10 +42,7 @@ impl SqliteRunnerStore {
         script_id: &str,
         name: &str,
     ) -> Result<Option<serde_json::Value>, StorageError> {
-        let cipher = self
-            .secret_cipher
-            .as_ref()
-            .ok_or(StorageError::SecretKeyUnavailable)?;
+        let cipher = self.secret_cipher()?;
         let connection = self.connection()?;
         let encrypted = connection
             .query_row(
@@ -76,10 +73,7 @@ impl SqliteRunnerStore {
         name: &str,
         value: &serde_json::Value,
     ) -> Result<SecretStatus, StorageError> {
-        let cipher = self
-            .secret_cipher
-            .as_ref()
-            .ok_or(StorageError::SecretKeyUnavailable)?;
+        let cipher = self.secret_cipher()?;
         let script = self.resolve_reference(script_reference)?;
         let plaintext = zeroize::Zeroizing::new(serde_json::to_vec(value).map_err(|source| {
             StorageError::Json {

@@ -337,6 +337,53 @@ pub fn print_run_report(report: RunReport) {
     }
 }
 
+pub fn print_live_run_report(report: RunReport) {
+    use crate::console::{self, ConsoleLevel};
+
+    let report_timestamp = report
+        .logs
+        .first()
+        .map_or_else(baudbound_runtime::unix_timestamp_millis_now, |log| {
+            log.timestamp_unix_ms
+        });
+    console::write_at(
+        ConsoleLevel::Info,
+        report_timestamp,
+        format_args!("Run: {}", report.identity.run_id),
+    );
+    console::write_at(
+        ConsoleLevel::Info,
+        report_timestamp,
+        format_args!("Trigger: {}", report.identity.trigger_node_id),
+    );
+    for log in report.logs {
+        let level = ConsoleLevel::from_runtime(&log.level);
+        match log.node_id {
+            Some(node_id) => console::write_at(
+                level,
+                log.timestamp_unix_ms,
+                format_args!("[{node_id}] {}", log.message),
+            ),
+            None => console::write_at(
+                level,
+                log.timestamp_unix_ms,
+                format_args!("{}", log.message),
+            ),
+        }
+    }
+    if !report.variables.is_empty() {
+        let timestamp = baudbound_runtime::unix_timestamp_millis_now();
+        console::write_at(ConsoleLevel::Info, timestamp, format_args!("Variables:"));
+        for (name, value) in report.variables {
+            console::write_at(
+                ConsoleLevel::Info,
+                timestamp,
+                format_args!("  {name}: {value}"),
+            );
+        }
+    }
+}
+
 pub fn print_run_record(record: &StoredRunRecord, time: CliTimeFormatter) -> anyhow::Result<()> {
     println!(
         "Run: {}  script={}  status={}  completed_at={}",

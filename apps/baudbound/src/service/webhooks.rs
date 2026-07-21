@@ -14,6 +14,8 @@ use baudbound_triggers::{
 };
 use tiny_http::{Request, Server};
 
+use crate::console;
+
 use super::{
     executor::{TriggerCompletion, TriggerExecutor, TriggerSubmitError},
     heartbeat::ServeStatusTracker,
@@ -90,10 +92,10 @@ impl WebhookHost {
             return;
         }
 
-        println!(
+        console::info(format_args!(
             "Queueing webhook trigger {} for script {}",
             dispatch.event.node_id, dispatch.event.script_id
-        );
+        ));
         let job_id = match self.executor.submit_from(dispatch.event.clone(), "webhook") {
             Ok(job_id) => job_id,
             Err(TriggerSubmitError::Full) => {
@@ -233,7 +235,7 @@ pub(super) fn build_webhook_host(
     let service = WebhookService::from_registrations(registrations)
         .context("failed to register webhook triggers")?;
     if service.is_empty() {
-        println!("No enabled webhook triggers found.");
+        console::info(format_args!("No enabled webhook triggers found."));
         return Ok(None);
     }
 
@@ -246,12 +248,12 @@ pub(super) fn build_webhook_host(
     let address = format!("{}:{}", options.webhook_bind, options.webhook_port);
     let server = Server::http(&address)
         .map_err(|error| anyhow!("failed to bind webhook listener on {address}: {error}"))?;
-    println!(
+    console::info(format_args!(
         "Serving {} webhook trigger{} on http://{}.",
         service.len(),
         if service.len() == 1 { "" } else { "s" },
         address
-    );
+    ));
     Ok(Some(WebhookHost {
         allow_browser_origins: options.webhook_allow_browser_origins.clone(),
         authenticator: Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store)),

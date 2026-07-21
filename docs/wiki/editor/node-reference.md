@@ -101,6 +101,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Configuration:** logical **Device id**, default `serial-device`. Lowercase letters, numbers, `_`, and `-` only.
 - **Outputs:** `device_id`, received `data`, byte count, and runner `timestamp`.
 - **Use:** start when a runner-mapped serial device emits data.
+- **Runner framing:** the runner mapping decides whether a complete message ends after an idle gap, at a line ending, or at each raw operating system chunk. Multiple Serial Input nodes using the same logical ID share one native reader.
 - **Graph rule:** the same device ID cannot be used by two Serial Input triggers in one project.
 - **Simulation:** supplied text produces output and UTF-8 byte length without opening a port.
 
@@ -126,9 +127,10 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 ### If / Else
 
 - **Action type:** `control.if`. Capability `runtime.if`. Low risk.
-- **Configuration:** one or more condition rows with value, operator, optional inversion, target, and AND/OR combinator.
+- **Configuration:** one or more condition rows with a value, operator, optional inversion, and AND/OR combinator. Operators that compare two values also show a target.
 - **Flow:** named `true` and `false` outputs.
-- **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, and null checks.
+- **Operators:** equality, ordering, contains, prefix/suffix, regex, empty, null, **Is True**, and **Is False** checks.
+- **Boolean checks:** **Is True** and **Is False** do not show a target. They match only real boolean values. Text such as `"true"` and `"false"` does not match.
 - **Simulation/runtime:** values are resolved with their types before comparison. A numeric variable or calculated result matches an equivalent numeric literal, so calculated `1.0` equals the literal `1`. Two text values still require exactly the same text. Inversion applies to one row before combinators.
 - **Example:** `{{status_code}} >= 400` routes errors to `true`.
 
@@ -281,6 +283,7 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Action type:** `action.serial.write`. Capability `action.serial`. Permission `serial_write`. Medium risk. Fallible.
 - **Configuration:** logical device ID selected from Serial Input triggers, variable-aware data, and line ending none/LF/CRLF.
 - **Output:** write result or structured serial error.
+- **Runner connection:** Serial Write uses the same logical-device connection as Serial Input. It does not open a competing port handle when a reader is active.
 - **Graph rule:** requires a Serial Input trigger using the same logical ID.
 - **Simulation:** reports intended bytes and line ending without opening hardware.
 

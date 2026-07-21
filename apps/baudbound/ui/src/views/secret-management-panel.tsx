@@ -1,4 +1,11 @@
-import { KeyRound, LockKeyhole, TriangleAlert, Trash2 } from "lucide-react";
+import {
+  KeyRound,
+  LoaderCircle,
+  LockKeyhole,
+  RefreshCw,
+  TriangleAlert,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +25,7 @@ import {
   type DashboardPayload,
   type InstalledSecretStatus,
   removeScriptSecret,
+  retrySecretVault,
   setScriptSecret,
 } from "@/lib/runner-api";
 
@@ -41,6 +49,8 @@ export function SecretManagementPanel({
   const scriptsWithSecrets = dashboard.runner.scripts.filter(
     (script) => (dashboard.secret_statuses[script.installed.id] ?? []).length > 0,
   );
+  const secretStorageAvailable = dashboard.secret_vault.status === "available";
+  const vaultRetryAction = "secret-vault-retry";
 
   const close = () => {
     setSelection(null);
@@ -67,17 +77,40 @@ export function SecretManagementPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {!dashboard.secret_storage_available ? (
-            <div className="flex gap-2 rounded-md border border-baud-amber/40 bg-baud-amber/5 p-3 text-sm text-baud-amber">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          {dashboard.secret_vault.status === "initializing" ? (
+            <div className="flex gap-2 rounded-md border border-border bg-background p-3 text-sm">
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
               <div>
-                <div className="font-medium">Encrypted secret storage is unavailable</div>
+                <div className="font-medium">Connecting to encrypted secret storage</div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  BaudBound could not access the operating system credential vault. Other runner
-                  features remain available, but scripts cannot read or save secrets until the
-                  vault is available.
+                  The runner remains available while BaudBound connects to the operating system
+                  credential vault. Secret actions become available after the connection succeeds.
                 </p>
               </div>
+            </div>
+          ) : dashboard.secret_vault.status === "unavailable" ? (
+            <div className="flex flex-wrap items-start gap-3 rounded-md border border-baud-amber/40 bg-baud-amber/5 p-3 text-sm text-baud-amber">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">Encrypted secret storage is unavailable</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Other runner features remain available, but scripts cannot read or save secrets
+                  until the operating system credential vault is available.
+                </p>
+                {dashboard.secret_vault.error ? (
+                  <p className="mt-2 select-text break-words font-mono text-xs text-muted-foreground">
+                    {dashboard.secret_vault.error}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                disabled={busyActions.has(vaultRetryAction)}
+                size="sm"
+                variant="outline"
+                onClick={() => void runAction(vaultRetryAction, retrySecretVault)}
+              >
+                <RefreshCw /> Retry
+              </Button>
             </div>
           ) : null}
           {scriptsWithSecrets.length === 0 ? (
@@ -115,7 +148,7 @@ export function SecretManagementPanel({
                         <div className="flex flex-wrap justify-end gap-2 max-sm:justify-start">
                           <Button
                             disabled={
-                              !dashboard.secret_storage_available || busyActions.has(setActionId)
+                              !secretStorageAvailable || busyActions.has(setActionId)
                             }
                             size="sm"
                             variant="outline"
@@ -133,7 +166,7 @@ export function SecretManagementPanel({
                           {secret.configured ? (
                             <Button
                               disabled={
-                                !dashboard.secret_storage_available ||
+                                !secretStorageAvailable ||
                                 busyActions.has(removeActionId)
                               }
                               size="sm"

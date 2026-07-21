@@ -92,8 +92,12 @@ export type SerialDeviceStatus = {
   baud_rate: number;
   data_bits: number;
   device_id: string;
+  dtr_on_open: string;
   flow_control: string;
   manufacturer: string | null;
+  max_message_bytes: number;
+  message_gap_ms: number;
+  open_stabilization_ms: number;
   parity: string;
   port: string;
   product_id: string | null;
@@ -108,12 +112,18 @@ export type SerialDeviceStatus = {
 export type SerialReaderStatus = {
   auto_reconnect: boolean;
   auto_rebind_port: boolean;
+  buffered_bytes: number;
   device_id: string;
   last_error: string | null;
   last_error_unix: number | null;
   last_event_unix: number | null;
+  last_framing_error: string | null;
+  last_framing_error_unix: number | null;
+  last_rebind_result: string | null;
+  last_rebind_unix: number | null;
   node_id: string;
   port: string;
+  read_mode: string;
   script_id: string;
   state: string;
 };
@@ -309,7 +319,7 @@ export type DashboardPayload = {
   native_doctor_checks: NativeDoctorCheck[];
   recent_runs: StoredRunRecord[];
   runner: RunnerStatus;
-  secret_storage_available: boolean;
+  secret_vault: SecretVaultSnapshot;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
   serial_devices: SerialDeviceStatus[];
   service_health: ServiceHealthDocument;
@@ -317,6 +327,11 @@ export type DashboardPayload = {
   storage_root: string;
   time_format: TimeFormat;
   trigger_auth_statuses: Record<string, TriggerAuthStatus[]>;
+};
+
+export type SecretVaultSnapshot = {
+  error: string | null;
+  status: "available" | "initializing" | "unavailable";
 };
 
 export type InstalledSecretStatus = {
@@ -406,8 +421,12 @@ export type SerialDeviceSettings = {
   auto_rebind_port: boolean;
   baud_rate: number;
   data_bits: number;
+  dtr_on_open: string;
   flow_control: string;
   manufacturer: string | null;
+  max_message_bytes: number;
+  message_gap_ms: number;
+  open_stabilization_ms: number;
   parity: string;
   port: string;
   product_id: string | null;
@@ -599,6 +618,18 @@ export function removeScript(reference: string) {
   return invoke<ActionPayload>("remove_script", { reference });
 }
 
+export function clearRunHistory() {
+  return invokeSensitive<ActionPayload>(
+    "clear_run_history",
+    { kind: "clear_run_history" },
+    {},
+  );
+}
+
+export function clearRunLogs() {
+  return invokeSensitive<ActionPayload>("clear_run_logs", { kind: "clear_run_logs" }, {});
+}
+
 export function runScript(reference: string) {
   return invokeSensitive<ActionPayload>(
     "run_script",
@@ -669,4 +700,8 @@ export function removeScriptSecret(reference: string, name: string) {
     { kind: "remove_script_secret", name, reference },
     { name, reference },
   );
+}
+
+export function retrySecretVault() {
+  return invoke<ActionPayload>("retry_secret_vault");
 }

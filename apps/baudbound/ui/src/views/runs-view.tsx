@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { StatusSummaryCard } from "@/components/status-summary-card";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +16,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { DashboardAction } from "@/lib/app-types";
-import type { DashboardPayload, StoredRunRecord } from "@/lib/runner-api";
+import { clearRunHistory, type DashboardPayload, type StoredRunRecord } from "@/lib/runner-api";
 import { nodeActionType, runStatusVariant, runSummary } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 import { ActiveRunsPanel } from "@/views/active-runs-panel";
 
 const allFilterValue = "__all__";
+const clearHistoryAction = "runs-clear-history";
 
 export function RunsView({
   busyActions,
@@ -33,6 +35,7 @@ export function RunsView({
   runAction: DashboardAction;
 }) {
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(new Set());
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [scriptFilter, setScriptFilter] = useState(allFilterValue);
   const [statusFilter, setStatusFilter] = useState(allFilterValue);
   const [searchTerm, setSearchTerm] = useState("");
@@ -112,8 +115,19 @@ export function RunsView({
           <CardHeader className="grid gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle>Recent runs</CardTitle>
-              <div className="text-xs text-muted-foreground">
-                Showing {visibleRuns.length} of {dashboard.recent_runs.length}
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <div className="text-xs text-muted-foreground">
+                  Showing {visibleRuns.length} of {dashboard.recent_runs.length}
+                </div>
+                <Button
+                  disabled={busyActions.has(clearHistoryAction)}
+                  onClick={() => setConfirmClearOpen(true)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Trash2 />
+                  Clear runs
+                </Button>
               </div>
             </div>
             <RunFilters
@@ -176,6 +190,19 @@ export function RunsView({
           </CardContent>
         </Card>
       )}
+      <ConfirmDialog
+        confirmLabel="Clear runs"
+        description="Delete all stored completed run records, including records older than those currently shown. Running scripts are not stopped and can create new records when they finish."
+        destructive
+        disabled={busyActions.has(clearHistoryAction)}
+        onConfirm={async () => {
+          const cleared = await runAction(clearHistoryAction, clearRunHistory);
+          if (cleared) setExpandedRunIds(new Set());
+        }}
+        onOpenChange={setConfirmClearOpen}
+        open={confirmClearOpen}
+        title="Clear run history?"
+      />
     </div>
   );
 }

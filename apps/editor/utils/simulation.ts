@@ -624,6 +624,10 @@ function compareValues(left: JsonValue, operator: string, right: JsonValue) {
 			return leftText.length === 0;
 		case "is_null":
 			return left === null || leftText === "null";
+		case "is_true":
+			return left === true;
+		case "is_false":
+			return left === false;
 		default:
 			return false;
 	}

@@ -1,4 +1,5 @@
 use super::options::ServeOptions;
+use crate::console;
 
 pub(super) fn should_exit_idle_service(options: &ServeOptions) -> bool {
     !options.schedules_enabled
@@ -14,37 +15,51 @@ pub(super) fn should_exit_idle_service(options: &ServeOptions) -> bool {
 
 pub(super) fn print_idle_service_explanation(options: &ServeOptions) {
     if options.startup_enabled {
-        println!("No enabled startup triggers found.");
+        console::info(format_args!("No enabled startup triggers found."));
     } else {
-        println!("Startup triggers are disabled in runner config.");
+        console::info(format_args!(
+            "Startup triggers are disabled in runner config."
+        ));
     }
     if options.schedules_enabled {
-        println!("No enabled schedule triggers found.");
+        console::info(format_args!("No enabled schedule triggers found."));
     } else {
-        println!("Schedule triggers are disabled in runner config.");
+        console::info(format_args!(
+            "Schedule triggers are disabled in runner config."
+        ));
     }
     if options.file_watch_enabled {
-        println!("No enabled file watch triggers found.");
+        console::info(format_args!("No enabled file watch triggers found."));
     } else {
-        println!("File watch triggers are disabled in runner config.");
+        console::info(format_args!(
+            "File watch triggers are disabled in runner config."
+        ));
     }
     if options.process_watch_enabled {
-        println!("No enabled process started triggers found.");
+        console::info(format_args!("No enabled process started triggers found."));
     } else {
-        println!("Process started triggers are disabled in runner config.");
+        console::info(format_args!(
+            "Process started triggers are disabled in runner config."
+        ));
     }
     if options.hotkey_stdin_enabled {
-        println!("No enabled stdin hotkey triggers found.");
+        console::info(format_args!("No enabled stdin hotkey triggers found."));
     }
     if cfg!(windows) && options.hotkeys_enabled {
-        println!("No enabled native hotkey triggers found.");
+        console::info(format_args!("No enabled native hotkey triggers found."));
     } else if cfg!(windows) {
-        println!("Native hotkey triggers are disabled in runner config.");
+        console::info(format_args!(
+            "Native hotkey triggers are disabled in runner config."
+        ));
     }
     if !options.webhooks_enabled {
-        println!("Webhook listener is disabled. Enable it in config or pass --webhooks.");
+        console::info(format_args!(
+            "Webhook listener is disabled. Enable it in config or pass --webhooks."
+        ));
     }
     if !options.websockets_enabled {
-        println!("WebSocket listener is disabled. Enable it in config or pass --websockets.");
+        console::info(format_args!(
+            "WebSocket listener is disabled. Enable it in config or pass --websockets."
+        ));
     }
 }

@@ -11,13 +11,13 @@ use crate::services::{
     hotkey::{HotkeySpec, parse_hotkey},
     process_started::{ProcessMatchMode, ProcessStartedSpec},
     serial_input::{
-        SerialInputSpec, SerialReadMode, send_serial_event, set_serial_reader_status,
-        sorted_serial_reader_statuses, usb_port_matches_identity,
+        SerialInputSpec, SerialReadMode, select_rebind_port, send_serial_event,
+        serial_reader_groups, set_serial_reader_status, sorted_serial_reader_statuses,
     },
     websocket::{WebSocketHandshake, WebSocketRoute, websocket_payload},
 };
+use baudbound_actions::SerialConnectionRegistry;
 use serde_json::json;
-use serialport::SerialPortType;
 use tungstenite::Message;
 
 #[test]
@@ -424,19 +424,61 @@ fn parses_serial_input_trigger_config() {
     let registration = serial_input_registration(json!({
         "deviceId": "main-device"
     }));
-    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
+    let connections = SerialConnectionRegistry::new([serial_device_config()]);
 
-    let spec = SerialInputSpec::from_registration(&registration, &devices)
+    let spec = SerialInputSpec::from_registration(&registration, &connections)
         .expect("serial config should parse");
 
     assert_eq!(spec.device_id, "main-device");
     assert_eq!(spec.port, "COM3");
-    assert_eq!(spec.baud_rate, 115_200);
-    assert_eq!(spec.read_mode, SerialReadMode::Line);
+    assert_eq!(spec.read_mode, SerialReadMode::IdleGap);
     assert!(spec.auto_reconnect);
-    assert!(spec.validate_usb_identity);
-    assert_eq!(spec.vendor_id, Some(0x1A86));
-    assert_eq!(spec.product_id, Some(0x7523));
+}
+
+#[test]
+fn groups_serial_input_triggers_by_logical_device() {
+    let connections = SerialConnectionRegistry::new([serial_device_config()]);
+    let mut second = serial_input_registration(json!({ "deviceId": "main-device" }));
+    second.node_id = "n-serial-2".to_owned();
+    second.script_id = "script-2".to_owned();
+
+    let readers = serial_reader_groups(
+        [
+            serial_input_registration(json!({ "deviceId": "main-device" })),
+            second,
+        ],
+        &connections,
+    )
+    .expect("serial readers should group");
+
+    assert_eq!(readers.len(), 1);
+    assert_eq!(readers["main-device"].1.len(), 2);
+}
+
+#[test]
+fn automatic_rebind_requires_exactly_one_changed_port() {
+    let one = [test_serial_port("COM7")];
+    let multiple = [test_serial_port("COM7"), test_serial_port("COM8")];
+
+    assert_eq!(
+        select_rebind_port("controller", "COM3", &one, "missing")
+            .expect("one match should be selected"),
+        Some("COM7".to_owned())
+    );
+    assert_eq!(
+        select_rebind_port("controller", "COM7", &one, "unavailable")
+            .expect("the current port should need no change"),
+        None
+    );
+    assert!(select_rebind_port("controller", "COM3", &[], "missing").is_err());
+    assert!(select_rebind_port("controller", "COM3", &multiple, "missing").is_err());
+}
+
+fn test_serial_port(port_name: &str) -> serialport::SerialPortInfo {
+    serialport::SerialPortInfo {
+        port_name: port_name.to_owned(),
+        port_type: serialport::SerialPortType::Unknown,
+    }
 }
 
 #[test]
@@ -444,9 +486,9 @@ fn rejects_serial_input_when_runner_device_is_missing() {
     let registration = serial_input_registration(json!({
         "deviceId": "missing-device"
     }));
-    let devices = BTreeMap::new();
+    let connections = SerialConnectionRegistry::default();
 
-    let error = SerialInputSpec::from_registration(&registration, &devices)
+    let error = SerialInputSpec::from_registration(&registration, &connections)
         .expect_err("missing runner serial device should fail");
 
     assert!(
@@ -461,8 +503,8 @@ fn builds_serial_input_trigger_event_payload() {
     let registration = serial_input_registration(json!({
         "deviceId": "main-device"
     }));
-    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
-    let spec = SerialInputSpec::from_registration(&registration, &devices)
+    let connections = SerialConnectionRegistry::new([serial_device_config()]);
+    let spec = SerialInputSpec::from_registration(&registration, &connections)
         .expect("serial config should parse");
     let (sender, receiver) = std::sync::mpsc::sync_channel(32);
 
@@ -482,8 +524,8 @@ fn tracks_serial_reader_status() {
     let registration = serial_input_registration(json!({
         "deviceId": "main-device"
     }));
-    let devices = BTreeMap::from([("main-device".to_owned(), serial_device_config())]);
-    let spec = SerialInputSpec::from_registration(&registration, &devices)
+    let connections = SerialConnectionRegistry::new([serial_device_config()]);
+    let spec = SerialInputSpec::from_registration(&registration, &connections)
         .expect("serial config should parse");
     let statuses = Arc::new(Mutex::new(BTreeMap::new()));
     let (sender, receiver) = std::sync::mpsc::sync_channel(32);
@@ -506,64 +548,6 @@ fn tracks_serial_reader_status() {
     assert_eq!(readers[0].last_error.as_deref(), Some("open failed"));
     assert!(readers[0].last_error_unix.is_some());
     assert!(readers[0].last_event_unix.is_some());
-}
-
-#[test]
-fn matches_serial_usb_identity_with_optional_stronger_fields() {
-    let registration = serial_input_registration(json!({
-        "deviceId": "main-device"
-    }));
-    let devices = BTreeMap::from([(
-        "main-device".to_owned(),
-        SerialDeviceConfig {
-            auto_rebind_port: true,
-            serial_number: Some("ABC123".to_owned()),
-            manufacturer: Some("Acme".to_owned()),
-            product: Some("Controller".to_owned()),
-            ..serial_device_config()
-        },
-    )]);
-    let spec = SerialInputSpec::from_registration(&registration, &devices)
-        .expect("serial config should parse");
-    let matching_port = serial_port_info(
-        "COM7",
-        0x1A86,
-        0x7523,
-        Some("ABC123"),
-        Some("Acme"),
-        Some("Controller"),
-    );
-    let wrong_serial = serial_port_info(
-        "COM8",
-        0x1A86,
-        0x7523,
-        Some("XYZ789"),
-        Some("Acme"),
-        Some("Controller"),
-    );
-
-    assert!(usb_port_matches_identity(&matching_port, &spec));
-    assert!(!usb_port_matches_identity(&wrong_serial, &spec));
-}
-
-fn serial_port_info(
-    port_name: &str,
-    vid: u16,
-    pid: u16,
-    serial_number: Option<&str>,
-    manufacturer: Option<&str>,
-    product: Option<&str>,
-) -> serialport::SerialPortInfo {
-    serialport::SerialPortInfo {
-        port_name: port_name.to_owned(),
-        port_type: SerialPortType::UsbPort(serialport::UsbPortInfo {
-            vid,
-            pid,
-            serial_number: serial_number.map(ToOwned::to_owned),
-            manufacturer: manufacturer.map(ToOwned::to_owned),
-            product: product.map(ToOwned::to_owned),
-        }),
-    }
 }
 
 #[test]
@@ -767,16 +751,20 @@ fn serial_device_config() -> SerialDeviceConfig {
     SerialDeviceConfig {
         auto_reconnect: true,
         auto_rebind_port: false,
-        baud_rate: 115_200,
+        baud_rate: 9_600,
         data_bits: 8,
         device_id: "main-device".to_owned(),
+        dtr_on_open: "deasserted".to_owned(),
         flow_control: "none".to_owned(),
         manufacturer: None,
+        max_message_bytes: 1_048_576,
+        message_gap_ms: 100,
+        open_stabilization_ms: 500,
         parity: "none".to_owned(),
         port: "COM3".to_owned(),
         product_id: Some("7523".to_owned()),
         product: None,
-        read_mode: "line".to_owned(),
+        read_mode: "idle_gap".to_owned(),
         serial_number: None,
         stop_bits: "1".to_owned(),
         validate_usb_identity: true,

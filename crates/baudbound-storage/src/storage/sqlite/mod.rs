@@ -41,7 +41,7 @@ pub struct SqliteRunnerStore {
     root: PathBuf,
     connection: Arc<Mutex<Connection>>,
     run_retention: Arc<RwLock<RunRetentionPolicy>>,
-    secret_cipher: Option<SecretCipher>,
+    secret_cipher: Arc<RwLock<Option<SecretCipher>>>,
 }
 
 impl SqliteRunnerStore {
@@ -75,19 +75,37 @@ impl SqliteRunnerStore {
             root,
             connection: Arc::new(Mutex::new(connection)),
             run_retention: Arc::new(RwLock::new(RunRetentionPolicy::default())),
-            secret_cipher: None,
+            secret_cipher: Arc::new(RwLock::new(None)),
         })
     }
 
     #[must_use]
-    pub fn with_secret_cipher(mut self, secret_cipher: SecretCipher) -> Self {
-        self.secret_cipher = Some(secret_cipher);
+    pub fn with_secret_cipher(self, secret_cipher: SecretCipher) -> Self {
+        self.set_secret_cipher(secret_cipher);
         self
+    }
+
+    pub fn set_secret_cipher(&self, secret_cipher: SecretCipher) {
+        *self
+            .secret_cipher
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(secret_cipher);
     }
 
     #[must_use]
     pub fn has_secret_cipher(&self) -> bool {
-        self.secret_cipher.is_some()
+        self.secret_cipher
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+    }
+
+    fn secret_cipher(&self) -> Result<SecretCipher, StorageError> {
+        self.secret_cipher
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .ok_or(StorageError::SecretKeyUnavailable)
     }
 
     #[must_use]
@@ -118,6 +136,29 @@ impl SqliteRunnerStore {
         let deleted = prune_run_records(&mut connection, &self.path, policy)?;
         *current_policy = policy;
         Ok(deleted)
+    }
+
+    pub fn clear_run_records(&self) -> Result<usize, StorageError> {
+        let connection = self.connection()?;
+        connection
+            .execute("DELETE FROM run_records", [])
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })
+    }
+
+    pub fn clear_run_logs(&self) -> Result<usize, StorageError> {
+        let connection = self.connection()?;
+        connection
+            .execute(
+                "UPDATE run_records SET logs_json = '[]' WHERE logs_json <> '[]'",
+                [],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })
     }
 
     pub fn write_service_status(&self, status: &serde_json::Value) -> Result<(), StorageError> {

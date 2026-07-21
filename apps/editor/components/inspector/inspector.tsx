@@ -12,6 +12,8 @@ import { inspectorTabs } from "@/data/editor/inspector-tabs";
 import {
 	combinatorOptions,
 	comparisonOperatorOptions,
+	ifElseComparisonOperatorOptions,
+	isBooleanConditionOperator,
 	playSoundSourceOptions,
 	type SelectOption,
 	textTransformOperationOptions,
@@ -316,6 +318,7 @@ function PropertiesPanel({
 						)}
 						{usesConditionRows(selectedNode.data.actionType) && (
 							<IfElseConfigPanel
+								actionType={selectedNode.data.actionType}
 								config={selectedNode.data.config}
 								variableCompletions={variableCompletions}
 								onChange={(key, value) => onUpdateNodeConfig(selectedNode.id, key, value)}
@@ -438,15 +441,18 @@ function ConfigField({
 }
 
 function IfElseConfigPanel({
+	actionType,
 	config,
 	variableCompletions,
 	onChange,
 }: {
+	actionType: ActionType;
 	config: Record<string, JsonValue>;
 	variableCompletions: VariableCompletion[];
 	onChange: (key: string, value: JsonValue) => void;
 }) {
 	const conditions = getConditionRows(config.conditions, valueToInputString(config.combinator));
+	const operatorOptions = actionType === "control.if" ? ifElseComparisonOperatorOptions : comparisonOperatorOptions;
 	const conditionReorder = useReorderController({
 		rows: conditions,
 		onCommit: (rows) => onChange("conditions", normalizeConditionRows(rows)),
@@ -506,20 +512,29 @@ function IfElseConfigPanel({
 									<ComboboxField
 										label="Expression"
 										value={condition.operator}
-										options={comparisonOperatorOptions}
-										onChange={(value) => updateCondition(conditions, condition.id, { operator: value }, onChange)}
+										options={operatorOptions}
+										onChange={(value) =>
+											updateCondition(
+												conditions,
+												condition.id,
+												isBooleanConditionOperator(value) ? { operator: value, right: "" } : { operator: value },
+												onChange,
+											)
+										}
 									/>
 									<ConditionInvertCheckbox
 										checked={condition.invert === true}
 										onChange={(checked) => updateCondition(conditions, condition.id, { invert: checked }, onChange)}
 									/>
-									<TextInput
-										label="Target"
-										value={condition.right}
-										usesVariables
-										variableCompletions={variableCompletions}
-										onChange={(value) => updateCondition(conditions, condition.id, { right: value }, onChange)}
-									/>
+									{!isBooleanConditionOperator(condition.operator) && (
+										<TextInput
+											label="Target"
+											value={condition.right}
+											usesVariables
+											variableCompletions={variableCompletions}
+											onChange={(value) => updateCondition(conditions, condition.id, { right: value }, onChange)}
+										/>
+									)}
 								</fieldset>
 							</li>
 						</Fragment>
@@ -1315,7 +1330,7 @@ function FloatingConditionCard({ condition, drag }: { condition: ConditionRow; d
 			</div>
 			<GhostField label="Value" value={condition.left} />
 			<GhostField label="Expression" value={condition.operator} />
-			<GhostField label="Target" value={condition.right} />
+			{!isBooleanConditionOperator(condition.operator) && <GhostField label="Target" value={condition.right} />}
 		</FloatingReorderCard>
 	);
 }

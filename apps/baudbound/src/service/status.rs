@@ -26,7 +26,12 @@ pub(super) fn build_serve_status_document(
     snapshot: ServeStatusSnapshot<'_>,
 ) -> Value {
     let service_rows = serve_status_services(options, services);
-    let active_service_count = service_rows.iter().filter(|row| row.active).count();
+    let service_running = snapshot.state == "running";
+    let active_service_count = if service_running {
+        service_rows.iter().filter(|row| row.active).count()
+    } else {
+        0
+    };
     serde_json::json!({
         "active_service_count": active_service_count,
         "activity": snapshot.activity,
@@ -41,9 +46,9 @@ pub(super) fn build_serve_status_document(
             .into_iter()
             .map(|row| {
                 serde_json::json!({
-                    "active": row.active,
+                    "active": service_running && row.active,
                     "diagnostics": row.diagnostics,
-                    "details": row.details,
+                    "details": if service_running { row.details } else { serde_json::json!({}) },
                     "enabled": row.enabled,
                     "name": row.name,
                     "registrations": row.registrations,

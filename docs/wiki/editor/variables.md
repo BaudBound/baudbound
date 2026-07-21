@@ -229,7 +229,7 @@ Metadata is refreshed whenever the underlying runtime value changes. The `$` nam
 
 If/Else and While resolve both sides before comparing them. Keep a standalone reference when comparing numbers, booleans, null, lists, or objects. Combining a reference with text converts that side to a string.
 
-Available comparisons are equals, does not equal, numeric greater/less variants, contains, starts with, ends with, regex match, is empty, and is null. Rows are combined in order with AND or OR, and each row can be inverted.
+Available comparisons are equals, does not equal, numeric greater/less variants, contains, starts with, ends with, regex match, is empty, and is null. If/Else also provides **Is True** and **Is False** for strict boolean checks. These checks hide the Target field because they compare Value directly with a boolean. Text such as `"true"` is not a boolean and does not match. Rows are combined in order with AND or OR, and each row can be inverted.
 
 Numeric comparisons require numeric operands. Regex patterns are limited to 256 characters. The runner rejects invalid patterns, and simulation treats patterns rejected by its safety checks as a non-match.
 

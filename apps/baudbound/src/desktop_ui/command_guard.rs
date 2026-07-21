@@ -65,6 +65,8 @@ pub(super) enum SensitiveOperation {
         reference: String,
         name: String,
     },
+    ClearRunHistory,
+    ClearRunLogs,
 }
 
 impl SensitiveOperation {
@@ -81,6 +83,8 @@ impl SensitiveOperation {
             Self::SetNetworkTriggerAuthEnabled { .. } => "set_network_trigger_auth_enabled",
             Self::SetScriptSecret { .. } => "set_script_secret",
             Self::RemoveScriptSecret { .. } => "remove_script_secret",
+            Self::ClearRunHistory => "clear_run_history",
+            Self::ClearRunLogs => "clear_run_logs",
         }
     }
 
@@ -116,6 +120,8 @@ impl SensitiveOperation {
             Self::RemoveScriptSecret { reference, name } => {
                 format!("Remove secret {name} from {reference}")
             }
+            Self::ClearRunHistory => "Clear stored run history".to_owned(),
+            Self::ClearRunLogs => "Clear stored run logs".to_owned(),
         }
     }
 }

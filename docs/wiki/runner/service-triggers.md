@@ -105,10 +105,12 @@ The desktop background runner installs the native listener automatically and upd
 ## Serial Input
 
 - **Prerequisite:** `serial_enabled = true`. Logical device ID mapped to a valid port/protocol. Optional identity checks pass.
-- **Registration:** reader worker per eligible serial trigger/device.
+- **Registration:** one reader per logical device. Every eligible Serial Input trigger using that device receives each completed message.
 - **Payload:** logical device ID, text/data, byte count, and timestamp.
-- **Reconnect:** `auto_reconnect` retries after disconnect. Auto rebind can save an unambiguous changed port when identity requirements pass.
-- **Failure:** missing mapping, open/permission error, identity mismatch, ambiguous rebind, invalid protocol, or worker read error.
+- **Framing:** Idle gap completes data after configured silence. Line mode accepts `CR`, `LF`, and `CRLF`. Raw mode exposes operating system chunks without promising complete messages.
+- **Reconnect:** `auto_reconnect` retries after disconnect. Auto rebind can save one unambiguous changed port when identity requirements pass. Input and output immediately use the new shared connection.
+- **Port opening:** DTR is deasserted by default. BaudBound waits for the configured stabilization time before reading so reset-sensitive devices can become ready.
+- **Failure:** missing mapping, port permission error, identity mismatch, ambiguous rebind, invalid native settings, framing limit, or reader error.
 
 Use [Configuration and Serial Devices](configuration.md) for hardware setup.
 

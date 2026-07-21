@@ -161,12 +161,12 @@ Simulation does not open the physical port.
 
 ### Map the physical device
 
-1. Connect the device and open the runner's **Devices** view.
+1. Connect the device and open **Tools** in the runner.
 2. Choose **Scan** and identify the correct port by its manufacturer, product, vendor ID, product ID, and serial number where available.
-3. Choose **Add**, enter `tutorial-device`, and configure the protocol settings required by the device.
+3. Choose **Add**, enter `tutorial-device`, and configure the native serial settings required by the device. New mappings use `9600` baud and Idle gap framing by default. Follow the device manual when it requires different values.
 4. Enable identity validation when stable USB identity fields are available.
 5. Save the configuration and restart the background runner.
-6. Re-scan and confirm that the logical device resolves to the intended hardware.
+6. Scan again and confirm that the logical device resolves to the intended hardware.
 
 Detailed identity and port-rebinding behavior is documented in [Configuration and Serial Devices](../runner/configuration.md).
 
@@ -177,7 +177,7 @@ Detailed identity and port-rebinding behavior is documented in [Configuration an
 3. Send `ping` from the physical device.
 4. Confirm that the run log contains `ping` and the device receives `ack`.
 
-If the trigger remains inactive, check **Devices** before reconnecting repeatedly. The runner refuses ambiguous identity matches instead of guessing between similar devices.
+If the trigger remains inactive, open **Doctor** and inspect the serial reader state, active port, framing mode, buffered byte count, and latest error. The runner refuses ambiguous identity matches instead of guessing between similar devices.
 
 ### Cleanup
 

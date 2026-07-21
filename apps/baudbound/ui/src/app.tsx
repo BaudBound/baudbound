@@ -55,6 +55,7 @@ const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
 );
 const activeRunEventChannel = "runner-active-run";
+const secretVaultEventChannel = "runner-secret-vault";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -162,6 +163,35 @@ export function App() {
             message: `Could not initialize live runner events: ${String(error)}`,
           });
           void refresh();
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [pushNotice, refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
+    void listen(secretVaultEventChannel, () => {
+      void refresh({ silent: true });
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize credential vault events: ${String(error)}`,
+          });
         }
       });
 
@@ -346,7 +376,11 @@ export function App() {
               runAction={runAction}
             />
           ) : activeTab === "logs" ? (
-            <LogsView dashboard={dashboard} />
+            <LogsView
+              busyActions={busyActions}
+              dashboard={dashboard}
+              runAction={runAction}
+            />
           ) : activeTab === "service" ? (
             <ServiceView
               busyActions={busyActions}

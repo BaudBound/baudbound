@@ -3,7 +3,7 @@
 mod actions;
 mod limits;
 
-use std::{collections::BTreeMap, io::Write, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest, RuntimeActionResult,
@@ -11,13 +11,12 @@ use baudbound_runtime::{
 };
 use serde_json::{Map, Number, Value};
 
-pub use actions::SerialDeviceConfig;
+pub use actions::{SerialConnectionRegistry, SerialDeviceConfig};
 use actions::{
-    SerialDeviceSpec, copy_file_action, delete_file_action, desktop_only_action,
-    download_file_action, http_request_action, kill_process_action, move_file_action,
-    open_application_action, process_status_action, read_file_action, run_process_action,
-    serial_port_builder, shell_command_action, text_format_action, validate_usb_identity,
-    webhook_response_action, write_file_action,
+    copy_file_action, delete_file_action, desktop_only_action, download_file_action,
+    http_request_action, kill_process_action, move_file_action, open_application_action,
+    process_status_action, read_file_action, run_process_action, shell_command_action,
+    text_format_action, webhook_response_action, write_file_action,
 };
 pub use limits::{
     ActionLimits, DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES,
@@ -75,7 +74,7 @@ pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
 #[derive(Default)]
 pub struct HeadlessActionHandler {
     limits: ActionLimits,
-    serial_devices: BTreeMap<String, SerialDeviceSpec>,
+    serial_connections: Arc<SerialConnectionRegistry>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
 }
 
@@ -353,13 +352,15 @@ impl HeadlessActionHandler {
     pub fn from_serial_devices(devices: impl IntoIterator<Item = SerialDeviceConfig>) -> Self {
         Self {
             limits: ActionLimits::default(),
-            serial_devices: devices
-                .into_iter()
-                .filter_map(SerialDeviceSpec::from_config)
-                .map(|device| (device.device_id.clone(), device))
-                .collect(),
+            serial_connections: Arc::new(SerialConnectionRegistry::new(devices)),
             websocket_sink: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_serial_connections(mut self, connections: Arc<SerialConnectionRegistry>) -> Self {
+        self.serial_connections = connections;
+        self
     }
 
     #[must_use]
@@ -420,14 +421,13 @@ impl HeadlessActionHandler {
         let data = required_string(request, "data")?;
         let line_ending =
             config_string(&request.config, "lineEnding").unwrap_or_else(|| "none".to_owned());
-        let Some(device) = self.serial_devices.get(&device_id) else {
+        let Some(device) = self.serial_connections.config(&device_id) else {
             return failed(
                 request,
                 format!("unknown serial device {device_id:?}; add a matching Serial Input Trigger"),
             );
         };
 
-        validate_usb_identity(request, device)?;
         let mut payload = data.into_bytes();
         match line_ending.trim().to_ascii_lowercase().as_str() {
             "none" | "" => {}
@@ -436,17 +436,12 @@ impl HeadlessActionHandler {
             other => return failed(request, format!("unsupported serial line ending {other:?}")),
         }
 
-        let mut port = serial_port_builder(device, Duration::from_secs(5))
-            .open()
+        let port = self
+            .serial_connections
+            .write(&device_id, &payload, Duration::from_secs(5))
             .map_err(|source| RuntimeActionError::Failed {
                 action_type: request.action_type.clone(),
-                message: format!("failed to open serial port {}: {source}", device.port),
-            })?;
-        port.write_all(&payload)
-            .and_then(|_| port.flush())
-            .map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!("failed to write to serial port {}: {source}", device.port),
+                message: format!("failed to write to serial device {device_id:?}: {source}"),
             })?;
 
         Ok(RuntimeActionResult {
@@ -455,7 +450,7 @@ impl HeadlessActionHandler {
                     "device_id".to_owned(),
                     Value::String(device.device_id.clone()),
                 ),
-                ("port".to_owned(), Value::String(device.port.clone())),
+                ("port".to_owned(), Value::String(port)),
                 (
                     "bytes".to_owned(),
                     Value::Number(Number::from(payload.len())),

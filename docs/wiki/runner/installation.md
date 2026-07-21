@@ -19,7 +19,9 @@ Most GNOME desktop installations use GNOME Keyring. Other desktop environments m
 
 The BaudBound installer does not install a credential manager automatically. The correct provider depends on the Linux desktop environment, and installing multiple providers can create conflicts.
 
-Without an available Secret Service, BaudBound can still open and run scripts that do not use secrets. The Security page reports that encrypted secret storage is unavailable. Scripts that require secrets cannot use those values until the service is available.
+BaudBound connects to Secret Service in the background. The desktop window and scripts that do not use secrets remain available while the connection is being established. Scripts that require secrets cannot use those values until the connection succeeds.
+
+The Security page shows whether the credential vault is connecting, available, or unavailable. When a connection fails, the page displays the error and provides a Retry button. BaudBound never replaces the credential vault with an unencrypted key file.
 
 ### Install a Secret Service provider {.tabset}
 

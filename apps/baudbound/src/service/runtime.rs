@@ -13,6 +13,8 @@ use baudbound_core::RunnerCore;
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 
+use crate::console;
+
 use super::{
     dispatch::{
         dispatch_due_schedules, dispatch_hotkey_stdin_events, dispatch_startup_events,
@@ -104,7 +106,7 @@ pub fn serve_triggers_with_control(
     }
 
     print_service_summary(&services, store);
-    println!(
+    console::info(format_args!(
         "Trigger registrations reload every {} second{}.",
         options.reload_check_interval.as_secs(),
         if options.reload_check_interval.as_secs() == 1 {
@@ -112,16 +114,16 @@ pub fn serve_triggers_with_control(
         } else {
             "s"
         }
-    );
-    println!("Press Ctrl+C to stop.");
+    ));
+    console::info(format_args!("Press Ctrl+C to stop."));
 
     let mut next_reload_check = Instant::now() + options.reload_check_interval;
     loop {
         if control.shutdown_requested.load(Ordering::SeqCst) {
-            println!(
+            console::info(format_args!(
                 "{}. Stopping trigger listener services.",
                 control.stop_label
-            );
+            ));
             stop_runtime(
                 store,
                 &options,
@@ -137,7 +139,9 @@ pub fn serve_triggers_with_control(
             .poll_command()
             .context("runner control IPC failed")?;
         if matches!(service_control_command, Some(ServiceControlCommand::Stop)) {
-            println!("Service stop requested. Stopping trigger listener services.");
+            console::info(format_args!(
+                "Service stop requested. Stopping trigger listener services."
+            ));
             stop_runtime(
                 store,
                 &options,
@@ -165,20 +169,32 @@ pub fn serve_triggers_with_control(
             )?;
             if did_reload {
                 if control_reload_requested {
-                    println!("Service reload requested. Reloaded listener services.");
+                    console::info(format_args!(
+                        "Service reload requested. Reloaded listener services."
+                    ));
                 } else if reload_requested {
-                    println!("Trigger reload requested. Reloaded listener services.");
+                    console::info(format_args!(
+                        "Trigger reload requested. Reloaded listener services."
+                    ));
                 } else {
-                    println!("Trigger registrations changed. Reloaded listener services.");
+                    console::info(format_args!(
+                        "Trigger registrations changed. Reloaded listener services."
+                    ));
                 }
                 print_service_summary(&reloaded_services, store);
                 if reloaded_services.is_idle() {
-                    println!("No trigger listener services are currently active.");
+                    console::info(format_args!(
+                        "No trigger listener services are currently active."
+                    ));
                 }
             } else if control_reload_requested {
-                println!("Service reload requested, but registrations did not change.");
+                console::info(format_args!(
+                    "Service reload requested, but registrations did not change."
+                ));
             } else if reload_requested {
-                println!("Trigger reload requested, but registrations did not change.");
+                console::info(format_args!(
+                    "Trigger reload requested, but registrations did not change."
+                ));
             }
             services = reloaded_services;
             status.mark_reloaded();

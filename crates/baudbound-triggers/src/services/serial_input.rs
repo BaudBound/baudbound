@@ -10,27 +10,35 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use baudbound_actions::SerialConnectionRegistry;
 use serde::Serialize;
 use serde_json::json;
-use serialport::{
-    DataBits, FlowControl, Parity, SerialPortBuilder, SerialPortType, StopBits, available_ports,
-};
 
 use crate::{
     SerialPortRebindSink, TriggerError, TriggerEvent, TriggerRegistration,
     TriggerServiceDiagnostics, required_config_string, try_send_trigger_event, unix_timestamp,
     unix_timestamp_millis,
 };
+
+mod framing;
+
+use framing::{FrameEvent, IdleGapFramer, LineFramer};
 #[derive(Debug, Clone, Serialize)]
 pub struct SerialReaderStatus {
     pub auto_reconnect: bool,
     pub auto_rebind_port: bool,
     pub device_id: String,
+    pub buffered_bytes: usize,
     pub last_error: Option<String>,
     pub last_error_unix: Option<u64>,
     pub last_event_unix: Option<u64>,
+    pub last_framing_error: Option<String>,
+    pub last_framing_error_unix: Option<u64>,
+    pub last_rebind_result: Option<String>,
+    pub last_rebind_unix: Option<u64>,
     pub node_id: String,
     pub port: String,
+    pub read_mode: &'static str,
     pub script_id: String,
     pub state: &'static str,
 }
@@ -55,45 +63,38 @@ impl SerialInputService {
 
     pub fn start(
         registrations: impl IntoIterator<Item = TriggerRegistration>,
-        devices: impl IntoIterator<Item = SerialDeviceConfig>,
+        connections: Arc<SerialConnectionRegistry>,
         sender: SyncSender<TriggerEvent>,
         rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     ) -> Result<Self, TriggerError> {
         let mut handles = Vec::new();
         let running = Arc::new(AtomicBool::new(true));
         let reader_statuses = Arc::new(Mutex::new(BTreeMap::new()));
-        let devices = devices
-            .into_iter()
-            .map(|device| (device.device_id.clone(), device))
-            .collect::<BTreeMap<_, _>>();
+        let readers = serial_reader_groups(registrations, &connections)?;
 
-        for registration in registrations {
-            if registration.action_type != "trigger.serial_input" {
-                continue;
-            }
-
-            let spec = SerialInputSpec::from_registration(&registration, &devices)?;
-            set_serial_reader_status(
+        for (_, (spec, registrations)) in readers {
+            set_serial_reader_statuses(
                 &reader_statuses,
-                &registration,
+                &registrations,
                 &spec,
                 "starting",
                 None,
                 false,
             );
-            let thread_registration = registration.clone();
             let thread_sender = sender.clone();
             let thread_running = Arc::clone(&running);
             let thread_statuses = Arc::clone(&reader_statuses);
             let thread_rebind_sink = rebind_sink.clone();
+            let thread_connections = Arc::clone(&connections);
             handles.push(thread::spawn(move || {
                 run_serial_input_reader(
-                    thread_registration,
+                    registrations,
                     spec,
                     thread_sender,
                     thread_running,
                     thread_statuses,
                     thread_rebind_sink,
+                    thread_connections,
                 );
             }));
         }
@@ -130,6 +131,25 @@ impl SerialInputService {
     }
 }
 
+pub(crate) fn serial_reader_groups(
+    registrations: impl IntoIterator<Item = TriggerRegistration>,
+    connections: &SerialConnectionRegistry,
+) -> Result<BTreeMap<String, (SerialInputSpec, Vec<TriggerRegistration>)>, TriggerError> {
+    let mut readers = BTreeMap::<String, (SerialInputSpec, Vec<TriggerRegistration>)>::new();
+    for registration in registrations {
+        if registration.action_type != "trigger.serial_input" {
+            continue;
+        }
+        let spec = SerialInputSpec::from_registration(&registration, connections)?;
+        readers
+            .entry(spec.device_id.clone())
+            .or_insert_with(|| (spec, Vec::new()))
+            .1
+            .push(registration);
+    }
+    Ok(readers)
+}
+
 impl Drop for SerialInputService {
     fn drop(&mut self) {
         self.running.store(false, Ordering::Relaxed);
@@ -139,59 +159,44 @@ impl Drop for SerialInputService {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SerialDeviceConfig {
-    pub auto_reconnect: bool,
-    pub auto_rebind_port: bool,
-    pub baud_rate: u32,
-    pub data_bits: u8,
-    pub device_id: String,
-    pub flow_control: String,
-    pub manufacturer: Option<String>,
-    pub parity: String,
-    pub port: String,
-    pub product_id: Option<String>,
-    pub product: Option<String>,
-    pub read_mode: String,
-    pub serial_number: Option<String>,
-    pub stop_bits: String,
-    pub validate_usb_identity: bool,
-    pub vendor_id: Option<String>,
-}
+pub use baudbound_actions::SerialDeviceConfig;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SerialInputSpec {
     pub(crate) auto_reconnect: bool,
     pub(crate) auto_rebind_port: bool,
-    pub(crate) baud_rate: u32,
-    pub(crate) data_bits: DataBits,
     pub(crate) device_id: String,
-    pub(crate) flow_control: FlowControl,
-    pub(crate) manufacturer: Option<String>,
-    pub(crate) parity: Parity,
+    pub(crate) max_message_bytes: usize,
+    pub(crate) message_gap: Duration,
+    pub(crate) open_stabilization: Duration,
     pub(crate) port: String,
-    pub(crate) product_id: Option<u16>,
-    pub(crate) product: Option<String>,
     pub(crate) read_mode: SerialReadMode,
-    pub(crate) serial_number: Option<String>,
-    pub(crate) stop_bits: StopBits,
-    pub(crate) validate_usb_identity: bool,
-    pub(crate) vendor_id: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SerialReadMode {
+    IdleGap,
     Line,
     Raw,
+}
+
+impl SerialReadMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::IdleGap => "idle_gap",
+            Self::Line => "line",
+            Self::Raw => "raw",
+        }
+    }
 }
 
 impl SerialInputSpec {
     pub(crate) fn from_registration(
         registration: &TriggerRegistration,
-        devices: &BTreeMap<String, SerialDeviceConfig>,
+        connections: &SerialConnectionRegistry,
     ) -> Result<Self, TriggerError> {
         let device_id = required_config_string(registration, "deviceId")?;
-        let device = devices.get(&device_id).ok_or_else(|| {
+        let device = connections.config(&device_id).ok_or_else(|| {
             TriggerError::Failed(
                 registration.node_id.clone(),
                 format!(
@@ -199,35 +204,31 @@ impl SerialInputSpec {
                 ),
             )
         })?;
-        let validate_usb_identity = device.validate_usb_identity;
-        let vendor_id = device
-            .vendor_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| parse_usb_hex_id(registration, "vendor_id", value))
-            .transpose()?;
-        let product_id = device
-            .product_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| parse_usb_hex_id(registration, "product_id", value))
-            .transpose()?;
-
-        if device.auto_rebind_port && !validate_usb_identity {
+        if device.auto_rebind_port && !device.validate_usb_identity {
             return Err(TriggerError::Failed(
                 registration.node_id.clone(),
                 "serial device config must enable validate_usb_identity when auto_rebind_port is enabled"
                     .to_owned(),
             ));
         }
-        if validate_usb_identity && vendor_id.is_none() {
+        if device.validate_usb_identity
+            && device
+                .vendor_id
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+        {
             return Err(TriggerError::Failed(
                 registration.node_id.clone(),
                 "serial device config must define vendor_id when USB identity validation is enabled"
                     .to_owned(),
             ));
         }
-        if validate_usb_identity && product_id.is_none() {
+        if device.validate_usb_identity
+            && device
+                .product_id
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+        {
             return Err(TriggerError::Failed(
                 registration.node_id.clone(),
                 "serial device config must define product_id when USB identity validation is enabled"
@@ -238,56 +239,54 @@ impl SerialInputSpec {
         Ok(Self {
             auto_reconnect: device.auto_reconnect,
             auto_rebind_port: device.auto_rebind_port,
-            baud_rate: device.baud_rate,
-            data_bits: parse_data_bits(&device.data_bits.to_string()),
             device_id,
-            flow_control: parse_flow_control(&device.flow_control),
-            manufacturer: normalized_optional_string(&device.manufacturer),
-            parity: parse_parity(&device.parity),
-            port: device.port.clone(),
-            product_id,
-            product: normalized_optional_string(&device.product),
-            read_mode: parse_read_mode(&device.read_mode),
-            serial_number: normalized_optional_string(&device.serial_number),
-            stop_bits: parse_stop_bits(&device.stop_bits),
-            validate_usb_identity,
-            vendor_id,
+            max_message_bytes: device.max_message_bytes,
+            message_gap: Duration::from_millis(device.message_gap_ms),
+            open_stabilization: Duration::from_millis(device.open_stabilization_ms),
+            port: device.port,
+            read_mode: parse_read_mode(registration, &device.read_mode)?,
         })
     }
 }
 
 fn run_serial_input_reader(
-    registration: TriggerRegistration,
+    registrations: Vec<TriggerRegistration>,
     mut spec: SerialInputSpec,
     sender: SyncSender<TriggerEvent>,
     running: Arc<AtomicBool>,
     reader_statuses: SerialReaderStatusMap,
     rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
+    connections: Arc<SerialConnectionRegistry>,
 ) {
+    let reader_name = registrations
+        .first()
+        .map(|registration| registration.node_id.as_str())
+        .unwrap_or("serial-reader");
     while running.load(Ordering::Relaxed) {
-        set_serial_reader_status(
+        set_serial_reader_statuses(
             &reader_statuses,
-            &registration,
+            &registrations,
             &spec,
             "validating_usb_identity",
             None,
             false,
         );
-        if let Err(error) = validate_serial_usb_identity(&spec) {
+        if let Err(error) = connections.validate_identity(&spec.device_id) {
             let error = match rebind_serial_port_if_possible(
-                &registration,
+                &registrations,
                 &mut spec,
                 &reader_statuses,
                 rebind_sink.as_deref(),
+                &connections,
                 &error,
             ) {
                 Ok(true) => continue,
                 Ok(false) => error,
                 Err(rebind_error) => rebind_error,
             };
-            set_serial_reader_status(
+            set_serial_reader_statuses(
                 &reader_statuses,
-                &registration,
+                &registrations,
                 &spec,
                 "usb_identity_failed",
                 Some(error.clone()),
@@ -295,13 +294,13 @@ fn run_serial_input_reader(
             );
             tracing::warn!(
                 "serial input trigger {} USB identity validation failed: {}",
-                registration.node_id,
+                reader_name,
                 error
             );
             if !spec.auto_reconnect {
-                set_serial_reader_status(
+                set_serial_reader_statuses(
                     &reader_statuses,
-                    &registration,
+                    &registrations,
                     &spec,
                     "stopped",
                     Some(error),
@@ -313,42 +312,77 @@ fn run_serial_input_reader(
             continue;
         }
 
-        set_serial_reader_status(
+        set_serial_reader_statuses(
             &reader_statuses,
-            &registration,
+            &registrations,
             &spec,
             "connecting",
             None,
             false,
         );
-        let mut port = match serial_port_builder(&spec, Duration::from_millis(250)).open() {
-            Ok(port) => {
-                set_serial_reader_status(
+        match connections.connect(&spec.device_id, serial_read_timeout(&spec)) {
+            Ok(active_port) => {
+                spec.port = active_port;
+                set_serial_reader_statuses(
                     &reader_statuses,
-                    &registration,
+                    &registrations,
                     &spec,
-                    "connected",
+                    "stabilizing",
                     None,
                     false,
                 );
-                port
+                if !sleep_while_running(&running, spec.open_stabilization) {
+                    break;
+                }
+                if !spec.open_stabilization.is_zero() {
+                    set_serial_reader_statuses(
+                        &reader_statuses,
+                        &registrations,
+                        &spec,
+                        "discarding_startup_input",
+                        None,
+                        false,
+                    );
+                    if let Err(error) = connections.clear_input(&spec.device_id) {
+                        connections.close(&spec.device_id);
+                        set_serial_reader_statuses(
+                            &reader_statuses,
+                            &registrations,
+                            &spec,
+                            "startup_input_clear_failed",
+                            Some(error.clone()),
+                            false,
+                        );
+                        tracing::warn!(
+                            "serial input trigger {} failed to discard startup input for {}: {}",
+                            reader_name,
+                            spec.port,
+                            error
+                        );
+                        if !spec.auto_reconnect {
+                            return;
+                        }
+                        sleep_serial_reconnect_delay(&running);
+                        continue;
+                    }
+                }
             }
             Err(error) => {
-                let error = error.to_string();
                 let error = match rebind_serial_port_if_possible(
-                    &registration,
+                    &registrations,
                     &mut spec,
                     &reader_statuses,
                     rebind_sink.as_deref(),
+                    &connections,
                     &error,
                 ) {
                     Ok(true) => continue,
                     Ok(false) => error,
                     Err(rebind_error) => rebind_error,
                 };
-                set_serial_reader_status(
+                set_serial_reader_statuses(
                     &reader_statuses,
-                    &registration,
+                    &registrations,
                     &spec,
                     "open_failed",
                     Some(error.clone()),
@@ -356,14 +390,14 @@ fn run_serial_input_reader(
                 );
                 tracing::warn!(
                     "serial input trigger {} failed to open {}: {}",
-                    registration.node_id,
+                    reader_name,
                     spec.port,
                     error
                 );
                 if !spec.auto_reconnect {
-                    set_serial_reader_status(
+                    set_serial_reader_statuses(
                         &reader_statuses,
-                        &registration,
+                        &registrations,
                         &spec,
                         "stopped",
                         Some(error),
@@ -374,40 +408,48 @@ fn run_serial_input_reader(
                 sleep_serial_reconnect_delay(&running);
                 continue;
             }
-        };
-
-        set_serial_reader_status(
+        }
+        set_serial_reader_statuses(
             &reader_statuses,
-            &registration,
+            &registrations,
             &spec,
             "reading",
             None,
             false,
         );
         let result = match spec.read_mode {
-            SerialReadMode::Line => read_serial_lines(
-                &registration,
+            SerialReadMode::IdleGap => read_serial_idle_gap(
+                &registrations,
                 &spec,
                 &sender,
                 &running,
-                &mut *port,
                 &reader_statuses,
+                &connections,
+            ),
+            SerialReadMode::Line => read_serial_lines(
+                &registrations,
+                &spec,
+                &sender,
+                &running,
+                &reader_statuses,
+                &connections,
             ),
             SerialReadMode::Raw => read_serial_raw_chunks(
-                &registration,
+                &registrations,
                 &spec,
                 &sender,
                 &running,
-                &mut *port,
                 &reader_statuses,
+                &connections,
             ),
         };
 
         if let Err(error) = result {
             let error = error.to_string();
-            set_serial_reader_status(
+            connections.close(&spec.device_id);
+            set_serial_reader_statuses(
                 &reader_statuses,
-                &registration,
+                &registrations,
                 &spec,
                 "read_failed",
                 Some(error.clone()),
@@ -415,14 +457,14 @@ fn run_serial_input_reader(
             );
             tracing::warn!(
                 "serial input trigger {} read loop ended for {}: {}",
-                registration.node_id,
+                reader_name,
                 spec.port,
                 error
             );
             if !spec.auto_reconnect {
-                set_serial_reader_status(
+                set_serial_reader_statuses(
                     &reader_statuses,
-                    &registration,
+                    &registrations,
                     &spec,
                     "stopped",
                     Some(error),
@@ -433,9 +475,10 @@ fn run_serial_input_reader(
             sleep_serial_reconnect_delay(&running);
         }
     }
-    set_serial_reader_status(
+    connections.close(&spec.device_id);
+    set_serial_reader_statuses(
         &reader_statuses,
-        &registration,
+        &registrations,
         &spec,
         "stopped",
         None,
@@ -444,26 +487,28 @@ fn run_serial_input_reader(
 }
 
 fn read_serial_lines(
-    registration: &TriggerRegistration,
+    registrations: &[TriggerRegistration],
     spec: &SerialInputSpec,
     sender: &SyncSender<TriggerEvent>,
     running: &AtomicBool,
-    port: &mut dyn serialport::SerialPort,
     reader_statuses: &SerialReaderStatusMap,
+    connections: &SerialConnectionRegistry,
 ) -> io::Result<()> {
-    let mut line = Vec::new();
-    let mut byte = [0_u8; 1];
+    let mut framer = LineFramer::new(spec.max_message_bytes);
+    let mut buffer = [0_u8; 1024];
     while running.load(Ordering::Relaxed) {
-        match port.read(&mut byte) {
+        match connections.read(&spec.device_id, &mut buffer, serial_read_timeout(spec)) {
             Ok(0) => {}
-            Ok(_) if byte[0] == b'\n' => {
-                while matches!(line.last(), Some(b'\r' | b'\n')) {
-                    line.pop();
+            Ok(bytes_read) => {
+                for event in framer.push(&buffer[..bytes_read]) {
+                    handle_frame_event(registrations, spec, sender, reader_statuses, event);
                 }
-                send_serial_event(registration, spec, sender, &line, Some(reader_statuses));
-                line.clear();
+                update_serial_reader_buffers(
+                    reader_statuses,
+                    registrations,
+                    framer.buffered_bytes(),
+                );
             }
-            Ok(_) => line.push(byte[0]),
             Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
             Err(error) => return Err(error),
         }
@@ -471,25 +516,83 @@ fn read_serial_lines(
     Ok(())
 }
 
-fn read_serial_raw_chunks(
-    registration: &TriggerRegistration,
+fn read_serial_idle_gap(
+    registrations: &[TriggerRegistration],
     spec: &SerialInputSpec,
     sender: &SyncSender<TriggerEvent>,
     running: &AtomicBool,
-    port: &mut dyn serialport::SerialPort,
     reader_statuses: &SerialReaderStatusMap,
+    connections: &SerialConnectionRegistry,
+) -> io::Result<()> {
+    let mut framer = IdleGapFramer::new(spec.message_gap, spec.max_message_bytes);
+    let mut buffer = [0_u8; 1024];
+    while running.load(Ordering::Relaxed) {
+        let now = std::time::Instant::now();
+        match connections.read(&spec.device_id, &mut buffer, serial_read_timeout(spec)) {
+            Ok(0) => {}
+            Ok(bytes_read) => {
+                if let Some(event) = framer.push(&buffer[..bytes_read], now) {
+                    handle_frame_event(registrations, spec, sender, reader_statuses, event);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
+            Err(error) => return Err(error),
+        }
+        if let Some(event) = framer.poll(std::time::Instant::now()) {
+            handle_frame_event(registrations, spec, sender, reader_statuses, event);
+        }
+        update_serial_reader_buffers(reader_statuses, registrations, framer.buffered_bytes());
+    }
+    Ok(())
+}
+
+fn handle_frame_event(
+    registrations: &[TriggerRegistration],
+    spec: &SerialInputSpec,
+    sender: &SyncSender<TriggerEvent>,
+    reader_statuses: &SerialReaderStatusMap,
+    event: FrameEvent,
+) {
+    match event {
+        FrameEvent::Message(message) => {
+            for registration in registrations {
+                send_serial_event(registration, spec, sender, &message, Some(reader_statuses));
+            }
+        }
+        FrameEvent::Oversized => record_serial_framing_errors(
+            reader_statuses,
+            registrations,
+            format!(
+                "message exceeded the configured {} byte limit and was discarded",
+                spec.max_message_bytes
+            ),
+        ),
+    }
+}
+
+fn read_serial_raw_chunks(
+    registrations: &[TriggerRegistration],
+    spec: &SerialInputSpec,
+    sender: &SyncSender<TriggerEvent>,
+    running: &AtomicBool,
+    reader_statuses: &SerialReaderStatusMap,
+    connections: &SerialConnectionRegistry,
 ) -> io::Result<()> {
     let mut buffer = [0_u8; 1024];
     while running.load(Ordering::Relaxed) {
-        match port.read(&mut buffer) {
+        match connections.read(&spec.device_id, &mut buffer, serial_read_timeout(spec)) {
             Ok(0) => {}
-            Ok(bytes_read) => send_serial_event(
-                registration,
-                spec,
-                sender,
-                &buffer[..bytes_read],
-                Some(reader_statuses),
-            ),
+            Ok(bytes_read) => {
+                for registration in registrations {
+                    send_serial_event(
+                        registration,
+                        spec,
+                        sender,
+                        &buffer[..bytes_read],
+                        Some(reader_statuses),
+                    );
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
             Err(error) => return Err(error),
         }
@@ -542,11 +645,25 @@ pub(crate) fn set_serial_reader_status(
         .and_then(|status| status.last_error.clone());
     let previous_error_unix = statuses.get(&key).and_then(|status| status.last_error_unix);
     let previous_event_unix = statuses.get(&key).and_then(|status| status.last_event_unix);
+    let previous_buffered_bytes = statuses.get(&key).map_or(0, |status| status.buffered_bytes);
+    let previous_framing_error = statuses
+        .get(&key)
+        .and_then(|status| status.last_framing_error.clone());
+    let previous_framing_error_unix = statuses
+        .get(&key)
+        .and_then(|status| status.last_framing_error_unix);
+    let previous_rebind_result = statuses
+        .get(&key)
+        .and_then(|status| status.last_rebind_result.clone());
+    let previous_rebind_unix = statuses
+        .get(&key)
+        .and_then(|status| status.last_rebind_unix);
     statuses.insert(
         key,
         SerialReaderStatus {
             auto_reconnect: spec.auto_reconnect,
             auto_rebind_port: spec.auto_rebind_port,
+            buffered_bytes: if event { 0 } else { previous_buffered_bytes },
             device_id: spec.device_id.clone(),
             last_error: error.clone().or(previous_error),
             last_error_unix: if error.is_some() {
@@ -559,12 +676,107 @@ pub(crate) fn set_serial_reader_status(
             } else {
                 previous_event_unix
             },
+            last_framing_error: previous_framing_error,
+            last_framing_error_unix: previous_framing_error_unix,
+            last_rebind_result: previous_rebind_result,
+            last_rebind_unix: previous_rebind_unix,
             node_id: registration.node_id.clone(),
             port: spec.port.clone(),
+            read_mode: spec.read_mode.as_str(),
             script_id: registration.script_id.clone(),
             state,
         },
     );
+}
+
+fn set_serial_reader_statuses(
+    reader_statuses: &SerialReaderStatusMap,
+    registrations: &[TriggerRegistration],
+    spec: &SerialInputSpec,
+    state: &'static str,
+    last_error: Option<String>,
+    record_event: bool,
+) {
+    for registration in registrations {
+        set_serial_reader_status(
+            reader_statuses,
+            registration,
+            spec,
+            state,
+            last_error.clone(),
+            record_event,
+        );
+    }
+}
+
+fn update_serial_reader_buffer(
+    reader_statuses: &SerialReaderStatusMap,
+    registration: &TriggerRegistration,
+    buffered_bytes: usize,
+) {
+    let key = serial_reader_status_key(&registration.script_id, &registration.node_id);
+    if let Ok(mut statuses) = reader_statuses.lock()
+        && let Some(status) = statuses.get_mut(&key)
+    {
+        status.buffered_bytes = buffered_bytes;
+    }
+}
+
+fn update_serial_reader_buffers(
+    reader_statuses: &SerialReaderStatusMap,
+    registrations: &[TriggerRegistration],
+    buffered_bytes: usize,
+) {
+    for registration in registrations {
+        update_serial_reader_buffer(reader_statuses, registration, buffered_bytes);
+    }
+}
+
+fn record_serial_framing_error(
+    reader_statuses: &SerialReaderStatusMap,
+    registration: &TriggerRegistration,
+    error: String,
+) {
+    let key = serial_reader_status_key(&registration.script_id, &registration.node_id);
+    if let Ok(mut statuses) = reader_statuses.lock()
+        && let Some(status) = statuses.get_mut(&key)
+    {
+        status.buffered_bytes = 0;
+        status.last_framing_error = Some(error.clone());
+        status.last_framing_error_unix = Some(unix_timestamp(SystemTime::now()));
+    }
+    tracing::warn!(
+        "serial input trigger {} framing error: {}",
+        registration.node_id,
+        error
+    );
+}
+
+fn record_serial_framing_errors(
+    reader_statuses: &SerialReaderStatusMap,
+    registrations: &[TriggerRegistration],
+    error: String,
+) {
+    for registration in registrations {
+        record_serial_framing_error(reader_statuses, registration, error.clone());
+    }
+}
+
+fn record_serial_rebind_result(
+    reader_statuses: &SerialReaderStatusMap,
+    registrations: &[TriggerRegistration],
+    result: String,
+) {
+    let timestamp = unix_timestamp(SystemTime::now());
+    if let Ok(mut statuses) = reader_statuses.lock() {
+        for registration in registrations {
+            let key = serial_reader_status_key(&registration.script_id, &registration.node_id);
+            if let Some(status) = statuses.get_mut(&key) {
+                status.last_rebind_result = Some(result.clone());
+                status.last_rebind_unix = Some(timestamp);
+            }
+        }
+    }
 }
 
 pub(crate) fn sorted_serial_reader_statuses(
@@ -580,67 +792,87 @@ fn serial_reader_status_key(script_id: &str, node_id: &str) -> String {
     format!("{script_id}::{node_id}")
 }
 
-fn serial_port_builder(spec: &SerialInputSpec, timeout: Duration) -> SerialPortBuilder {
-    serialport::new(&spec.port, spec.baud_rate)
-        .data_bits(spec.data_bits)
-        .flow_control(spec.flow_control)
-        .parity(spec.parity)
-        .stop_bits(spec.stop_bits)
-        .timeout(timeout)
+fn serial_read_timeout(spec: &SerialInputSpec) -> Duration {
+    match spec.read_mode {
+        SerialReadMode::IdleGap => spec.message_gap.min(Duration::from_millis(25)),
+        SerialReadMode::Line | SerialReadMode::Raw => Duration::from_millis(250),
+    }
 }
 
 fn rebind_serial_port_if_possible(
-    registration: &TriggerRegistration,
+    registrations: &[TriggerRegistration],
     spec: &mut SerialInputSpec,
     reader_statuses: &SerialReaderStatusMap,
     rebind_sink: Option<&dyn SerialPortRebindSink>,
+    connections: &SerialConnectionRegistry,
     original_error: &str,
 ) -> Result<bool, String> {
     if !spec.auto_rebind_port {
         return Ok(false);
     }
 
-    set_serial_reader_status(
+    set_serial_reader_statuses(
         reader_statuses,
-        registration,
+        registrations,
         spec,
         "rebinding_port",
         Some(original_error.to_owned()),
         false,
     );
-    let matching_ports = find_matching_serial_ports(spec)?;
-    match matching_ports.as_slice() {
-        [] => Err(format!(
-            "serial port {} failed ({original_error}) and no matching USB serial device was found for device id {}",
-            spec.port, spec.device_id
-        )),
-        [port] if port.port_name == spec.port => Ok(false),
-        [port] => {
-            if let Some(sink) = rebind_sink {
-                sink.update_serial_device_port(&spec.device_id, &port.port_name)
+    let result = (|| {
+        let matching_ports = connections.matching_ports(&spec.device_id)?;
+        match select_rebind_port(&spec.device_id, &spec.port, &matching_ports, original_error)? {
+            None => Ok(false),
+            Some(port_name) => {
+                if let Some(sink) = rebind_sink {
+                    sink.update_serial_device_port(&spec.device_id, &port_name)
                     .map_err(|error| {
                         format!(
                             "found matching serial device on {} but failed to save port rebind: {error}",
-                            port.port_name
+                            port_name
                         )
                     })?;
-            } else {
-                return Err(format!(
-                    "found matching serial device on {} but this runner cannot persist serial port rebinds",
-                    port.port_name
-                ));
+                } else {
+                    return Err(format!(
+                        "found matching serial device on {} but this runner cannot persist serial port rebinds",
+                        port_name
+                    ));
+                }
+                connections.update_port(&spec.device_id, &port_name)?;
+                spec.port.clone_from(&port_name);
+                set_serial_reader_statuses(
+                    reader_statuses,
+                    registrations,
+                    spec,
+                    "port_rebound",
+                    None,
+                    false,
+                );
+                Ok(true)
             }
-            spec.port.clone_from(&port.port_name);
-            set_serial_reader_status(
-                reader_statuses,
-                registration,
-                spec,
-                "port_rebound",
-                None,
-                false,
-            );
-            Ok(true)
         }
+    })();
+    let diagnostic = match &result {
+        Ok(true) => format!("port changed to {}", spec.port),
+        Ok(false) => "no port change was needed".to_owned(),
+        Err(error) => format!("failed: {error}"),
+    };
+    record_serial_rebind_result(reader_statuses, registrations, diagnostic);
+    result
+}
+
+pub(crate) fn select_rebind_port(
+    device_id: &str,
+    current_port: &str,
+    matching_ports: &[serialport::SerialPortInfo],
+    original_error: &str,
+) -> Result<Option<String>, String> {
+    match matching_ports {
+        [] => Err(format!(
+            "serial port {current_port} failed ({original_error}) and no matching USB serial device was found for device id {device_id}"
+        )),
+        [port] if port.port_name == current_port => Ok(None),
+        [port] => Ok(Some(port.port_name.clone())),
         ports => {
             let names = ports
                 .iter()
@@ -648,186 +880,40 @@ fn rebind_serial_port_if_possible(
                 .collect::<Vec<_>>()
                 .join(", ");
             Err(format!(
-                "serial device id {} matched multiple ports ({names}); set serial_number, manufacturer, or product to make auto_rebind_port unambiguous",
-                spec.device_id
+                "serial device id {device_id} matched multiple ports ({names}); set serial_number, manufacturer, or product to make auto_rebind_port unambiguous"
             ))
         }
     }
 }
 
-fn find_matching_serial_ports(
-    spec: &SerialInputSpec,
-) -> Result<Vec<serialport::SerialPortInfo>, String> {
-    if !spec.validate_usb_identity {
-        return Err("auto_rebind_port requires validate_usb_identity".to_owned());
-    }
-    if spec.vendor_id.is_none() || spec.product_id.is_none() {
-        return Err("auto_rebind_port requires vendor_id and product_id".to_owned());
-    }
-
-    available_ports()
-        .map_err(|source| format!("failed to list serial ports for auto rebind: {source}"))
-        .map(|ports| {
-            ports
-                .into_iter()
-                .filter(|port| usb_port_matches_identity(port, spec))
-                .collect()
-        })
-}
-
-fn validate_serial_usb_identity(spec: &SerialInputSpec) -> Result<(), String> {
-    if !spec.validate_usb_identity {
-        return Ok(());
-    }
-
-    let ports = available_ports().map_err(|source| source.to_string())?;
-    let port = ports
-        .into_iter()
-        .find(|port| port.port_name == spec.port)
-        .ok_or_else(|| format!("serial port {} was not found", spec.port))?;
-    let SerialPortType::UsbPort(info) = port.port_type else {
-        return Err(format!(
-            "serial port {} is not a USB serial device",
-            spec.port
-        ));
-    };
-
-    validate_usb_port_identity(&info, spec)?;
-    Ok(())
-}
-
-pub(crate) fn usb_port_matches_identity(
-    port: &serialport::SerialPortInfo,
-    spec: &SerialInputSpec,
-) -> bool {
-    let SerialPortType::UsbPort(info) = &port.port_type else {
-        return false;
-    };
-    validate_usb_port_identity(info, spec).is_ok()
-}
-
-fn validate_usb_port_identity(
-    info: &serialport::UsbPortInfo,
-    spec: &SerialInputSpec,
-) -> Result<(), String> {
-    if let Some(vendor_id) = spec.vendor_id
-        && info.vid != vendor_id
-    {
-        return Err(format!(
-            "vendor id mismatch: expected {:04X}, got {:04X}",
-            vendor_id, info.vid
-        ));
-    }
-    if let Some(product_id) = spec.product_id
-        && info.pid != product_id
-    {
-        return Err(format!(
-            "product id mismatch: expected {:04X}, got {:04X}",
-            product_id, info.pid
-        ));
-    }
-    if let Some(serial_number) = &spec.serial_number
-        && optional_string_mismatch(info.serial_number.as_deref(), serial_number)
-    {
-        return Err(format!("serial number mismatch: expected {serial_number}"));
-    }
-    if let Some(manufacturer) = &spec.manufacturer
-        && optional_string_mismatch(info.manufacturer.as_deref(), manufacturer)
-    {
-        return Err(format!("manufacturer mismatch: expected {manufacturer}"));
-    }
-    if let Some(product) = &spec.product
-        && optional_string_mismatch(info.product.as_deref(), product)
-    {
-        return Err(format!("product mismatch: expected {product}"));
-    }
-    Ok(())
-}
-
-fn optional_string_mismatch(actual: Option<&str>, expected: &str) -> bool {
-    actual
-        .map(str::trim)
-        .is_none_or(|actual| !actual.eq_ignore_ascii_case(expected.trim()))
-}
-
-fn normalized_optional_string(value: &Option<String>) -> Option<String> {
-    value
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
 fn sleep_serial_reconnect_delay(running: &AtomicBool) {
-    for _ in 0..10 {
+    let _ = sleep_while_running(running, Duration::from_secs(1));
+}
+
+fn sleep_while_running(running: &AtomicBool, duration: Duration) -> bool {
+    let mut remaining = duration;
+    while !remaining.is_zero() {
         if !running.load(Ordering::Relaxed) {
-            return;
+            return false;
         }
-        thread::sleep(Duration::from_millis(100));
+        let step = remaining.min(Duration::from_millis(100));
+        thread::sleep(step);
+        remaining = remaining.saturating_sub(step);
     }
+    running.load(Ordering::Relaxed)
 }
 
-fn parse_data_bits(value: &str) -> DataBits {
-    match value.trim() {
-        "5" => DataBits::Five,
-        "6" => DataBits::Six,
-        "7" => DataBits::Seven,
-        _ => DataBits::Eight,
-    }
-}
-
-fn parse_stop_bits(value: &str) -> StopBits {
-    match value.trim() {
-        "2" => StopBits::Two,
-        _ => StopBits::One,
-    }
-}
-
-fn parse_parity(value: &str) -> Parity {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "even" => Parity::Even,
-        "odd" => Parity::Odd,
-        _ => Parity::None,
-    }
-}
-
-fn parse_flow_control(value: &str) -> FlowControl {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "hardware" => FlowControl::Hardware,
-        "software" => FlowControl::Software,
-        _ => FlowControl::None,
-    }
-}
-
-fn parse_read_mode(value: &str) -> SerialReadMode {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "raw" => SerialReadMode::Raw,
-        _ => SerialReadMode::Line,
-    }
-}
-
-fn parse_usb_hex_id(
+fn parse_read_mode(
     registration: &TriggerRegistration,
-    key: &str,
     value: &str,
-) -> Result<u16, TriggerError> {
-    let trimmed = value
-        .trim()
-        .trim_start_matches("0x")
-        .trim_start_matches("0X");
-    if trimmed.is_empty()
-        || trimmed.len() > 4
-        || !trimmed.chars().all(|value| value.is_ascii_hexdigit())
-    {
-        return Err(TriggerError::Failed(
+) -> Result<SerialReadMode, TriggerError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "idle_gap" => Ok(SerialReadMode::IdleGap),
+        "line" => Ok(SerialReadMode::Line),
+        "raw" => Ok(SerialReadMode::Raw),
+        other => Err(TriggerError::Failed(
             registration.node_id.clone(),
-            format!("{key} must be a 1-4 digit hexadecimal value"),
-        ));
+            format!("unsupported serial read mode {other:?}"),
+        )),
     }
-    u16::from_str_radix(trimmed, 16).map_err(|source| {
-        TriggerError::Failed(
-            registration.node_id.clone(),
-            format!("{key} is not a valid hexadecimal USB id: {source}"),
-        )
-    })
 }

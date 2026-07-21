@@ -171,12 +171,16 @@ This keeps COM and `/dev/tty*` names out of portable packages. Serial Input and 
 | Key | Type/default | Supported values and meaning |
 | --- | --- | --- |
 | `port` | string. Empty | Windows `COM` name or Linux device path. Required for active mapping |
-| `baud_rate` | positive integer. `115200` | Device transmission rate from its manual |
+| `baud_rate` | positive integer. `9600` | Device transmission rate from its manual |
 | `data_bits` | integer. `8` | `5`, `6`, `7`, or `8` |
+| `dtr_on_open` | string. `deasserted` | `deasserted`, `asserted`, or `preserve`. Controls the Data Terminal Ready signal when BaudBound opens the port |
 | `parity` | string. `none` | `none`, `odd`, or `even` |
 | `stop_bits` | string. `1` | `1` or `2` |
 | `flow_control` | string. `none` | `none`, `software`, or `hardware` |
-| `read_mode` | string. `line` | `line` for newline-delimited text or `raw` for received byte chunks |
+| `read_mode` | string. `idle_gap` | `idle_gap`, `line`, or `raw`. The modes are explained below |
+| `message_gap_ms` | integer from `1` to `60000`. `100` | Silence needed to complete a message in Idle gap mode |
+| `max_message_bytes` | integer from `1` to `67108864`. `1048576` | Largest retained message in Idle gap and Line modes |
+| `open_stabilization_ms` | integer from `0` to `60000`. `500` | Time BaudBound keeps the port open before it starts reading |
 | `auto_reconnect` | boolean. `true` | Retry after disconnect instead of leaving reader failed |
 | `validate_usb_identity` | boolean. `false` | Require configured USB identity fields to match opened port |
 | `auto_rebind_port` | boolean. `false` | Find same unambiguous hardware after OS port-name change and save new port |
@@ -188,11 +192,37 @@ This keeps COM and `/dev/tty*` names out of portable packages. Serial Input and 
 
 Auto rebind requires `validate_usb_identity = true` plus nonblank vendor and product IDs. Invalid relationships are rejected when the configuration loads.
 
+### Message framing
+
+Serial ports deliver a stream of bytes. They do not tell BaudBound where one application message ends. The read mode defines how BaudBound turns that stream into Serial Input events.
+
+**Idle gap** is the default. BaudBound starts collecting when the first byte arrives. It completes the message after no new bytes arrive for `message_gap_ms`. Every new byte restarts the timer. Increase the gap when one device message is incorrectly split into several runs. Decrease it when complete messages feel unnecessarily delayed.
+
+**Line endings** completes a message at `CR`, `LF`, or `CRLF`. BaudBound removes only the ending bytes. Spaces, tabs, and the remaining text are preserved. Use this mode when the device protocol explicitly terminates every message with a line ending.
+
+**Raw chunks** starts a run for each chunk returned by the operating system. A raw chunk is not guaranteed to be a complete device message. Use this only when immediate partial data is useful or when later nodes handle a device-specific protocol.
+
+Idle gap and Line modes discard a message that grows beyond `max_message_bytes`. The connection stays open and begins accepting a new message after the next idle gap or line ending. Doctor reports this as a framing error without showing the private message content.
+
 ### Identity and port changes
 
 Operating systems can assign another COM or tty name after reconnect. With auto rebind enabled, BaudBound scans for configured identity and updates `port` only when one unambiguous match exists. It refuses zero or multiple matches instead of guessing.
 
 Vendor and product IDs identify a model, not always one physical unit. Add serial number whenever multiple identical devices may be connected.
+
+Serial Input and Serial Write use one shared connection for each logical device ID. Multiple installed scripts can subscribe to the same device without opening competing native readers. A successful automatic rebind updates that shared connection and the configuration file immediately.
+
+### Devices that reset when the port opens
+
+Some scanners and controllers reset when a program opens their serial port. This is commonly caused by the DTR control signal.
+
+BaudBound uses `dtr_on_open = "deasserted"` by default. This is the recommended setting for scanners and controllers that reset on connection. BaudBound also waits for `open_stabilization_ms` before reading. The default wait is 500 milliseconds. Bytes received during this startup window are discarded so reset messages do not start a script.
+
+Linux can briefly assert DTR while the operating system opens the port. BaudBound deasserts it immediately after the native open operation. A sensitive device might restart once, but it should recover during the stabilization wait. It should not stay in a reset state.
+
+Use `dtr_on_open = "asserted"` only when the device manual says DTR must remain active. Use `preserve` only when another system component deliberately controls DTR and its current state must remain unchanged.
+
+Set `open_stabilization_ms = 0` when the device intentionally sends important data immediately after the port opens. A zero value disables the startup wait and keeps those first bytes.
 
 ### Linux permissions
 
@@ -335,12 +365,16 @@ websockets_enabled = false
 ```toml
 [serial.devices.workbench-scale]
 port = "COM3"
-baud_rate = 115200
+baud_rate = 9600
 data_bits = 8
+dtr_on_open = "deasserted"
 parity = "none"
 stop_bits = "1"
 flow_control = "none"
-read_mode = "line"
+read_mode = "idle_gap"
+message_gap_ms = 100
+max_message_bytes = 1048576
+open_stabilization_ms = 500
 auto_reconnect = true
 validate_usb_identity = true
 auto_rebind_port = true

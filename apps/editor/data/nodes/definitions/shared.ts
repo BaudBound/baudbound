@@ -1,5 +1,5 @@
 import type { JsonValue } from "@/lib/types";
-import { comparisonOperatorOptions } from "./options";
+import { booleanConditionOperatorOptions, comparisonOperatorOptions } from "./options";
 import { isConditionRow } from "./rows";
 
 export function validateLoopBodyDoesNotReturn(
@@ -44,9 +44,14 @@ function canReachNode(startNodeId: string, targetNodeId: string, edges: { source
 }
 
 const comparisonOperators = new Set(comparisonOperatorOptions.map((option) => option.value));
+const booleanConditionOperators = new Set(booleanConditionOperatorOptions.map((option) => option.value));
 const conditionCombinators = new Set(["and", "or"]);
 
-export function validateConditionRowsConfig(config: Record<string, JsonValue>, label: string) {
+export function validateConditionRowsConfig(
+	config: Record<string, JsonValue>,
+	label: string,
+	allowBooleanChecks = false,
+) {
 	const conditions = config.conditions;
 	if (!Array.isArray(conditions) || conditions.length === 0) {
 		return [`${label} must have at least one condition.`];
@@ -62,7 +67,10 @@ export function validateConditionRowsConfig(config: Record<string, JsonValue>, l
 		if (!condition.left.trim()) {
 			errors.push(`${rowLabel} value is required.`);
 		}
-		if (!comparisonOperators.has(condition.operator)) {
+		if (
+			!comparisonOperators.has(condition.operator) &&
+			!(allowBooleanChecks && booleanConditionOperators.has(condition.operator))
+		) {
 			errors.push(`${rowLabel} uses unknown expression "${condition.operator}".`);
 		}
 		if (index > 0 && !conditionCombinators.has(condition.combinator ?? "")) {

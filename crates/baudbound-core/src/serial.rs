@@ -1,32 +1,12 @@
 use std::collections::BTreeMap;
 
-use baudbound_actions::SerialDeviceConfig as ActionSerialDeviceConfig;
+pub use baudbound_actions::SerialDeviceConfig;
 
 use crate::{RunnerConfig, SerialDeviceSettings};
 
 #[must_use]
-pub fn action_serial_devices_from_config(config: &RunnerConfig) -> Vec<ActionSerialDeviceConfig> {
+pub fn action_serial_devices_from_config(config: &RunnerConfig) -> Vec<SerialDeviceConfig> {
     serial_device_configs_from_settings(&config.serial.devices)
-        .into_iter()
-        .map(|device| ActionSerialDeviceConfig {
-            auto_reconnect: device.auto_reconnect,
-            auto_rebind_port: device.auto_rebind_port,
-            baud_rate: device.baud_rate,
-            data_bits: device.data_bits,
-            device_id: device.device_id,
-            flow_control: device.flow_control,
-            manufacturer: device.manufacturer,
-            parity: device.parity,
-            port: device.port,
-            product_id: device.product_id,
-            product: device.product,
-            read_mode: device.read_mode,
-            serial_number: device.serial_number,
-            stop_bits: device.stop_bits,
-            validate_usb_identity: device.validate_usb_identity,
-            vendor_id: device.vendor_id,
-        })
-        .collect()
 }
 
 #[must_use]
@@ -48,8 +28,12 @@ pub fn serial_device_configs_from_settings(
                 baud_rate: settings.baud_rate,
                 data_bits: settings.data_bits,
                 device_id: device_id.to_owned(),
+                dtr_on_open: settings.dtr_on_open.clone(),
                 flow_control: settings.flow_control.clone(),
                 manufacturer: settings.manufacturer.clone(),
+                max_message_bytes: settings.max_message_bytes,
+                message_gap_ms: settings.message_gap_ms,
+                open_stabilization_ms: settings.open_stabilization_ms,
                 parity: settings.parity.clone(),
                 port: port.to_owned(),
                 product_id: settings.product_id.clone(),
@@ -62,24 +46,4 @@ pub fn serial_device_configs_from_settings(
             })
         })
         .collect()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SerialDeviceConfig {
-    pub auto_reconnect: bool,
-    pub auto_rebind_port: bool,
-    pub baud_rate: u32,
-    pub data_bits: u8,
-    pub device_id: String,
-    pub flow_control: String,
-    pub manufacturer: Option<String>,
-    pub parity: String,
-    pub port: String,
-    pub product_id: Option<String>,
-    pub product: Option<String>,
-    pub read_mode: String,
-    pub serial_number: Option<String>,
-    pub stop_bits: String,
-    pub validate_usb_identity: bool,
-    pub vendor_id: Option<String>,
 }

@@ -1,5 +1,5 @@
 import { Plus, RefreshCcw, RotateCcw, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { TomlCodeEditor } from "@/components/toml-code-editor";
 import { Button } from "@/components/ui/button";
@@ -45,15 +45,19 @@ type ConfigMode = "simple" | "advanced";
 const defaultSerialDevice: SerialDeviceSettings = {
   auto_reconnect: true,
   auto_rebind_port: false,
-  baud_rate: 115_200,
+  baud_rate: 9_600,
   data_bits: 8,
+  dtr_on_open: "deasserted",
   flow_control: "none",
   manufacturer: null,
+  max_message_bytes: 1_048_576,
+  message_gap_ms: 100,
+  open_stabilization_ms: 500,
   parity: "none",
   port: "",
   product_id: null,
   product: null,
-  read_mode: "line",
+  read_mode: "idle_gap",
   serial_number: null,
   stop_bits: "1",
   validate_usb_identity: false,
@@ -663,6 +667,9 @@ function SerialDeviceCard({
   onChange: (device: SerialDeviceSettings) => void;
   onRemove: () => void;
 }) {
+  const hasCompleteUsbIdentity = Boolean(
+    device.validate_usb_identity && device.vendor_id?.trim() && device.product_id?.trim(),
+  );
   return (
     <div className="grid gap-4 rounded-md border border-border bg-background p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -675,118 +682,247 @@ function SerialDeviceCard({
           Remove
         </Button>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <TextField
-          label="Port"
-          onChange={(port) => onChange({ ...device, port })}
-          value={device.port}
-        />
-        <NumberField
-          label="Baud rate"
-          min={1}
-          onChange={(baud_rate) => onChange({ ...device, baud_rate })}
-          value={device.baud_rate}
-        />
-        <NumberField
-          label="Data bits"
-          max={8}
-          min={5}
-          onChange={(data_bits) => onChange({ ...device, data_bits })}
-          value={device.data_bits}
-        />
-        <SelectField
-          label="Parity"
-          onChange={(parity) => onChange({ ...device, parity })}
-          options={["none", "even", "odd"]}
-          value={device.parity}
-        />
-        <SelectField
-          label="Stop bits"
-          onChange={(stop_bits) => onChange({ ...device, stop_bits })}
-          options={["1", "2"]}
-          value={device.stop_bits}
-        />
-        <SelectField
-          label="Flow control"
-          onChange={(flow_control) => onChange({ ...device, flow_control })}
-          options={["none", "software", "hardware"]}
-          value={device.flow_control}
-        />
-        <SelectField
-          label="Read mode"
-          onChange={(read_mode) => onChange({ ...device, read_mode })}
-          options={["line", "raw"]}
-          value={device.read_mode}
-        />
-        <TextField
-          label="Vendor ID"
-          onChange={(vendor_id) => onChange({ ...device, vendor_id: nullableText(vendor_id) })}
-          value={device.vendor_id ?? ""}
-        />
-        <TextField
-          label="Product ID"
-          onChange={(product_id) =>
-            onChange({ ...device, product_id: nullableText(product_id) })
-          }
-          value={device.product_id ?? ""}
-        />
-        <TextField
-          label="Serial number"
-          onChange={(serial_number) =>
-            onChange({ ...device, serial_number: nullableText(serial_number) })
-          }
-          value={device.serial_number ?? ""}
-        />
-        <TextField
-          label="Manufacturer"
-          onChange={(manufacturer) =>
-            onChange({ ...device, manufacturer: nullableText(manufacturer) })
-          }
-          value={device.manufacturer ?? ""}
-        />
-        <TextField
-          label="Product"
-          onChange={(product) => onChange({ ...device, product: nullableText(product) })}
-          value={device.product ?? ""}
-        />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <BooleanField
-          checked={device.auto_reconnect}
-          label="Auto reconnect"
-          onChange={(auto_reconnect) => onChange({ ...device, auto_reconnect })}
-        />
-        <BooleanField
-          checked={device.validate_usb_identity}
-          label="Validate USB vendor/product IDs"
-          onChange={(validate_usb_identity) =>
-            onChange({
-              ...device,
-              auto_rebind_port: validate_usb_identity ? device.auto_rebind_port : false,
-              validate_usb_identity,
-            })
-          }
-        />
-        <BooleanField
-          checked={device.auto_rebind_port}
-          label="Auto rebind changed port"
-          onChange={(auto_rebind_port) =>
-            onChange({
-              ...device,
-              auto_rebind_port,
-              validate_usb_identity: auto_rebind_port ? true : device.validate_usb_identity,
-            })
-          }
-        />
-      </div>
-      {device.auto_rebind_port ? (
-        <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-3 py-2 text-xs text-baud-amber">
-          Auto rebind requires Vendor ID and Product ID. Add Serial number when multiple identical
-          devices may be connected.
+      <SerialConfigGroup
+        description="Use the values specified by the physical device manual."
+        title="Native serial port"
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <TextField
+            label="Port"
+            onChange={(port) => onChange({ ...device, port })}
+            value={device.port}
+          />
+          <NumberField
+            label="Baud rate"
+            min={1}
+            onChange={(baud_rate) => onChange({ ...device, baud_rate })}
+            value={device.baud_rate}
+          />
+          <NumberField
+            label="Data bits"
+            max={8}
+            min={5}
+            onChange={(data_bits) => onChange({ ...device, data_bits })}
+            value={device.data_bits}
+          />
+          <SelectField
+            label="Parity"
+            onChange={(parity) => onChange({ ...device, parity })}
+            options={["none", "even", "odd"]}
+            value={device.parity}
+          />
+          <SelectField
+            label="Stop bits"
+            onChange={(stop_bits) => onChange({ ...device, stop_bits })}
+            options={["1", "2"]}
+            value={device.stop_bits}
+          />
+          <SelectField
+            label="Flow control"
+            onChange={(flow_control) => onChange({ ...device, flow_control })}
+            options={["none", "software", "hardware"]}
+            value={device.flow_control}
+          />
+          <DtrOnOpenField
+            onChange={(dtr_on_open) => onChange({ ...device, dtr_on_open })}
+            value={device.dtr_on_open}
+          />
         </div>
-      ) : null}
+      </SerialConfigGroup>
+
+      <SerialConfigGroup
+        description="These values identify the physical USB device and are filled automatically by the serial scanner when available."
+        title="Product information"
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <TextField
+            label="Vendor ID"
+            onChange={(vendor_id) => onChange({ ...device, vendor_id: nullableText(vendor_id) })}
+            value={device.vendor_id ?? ""}
+          />
+          <TextField
+            label="Product ID"
+            onChange={(product_id) =>
+              onChange({ ...device, product_id: nullableText(product_id) })
+            }
+            value={device.product_id ?? ""}
+          />
+          <TextField
+            label="Serial number"
+            onChange={(serial_number) =>
+              onChange({ ...device, serial_number: nullableText(serial_number) })
+            }
+            value={device.serial_number ?? ""}
+          />
+          <TextField
+            label="Manufacturer"
+            onChange={(manufacturer) =>
+              onChange({ ...device, manufacturer: nullableText(manufacturer) })
+            }
+            value={device.manufacturer ?? ""}
+          />
+          <TextField
+            label="Product"
+            onChange={(product) => onChange({ ...device, product: nullableText(product) })}
+            value={device.product ?? ""}
+          />
+        </div>
+        {device.validate_usb_identity && !hasCompleteUsbIdentity ? (
+          <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-3 py-2 text-xs text-baud-amber">
+            Vendor ID and Product ID are required while USB identity validation is enabled.
+          </div>
+        ) : null}
+      </SerialConfigGroup>
+
+      <SerialConfigGroup
+        description="BaudBound uses these settings to turn the incoming byte stream into trigger messages."
+        title="Message framing"
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <SerialReadModeField
+            onChange={(read_mode) => onChange({ ...device, read_mode })}
+            value={device.read_mode}
+          />
+          {device.read_mode === "idle_gap" ? (
+            <NumberField
+              label="Message gap in milliseconds"
+              max={60_000}
+              min={1}
+              onChange={(message_gap_ms) => onChange({ ...device, message_gap_ms })}
+              value={device.message_gap_ms}
+            />
+          ) : null}
+          {device.read_mode !== "raw" ? (
+            <NumberField
+              label="Maximum message bytes"
+              max={67_108_864}
+              min={1}
+              onChange={(max_message_bytes) => onChange({ ...device, max_message_bytes })}
+              value={device.max_message_bytes}
+            />
+          ) : null}
+        </div>
+        <p className="text-xs text-muted-foreground">{serialReadModeDescription(device.read_mode)}</p>
+      </SerialConfigGroup>
+
+      <SerialConfigGroup
+        description="Control how BaudBound reconnects, verifies, and prepares this device before reading messages."
+        title="BaudBound serial behavior"
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <BooleanField
+            checked={device.auto_reconnect}
+            label="Reconnect automatically"
+            onChange={(auto_reconnect) => onChange({ ...device, auto_reconnect })}
+          />
+          <BooleanField
+            checked={device.validate_usb_identity}
+            label="Validate USB identity"
+            onChange={(validate_usb_identity) =>
+              onChange({
+                ...device,
+                auto_rebind_port: validate_usb_identity ? device.auto_rebind_port : false,
+                validate_usb_identity,
+              })
+            }
+          />
+          <BooleanField
+            checked={device.auto_rebind_port}
+            disabled={!hasCompleteUsbIdentity && !device.auto_rebind_port}
+            label="Find a changed port automatically"
+            onChange={(auto_rebind_port) => onChange({ ...device, auto_rebind_port })}
+          />
+          <NumberField
+            label="Open stabilization in milliseconds"
+            max={60_000}
+            min={0}
+            onChange={(open_stabilization_ms) =>
+              onChange({ ...device, open_stabilization_ms })
+            }
+            value={device.open_stabilization_ms}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Deasserted DTR is recommended for scanners and controllers that reset when a serial port
+          opens. The stabilization time lets the device become ready before BaudBound reads data.
+        </p>
+      </SerialConfigGroup>
     </div>
   );
+}
+
+function SerialConfigGroup({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className="grid gap-3 border-t border-border pt-4">
+      <div>
+        <h4 className="text-sm font-medium">{title}</h4>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SerialReadModeField({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="text-xs text-muted-foreground">Read mode</span>
+      <Select onValueChange={onChange} value={value}>
+        <SelectTrigger aria-label="Read mode">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="idle_gap">Idle gap</SelectItem>
+          <SelectItem value="line">Line endings</SelectItem>
+          <SelectItem value="raw">Raw chunks</SelectItem>
+        </SelectContent>
+      </Select>
+    </label>
+  );
+}
+
+function DtrOnOpenField({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      <span className="text-xs text-muted-foreground">DTR when opening</span>
+      <Select onValueChange={onChange} value={value}>
+        <SelectTrigger aria-label="DTR when opening">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="deasserted">Deasserted</SelectItem>
+          <SelectItem value="asserted">Asserted</SelectItem>
+          <SelectItem value="preserve">Preserve current state</SelectItem>
+        </SelectContent>
+      </Select>
+    </label>
+  );
+}
+
+function serialReadModeDescription(value: string) {
+  if (value === "line") return "Dispatches after CR, LF, or CRLF and removes only the ending.";
+  if (value === "raw") return "Dispatches native read chunks immediately. Chunks are not message boundaries.";
+  return "Dispatches after the device has stopped sending for the configured message gap.";
 }
 
 function AdvancedConfigEditor({
@@ -914,18 +1050,27 @@ function TargetRuntimeField({
 
 function BooleanField({
   checked,
+  disabled = false,
   label,
   onChange,
 }: {
   checked: boolean;
+  disabled?: boolean;
   label: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm">
+    <label
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm",
+        disabled && "opacity-60",
+      )}
+    >
       <span>{label}</span>
       <Switch
+        aria-label={label}
         checked={checked}
+        disabled={disabled}
         onCheckedChange={onChange}
         size="sm"
       />

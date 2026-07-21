@@ -73,6 +73,7 @@ const baudboundEditorTheme = EditorView.theme(
       backgroundColor: "#090b10",
       caretColor: "#d8deec",
       color: "#d8deec",
+      WebkitTextFillColor: "currentColor",
       minHeight: "100%",
       padding: "14px 0",
       userSelect: "text",
@@ -94,8 +95,13 @@ const baudboundEditorTheme = EditorView.theme(
       padding: "0 10px 0 8px",
     },
     ".cm-line": {
+      color: "#d8deec",
       padding: "0 14px",
       userSelect: "text",
+      WebkitTextFillColor: "currentColor",
+    },
+    ".cm-line span": {
+      WebkitTextFillColor: "currentColor",
     },
     ".cm-matchingBracket, .cm-nonmatchingBracket": {
       backgroundColor: "rgba(91, 138, 245, 0.18)",

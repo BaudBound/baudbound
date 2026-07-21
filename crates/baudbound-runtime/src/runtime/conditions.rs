@@ -25,6 +25,8 @@ pub(crate) fn compare_condition_values(
         "regex_match" => safe_regex_match(&left_text, &right_text),
         "is_empty" => Ok(is_value_empty(left)),
         "is_null" => Ok(left.is_null()),
+        "is_true" => Ok(left.as_bool() == Some(true)),
+        "is_false" => Ok(left.as_bool() == Some(false)),
         other => Err(format!("unsupported comparison operator {other}")),
     }
 }

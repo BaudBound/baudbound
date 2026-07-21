@@ -254,7 +254,7 @@ fn build_trigger_services(
     let serial_input_service = if options.serial_enabled {
         SerialInputService::start(
             registrations.clone(),
-            options.serial_devices.clone(),
+            Arc::clone(&options.serial_connections),
             trigger_sender.clone(),
             options.serial_port_rebind_sink.clone(),
         )

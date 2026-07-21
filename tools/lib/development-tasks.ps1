@@ -112,7 +112,15 @@ function Stop-DevelopmentDesktopInstance {
 }
 
 function Invoke-DevelopmentTask {
-    param([Parameter(Mandatory)][string]$Task)
+    param(
+        [Parameter(Mandatory)][string]$Task,
+        [ValidateSet("Both", "Linux", "Windows")]
+        [string]$RunnerBuildPlatform
+    )
+
+    if ($RunnerBuildPlatform -and $Task -ne "RunnerBuild") {
+        throw "RunnerBuildPlatform can only be used with the RunnerBuild task."
+    }
 
     switch ($Task) {
         "Desktop" {
@@ -159,6 +167,15 @@ function Invoke-DevelopmentTask {
             Invoke-DevelopmentCommand "pnpm" @("--dir", "apps/baudbound/ui", "build")
             Invoke-DevelopmentCommand "cargo" @("build", "-p", "baudbound", "--locked")
             Invoke-DevelopmentCommand "pnpm" @("--dir", "apps/editor", "build")
+        }
+        "RunnerBuild" {
+            if (-not $RunnerBuildPlatform) {
+                throw "RunnerBuild requires a platform. Choose Both, Linux, or Windows."
+            }
+            Invoke-LocalRunnerBuild -Platform $RunnerBuildPlatform
+        }
+        default {
+            throw "Unknown development task: $Task"
         }
     }
 }

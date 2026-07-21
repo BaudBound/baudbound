@@ -144,7 +144,10 @@ impl DesktopRunnerSupervisor {
             }
 
             if started_at.elapsed() >= timeout {
-                return Ok("Desktop background runner stop was requested.".to_owned());
+                return Err(anyhow!(
+                    "timed out after {} milliseconds while waiting for the desktop background runner to stop",
+                    timeout.as_millis()
+                ));
             }
 
             thread::sleep(Duration::from_millis(25));
@@ -188,4 +191,56 @@ fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_and_wait_reports_timeout_instead_of_claiming_success() {
+        let supervisor = test_supervisor(Duration::from_millis(100));
+
+        let error = supervisor
+            .stop_and_wait(Duration::from_millis(10))
+            .expect_err("a live worker must not be reported as stopped after a timeout");
+
+        assert!(error.to_string().contains("timed out"));
+        supervisor
+            .stop_and_wait(Duration::from_secs(1))
+            .expect("the test worker should finish after receiving the stop request");
+    }
+
+    fn test_supervisor(shutdown_delay: Duration) -> DesktopRunnerSupervisor {
+        let supervisor = DesktopRunnerSupervisor::default();
+        let shutdown_requested = Arc::new(AtomicBool::new(false));
+        let thread_shutdown = Arc::clone(&shutdown_requested);
+        let inner = Arc::clone(&supervisor.inner);
+        let handle = thread::spawn(move || {
+            while !thread_shutdown.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            thread::sleep(shutdown_delay);
+            if let Ok(mut state) = inner.lock() {
+                state.shutdown_requested = None;
+                state.snapshot = DesktopRunnerSnapshot::default();
+            }
+        });
+
+        let mut state = supervisor
+            .inner
+            .lock()
+            .expect("test supervisor state should be available");
+        state.handle = Some(handle);
+        state.shutdown_requested = Some(shutdown_requested);
+        state.snapshot = DesktopRunnerSnapshot {
+            state: DesktopRunnerStateLabel::Running,
+            message: "Test runner is running.".to_owned(),
+            running: true,
+            started_at_unix: Some(now_unix()),
+            stopped_at_unix: None,
+        };
+        drop(state);
+        supervisor
+    }
 }

@@ -111,7 +111,7 @@ Screen-coordinate discovery and the related input actions are unavailable on Lin
 
 Choose **Scan** to enumerate serial ports through the native serial library. Cards display available USB identity fields. Choose **Add**, provide the logical device ID used in editor nodes, and save the generated mapping.
 
-The scanner adds configuration but does not own it. Edit complete serial settings under Config. Inspect active readers and Serial Input registrations under Doctor. Use the same page for missing logical device references and invalid configuration.
+The scanner adds configuration but does not own it. New mappings use `9600` baud and Idle gap framing. Edit complete serial settings under Config. Native serial settings, BaudBound message framing, and USB identity controls are shown as separate groups. Inspect active readers and Serial Input registrations under Doctor. Use the same page for missing logical device references and invalid configuration.
 
 Enable USB identity validation when vendor and product IDs are available. Auto rebind requires identity validation and refuses ambiguous matches. See [Configuration and Serial Devices](configuration.md).
 

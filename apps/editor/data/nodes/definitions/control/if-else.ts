@@ -15,5 +15,5 @@ export const ifElseNode = defineNode({
 	label: "If / Else",
 	portPolicy: { kind: "fixed", inputs: ["input"], outputs: ["true", "false"] },
 	risk: "low",
-	validateConfig: (config) => validateConditionRowsConfig(config, "if/else"),
+	validateConfig: (config) => validateConditionRowsConfig(config, "if/else", true),
 });

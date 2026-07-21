@@ -50,6 +50,10 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 
 The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
 
+Use **Clear runs** on the Runs page to delete every completed run record stored by the runner. This includes records that are older than the ones currently shown. BaudBound asks for confirmation before deleting them. Running scripts are not stopped and can create new records when they finish.
+
+Use **Clear logs** on the Logs page when you want to remove stored messages but keep the run records. Run status, identifiers, completion times, and final variable values remain available. BaudBound asks for confirmation before clearing the messages. Running scripts can add new messages after the operation completes.
+
 The desktop receives active run changes directly from the Rust runner. A run does not need to remain active until the next refresh interval. Finished history is refreshed only after the runner has committed its terminal record to SQLite.
 
 The shared clock setting changes human readable desktop and CLI timestamps between 12 hour and 24 hour notation. Change it in the desktop Config page or with `baudbound config set display.time-format`. It does not alter stored timestamps, log order, or CLI JSON values.
@@ -126,6 +130,14 @@ Script lifecycle changes reload automatically at `runner.trigger_reload_seconds`
 
 Check physical connectivity, port permissions, baud/data/parity/stop/flow settings, and `read_mode`. With identity validation enabled, a mismatch intentionally prevents the wrong device from opening. Auto rebind refuses zero or multiple matches. Identical devices should have distinct serial numbers in configuration.
 
+If a scanner beeps, restarts, or disconnects when the runner starts, set `dtr_on_open` to `deasserted`. Increase `open_stabilization_ms` if the device needs more than 500 milliseconds before it is ready. Bytes received during this wait are discarded. Doctor shows the configured DTR policy and wait time for each reader.
+
+Open **Doctor** and find the affected Serial Input row. **Active port** is the port currently owned by the shared device connection. **Message framing** shows the selected mode and how many bytes are waiting for completion. **Last error** shows either the latest native connection failure or framing failure.
+
+If Idle gap produces several runs for one device message, increase `message_gap_ms`. If it waits too long after a complete message, decrease the value. If Line mode never starts a run, confirm that the device sends `CR`, `LF`, or `CRLF`. If the device sends no ending, use Idle gap. Raw mode can split one logical message into several runs because operating system chunks are not message boundaries.
+
+An exceeded message limit means the device sent more than `max_message_bytes` without a valid boundary. BaudBound discards that oversized message and resumes at the next idle gap or line ending. Increase the limit only after confirming that the larger message is expected.
+
 On Linux, inspect ownership with `ls -l /dev/ttyUSB0` or the real device path and confirm the runner account belongs to the required group.
 
 ### Webhook or WebSocket is unavailable
@@ -141,6 +153,8 @@ Use [Webhooks, WebSockets, and Network Access](network-listeners.md) for local r
 ### Encrypted secret storage is unavailable
 
 Open the Security page and check whether BaudBound reports that encrypted secret storage is unavailable.
+
+BaudBound connects to the credential vault in the background. A slow or broken credential service does not delay the desktop window from opening. Secret actions remain unavailable while the Security page displays Connecting.
 
 On Linux, check Secret Service from the same terminal and graphical session used to launch BaudBound:
 
@@ -162,7 +176,7 @@ Remove the test value after a successful check:
 secret-tool clear application baudbound-test
 ```
 
-If the storage command fails, repair the desktop credential service before troubleshooting BaudBound. If it succeeds but BaudBound still reports unavailable storage, restart BaudBound from the same desktop session.
+If the storage command fails, repair the desktop credential service before troubleshooting BaudBound. If it succeeds, return to the Security page and select Retry. The page updates automatically when the connection attempt finishes.
 
 VNC and other remote desktop sessions may require their own credential service startup configuration. Follow [Linux encrypted secret storage](installation.md#linux-encrypted-secret-storage) for installation and verification instructions.
 

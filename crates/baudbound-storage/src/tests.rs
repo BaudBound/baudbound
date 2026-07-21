@@ -614,6 +614,33 @@ fn encrypts_secret_values_and_rejects_the_wrong_key() {
 }
 
 #[test]
+fn enables_secret_access_after_the_cipher_becomes_available() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+
+    assert!(!store.has_secret_cipher());
+    assert!(matches!(
+        store.set_secret("script-1", "api_key", &serde_json::json!("value")),
+        Err(StorageError::SecretKeyUnavailable)
+    ));
+
+    let key = SecretCipher::generate_key().expect("test key should generate");
+    store.set_secret_cipher(SecretCipher::from_key(key));
+
+    assert!(store.has_secret_cipher());
+    store
+        .set_secret("script-1", "api_key", &serde_json::json!("value"))
+        .expect("secret should store after cipher installation");
+    assert_eq!(
+        store
+            .read_secret("script-1", "api_key")
+            .expect("secret should decrypt"),
+        Some(serde_json::json!("value"))
+    );
+}
+
+#[test]
 fn rejects_unsafe_script_ids() {
     assert!(matches!(
         validate_script_id("../nope"),
@@ -661,6 +688,49 @@ fn appends_orders_and_filters_run_records() {
             .map(|record| record.run_id.as_str())
             .collect::<Vec<_>>(),
         ["run-3", "run-1"]
+    );
+}
+
+#[test]
+fn clears_run_logs_without_removing_history_and_clears_run_records() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let now = current_test_timestamp();
+    store
+        .append_run_record(test_run_record("run-1", "script-1", now - 1))
+        .expect("first run should append");
+    store
+        .append_run_record(test_run_record("run-2", "script-1", now))
+        .expect("second run should append");
+
+    assert_eq!(store.clear_run_logs().expect("run logs should clear"), 2);
+    let records = store
+        .list_run_records(None, None)
+        .expect("run records should remain readable");
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().all(|record| record.logs.is_empty()));
+    assert_eq!(
+        store
+            .clear_run_logs()
+            .expect("empty logs should stay clear"),
+        0
+    );
+
+    assert_eq!(
+        store.clear_run_records().expect("run records should clear"),
+        2
+    );
+    assert!(
+        store
+            .list_run_records(None, None)
+            .expect("empty run history should list")
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .clear_run_records()
+            .expect("empty run history should stay clear"),
+        0
     );
 }
 

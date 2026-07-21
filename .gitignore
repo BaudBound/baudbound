@@ -4,6 +4,7 @@
 
 # Node/Vite
 node_modules/
+.pnpm-store/
 dist/
 .vite/
 coverage/

@@ -30,6 +30,7 @@ mod coordinate_picker;
 mod desktop_config;
 mod lifecycle;
 mod manual_runs;
+mod secret_vault;
 mod tools;
 
 use active_runs::{ActiveRunRegistry, ActiveRunSnapshot};
@@ -39,6 +40,8 @@ macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
+            clear_run_history,
+            clear_run_logs,
             prepare_sensitive_operation,
             dashboard_state,
             coordinate_picker::cancel_coordinate_picker,
@@ -48,6 +51,7 @@ macro_rules! desktop_command_handler {
             remove_script,
             revoke_script_approval,
             reload_background_runner,
+            retry_secret_vault,
             read_runner_config,
             manual_runs::run_script,
             manual_runs::stop_run,
@@ -83,12 +87,15 @@ pub fn run_desktop_ui(
 ) -> Result<()> {
     let active_runs = Arc::new(ActiveRunRegistry::default());
     let core = core.with_run_observer(Arc::clone(&active_runs));
+    let serial_connections = core.serial_connections();
     let background_options = desktop_background_options(
         &runner_config,
         Arc::clone(&websocket_registry),
         config_path.clone(),
+        serial_connections,
     );
     let background_runner = DesktopRunnerSupervisor::default();
+    let secret_vault = secret_vault::SecretVaultController::default();
     let autostart_args = [
         "--config".to_owned(),
         config_path.display().to_string(),
@@ -114,6 +121,7 @@ pub fn run_desktop_ui(
             login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
             core: Arc::new(Mutex::new(core)),
+            secret_vault: secret_vault.clone(),
             store,
             websocket_registry,
             operation_lock: Arc::new(Mutex::new(())),
@@ -124,6 +132,10 @@ pub fn run_desktop_ui(
                 .connect_event_sink(app.handle().clone());
             desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
+            let state = app.state::<DesktopUiState>();
+            state
+                .secret_vault
+                .start(app.handle().clone(), state.store.clone());
             desktop_config::start_configured_background_runner(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 window
@@ -145,6 +157,7 @@ pub(super) struct DesktopUiState {
     login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
     core: Arc<Mutex<RunnerCore>>,
+    secret_vault: secret_vault::SecretVaultController,
     store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Arc<Mutex<()>>,
@@ -175,6 +188,26 @@ fn consume_sensitive_operation<R: tauri::Runtime>(
 #[tauri::command]
 fn dashboard_state(state: State<'_, DesktopUiState>) -> Result<DashboardPayload, String> {
     build_dashboard_payload(&state).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn retry_secret_vault<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    let result = state.secret_vault.start(app, state.store.clone());
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    let message = match result {
+        secret_vault::StartResult::Started => "Credential vault connection started.",
+        secret_vault::StartResult::AlreadyInitializing => {
+            "Credential vault connection is already in progress."
+        }
+        secret_vault::StartResult::AlreadyAvailable => "Credential vault is already available.",
+    };
+    Ok(ActionPayload {
+        dashboard,
+        message: message.to_owned(),
+    })
 }
 
 #[tauri::command]
@@ -348,6 +381,54 @@ fn remove_script(
     run_locked_action(&state, || {
         let script = current_core(&state)?.remove_installed(&state.store, &reference)?;
         Ok(format!("Removed {} ({}).", script.name, script.id))
+    })
+}
+
+#[tauri::command]
+fn clear_run_history<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ClearRunHistory,
+        &guard,
+        &state,
+        &window,
+    )?;
+    run_locked_action(&state, || {
+        let deleted = state.store.clear_run_records()?;
+        Ok(match deleted {
+            0 => "Run history is already empty.".to_owned(),
+            1 => "Cleared 1 stored run.".to_owned(),
+            count => format!("Cleared {count} stored runs."),
+        })
+    })
+}
+
+#[tauri::command]
+fn clear_run_logs<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ClearRunLogs,
+        &guard,
+        &state,
+        &window,
+    )?;
+    run_locked_action(&state, || {
+        let updated = state.store.clear_run_logs()?;
+        Ok(match updated {
+            0 => "Stored run logs are already empty.".to_owned(),
+            1 => "Cleared stored logs from 1 run.".to_owned(),
+            count => format!("Cleared stored logs from {count} runs."),
+        })
     })
 }
 
@@ -700,7 +781,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         native_doctor_checks,
         recent_runs,
         runner,
-        secret_storage_available: state.store.has_secret_cipher(),
+        secret_vault: state.secret_vault.snapshot(),
         secret_statuses,
         serial_devices,
         service_health,
@@ -734,7 +815,7 @@ struct DashboardPayload {
     native_doctor_checks: Vec<DoctorCheck>,
     recent_runs: Vec<StoredRunRecord>,
     runner: baudbound_core::RunnerStatus,
-    secret_storage_available: bool,
+    secret_vault: secret_vault::SecretVaultSnapshot,
     secret_statuses: std::collections::BTreeMap<String, Vec<baudbound_core::InstalledSecretStatus>>,
     serial_devices: Vec<SerialDevicePayload>,
     service_health: Value,
@@ -751,8 +832,12 @@ struct SerialDevicePayload {
     baud_rate: u32,
     data_bits: u8,
     device_id: String,
+    dtr_on_open: String,
     flow_control: String,
     manufacturer: Option<String>,
+    max_message_bytes: usize,
+    message_gap_ms: u64,
+    open_stabilization_ms: u64,
     parity: String,
     port: String,
     product_id: Option<String>,
@@ -879,42 +964,65 @@ fn save_valid_runner_config(
     restart_background: bool,
     operation: ConfigWriteOperation,
 ) -> Result<String> {
+    const BACKGROUND_RESTART_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
     let next_config = RunnerConfig::from_toml(contents, &state.config_path)?;
     let previous_contents = fs::read_to_string(&state.config_path)?;
     let previous_config = current_runner_config(state)?;
     let runtime_changed = runner_runtime_config_changed(&previous_config, &next_config);
     let previous_registration = desktop_config::autostart_registration(autostart)?;
+    let was_running = state.background_runner.snapshot()?.running;
+    let restart_runtime = restart_background && runtime_changed && was_running;
 
-    desktop_config::set_autostart_registration(autostart, next_config.desktop.launch_at_login)?;
-    desktop_config::remember_autostart_registration(state, autostart);
-    if let Err(error) = RunnerConfig::write_atomic(&state.config_path, contents) {
-        let _ = desktop_config::set_autostart_registration(autostart, previous_registration);
-        desktop_config::remember_autostart_registration(state, autostart);
-        return Err(error.into());
+    if restart_runtime {
+        state
+            .background_runner
+            .stop_and_wait(BACKGROUND_RESTART_TIMEOUT)?;
     }
-    if let Err(error) = replace_runtime_config(state, next_config) {
+
+    let apply_result = (|| -> Result<()> {
+        desktop_config::set_autostart_registration(autostart, next_config.desktop.launch_at_login)?;
+        desktop_config::remember_autostart_registration(state, autostart);
+        RunnerConfig::write_atomic(&state.config_path, contents)?;
+        replace_runtime_config(state, next_config)
+    })();
+    if let Err(error) = apply_result {
         let config_rollback = RunnerConfig::write_atomic(&state.config_path, &previous_contents);
-        let runtime_rollback = replace_runtime_config(state, previous_config);
+        let runtime_rollback = replace_runtime_config(state, previous_config.clone());
         let autostart_rollback =
             desktop_config::set_autostart_registration(autostart, previous_registration);
         desktop_config::remember_autostart_registration(state, autostart);
+        let runner_rollback = if restart_runtime {
+            start_background_runner_message(state).map(|_| ())
+        } else {
+            Ok(())
+        };
         return Err(anyhow!(
-            "failed to apply saved config: {error}; file rollback: {}; runtime rollback: {}; login startup rollback: {}",
+            "failed to apply saved config: {error}; file rollback: {}; runtime rollback: {}; login startup rollback: {}; background runner rollback: {}",
             rollback_result(config_rollback),
             rollback_result(runtime_rollback),
-            rollback_result(autostart_rollback)
+            rollback_result(autostart_rollback),
+            rollback_result(runner_rollback)
         ));
     }
 
-    let was_running = state.background_runner.snapshot()?.running;
-    if restart_background && runtime_changed && was_running {
-        state
-            .background_runner
-            .stop_and_wait(std::time::Duration::from_secs(2))?;
-        let (core, options) = current_runtime(state)?;
-        state
-            .background_runner
-            .start(core, state.store.clone(), options)?;
+    if restart_runtime {
+        if let Err(error) = start_background_runner_message(state) {
+            let config_rollback =
+                RunnerConfig::write_atomic(&state.config_path, &previous_contents);
+            let runtime_rollback = replace_runtime_config(state, previous_config);
+            let autostart_rollback =
+                desktop_config::set_autostart_registration(autostart, previous_registration);
+            desktop_config::remember_autostart_registration(state, autostart);
+            let runner_rollback = start_background_runner_message(state).map(|_| ());
+            return Err(anyhow!(
+                "failed to restart the desktop background runner with the saved config: {error}; file rollback: {}; runtime rollback: {}; login startup rollback: {}; background runner rollback: {}",
+                rollback_result(config_rollback),
+                rollback_result(runtime_rollback),
+                rollback_result(autostart_rollback),
+                rollback_result(runner_rollback)
+            ));
+        }
         return Ok(operation.success_message(true, false).to_owned());
     }
 
@@ -952,10 +1060,12 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
         Arc::clone(&state.websocket_registry),
         Arc::clone(&state.active_runs),
     );
+    let serial_connections = next_core.serial_connections();
     let next_background_options = desktop_background_options(
         &runner_config,
         Arc::clone(&state.websocket_registry),
         state.config_path.clone(),
+        serial_connections,
     );
 
     *state
@@ -1004,8 +1114,12 @@ fn serial_device_payload(device_id: &str, settings: &SerialDeviceSettings) -> Se
         baud_rate: settings.baud_rate,
         data_bits: settings.data_bits,
         device_id: device_id.to_owned(),
+        dtr_on_open: settings.dtr_on_open.clone(),
         flow_control: settings.flow_control.clone(),
         manufacturer: settings.manufacturer.clone(),
+        max_message_bytes: settings.max_message_bytes,
+        message_gap_ms: settings.message_gap_ms,
+        open_stabilization_ms: settings.open_stabilization_ms,
         parity: settings.parity.clone(),
         port: settings.port.clone(),
         product_id: settings.product_id.clone(),
@@ -1056,6 +1170,7 @@ fn desktop_background_options(
     runner_config: &RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     config_path: PathBuf,
+    serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
 ) -> ServeOptions {
     ServeOptions::from_config(
         runner_config,
@@ -1076,6 +1191,7 @@ fn desktop_background_options(
         false,
         websocket_registry,
     )
+    .with_serial_connections(serial_connections)
     .with_serial_port_rebind_sink(Arc::new(
         crate::service::RunnerConfigSerialPortRebindSink::new(config_path),
     ) as Arc<dyn SerialPortRebindSink>)

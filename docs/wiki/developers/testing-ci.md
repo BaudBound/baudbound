@@ -122,6 +122,23 @@ The editor produces the package language consumed by Rust. A runner change can e
 
 On Windows, `./tools/development.ps1` opens an arrow-key menu for common development loops. It can launch the desktop app, UI, editor, headless service, status, installs, checks, tests, editor E2E, schemas, and builds.
 
+Choose **Build runner packages** for a fast local runner package build. The next menu asks for **Both**, **Linux**, or **Windows**. Windows packages are NSIS installers built directly on Windows. Linux packages are AppImages built in a local Ubuntu 22.04 Docker container. Docker Desktop must be running with Linux containers when building Linux on Windows.
+
+Local packages are unsigned and intended only for development and installation testing. Published releases must still use the signed release workflow.
+
+The same task can be started without the menu:
+
+```powershell
+./tools/development.ps1 -Action RunnerBuild -Platform Both
+```
+
+Build output is kept separate from normal development binaries:
+
+| Platform | Output directory |
+| --- | --- |
+| Windows | `target/local-build/windows/release/bundle/nsis` |
+| Linux | `target/local-build/linux/release/bundle/appimage` |
+
 Direct commands remain authoritative and are preferable in CI or when diagnosing one failing tool.
 
 ## Local and CI limitations

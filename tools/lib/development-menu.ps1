@@ -10,10 +10,21 @@ function Select-DevelopmentAction {
         [PSCustomObject]@{ Value = "Tests"; Label = "Tests"; Description = "Run Rust, editor contract, and desktop UI tests." },
         [PSCustomObject]@{ Value = "EditorE2E"; Label = "Editor browser tests"; Description = "Run the Playwright end-to-end test suite." },
         [PSCustomObject]@{ Value = "Schemas"; Label = "Generate schemas"; Description = "Regenerate and verify public node schemas." },
+        [PSCustomObject]@{ Value = "RunnerBuild"; Label = "Build runner packages"; Description = "Build local Windows, Linux, or both runner packages." },
         [PSCustomObject]@{ Value = "Build"; Label = "Build applications"; Description = "Build the runner, desktop UI, and editor." },
         [PSCustomObject]@{ Value = $null; Label = "Exit"; Description = "Close the development helper." }
     )
     return Select-TerminalMenu -Title "BaudBound development" -Options $options
+}
+
+function Select-RunnerBuildPlatform {
+    $options = @(
+        [PSCustomObject]@{ Value = "Both"; Label = "Both"; Description = "Build the Windows installer and Linux AppImage." },
+        [PSCustomObject]@{ Value = "Linux"; Label = "Linux"; Description = "Build the Linux AppImage." },
+        [PSCustomObject]@{ Value = "Windows"; Label = "Windows"; Description = "Build the Windows NSIS installer." },
+        [PSCustomObject]@{ Value = $null; Label = "Back"; Description = "Return to the development menu." }
+    )
+    return Select-TerminalMenu -Title "Runner build platform" -Options $options
 }
 
 function Wait-ForDevelopmentMenu {

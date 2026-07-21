@@ -99,6 +99,11 @@ fn supports_every_exported_condition_operator() {
         ),
         (json!([]), "is_empty", Value::Null, true),
         (Value::Null, "is_null", Value::Null, true),
+        (json!(true), "is_true", Value::Null, true),
+        (json!(false), "is_false", Value::Null, true),
+        (json!("true"), "is_true", Value::Null, false),
+        (json!(0), "is_false", Value::Null, false),
+        (Value::Null, "is_false", Value::Null, false),
     ];
 
     for (left, operator, right, expected) in cases {

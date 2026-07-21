@@ -15,7 +15,6 @@ pub(crate) use process::{
     kill_process_action, open_application_action, process_status_action, run_process_action,
     shell_command_action,
 };
-pub use serial::SerialDeviceConfig;
-pub(crate) use serial::{SerialDeviceSpec, serial_port_builder, validate_usb_identity};
+pub use serial::{SerialConnectionRegistry, SerialDeviceConfig};
 pub(crate) use system::desktop_only_action;
 pub(crate) use text::text_format_action;

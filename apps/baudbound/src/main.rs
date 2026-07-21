@@ -10,6 +10,7 @@ use desktop_actions::SystemDesktopActionAdapter;
 
 mod cli;
 mod commands;
+mod console;
 mod desktop_actions;
 mod desktop_startup;
 mod desktop_ui;
@@ -35,7 +36,7 @@ fn main() -> ExitCode {
             if desktop_launch {
                 desktop_startup::report_error(&error);
             } else {
-                eprintln!("Error: {error:#}");
+                console::error(format_args!("{error:#}"));
             }
             ExitCode::FAILURE
         }
@@ -43,9 +44,7 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    console::init_tracing();
 
     let runner_home = paths::default_runner_home();
     let config_path = cli
@@ -70,16 +69,7 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
     ));
     let core = core.with_action_handler(action_handler);
     let secret_cipher = if matches!(&launch_mode, LaunchMode::Desktop { .. }) {
-        match secrets::desktop_secret_cipher() {
-            Ok(cipher) => Some(cipher),
-            Err(error) => {
-                tracing::warn!(
-                    error = %format!("{error:#}"),
-                    "encrypted secret storage is unavailable; continuing without secret access"
-                );
-                None
-            }
-        }
+        None
     } else {
         secrets::headless_secret_cipher_from_environment()?
     };
@@ -145,10 +135,10 @@ fn check_for_automatic_cli_update(
         return;
     }
     match updates::check_now(store) {
-        Ok(result) if result.update_available => eprintln!(
+        Ok(result) if result.update_available => console::info(format_args!(
             "BaudBound {} is available. Run `baudbound update check` for details.",
             result.latest_version
-        ),
+        )),
         Ok(_) => {}
         Err(error) => tracing::debug!(%error, "automatic update check failed"),
     }
@@ -206,6 +196,7 @@ fn dispatch_command(
                 run_schedules_immediately,
                 Arc::clone(websocket_registry),
             )
+            .with_serial_connections(core.serial_connections())
             .with_serial_port_rebind_sink(Arc::new(service::RunnerConfigSerialPortRebindSink::new(
                 config_path.to_path_buf(),
             )) as Arc<dyn SerialPortRebindSink>);

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 #[test]
@@ -403,9 +403,14 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
     let service_status =
         read_service_status(&runner_home).expect("serve should persist service status in SQLite");
     assert_eq!(service_status["state"], "stopped");
-    assert_eq!(service_status["active_service_count"], 1);
-    assert_eq!(service_status["idle"], false);
+    assert_eq!(service_status["active_service_count"], 0);
+    assert_eq!(service_status["idle"], true);
     assert_eq!(service_row(&service_status, "schedule")["registrations"], 1);
+    assert_eq!(service_row(&service_status, "schedule")["active"], false);
+    assert_eq!(
+        service_row(&service_status, "schedule")["details"],
+        json!({})
+    );
 }
 
 #[test]
