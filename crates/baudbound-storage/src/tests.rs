@@ -776,6 +776,139 @@ fn appends_orders_and_filters_run_records() {
 }
 
 #[test]
+fn paginates_and_searches_run_history_and_logs() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    let now = current_test_timestamp();
+    for index in 0..3 {
+        let mut record = test_run_record(
+            &format!("run-{index}"),
+            "script-1",
+            now + u64::try_from(index).expect("index should fit"),
+        );
+        record.logs[0].message = format!("diagnostic message {index}");
+        store.append_run_record(record).expect("run should append");
+    }
+
+    let page = store
+        .query_run_history(&RunHistoryQuery {
+            direction: SortDirection::Descending,
+            limit: 2,
+            offset: 0,
+            script_id: Some("script-1".to_owned()),
+            search: "diagnostic".to_owned(),
+            sort: RunHistorySort::Completed,
+            status: Some("completed".to_owned()),
+        })
+        .expect("run page should load");
+    assert_eq!(page.total, 3);
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.items[0].run_id, "run-2");
+
+    let logs = store
+        .query_run_logs(&RunLogQuery {
+            direction: SortDirection::Ascending,
+            limit: 25,
+            offset: 0,
+            search: "message 1".to_owned(),
+            sort: RunLogSort::Time,
+        })
+        .expect("log page should load");
+    assert_eq!(logs.total, 1);
+    assert_eq!(logs.items[0].run_id, "run-1");
+    assert_eq!(logs.items[0].script_name, "Script One");
+    assert_eq!(logs.items[0].log_index, 0);
+}
+
+#[test]
+fn lists_persistent_and_global_variables_without_secret_values() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Persistent,
+            "script-1",
+            "counter",
+            None,
+            &serde_json::json!(4),
+        )
+        .expect("persistent variable should write");
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Global,
+            "script-1",
+            "shared",
+            None,
+            &serde_json::json!("ready"),
+        )
+        .expect("global variable should write");
+
+    let variables = store
+        .list_stored_variables()
+        .expect("stored variables should list");
+    assert_eq!(variables.len(), 2);
+    assert!(variables.iter().any(|variable| {
+        variable.name == "counter"
+            && variable.scope == "persistent"
+            && variable.script_name.as_deref() == Some("Script One")
+            && variable.value == serde_json::json!(4)
+    }));
+    assert!(variables.iter().any(|variable| {
+        variable.name == "shared"
+            && variable.scope == "global"
+            && variable.script_id.is_none()
+            && variable.value == serde_json::json!("ready")
+    }));
+}
+
+#[test]
+fn publishes_successful_durable_variable_changes() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    let changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = std::sync::Arc::clone(&changes);
+    store.set_variable_change_observer(move |change| {
+        observed
+            .lock()
+            .expect("observer lock should work")
+            .push(change);
+    });
+
+    assert!(
+        store
+            .compare_and_set_variable(
+                StoredVariableScope::Persistent,
+                "script-1",
+                "counter",
+                None,
+                &serde_json::json!(1),
+            )
+            .expect("variable should write")
+    );
+    assert!(
+        !store
+            .compare_and_set_variable(
+                StoredVariableScope::Persistent,
+                "script-1",
+                "counter",
+                None,
+                &serde_json::json!(2),
+            )
+            .expect("stale write should be rejected")
+    );
+
+    let changes = changes.lock().expect("observer lock should work");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].name, "counter");
+    assert_eq!(changes[0].script_id.as_deref(), Some("script-1"));
+    assert_eq!(changes[0].value, serde_json::json!(1));
+    assert_eq!(changes[0].version, 1);
+}
+
+#[test]
 fn summarizes_all_retained_run_records() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);

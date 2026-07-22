@@ -1,6 +1,11 @@
 import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import type { StoredRunRecord } from "@/lib/runner-api";
 import {
   countLogsByLevel,
@@ -30,11 +35,13 @@ export function RunDetailPanel({
   ).length;
 
   return (
-    <Card>
-      <CardContent className="grid gap-4">
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section>
-            <h3 className="mb-2 text-sm font-medium">Run</h3>
+    <div className="grid gap-4">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Run</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Details
               rows={[
                 ["Run ID", run.run_id],
@@ -45,10 +52,14 @@ export function RunDetailPanel({
                 ["Completed", formatUnixSeconds(run.completed_at_unix)],
               ]}
             />
-          </section>
+          </CardContent>
+        </Card>
 
-          <section>
-            <h3 className="mb-2 text-sm font-medium">Result</h3>
+        <Card>
+          <CardHeader>
+            <CardTitle>Result</CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="flex flex-wrap gap-2">
               <Badge variant={runStatusVariant(run.status)}>
                 {run.status}
@@ -62,22 +73,30 @@ export function RunDetailPanel({
               </Badge>
               <Badge variant="muted">{dataVariableCount} variables</Badge>
             </div>
-          </section>
-        </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        <section>
-          <h3 className="mb-2 text-sm font-medium">Logs</h3>
+      <Card>
+        <CardHeader>
+          <CardTitle>Logs</CardTitle>
+        </CardHeader>
+        <CardContent>
           <RunLogPanel logs={run.logs} />
-        </section>
+        </CardContent>
+      </Card>
 
-        <section>
-          <h3 className="mb-2 text-sm font-medium">Variables</h3>
+      <Card>
+        <CardHeader>
+          <CardTitle>Variables</CardTitle>
+        </CardHeader>
+        <CardContent>
           <RunVariablePanel
             variableScopes={run.variable_scopes}
             variables={run.variables}
           />
-        </section>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

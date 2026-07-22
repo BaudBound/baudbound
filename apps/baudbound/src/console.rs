@@ -1,5 +1,5 @@
 use std::{
-    fmt,
+    fmt::{self, Write as _},
     io::{self, Write},
     sync::Mutex,
 };
@@ -83,13 +83,25 @@ fn write_formatted(level: ConsoleLevel, timestamp: &str, message: &str) {
 }
 
 fn write_lines(output: &mut impl Write, timestamp: &str, level: ConsoleLevel, message: &str) {
-    if message.is_empty() {
-        let _ = writeln!(output, "{}", format_line(timestamp, level, ""));
-        return;
+    let message = visible_text(message);
+    let _ = writeln!(output, "{}", format_line(timestamp, level, &message));
+}
+
+pub fn visible_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\0' => output.push_str("\\0"),
+            character if character.is_control() => {
+                let _ = write!(output, "\\u{{{:x}}}", u32::from(character));
+            }
+            character => output.push(character),
+        }
     }
-    for line in message.lines() {
-        let _ = writeln!(output, "{}", format_line(timestamp, level, line));
-    }
+    output
 }
 
 fn format_line(timestamp: &str, level: ConsoleLevel, message: &str) -> String {
@@ -164,5 +176,13 @@ mod tests {
         assert_eq!(ConsoleLevel::from_runtime("error"), ConsoleLevel::Error);
         assert_eq!(ConsoleLevel::from_runtime("warning"), ConsoleLevel::Warn);
         assert_eq!(ConsoleLevel::from_runtime("unknown"), ConsoleLevel::Info);
+    }
+
+    #[test]
+    fn exposes_control_characters_in_console_text() {
+        assert_eq!(
+            visible_text("scanner\r\nnext\tvalue"),
+            "scanner\\r\\nnext\\tvalue"
+        );
     }
 }

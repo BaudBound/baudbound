@@ -26,6 +26,7 @@ impl StartupService {
             .into_iter()
             .filter(|registration| registration.action_type == "trigger.startup")
             .map(|registration| TriggerEvent {
+                action_type: registration.action_type,
                 node_id: registration.node_id,
                 payload: json!({
                     "reason": "runner_startup",

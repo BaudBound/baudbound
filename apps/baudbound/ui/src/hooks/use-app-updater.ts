@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
+import { getBundleType, getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +14,13 @@ import {
   recordUpdateCheck,
   shouldCheckForUpdate,
 } from "@/lib/runner-api";
+import {
+  canInstallUpdateInApp,
+  classifyDownloadFailure,
+  installationTypeFromBundle,
+  type AppInstallationType,
+  type UpdateFailureOperation,
+} from "@/lib/update-policy";
 
 export type AppUpdatePhase =
   | "idle"
@@ -27,6 +34,8 @@ export type AppUpdatePhase =
 export type AppUpdateState = {
   currentVersion: string | null;
   error: string | null;
+  failedOperation: UpdateFailureOperation | null;
+  installationType: AppInstallationType;
   lastCheckedAt: number | null;
   phase: AppUpdatePhase;
   progress: UpdateProgress;
@@ -37,6 +46,8 @@ export type AppUpdateState = {
 const initialState: AppUpdateState = {
   currentVersion: null,
   error: null,
+  failedOperation: null,
+  installationType: "unknown",
   lastCheckedAt: null,
   phase: "idle",
   progress: initialUpdateProgress,
@@ -50,6 +61,7 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
   const updateRef = useRef<Update | null>(null);
   const downloadedRef = useRef(false);
   const checkedOnStartup = useRef(false);
+  const installationTypeRef = useRef<AppInstallationType | null>(null);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -63,9 +75,36 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
       .catch((error) => onError(`Could not read the application version: ${String(error)}`));
   }, [onError]);
 
+  const resolveInstallationType = useCallback(async () => {
+    if (installationTypeRef.current) return installationTypeRef.current;
+    try {
+      const installationType = installationTypeFromBundle(await getBundleType());
+      installationTypeRef.current = installationType;
+      setState((current) => ({ ...current, installationType }));
+      return installationType;
+    } catch (error) {
+      installationTypeRef.current = "unknown";
+      setState((current) => ({ ...current, installationType: "unknown" }));
+      onError(`Could not identify the installation type: ${String(error)}`);
+      return "unknown" as const;
+    }
+  }, [onError]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void resolveInstallationType();
+  }, [resolveInstallationType]);
+
   const checkForUpdate = useCallback(async () => {
     if (!isTauri()) return;
-    setState((current) => ({ ...current, error: null, phase: "checking" }));
+    const installationType = await resolveInstallationType();
+    setState((current) => ({
+      ...current,
+      error: null,
+      failedOperation: null,
+      installationType,
+      phase: "checking",
+    }));
     setDialogOpen(false);
     try {
       const previousUpdate = updateRef.current;
@@ -78,6 +117,7 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
         setState((current) => ({
           ...initialState,
           currentVersion: current.currentVersion,
+          installationType,
           lastCheckedAt: Date.now(),
           phase: "up_to_date",
         }));
@@ -88,6 +128,8 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
       setState({
         currentVersion: update.currentVersion,
         error: null,
+        failedOperation: null,
+        installationType,
         lastCheckedAt: Date.now(),
         phase: "available",
         progress: initialUpdateProgress,
@@ -97,11 +139,17 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
       setDialogOpen(true);
     } catch (error) {
       const message = `Update check failed: ${String(error)}`;
-      setState((current) => ({ ...current, error: message, phase: "error" }));
+      setState((current) => ({
+        ...current,
+        error: message,
+        failedOperation: "check",
+        installationType,
+        phase: "error",
+      }));
       setDialogOpen(true);
       onError(message);
     }
-  }, [onError]);
+  }, [onError, resolveInstallationType]);
 
   useEffect(() => {
     if (!checkOnStartup || checkedOnStartup.current) return;
@@ -116,9 +164,14 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
   const download = useCallback(async () => {
     const update = updateRef.current;
     if (!update) return;
+    if (!canInstallUpdateInApp(state.installationType)) {
+      onError("This installation is updated through its Linux package manager.");
+      return;
+    }
     setState((current) => ({
       ...current,
       error: null,
+      failedOperation: null,
       phase: "downloading",
       progress: initialUpdateProgress,
     }));
@@ -133,38 +186,58 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
       downloadedRef.current = true;
       setState((current) => ({ ...current, phase: "ready" }));
     } catch (error) {
-      const message = `Update failed: ${String(error)}`;
-      setState((current) => ({ ...current, error: message, phase: "error" }));
+      const failedOperation = classifyDownloadFailure(error);
+      const message = failedOperation === "verify"
+        ? `Update verification failed: ${String(error)}`
+        : `Update download failed: ${String(error)}`;
+      setState((current) => ({
+        ...current,
+        error: message,
+        failedOperation,
+        phase: "error",
+      }));
       setDialogOpen(true);
       onError(message);
     }
-  }, [onError]);
+  }, [onError, state.installationType]);
 
   const installAndRestart = useCallback(async () => {
     const update = updateRef.current;
     if (!update) return;
+    if (!canInstallUpdateInApp(state.installationType)) {
+      onError("This installation is updated through its Linux package manager.");
+      return;
+    }
     try {
       await prepareForUpdate();
       await update.install();
       await relaunch();
     } catch (error) {
       const message = `Update installation failed: ${String(error)}`;
-      setState((current) => ({ ...current, error: message, phase: "error" }));
+      setState((current) => ({
+        ...current,
+        error: message,
+        failedOperation: "install",
+        phase: "error",
+      }));
       setDialogOpen(true);
       onError(message);
     }
-  }, [onError]);
+  }, [onError, state.installationType]);
 
   const retry = useCallback(() => {
     setDialogOpen(true);
-    if (downloadedRef.current) {
+    if (state.failedOperation === "install" && downloadedRef.current) {
       return installAndRestart();
     }
-    if (updateRef.current) {
+    if (
+      (state.failedOperation === "download" || state.failedOperation === "verify") &&
+      updateRef.current
+    ) {
       return download();
     }
     return checkForUpdate();
-  }, [checkForUpdate, download, installAndRestart]);
+  }, [checkForUpdate, download, installAndRestart, state.failedOperation]);
 
   const dismiss = useCallback(() => {
     if (state.phase === "downloading" || state.phase === "ready") return;

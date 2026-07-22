@@ -24,6 +24,16 @@ pub struct StoredVariable {
     pub version: u64,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StoredVariableChange {
+    pub name: String,
+    pub scope: String,
+    pub script_id: Option<String>,
+    pub updated_at_unix: u64,
+    pub value: serde_json::Value,
+    pub version: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SecretStatus {
     pub configured: bool,
@@ -145,6 +155,90 @@ pub struct StoredRunRecord {
     pub variable_scopes: BTreeMap<String, String>,
     #[serde(default)]
     pub variables: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PaginatedRecords<T> {
+    pub items: Vec<T>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    Ascending,
+    #[default]
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunHistorySort {
+    #[default]
+    Completed,
+    RecentLog,
+    RunId,
+    Script,
+    Status,
+    Trigger,
+    TriggerType,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RunHistoryQuery {
+    pub direction: SortDirection,
+    pub limit: usize,
+    pub offset: usize,
+    pub script_id: Option<String>,
+    pub search: String,
+    pub sort: RunHistorySort,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunLogSort {
+    Level,
+    Message,
+    Node,
+    Run,
+    Script,
+    #[default]
+    Time,
+    Type,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RunLogQuery {
+    pub direction: SortDirection,
+    pub limit: usize,
+    pub offset: usize,
+    pub search: String,
+    pub sort: RunLogSort,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StoredRunLogRecord {
+    pub action_type: Option<String>,
+    pub level: String,
+    pub log_index: usize,
+    pub message: String,
+    pub node_id: Option<String>,
+    pub run_id: String,
+    pub script_id: String,
+    pub script_name: String,
+    pub timestamp_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StoredVariableRecord {
+    pub name: String,
+    pub scope: String,
+    pub script_id: Option<String>,
+    pub script_name: Option<String>,
+    pub updated_at_unix: u64,
+    pub value: serde_json::Value,
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]

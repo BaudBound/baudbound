@@ -83,10 +83,10 @@ Normal Windows shortcuts, Linux application menu launchers, and direct AppImage 
 
 | Command | Behavior |
 | --- | --- |
-| `baudbound update check` | Checks the official BaudBound release feed and explains whether a newer version is available. |
-| `baudbound update check --json` | Prints the current version, latest version, check time, and availability as JSON. |
+| `baudbound update check` | Checks the official BaudBound release feed, identifies the installation type, and prints the correct update method when a newer version is available. |
+| `baudbound update check --json` | Prints the current version, latest version, check time, availability, installation type, and update method as JSON. |
 
-This command only checks and reports. It does not replace the executable or launch an installer. Successful results are cached so automatic checks can respect `updates.check_interval_hours`.
+This command only checks and reports. It does not replace the executable or launch an installer. A Debian or RPM installation prints the `get.baudbound.app` command after explaining that BaudBound must be fully stopped. An AppImage, Windows installation, or unpackaged executable points to the latest GitHub Release. Successful results are cached so automatic checks can respect `updates.check_interval_hours`.
 
 ### Package files
 

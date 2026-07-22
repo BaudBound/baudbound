@@ -1,17 +1,22 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
 
+import { DetailDialog } from "@/components/detail-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
-import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import type {
+  DashboardPayload,
+  ScriptStatus,
+  StoredRunRecord,
+} from "@/lib/runner-api";
 import { useSortableRows } from "@/lib/table-sorting";
 import { ScriptApprovalDialog } from "@/views/script-approval-dialog";
-import { ScriptAboutDialog } from "@/views/script-about-dialog";
 import { ScriptDetailPanel } from "@/views/script-detail-panel";
 import { ScriptPackageToolbar } from "@/views/script-package-toolbar";
 import { ScriptProblemPanel } from "@/views/script-problem-panel";
 import { ScriptRow } from "@/views/script-row";
+import { RunDetailPanel } from "@/views/run-detail-panel";
 
 type ScriptSortColumn =
   | "approval"
@@ -51,9 +56,9 @@ export function ScriptsView({
   dashboard: DashboardPayload;
   runAction: DashboardAction;
 }) {
-  const [expandedScriptIds, setExpandedScriptIds] = useState<Set<string>>(new Set());
+  const [detailScriptId, setDetailScriptId] = useState<string | null>(null);
+  const [detailRun, setDetailRun] = useState<StoredRunRecord | null>(null);
   const [approvalScriptId, setApprovalScriptId] = useState<string | null>(null);
-  const [aboutScriptId, setAboutScriptId] = useState<string | null>(null);
   const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
     dashboard.runner.scripts,
     scriptSortSelectors,
@@ -61,21 +66,9 @@ export function ScriptsView({
   const approvalScript = dashboard.runner.scripts.find(
     (script) => script.installed.id === approvalScriptId,
   );
-  const aboutScript = dashboard.runner.scripts.find(
-    (script) => script.installed.id === aboutScriptId,
+  const detailScript = dashboard.runner.scripts.find(
+    (script) => script.installed.id === detailScriptId,
   ) ?? null;
-
-  function toggleScriptDetails(scriptId: string) {
-    setExpandedScriptIds((current) => {
-      const next = new Set(current);
-      if (next.has(scriptId)) {
-        next.delete(scriptId);
-      } else {
-        next.add(scriptId);
-      }
-      return next;
-    });
-  }
 
   return (
     <div className="grid gap-4">
@@ -123,40 +116,25 @@ export function ScriptsView({
                   >
                     Target
                   </SortableTableHeader>
-                  <th className="px-3 py-2">Run</th>
-                  <th className="px-3 py-2">Actions</th>
+                  <th className="px-3 py-2">
+                    <span className="ml-auto block w-[11.5rem]">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {sortedScripts.map((script) => {
-                  const expanded = expandedScriptIds.has(script.installed.id);
-                  return (
-                    <Fragment key={script.installed.id}>
-                      <ScriptRow
-                        activeRuns={dashboard.active_runs.filter(
-                          (run) => run.script_id === script.installed.id,
-                        )}
-                        busyActions={busyActions}
-                        expanded={expanded}
-                        onReviewApproval={setApprovalScriptId}
-                        onShowAbout={setAboutScriptId}
-                        onToggleDetails={toggleScriptDetails}
-                        runAction={runAction}
-                        script={script}
-                      />
-                      {expanded ? (
-                        <tr className="border-b border-border bg-background/40">
-                          <td className="p-3" colSpan={9} data-label="">
-                            <ScriptDetailPanel
-                              recentRuns={dashboard.recent_runs}
-                              script={script}
-                            />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
+                {sortedScripts.map((script) => (
+                  <ScriptRow
+                    activeRuns={dashboard.active_runs.filter(
+                      (run) => run.script_id === script.installed.id,
+                    )}
+                    busyActions={busyActions}
+                    key={script.installed.id}
+                    onReviewApproval={setApprovalScriptId}
+                    onViewDetails={setDetailScriptId}
+                    runAction={runAction}
+                    script={script}
+                  />
+                ))}
               </tbody>
             </table>
           </CardContent>
@@ -174,13 +152,50 @@ export function ScriptsView({
           revokeBusy={busyActions.has(`revoke-approval:${approvalScript.installed.id}`)}
         />
       ) : null}
-      <ScriptAboutDialog
+      <DetailDialog
+        description={
+          detailScript
+            ? `${detailScript.installed.name} | ${detailScript.installed.id}`
+            : "Script information"
+        }
         onOpenChange={(open) => {
-          if (!open) setAboutScriptId(null);
+          if (!open) {
+            setDetailRun(null);
+            setDetailScriptId(null);
+          }
         }}
-        open={aboutScript !== null}
-        script={aboutScript}
-      />
+        open={detailScript !== null}
+        title="Script details"
+      >
+        {detailScript ? (
+          <>
+            <ScriptDetailPanel
+              onViewRun={setDetailRun}
+              recentRuns={dashboard.recent_runs}
+              script={detailScript}
+            />
+            <DetailDialog
+              description={
+                detailRun
+                  ? `${detailScript.installed.name} | ${detailRun.run_id}`
+                  : "Run information"
+              }
+              onOpenChange={(open) => {
+                if (!open) setDetailRun(null);
+              }}
+              open={detailRun !== null}
+              title="Run details"
+            >
+              {detailRun ? (
+                <RunDetailPanel
+                  run={detailRun}
+                  scriptName={detailScript.installed.name}
+                />
+              ) : null}
+            </DetailDialog>
+          </>
+        ) : null}
+      </DetailDialog>
     </div>
   );
 }

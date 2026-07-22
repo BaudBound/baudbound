@@ -96,7 +96,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
                     </div>
                     <div className="mt-1 flex gap-2 text-xs text-baud-amber">
                       <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                      <span>{script.package_error ?? "Script approval needs review."}</span>
+                      <span>{script.package_error ?? "Approval review is required."}</span>
                     </div>
                   </div>
                 ))}

@@ -58,6 +58,7 @@ pub(crate) fn file_watch_event(
     event_name: &str,
 ) -> TriggerEvent {
     TriggerEvent {
+        action_type: registration.action_type.clone(),
         node_id: registration.node_id.clone(),
         payload: json!({
             "event": event_name,

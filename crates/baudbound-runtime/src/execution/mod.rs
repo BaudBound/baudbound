@@ -12,6 +12,7 @@ mod branching;
 mod contracts;
 mod default_variables;
 mod frames;
+mod http_diagnostics;
 mod initial_state;
 mod redaction;
 mod variable_operations;

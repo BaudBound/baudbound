@@ -22,6 +22,7 @@ RUN apt-get update \
         libxdo-dev \
         patchelf \
         pkg-config \
+        rpm \
         xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 

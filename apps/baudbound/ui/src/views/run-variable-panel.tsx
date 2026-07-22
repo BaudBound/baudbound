@@ -54,10 +54,11 @@ export function RunVariablePanel({
     () => filterVariables(displayRows, query),
     [displayRows, query],
   );
-  const { sortedRows: visibleRows, sortState, toggleSort } = useSortableRows(
-    filteredRows,
-    variableSortSelectors,
-  );
+  const {
+    sortedRows: visibleRows,
+    sortState,
+    toggleSort,
+  } = useSortableRows(filteredRows, variableSortSelectors);
 
   function toggleExpanded(name: string) {
     setExpandedNames((current) => {
@@ -77,10 +78,9 @@ export function RunVariablePanel({
 
   return (
     <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="grid gap-2">
         <Input
           aria-label="Search run variables"
-          className="min-w-0 flex-1 basis-64"
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search variable name, scope, type, or value"
           value={query}
@@ -108,16 +108,32 @@ export function RunVariablePanel({
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>
+                <SortableTableHeader
+                  column="name"
+                  onSort={toggleSort}
+                  sortState={sortState}
+                >
                   Name
                 </SortableTableHeader>
-                <SortableTableHeader column="scope" onSort={toggleSort} sortState={sortState}>
+                <SortableTableHeader
+                  column="scope"
+                  onSort={toggleSort}
+                  sortState={sortState}
+                >
                   Scope
                 </SortableTableHeader>
-                <SortableTableHeader column="type" onSort={toggleSort} sortState={sortState}>
+                <SortableTableHeader
+                  column="type"
+                  onSort={toggleSort}
+                  sortState={sortState}
+                >
                   Type
                 </SortableTableHeader>
-                <SortableTableHeader column="value" onSort={toggleSort} sortState={sortState}>
+                <SortableTableHeader
+                  column="value"
+                  onSort={toggleSort}
+                  sortState={sortState}
+                >
                   Value
                 </SortableTableHeader>
                 <th className="px-3 py-2"></th>
@@ -186,7 +202,9 @@ function VariableTableRow({
       {expanded ? (
         <tr className="border-b border-border bg-background/40">
           <td className="p-3" colSpan={5} data-label="">
-            <CodeBlock className="max-h-[280px]">{stringifyJson(row.raw)}</CodeBlock>
+            <CodeBlock className="max-h-[280px]">
+              {stringifyJson(row.raw)}
+            </CodeBlock>
           </td>
         </tr>
       ) : null}

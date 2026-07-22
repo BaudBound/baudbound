@@ -1,4 +1,5 @@
 import type { RunLogEntry, StoredRunRecord, VariableScope } from "@/lib/runner-api";
+import { quotedVisibleText } from "@/lib/visible-text";
 
 export type DisplayVariableScope = VariableScope | "unknown";
 
@@ -125,7 +126,7 @@ function valueType(value: unknown) {
 
 function previewValue(value: unknown) {
   if (typeof value === "string") {
-    return value;
+    return quotedVisibleText(value);
   }
   if (typeof value === "number" || typeof value === "boolean" || value === null) {
     return String(value);

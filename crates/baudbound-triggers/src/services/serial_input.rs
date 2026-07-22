@@ -621,6 +621,7 @@ pub(crate) fn send_serial_event(
     try_send_trigger_event(
         sender,
         TriggerEvent {
+            action_type: registration.action_type.clone(),
             node_id: registration.node_id.clone(),
             payload: json!({
                 "bytes": bytes.len(),

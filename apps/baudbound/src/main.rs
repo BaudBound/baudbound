@@ -19,6 +19,7 @@ mod paths;
 mod secrets;
 mod service;
 mod time_format;
+mod trigger_monitor;
 mod updates;
 mod windows_console;
 

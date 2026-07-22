@@ -325,8 +325,17 @@ pub fn print_run_report(report: RunReport) {
     println!("Trigger: {}", report.identity.trigger_node_id);
     for log in report.logs {
         match log.node_id {
-            Some(node_id) => println!("[{}] [{}] {}", log.level, node_id, log.message),
-            None => println!("[{}] {}", log.level, log.message),
+            Some(node_id) => println!(
+                "[{}] [{}] {}",
+                log.level,
+                node_id,
+                crate::console::visible_text(&log.message)
+            ),
+            None => println!(
+                "[{}] {}",
+                log.level,
+                crate::console::visible_text(&log.message)
+            ),
         }
     }
     if !report.variables.is_empty() {
@@ -397,9 +406,15 @@ pub fn print_run_record(record: &StoredRunRecord, time: CliTimeFormatter) -> any
         match &log.node_id {
             Some(node_id) => println!(
                 "  [{timestamp}] [{}] [{}] {}",
-                log.level, node_id, log.message
+                log.level,
+                node_id,
+                crate::console::visible_text(&log.message)
             ),
-            None => println!("  [{timestamp}] [{}] {}", log.level, log.message),
+            None => println!(
+                "  [{timestamp}] [{}] {}",
+                log.level,
+                crate::console::visible_text(&log.message)
+            ),
         }
     }
     if !record.variables.is_empty() {

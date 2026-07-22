@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { validateChecksumManifest } from "./release-checksums.mjs";
 
 const SUPPORTED_PLATFORMS = ["windows", "linux"];
 
@@ -8,6 +9,7 @@ export function validateReleaseAssets({ directory, releaseAssets = [], repositor
   const assets = readAssets(directory);
   const releaseAssetsByApiUrl = indexReleaseAssets(releaseAssets);
   requireInstallers(assets, version);
+  validateChecksumManifest(assets);
 
   const manifest = readManifest(directory, assets);
   assert(manifest.version === version, `latest.json version must be ${version}`);
@@ -67,6 +69,8 @@ function requireInstallers(assets, version) {
   const expected = [
     ["Windows NSIS installer", (name) => name.endsWith("-setup.exe")],
     ["Linux AppImage", (name) => name.endsWith(".AppImage")],
+    ["Linux Debian package", (name) => name.endsWith(".deb")],
+    ["Linux RPM package", (name) => name.endsWith(".rpm")],
   ];
 
   for (const [label, matches] of expected) {

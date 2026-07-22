@@ -1,18 +1,23 @@
 import { CheckCircle2, Download, RefreshCw, RotateCw, TriangleAlert } from "lucide-react";
 
 import { ExternalLink } from "@/components/external-link";
+import { LatestReleaseButton } from "@/components/latest-release-button";
 import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
+import { NativePackageUpdateInstructions } from "@/components/native-package-update-instructions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AppUpdaterController, AppUpdateState } from "@/hooks/use-app-updater";
 import { updateProgressPercent } from "@/lib/update-progress";
+import { canInstallUpdateInApp, isNativeLinuxPackage } from "@/lib/update-policy";
 import { useDesktopTime } from "@/lib/time-format";
 
 export function AboutView({ updater }: { updater: AppUpdaterController }) {
   const { formatDateTime } = useDesktopTime();
-  const { checkForUpdate, download, installAndRestart, state } = updater;
+  const { checkForUpdate, download, installAndRestart, retry, state } = updater;
   const progress = updateProgressPercent(state.progress);
+  const canInstall = canInstallUpdateInApp(state.installationType);
+  const nativePackage = isNativeLinuxPackage(state.installationType);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
@@ -72,6 +77,10 @@ export function AboutView({ updater }: { updater: AppUpdaterController }) {
         <CardContent className="grid gap-4">
           <UpdateSummary state={state} />
 
+          {nativePackage ? (
+            <NativePackageUpdateInstructions installationType={state.installationType} />
+          ) : null}
+
           {state.phase === "downloading" ? (
             <div className="grid gap-2" aria-live="polite">
               <div className="flex justify-between gap-3 text-xs text-muted-foreground">
@@ -99,19 +108,20 @@ export function AboutView({ updater }: { updater: AppUpdaterController }) {
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={state.phase === "checking" || state.phase === "downloading" || state.phase === "ready"}
-              onClick={() => void checkForUpdate()}
+              onClick={() => void (state.phase === "error" ? retry() : checkForUpdate())}
               variant="outline"
             >
               <RefreshCw className={state.phase === "checking" ? "animate-spin" : undefined} />
-              Check for updates
+              {state.phase === "error" ? "Try again" : "Check for updates"}
             </Button>
-            {state.phase === "available" ? (
+            <LatestReleaseButton />
+            {state.phase === "available" && canInstall ? (
               <Button onClick={() => void download()}>
                 <Download />
                 Download update
               </Button>
             ) : null}
-            {state.phase === "ready" ? (
+            {state.phase === "ready" && canInstall ? (
               <Button onClick={() => void installAndRestart()}>
                 <RotateCw />
                 Restart and install
@@ -160,6 +170,13 @@ function UpdateSummary({ state }: { state: AppUpdateState }) {
     );
   }
   if (state.version) {
+    if (isNativeLinuxPackage(state.installationType)) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          Version <span className="text-foreground">{state.version}</span> is available. Update this installation with APT or DNF using the command below.
+        </p>
+      );
+    }
     return (
       <p className="text-sm text-muted-foreground">
         Version <span className="text-foreground">{state.version}</span> is available. The update is signed and verified before installation.

@@ -80,6 +80,7 @@ impl WebhookService {
             .find(|route| route.method == method && route.path == path)
             .map(|route| WebhookDispatch {
                 event: TriggerEvent {
+                    action_type: route.registration.action_type.clone(),
                     node_id: route.registration.node_id.clone(),
                     payload: webhook_payload(route, request, &path, &query),
                     script_id: route.registration.script_id.clone(),

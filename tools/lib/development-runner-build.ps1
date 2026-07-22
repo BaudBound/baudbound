@@ -45,11 +45,20 @@ function Invoke-LocalWindowsRunnerBuild {
 
 function Invoke-LocalLinuxRunnerBuild {
     Initialize-NativeRunnerBuild
+    foreach ($commandName in @("dpkg-deb", "rpm")) {
+        Assert-LocalRunnerBuildCommand $commandName
+    }
 
     Write-Host ""
-    Write-Host "Building the Linux AppImage..." -ForegroundColor Cyan
-    Invoke-TauriLocalBuild -Bundles "appimage" -TargetDirectory "target/local-build/linux"
-    Write-LocalRunnerArtifacts -Path "target/local-build/linux/release/bundle/appimage" -Label "Linux"
+    Write-Host "Building the Linux AppImage, Debian package, and RPM package..." -ForegroundColor Cyan
+    Invoke-TauriLocalBuild -Bundles "appimage,deb,rpm" -TargetDirectory "target/local-build/linux"
+    $versionTag = Get-LocalRunnerVersionTag
+    Invoke-DevelopmentCommand "node" @(
+        "apps/baudbound/scripts/verify-linux-packages-cli.mjs",
+        "target/local-build/linux/release/bundle",
+        $versionTag
+    )
+    Write-LocalLinuxRunnerArtifacts
 }
 
 function Invoke-DockerLinuxRunnerBuild {
@@ -69,10 +78,11 @@ function Invoke-DockerLinuxRunnerBuild {
     )
 
     $repositoryRoot = (Get-Location).Path
-    $artifactDirectory = Join-Path $repositoryRoot "target/local-build/linux/release/bundle/appimage"
+    $versionTag = Get-LocalRunnerVersionTag
+    $artifactDirectory = Join-Path $repositoryRoot "target/local-build/linux/artifacts"
     New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
     Write-Host ""
-    Write-Host "Building the Linux AppImage in Docker..." -ForegroundColor Cyan
+    Write-Host "Building the Linux AppImage, Debian package, and RPM package in Docker..." -ForegroundColor Cyan
     Invoke-DevelopmentCommand "docker" @(
         "run", "--rm",
         "--mount", "type=bind,source=$repositoryRoot,target=/workspace",
@@ -87,9 +97,26 @@ function Invoke-DockerLinuxRunnerBuild {
         "--workdir", "/workspace",
         $image,
         "bash", "-lc",
-        "pnpm --dir apps/baudbound/ui install --frozen-lockfile && cd apps/baudbound && node ui/node_modules/@tauri-apps/cli/tauri.js build --bundles appimage --ci --no-sign --config tauri.local-build.conf.json && rm -f /artifacts/*.AppImage && cp /workspace-target/release/bundle/appimage/*.AppImage /artifacts/"
+        "pnpm --dir apps/baudbound/ui install --frozen-lockfile && cd apps/baudbound && node ui/node_modules/@tauri-apps/cli/tauri.js build --bundles appimage,deb,rpm --ci --no-sign --config tauri.local-build.conf.json && rm -f /artifacts/*.AppImage /artifacts/*.deb /artifacts/*.rpm && cp /workspace-target/release/bundle/appimage/*.AppImage /workspace-target/release/bundle/deb/*.deb /workspace-target/release/bundle/rpm/*.rpm /artifacts/ && cd /workspace && node apps/baudbound/scripts/verify-linux-packages-cli.mjs /artifacts $versionTag"
     )
-    Write-LocalRunnerArtifacts -Path "target/local-build/linux/release/bundle/appimage" -Label "Linux"
+    Write-LocalRunnerArtifacts -Path "target/local-build/linux/artifacts" -Label "Linux"
+}
+
+function Get-LocalRunnerVersionTag {
+    $configurationPath = Join-Path (Get-Location).Path "apps/baudbound/tauri.conf.json"
+    $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+    $version = [string]$configuration.version
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+        throw "Runner version '$version' is not a supported release version."
+    }
+    return "v$version"
+}
+
+function Write-LocalLinuxRunnerArtifacts {
+    $bundleRoot = "target/local-build/linux/release/bundle"
+    foreach ($bundle in @("appimage", "deb", "rpm")) {
+        Write-LocalRunnerArtifacts -Path (Join-Path $bundleRoot $bundle) -Label "Linux $bundle"
+    }
 }
 
 function Invoke-TauriLocalBuild {

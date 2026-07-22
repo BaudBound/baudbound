@@ -175,6 +175,7 @@ pub(super) fn handle_connection(
                         if !try_send_trigger_event(
                             &context.sender,
                             TriggerEvent {
+                                action_type: route.registration.action_type.clone(),
                                 node_id: route.registration.node_id.clone(),
                                 payload,
                                 script_id: route.registration.script_id.clone(),

@@ -32,6 +32,7 @@ pub struct TriggerRegistration {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub struct TriggerEvent {
+    pub action_type: String,
     pub node_id: String,
     pub payload: Value,
     pub script_id: String,

@@ -13,6 +13,7 @@ pub(super) fn process_started_event(
     detected_at: SystemTime,
 ) -> TriggerEvent {
     TriggerEvent {
+        action_type: spec.registration.action_type.clone(),
         node_id: spec.registration.node_id.clone(),
         payload: json!({
             "executable_path": process

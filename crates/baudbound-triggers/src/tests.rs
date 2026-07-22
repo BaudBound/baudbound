@@ -24,11 +24,13 @@ use tungstenite::Message;
 fn bounded_trigger_channel_rejects_overload_without_blocking() {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let first = TriggerEvent {
+        action_type: "trigger.manual".to_owned(),
         node_id: "n-first".to_owned(),
         payload: Value::Null,
         script_id: "script-1".to_owned(),
     };
     let second = TriggerEvent {
+        action_type: "trigger.manual".to_owned(),
         node_id: "n-second".to_owned(),
         payload: Value::Null,
         script_id: "script-1".to_owned(),

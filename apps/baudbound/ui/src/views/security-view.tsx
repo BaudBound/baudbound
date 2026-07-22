@@ -7,7 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
 import type { DashboardAction } from "@/lib/app-types";
-import { approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
+import {
+  approvalIssueDescription,
+  approvalLabel,
+  approvalVariant,
+  isApprovalCurrent,
+} from "@/lib/status-format";
 import { useSortableRows } from "@/lib/table-sorting";
 import { SecretManagementPanel } from "@/views/secret-management-panel";
 import { NetworkTriggerSecurityPanel } from "@/views/security/network-trigger-security-panel";
@@ -189,10 +194,7 @@ function scriptNeedsAttention(script: ScriptStatus) {
 
 function securityIssue(script: ScriptStatus) {
   if (script.package_error) return script.package_error;
-  if (!isApprovalCurrent(script.approval_status)) {
-    return `Approval is ${approvalLabel(script.approval_status).toLowerCase()}.`;
-  }
-  return null;
+  return approvalIssueDescription(script.approval_status);
 }
 
 function riskVariant(risk: string) {

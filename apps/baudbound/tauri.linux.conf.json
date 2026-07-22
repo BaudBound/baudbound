@@ -1,5 +1,23 @@
 {
   "bundle": {
-    "targets": ["appimage"]
+    "targets": ["appimage", "deb", "rpm"],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2",
+          "libudev1"
+        ],
+        "priority": "optional",
+        "section": "utils"
+      },
+      "rpm": {
+        "depends": [
+          "libasound.so.2()(64bit)",
+          "libudev.so.1()(64bit)"
+        ],
+        "epoch": 0,
+        "release": "1"
+      }
+    }
   }
 }

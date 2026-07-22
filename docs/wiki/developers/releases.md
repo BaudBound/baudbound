@@ -9,7 +9,7 @@ BaudBound versions must agree across the Cargo workspace, Tauri configuration, a
 
 `apps/baudbound/scripts/verify-release-version.mjs` checks that the tag, root Cargo workspace, `apps/baudbound/tauri.conf.json`, and `apps/baudbound/ui/package.json` agree before packaging.
 
-The release workflow builds a Windows NSIS installer and Linux AppImage, signs updater artifacts, creates a draft GitHub release, and publishes `latest.json` with platform URLs and signatures. The private updater key and password live in protected GitHub secrets. Only the public key is committed in application configuration.
+The release workflow builds a Windows NSIS installer plus Linux AppImage, Debian, and RPM packages. It signs updater artifacts, creates a draft GitHub release, publishes `latest.json` with platform URLs and signatures, and generates `SHA256SUMS`. The private updater key and password live in protected GitHub secrets. Only the public key is committed in application configuration.
 
 Use the interactive release helper:
 
@@ -25,9 +25,11 @@ It can check versions and prerequisites, run verification, create the tag, inspe
 2. Run Rust, editor contract/schema, and desktop UI release gates.
 3. Create and push `vMAJOR.MINOR.PATCH`.
 4. GitHub repeats the quality gate on Ubuntu.
-5. Windows builds the NSIS installer. Ubuntu 22.04 builds the AppImage.
+5. Windows builds the NSIS installer. Ubuntu 22.04 builds the AppImage, Debian package, and RPM package from the same revision.
 6. Tauri signs updater artifacts and uploads platform signatures.
-7. The workflow creates a **draft** GitHub release and generates `latest.json` with platform URLs, versions, and signatures.
+7. The workflow creates a **draft** GitHub release and generates `latest.json`.
+8. It inspects the Debian and RPM metadata, dependencies, installed files, desktop entry, and package scripts.
+9. It verifies every release asset and uploads `SHA256SUMS`.
 8. A maintainer checks artifacts on clean supported machines, release notes, updater metadata, and install/update behavior.
 9. Publish the draft only after every artifact passes.
 
@@ -37,7 +39,7 @@ The draft prevents a partially uploaded release from becoming the automatic upda
 
 The public commands at `https://get.baudbound.app/linux` and `https://get.baudbound.app/windows` are static scripts served by the `baudbound-get` container. The scripts request the latest published GitHub release, require exactly one matching platform installer, and verify the asset against GitHub's SHA-256 release digest before installation.
 
-Linux release metadata is parsed with `jq`. The script stops with dependency installation instructions when `jq` is unavailable. Windows uses PowerShell's structured `Invoke-RestMethod` response and `Get-FileHash`.
+Linux release metadata is parsed with `jq`. The script identifies Debian, Ubuntu, or Fedora before downloading anything. It selects the matching native package, verifies its digest and metadata, then asks APT or DNF to install it. Unsupported distributions stop with links to the manual instructions and GitHub Releases. The hosted installer never installs the AppImage. Windows uses PowerShell's structured `Invoke-RestMethod` response and `Get-FileHash`.
 
 Changes under `deploy/get` run Linux, Windows, shell lint, and container endpoint tests in `.github/workflows/get-docker.yml`. A successful non-pull-request build publishes:
 
@@ -67,6 +69,6 @@ Loss of the private updater key prevents producing updates trusted by existing i
 
 ## Review and rollback
 
-Install the Windows artifact on a clean supported Windows machine and launch the Linux AppImage on representative supported systems. Check first launch, config initialization, import/approval/run, tray/background behavior, signed update discovery, download progress, restart, and resulting version.
+Install the Windows artifact on a clean supported Windows machine. Install the Debian package on clean Debian and Ubuntu machines. Install the RPM package on a clean Fedora machine. Launch the AppImage on representative compatible systems. Check first launch, config initialization, import, approval, execution, tray behavior, background operation, update discovery, package-specific update actions, and resulting version.
 
 If the draft is broken, leave it unpublished, fix the source, and create a new patch version. Do not replace published artifact bytes under an existing version because clients and signatures may already reference them. For a published defect, remove it from update discovery when necessary and ship a new signed patch release.

@@ -53,7 +53,7 @@ Use the interactive development helper:
 ./tools/development.ps1
 ```
 
-Choose **Build runner packages** to build a local Windows installer, Linux AppImage, or both. On Windows, Linux packages are built with Docker Desktop using Linux containers. These local packages are unsigned and intended for development testing.
+Choose **Build runner packages** to build a local Windows installer, all Linux packages, or both. The Linux build produces an AppImage, Debian package, and RPM package. On Windows, Linux packages are built with Docker Desktop using Linux containers. These local packages are unsigned and intended for development testing.
 
 Common verification commands:
 

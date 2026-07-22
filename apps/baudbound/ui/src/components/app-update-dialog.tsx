@@ -1,6 +1,8 @@
 import { CheckCircle2, Download, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LatestReleaseButton } from "@/components/latest-release-button";
 import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
+import { NativePackageUpdateInstructions } from "@/components/native-package-update-instructions";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import type { AppUpdaterController } from "@/hooks/use-app-updater";
 import { updateProgressPercent } from "@/lib/update-progress";
+import {
+  availableUpdateDescription,
+  canInstallUpdateInApp,
+  isNativeLinuxPackage,
+  type AppInstallationType,
+  type UpdateFailureOperation,
+} from "@/lib/update-policy";
 
 export function AppUpdateDialog({
   updater,
@@ -26,6 +35,8 @@ export function AppUpdateDialog({
   );
   const canDismiss = state.phase === "available" || state.phase === "error";
   const progressPercent = updateProgressPercent(state.progress);
+  const canInstall = canInstallUpdateInApp(state.installationType);
+  const nativePackage = isNativeLinuxPackage(state.installationType);
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && canDismiss && dismiss()}>
@@ -34,8 +45,10 @@ export function AppUpdateDialog({
         showCloseButton={canDismiss}
       >
         <DialogHeader>
-          <DialogTitle>{dialogTitle(state.phase, state.version)}</DialogTitle>
-          <DialogDescription>{dialogDescription(state.phase)}</DialogDescription>
+          <DialogTitle>{dialogTitle(state.phase, state.version, state.failedOperation)}</DialogTitle>
+          <DialogDescription>
+            {dialogDescription(state.phase, state.installationType)}
+          </DialogDescription>
         </DialogHeader>
 
         {state.phase === "available" && state.currentVersion ? (
@@ -48,6 +61,10 @@ export function AppUpdateDialog({
           <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-background p-3">
             <LazyMarkdownContent source={state.releaseNotes} />
           </div>
+        ) : null}
+
+        {state.phase === "available" && nativePackage ? (
+          <NativePackageUpdateInstructions installationType={state.installationType} />
         ) : null}
 
         {state.phase === "downloading" ? (
@@ -93,10 +110,11 @@ export function AppUpdateDialog({
         ) : null}
 
         <DialogFooter>
+          <LatestReleaseButton />
           {canDismiss ? (
             <Button onClick={dismiss} variant="outline">Later</Button>
           ) : null}
-          {state.phase === "available" ? (
+          {state.phase === "available" && canInstall ? (
             <Button onClick={() => void download()}>
               <Download />
               Download update
@@ -120,16 +138,23 @@ export function AppUpdateDialog({
   );
 }
 
-function dialogTitle(phase: string, version: string | null) {
+function dialogTitle(
+  phase: string,
+  version: string | null,
+  failedOperation?: UpdateFailureOperation | null,
+) {
   if (phase === "available") return `BaudBound ${version ?? "update"} is available`;
-  if (phase === "downloading") return `Installing BaudBound ${version ?? "update"}`;
+  if (phase === "downloading") return `Downloading BaudBound ${version ?? "update"}`;
   if (phase === "ready") return "Update ready";
-  return "BaudBound could not update";
+  if (failedOperation === "download") return "Could not download update";
+  if (failedOperation === "verify") return "Could not verify update";
+  if (failedOperation === "install") return "Could not install update";
+  return "Could not check for updates";
 }
 
-function dialogDescription(phase: string) {
+function dialogDescription(phase: string, installationType: AppInstallationType) {
   if (phase === "available") {
-    return "Review the release notes, then download the signed update.";
+    return availableUpdateDescription(installationType);
   }
   if (phase === "downloading") {
     return "Keep BaudBound open while the update is downloaded and verified.";

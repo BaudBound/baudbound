@@ -1,6 +1,6 @@
 use rusqlite::{OptionalExtension, params};
 
-use crate::{StorageError, StoredVariable, StoredVariableScope};
+use crate::{StorageError, StoredVariable, StoredVariableChange, StoredVariableScope};
 
 use super::{SqliteRunnerStore, conversions::unix_timestamp_for_sqlite};
 
@@ -90,6 +90,24 @@ impl SqliteRunnerStore {
             source,
         })?;
 
-        Ok(changed == 1)
+        let changed = changed == 1;
+        drop(connection);
+        if changed {
+            self.notify_variable_changed(StoredVariableChange {
+                name: name.to_owned(),
+                scope: match scope {
+                    StoredVariableScope::Persistent => "persistent",
+                    StoredVariableScope::Global => "global",
+                }
+                .to_owned(),
+                script_id: (scope == StoredVariableScope::Persistent).then(|| script_id.to_owned()),
+                updated_at_unix: u64::try_from(updated_at_unix).unwrap_or_default(),
+                value: value.clone(),
+                version: expected_version
+                    .and_then(|version| u64::try_from(version).ok())
+                    .map_or(1, |version| version.saturating_add(1)),
+            });
+        }
+        Ok(changed)
     }
 }

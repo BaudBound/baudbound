@@ -45,7 +45,7 @@ baudbound script import "$HOME/Downloads/desk-lights.bbs"
 
 Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. Import does not create Webhook or WebSocket credentials. Those credentials are created only after you review and approve the package. A failed import does not install a partially accepted package.
 
-In the desktop app, open the script action menu and choose **About** to read the descriptive information stored in the verified package manifest. The dialog shows the author, description, website, repository, tags, creation details, minimum runner version, target runtime, and package identity when those values are available. These fields describe the package but do not replace the approval review. Always review permissions, capabilities, risk, and package integrity separately.
+In the desktop app, choose **View details** on a script row to read the descriptive information stored in the verified package manifest. The dialog shows the author, description, website, repository, tags, creation details, minimum runner version, target runtime, package identity, health, permissions, triggers, and recent runs when those values are available. These fields describe the package but do not replace the approval review. Always review permissions, capabilities, risk, and package integrity separately.
 
 The runner stages validation before durable installation. Rejection leaves existing script records, package files, approvals, variables, secrets, and registrations unchanged.
 

@@ -10,6 +10,7 @@ on:
       - "apps/baudbound/**"
       - "apps/editor/**"
       - "crates/**"
+      - "deploy/get/**"
       - "schemas/**"
       - "deny.toml"
       - "tools/runner-release.ps1"
@@ -26,6 +27,7 @@ on:
       - "apps/baudbound/**"
       - "apps/editor/**"
       - "crates/**"
+      - "deploy/get/**"
       - "schemas/**"
       - "deny.toml"
       - "tools/runner-release.ps1"
@@ -43,6 +45,30 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  linux-installer-contract:
+    name: Linux installer contract
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install shell verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Check installer shell scripts
+        run: >-
+          shellcheck
+          deploy/get/public/linux
+          deploy/get/tests/linux.sh
+          apps/baudbound/scripts/test-linux-package-install.sh
+
+      - name: Test hosted Linux installer
+        run: bash deploy/get/tests/linux.sh
+
   dependency-security:
     name: Rust dependency advisories (${{ matrix.target }})
     runs-on: ubuntu-22.04

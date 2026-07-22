@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+.secret-value-input::-ms-reveal,
+.secret-value-input::-ms-clear {
+  display: none;
+}
+
 @theme {
   --color-baud-bg: #090b10;
   --color-baud-panel: #0d1017;

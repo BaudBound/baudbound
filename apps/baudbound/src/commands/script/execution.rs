@@ -15,10 +15,17 @@ pub(super) fn dispatch_trigger_command(
     let installed = core
         .inspect_installed(store, &script)
         .with_context(|| format!("failed to resolve installed script {script:?}"))?;
+    let registration = core
+        .list_trigger_registrations(store, Some(&installed.id))
+        .with_context(|| format!("failed to inspect triggers for {script:?}"))?
+        .into_iter()
+        .find(|registration| registration.node_id == trigger)
+        .with_context(|| format!("script {script:?} has no trigger {trigger:?}"))?;
     let report = core
         .dispatch_trigger_event(
             store,
             TriggerEvent {
+                action_type: registration.action_type,
                 node_id: trigger,
                 payload,
                 script_id: installed.id,

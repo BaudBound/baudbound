@@ -14,7 +14,7 @@ use baudbound_storage::{
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 use crate::commands::{
     doctor::{DoctorCheck, desktop_doctor_checks},
@@ -22,12 +22,14 @@ use crate::commands::{
 };
 use crate::desktop_actions::SystemDesktopActionAdapter;
 use crate::service::{ServeOptions, ServeOverrides, validate_serve_start};
+use crate::trigger_monitor::TriggerMonitor;
 
 mod active_runs;
 mod background;
 mod command_guard;
 mod coordinate_picker;
 mod desktop_config;
+mod history;
 mod lifecycle;
 mod manual_runs;
 mod secret_vault;
@@ -46,6 +48,12 @@ macro_rules! desktop_command_handler {
             clear_run_logs,
             prepare_sensitive_operation,
             dashboard_state,
+            history::export_logs,
+            history::export_runs,
+            history::export_variables,
+            history::query_logs,
+            history::query_runs,
+            history::variable_inventory,
             coordinate_picker::cancel_coordinate_picker,
             tools::discover_monitors,
             import_script_package,
@@ -74,6 +82,10 @@ macro_rules! desktop_command_handler {
             coordinate_picker::start_coordinate_picker,
             stop_background_runner,
             should_check_for_update,
+            start_trigger_monitor,
+            stop_trigger_monitor,
+            clear_trigger_monitor,
+            trigger_monitor_state,
             record_update_check,
             update_script_package,
         ]
@@ -89,6 +101,7 @@ pub fn run_desktop_ui(
     launched_from_autostart: bool,
 ) -> Result<()> {
     let active_runs = Arc::new(ActiveRunRegistry::default());
+    let trigger_monitor = TriggerMonitor::default();
     let core = core.with_run_observer(Arc::clone(&active_runs));
     let serial_connections = core.serial_connections();
     let background_options = desktop_background_options(
@@ -96,6 +109,7 @@ pub fn run_desktop_ui(
         Arc::clone(&websocket_registry),
         config_path.clone(),
         serial_connections,
+        trigger_monitor.clone(),
     );
     let background_runner = DesktopRunnerSupervisor::default();
     let secret_vault = secret_vault::SecretVaultController::default();
@@ -129,6 +143,7 @@ pub fn run_desktop_ui(
             store,
             websocket_registry,
             operation_lock: Arc::new(Mutex::new(())),
+            trigger_monitor,
         })
         .setup(move |app| {
             app.state::<DesktopUiState>()
@@ -137,9 +152,19 @@ pub fn run_desktop_ui(
             app.state::<DesktopUiState>()
                 .background_runner
                 .connect_event_sink(app.handle().clone());
+            app.state::<DesktopUiState>()
+                .trigger_monitor
+                .connect_event_sink(app.handle().clone())
+                .map_err(|error| anyhow!(error))?;
             desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
             let state = app.state::<DesktopUiState>();
+            let variable_event_app = app.handle().clone();
+            state.store.set_variable_change_observer(move |change| {
+                if let Err(error) = variable_event_app.emit("runner-variable-changed", change) {
+                    tracing::warn!(%error, "failed to publish variable change event");
+                }
+            });
             state
                 .secret_vault
                 .start(app.handle().clone(), state.store.clone());
@@ -168,6 +193,35 @@ pub(super) struct DesktopUiState {
     store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Arc<Mutex<()>>,
+    trigger_monitor: TriggerMonitor,
+}
+
+#[tauri::command]
+fn trigger_monitor_state(
+    state: State<'_, DesktopUiState>,
+) -> crate::trigger_monitor::TriggerMonitorState {
+    state.trigger_monitor.state()
+}
+
+#[tauri::command]
+fn start_trigger_monitor(
+    state: State<'_, DesktopUiState>,
+) -> crate::trigger_monitor::TriggerMonitorState {
+    state.trigger_monitor.start()
+}
+
+#[tauri::command]
+fn stop_trigger_monitor(
+    state: State<'_, DesktopUiState>,
+) -> crate::trigger_monitor::TriggerMonitorState {
+    state.trigger_monitor.stop()
+}
+
+#[tauri::command]
+fn clear_trigger_monitor(
+    state: State<'_, DesktopUiState>,
+) -> crate::trigger_monitor::TriggerMonitorState {
+    state.trigger_monitor.clear()
 }
 
 #[tauri::command]
@@ -1161,6 +1215,7 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
         Arc::clone(&state.websocket_registry),
         state.config_path.clone(),
         serial_connections,
+        state.trigger_monitor.clone(),
     );
 
     *state
@@ -1266,6 +1321,7 @@ fn desktop_background_options(
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     config_path: PathBuf,
     serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
+    trigger_monitor: TriggerMonitor,
 ) -> ServeOptions {
     ServeOptions::from_config(
         runner_config,
@@ -1287,6 +1343,7 @@ fn desktop_background_options(
         websocket_registry,
     )
     .with_serial_connections(serial_connections)
+    .with_trigger_monitor(trigger_monitor)
     .with_serial_port_rebind_sink(Arc::new(
         crate::service::RunnerConfigSerialPortRebindSink::new(config_path),
     ) as Arc<dyn SerialPortRebindSink>)

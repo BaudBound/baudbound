@@ -11,6 +11,8 @@ use baudbound_core::{RunReport, RunnerCore, TriggerEvent};
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 
+use crate::trigger_monitor::{TriggerMonitor, TriggerMonitorStatus};
+
 const MAX_WORKERS: usize = 16;
 const MIN_WORKERS: usize = 2;
 const QUEUE_CAPACITY_PER_WORKER: usize = 8;
@@ -28,6 +30,7 @@ pub(super) struct TriggerExecutor {
     pending_jobs: usize,
     sender: Option<SyncSender<TriggerJob>>,
     cancellation: RuntimeCancellationToken,
+    trigger_monitor: Option<TriggerMonitor>,
     workers: Vec<JoinHandle<()>>,
 }
 
@@ -56,6 +59,7 @@ impl TriggerExecutor {
         store: &SqliteRunnerStore,
         worker_label: &str,
         cancellation: RuntimeCancellationToken,
+        trigger_monitor: Option<TriggerMonitor>,
     ) -> Result<Self, String> {
         let core = core.clone();
         let store = store.clone();
@@ -77,10 +81,35 @@ impl TriggerExecutor {
             worker_label,
             runner,
             cancellation,
+            trigger_monitor,
         )
     }
 
     pub(super) fn submit_from(
+        &mut self,
+        event: TriggerEvent,
+        source: &'static str,
+    ) -> Result<u64, TriggerSubmitError> {
+        let monitored_event = event.clone();
+        let result = self.try_submit_from(event, source);
+        if let Some(monitor) = &self.trigger_monitor {
+            let (status, error) = match result {
+                Ok(_) => (TriggerMonitorStatus::Queued, None),
+                Err(TriggerSubmitError::Full) => (
+                    TriggerMonitorStatus::Rejected,
+                    Some("trigger execution queue is at capacity"),
+                ),
+                Err(TriggerSubmitError::Stopped) => (
+                    TriggerMonitorStatus::Rejected,
+                    Some("trigger execution workers are unavailable"),
+                ),
+            };
+            monitor.observe_submission(&monitored_event, source, status, error);
+        }
+        result
+    }
+
+    fn try_submit_from(
         &mut self,
         event: TriggerEvent,
         source: &'static str,
@@ -151,6 +180,7 @@ impl TriggerExecutor {
             worker_label,
             runner,
             RuntimeCancellationToken::new(),
+            None,
         )
     }
 
@@ -160,6 +190,7 @@ impl TriggerExecutor {
         worker_label: &str,
         runner: Arc<TriggerRunner>,
         cancellation: RuntimeCancellationToken,
+        trigger_monitor: Option<TriggerMonitor>,
     ) -> Result<Self, String> {
         let (sender, receiver) = sync_channel::<TriggerJob>(queue_capacity.max(1));
         let receiver = Arc::new(Mutex::new(receiver));
@@ -199,6 +230,7 @@ impl TriggerExecutor {
             pending_jobs: 0,
             sender: Some(sender),
             cancellation,
+            trigger_monitor,
             workers,
         })
     }

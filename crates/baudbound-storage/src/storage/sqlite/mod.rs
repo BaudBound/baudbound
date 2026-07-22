@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
 };
@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::{
     ApproveScriptRequest, ImportScriptRequest, InstalledScript, RunStatistics, ScriptApproval,
     ScriptApprovalResult, ScriptStore, SecretCipher, SecretStatus, StorageError, StoredRunRecord,
-    StoredVariable, StoredVariableScope,
+    StoredVariable, StoredVariableChange, StoredVariableScope,
     storage::filesystem::{
         copy_file, create_dir_all, current_unix_timestamp, package_file_name_from_path,
         remove_file_inside_root, sha256_file, validate_package_file_name, validate_script_id,
@@ -17,6 +17,7 @@ use crate::{
 };
 
 mod conversions;
+mod history_queries;
 mod network_auth;
 mod rows;
 mod run_retention;
@@ -43,6 +44,16 @@ pub struct SqliteRunnerStore {
     connection: Arc<Mutex<Connection>>,
     run_retention: Arc<RwLock<RunRetentionPolicy>>,
     secret_cipher: Arc<RwLock<Option<SecretCipher>>>,
+    variable_change_observer: Arc<RwLock<Option<VariableChangeObserver>>>,
+}
+
+#[derive(Clone)]
+struct VariableChangeObserver(Arc<dyn Fn(StoredVariableChange) + Send + Sync + 'static>);
+
+impl fmt::Debug for VariableChangeObserver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("VariableChangeObserver(..)")
+    }
 }
 
 impl SqliteRunnerStore {
@@ -77,6 +88,7 @@ impl SqliteRunnerStore {
             connection: Arc::new(Mutex::new(connection)),
             run_retention: Arc::new(RwLock::new(RunRetentionPolicy::default())),
             secret_cipher: Arc::new(RwLock::new(None)),
+            variable_change_observer: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -91,6 +103,28 @@ impl SqliteRunnerStore {
             .secret_cipher
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(secret_cipher);
+    }
+
+    pub fn set_variable_change_observer<F>(&self, observer: F)
+    where
+        F: Fn(StoredVariableChange) + Send + Sync + 'static,
+    {
+        *self
+            .variable_change_observer
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(VariableChangeObserver(Arc::new(observer)));
+    }
+
+    fn notify_variable_changed(&self, change: StoredVariableChange) {
+        let observer = self
+            .variable_change_observer
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(observer) = observer {
+            (observer.0)(change);
+        }
     }
 
     #[must_use]

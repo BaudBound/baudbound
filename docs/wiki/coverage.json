@@ -45,7 +45,7 @@
     "sources": "apps/editor/data/nodes/definitions/**/*.ts",
     "page": "editor/node-reference",
     "expectedCount": 49,
-    "sourceFingerprint": "6e3018233bba2e77418e748dcdb6061bdb29a6bedbf2ef299043b0802b3d3222"
+    "sourceFingerprint": "2706304f1289d90672d0bd01162ed8a1e32dadd444c67c6a73855c7bd11a5874"
   },
   "desktop": {
     "source": "apps/baudbound/ui/src/lib/navigation.ts",

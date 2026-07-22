@@ -7,7 +7,7 @@ tags: [runner, installation]
 
 ## Supported systems
 
-BaudBound releases currently target 64-bit Windows and 64-bit Linux. Windows is distributed as an installer. Linux is distributed as an AppImage built on Ubuntu 22.04.
+BaudBound releases currently target 64-bit Windows and 64-bit x86 Linux. Windows uses an installer. Debian and Ubuntu use a `.deb` package. Fedora uses an `.rpm` package. A portable AppImage is also published for manual use on other compatible Linux systems.
 
 Download release files only from the [BaudBound GitHub Releases page](https://github.com/NATroutter/BaudBound/releases). Open the latest published release and choose the file for the operating system. You do not need Rust, Node.js, or the source repository to run a published release.
 
@@ -120,19 +120,17 @@ On Fedora, install `curl` with:
 sudo dnf install curl
 ```
 
-On Arch Linux, install `curl` with:
+After `curl` starts the installer, the script confirms that the machine uses 64-bit x86 Linux and reads the distribution information from `/etc/os-release`. Debian and Ubuntu receive the `.deb` package through APT. Fedora receives the `.rpm` package through DNF.
 
-```bash
-sudo pacman -S --needed curl
-```
+The script checks every command it needs before downloading BaudBound. If a command is missing, the script stops and names it. It also stops without downloading anything when the distribution or architecture is unsupported.
 
-After `curl` starts the installer, the script checks every other command it needs before it downloads the application or creates installation files. This includes `jq`, checksum tools, and standard file tools. If anything is missing, the script stops. It lists every missing command and shows the package installation command for Debian or Ubuntu, Fedora, and Arch Linux. Other distributions receive the package names needed for their package manager.
+The selected package is downloaded from the official GitHub Release. Its SHA-256 digest, package name, version, and architecture are checked before APT or DNF starts. The package manager asks for administrator approval and installs the command, application-menu launcher, and icons.
 
-After the dependency check passes, the script installs the AppImage at `~/.local/opt/baudbound/BaudBound.AppImage` and creates the command `~/.local/bin/baudbound`.
+The automatic installer does not install the AppImage. On an unsupported distribution, follow the portable AppImage instructions below.
 
-The installer then asks `Create a desktop application launcher? [Y/n]`. Press Enter or type `y` to add BaudBound to the application menu with its icon. Type `n` when you only want the terminal command. The application itself is the same in both cases.
+The installer refuses to replace a newer installed version with an older GitHub Release. It stops before APT or DNF starts and leaves the current installation unchanged.
 
-Quit the desktop application or stop `baudbound serve` before updating. The script refuses to replace an AppImage that is still running.
+If the old per-user AppImage installation is detected, the installer stops instead of creating duplicate commands or application-menu entries. Follow [Switching from AppImage to a native package](#switching-from-appimage-to-a-native-package) first.
 
 ## Manual installation
 
@@ -155,6 +153,58 @@ The desktop interface uses Microsoft Edge WebView2. It is already installed on c
 The installer provides the desktop application. It does not guarantee that `baudbound` is added to every terminal's `PATH`. Use the Start menu for normal desktop use. CLI users can run the installed executable directly or add its installation directory to `PATH` themselves.
 
 #### Linux
+
+Use the native package for Debian, Ubuntu, or Fedora. It installs the desktop launcher and the `baudbound` command through the operating system package manager.
+
+##### Debian and Ubuntu package
+
+1. Open the [latest BaudBound GitHub Release](https://github.com/NATroutter/BaudBound/releases/latest) and download the file ending in `_amd64.deb`.
+2. Open a terminal and move to the directory containing the download:
+
+```bash
+cd "$HOME/Downloads"
+```
+
+3. Confirm that the directory contains only the BaudBound package you intend to install:
+
+```bash
+ls -1 BaudBound_*_amd64.deb
+```
+
+4. Ask APT to verify dependencies and install the local package:
+
+```bash
+sudo apt install ./BaudBound_*_amd64.deb
+```
+
+APT installs a newer package over an older BaudBound version. You do not need to remove the old version first.
+
+##### Fedora package
+
+1. Open the [latest BaudBound GitHub Release](https://github.com/NATroutter/BaudBound/releases/latest) and download the file ending in `.x86_64.rpm`.
+2. Open a terminal and move to the directory containing the download:
+
+```bash
+cd "$HOME/Downloads"
+```
+
+3. Confirm that the directory contains only the BaudBound package you intend to install:
+
+```bash
+ls -1 BaudBound-*.x86_64.rpm
+```
+
+4. Ask DNF to verify dependencies and install the local package:
+
+```bash
+sudo dnf install ./BaudBound-*.x86_64.rpm
+```
+
+DNF installs a newer package over an older BaudBound version. You do not need to remove the old version first.
+
+##### Portable AppImage
+
+Use the AppImage when the automatic installer does not support the distribution or when you specifically want a portable per-user installation. The AppImage is available only from the [GitHub Releases page](https://github.com/NATroutter/BaudBound/releases/latest). It is not offered by `get.baudbound.app`.
 
 The AppImage contains both the BaudBound desktop application and its CLI. Starting it without a command opens the desktop application. Adding a command such as `--version` or `doctor` uses the CLI.
 
@@ -349,7 +399,7 @@ The terminal remains connected until you quit BaudBound when you start it this w
 
 If the AppImage reports a FUSE error, use the matching distribution tab in [Linux FUSE packages](#linux-fuse-packages). If `baudbound --version` works, no additional FUSE package is needed.
 
-BaudBound does not currently publish `.deb` or `.rpm` packages. Compatibility depends on the host architecture, graphics session, and system libraries, so verify the AppImage on the intended machine before relying on it.
+AppImage compatibility depends on the host architecture, graphics session, and system libraries. Verify it on the intended machine before relying on it.
 
 AppImages are portable executables and are not installed through the system package database. To run BaudBound continuously without the desktop application, follow [Linux Background Service](linux-background-service.md).
 {.is-info}
@@ -416,6 +466,59 @@ sudo xbps-install -S fuse
 
 These package names follow the AppImage project's [FUSE troubleshooting guidance](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) and the distributions' package documentation.
 
+## Switching from AppImage to a native package
+
+The native package and AppImage use the same runner data directory, so scripts and configuration do not need to be moved. The old AppImage command and launcher must be removed to avoid opening the wrong copy.
+
+1. Stop active runs and the background runner. Open the tray menu and choose **Quit**.
+2. Remove the old AppImage file:
+
+```bash
+rm -f "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+```
+
+3. Remove the old terminal command link:
+
+```bash
+rm -f "$HOME/.local/bin/baudbound"
+```
+
+4. Remove either old application-menu launcher if it exists:
+
+```bash
+rm -f "$HOME/.local/share/applications/baudbound.desktop"
+```
+
+```bash
+rm -f "$HOME/.local/share/applications/app.baudbound.runner.desktop"
+```
+
+5. Remove the old login launcher if it exists:
+
+```bash
+rm -f "$HOME/.config/autostart/BaudBound.desktop"
+```
+
+These commands remove only the old application files and launchers. They do not delete installed scripts, configuration, secrets, logs, or run history. Run the automatic installer after cleanup.
+
+## Removing a native package
+
+The application command is `baudbound`. The native package database identifier is `baud-bound`, which is why the removal commands use that spelling.
+
+On Debian or Ubuntu, remove the application files owned by APT with:
+
+```bash
+sudo apt remove baud-bound
+```
+
+On Fedora, remove the application files owned by DNF with:
+
+```bash
+sudo dnf remove baud-bound
+```
+
+Package removal leaves the runner data in your user profile. This protects scripts, configuration, secrets, logs, and run history when reinstalling. Delete that data separately only when you intentionally want a complete cleanup.
+
 ## First launch
 
 The first launch creates the runner home and a default `config.toml` automatically. You do not need to run `baudbound config init` for a normal desktop installation.
@@ -442,21 +545,39 @@ baudbound config path
 
 ## Updates
 
-### Automatic update
+### Windows and AppImage updates
 
-This is the recommended update method for desktop users. No terminal commands are required.
+The desktop updater can install updates for the Windows installer and portable Linux AppImage.
 
 1. Start BaudBound normally.
-2. When an update is available, review the version and release notes in the update dialog.
-3. Choose **Download update** and wait for the progress bar to finish.
+2. When an update is available, review the version and release notes.
+3. Choose **Download update** and wait for download and signature verification to finish.
 4. Choose **Restart and install**.
-5. After BaudBound opens again, confirm the new version in the application.
+5. After BaudBound opens again, confirm the version on the About page.
 
-On Linux, automatic updates require the real AppImage to remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root`. A headless service must be stopped before replacing the AppImage manually.
+The AppImage must remain writable by the current user. The per-user installation above satisfies that requirement. Do not change its owner to `root`.
 
-### Manual Linux fallback
+### Debian and RPM updates
 
-Use these steps only when the update dialog cannot complete the update.
+BaudBound can check for a newer release from a `.deb` or `.rpm` installation, but it does not replace files owned by APT or DNF. The update dialog and About page therefore show release notes, a link to the latest GitHub Release, and the hosted installer command. They do not show **Download update** or **Restart and install**.
+
+Before updating, stop active runs from the Runs page. Stop the desktop background runner from the Service page. Open the tray menu and choose **Quit**. Closing only the window may leave BaudBound running in the tray.
+
+Run the same command used for installation:
+
+```bash
+curl -fsSL https://get.baudbound.app/linux | sh
+```
+
+The script detects the distribution again and asks APT or DNF to upgrade the installed package. The package manager requests administrator approval. Open BaudBound normally after the command completes.
+
+You can also download the newer native package manually and run the same `apt install` or `dnf install` command shown in [Manual installation](#manual-installation).
+
+APT and DNF cannot discover BaudBound updates during a normal system upgrade because BaudBound does not yet provide a package repository. Rerun the hosted command or install the newer downloaded package.
+
+### Manual AppImage update
+
+Use these steps only for an AppImage installation when the update dialog cannot complete the update.
 
 1. Stop BaudBound according to how it is currently running:
 

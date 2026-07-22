@@ -18,6 +18,13 @@ const logs: RunLogEntry[] = [
   },
   {
     action_type: "action.log",
+    level: "debug",
+    message: "scanner\r\nnext",
+    node_id: "n-control",
+    timestamp_unix_ms: Date.UTC(2026, 6, 17, 20, 46, 0),
+  },
+  {
+    action_type: "action.log",
     level: "info",
     message: "second action",
     node_id: "n-second",
@@ -50,6 +57,7 @@ describe("RunLogPanel", () => {
       expect(markup).toContain("second action");
       expect(markup).toContain("action.beep");
       expect(markup).toContain("action.log");
+      expect(markup).toContain("scanner\\r\\nnext");
     },
   );
 });

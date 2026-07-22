@@ -25,6 +25,7 @@ pub(crate) fn http_request_action(
     let headers = request_headers(request)?;
     let user_agent = config_string(&request.config, "userAgent");
     let body = config_string(&request.config, "body").unwrap_or_default();
+    validate_json_request_body(request, &headers, &body)?;
 
     let client = Client::builder()
         .timeout(timeout)
@@ -182,6 +183,38 @@ fn request_headers(request: &RuntimeActionRequest) -> Result<HeaderMap, RuntimeA
         }
     }
     Ok(headers)
+}
+
+fn validate_json_request_body(
+    request: &RuntimeActionRequest,
+    headers: &HeaderMap,
+    body: &str,
+) -> Result<(), RuntimeActionError> {
+    if body.is_empty() || !has_json_content_type(headers) {
+        return Ok(());
+    }
+    serde_json::from_str::<Value>(body)
+        .map(|_| ())
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!(
+                "HTTP request body is not valid JSON for its Content-Type header: {source}"
+            ),
+        })
+}
+
+fn has_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            let media_type = value.split(';').next().unwrap_or_default().trim();
+            media_type.eq_ignore_ascii_case("application/json")
+                || media_type
+                    .to_ascii_lowercase()
+                    .strip_prefix("application/")
+                    .is_some_and(|subtype| subtype.ends_with("+json"))
+        })
 }
 
 fn insert_header(

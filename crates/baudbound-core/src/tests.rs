@@ -284,6 +284,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
         .dispatch_trigger_event(
             &store,
             TriggerEvent {
+                action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "hello from lifecycle test"}),
                 script_id: "network-trigger".to_owned(),
@@ -839,6 +840,7 @@ fn disabled_scripts_cannot_execute_from_stale_trigger_events() {
         .dispatch_trigger_event(
             &store,
             TriggerEvent {
+                action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "stale event"}),
                 script_id: "network-trigger".to_owned(),
@@ -870,6 +872,7 @@ fn unapproved_scripts_are_not_registered_or_executed() {
         .dispatch_trigger_event(
             &store,
             TriggerEvent {
+                action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "unapproved event"}),
                 script_id: "network-trigger".to_owned(),
@@ -999,6 +1002,7 @@ fn dispatches_trigger_event_through_core_dispatcher() {
     let report = core
         .trigger_dispatcher(&store)
         .dispatch(TriggerEvent {
+            action_type: "trigger.webhook".to_owned(),
             node_id: "n-webhook".to_owned(),
             payload: json!({"body": "hello"}),
             script_id: "network-trigger".to_owned(),

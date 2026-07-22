@@ -53,4 +53,10 @@ describe("run variable inspection", () => {
     ]);
     expect(variableScopeLabel(rows[2].scope)).toBe("Node output");
   });
+
+  it("shows string boundaries and control characters in variable previews", () => {
+    const [row] = variableRows({ serial: "value\r\n" });
+
+    expect(row.preview).toBe('"value\\r\\n"');
+  });
 });

@@ -36,6 +36,7 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             patchelf \
+            shellcheck \
             xdg-utils
 
       - name: Set up Rust
@@ -70,6 +71,16 @@ jobs:
 
       - name: Test release artifact contracts
         run: node --test apps/baudbound/scripts/*.test.mjs
+
+      - name: Check Linux installer shell scripts
+        run: >-
+          shellcheck
+          deploy/get/public/linux
+          deploy/get/tests/linux.sh
+          apps/baudbound/scripts/test-linux-package-install.sh
+
+      - name: Test hosted Linux installer
+        run: bash deploy/get/tests/linux.sh
 
       - name: Check Linux RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
@@ -115,9 +126,9 @@ jobs:
           - label: Windows NSIS
             os: windows-latest
             bundles: nsis
-          - label: Linux AppImage
+          - label: Linux packages
             os: ubuntu-22.04
-            bundles: appimage
+            bundles: appimage,deb,rpm
 
     steps:
       - name: Checkout
@@ -135,6 +146,7 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             patchelf \
+            rpm \
             xdg-utils
 
       - name: Set up Rust
@@ -188,6 +200,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Install native package inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
@@ -211,6 +228,44 @@ jobs:
             --json assets \
             > "$RUNNER_TEMP/baudbound-release-assets.json"
 
+      - name: Generate release checksums
+        run: >-
+          node apps/baudbound/scripts/generate-release-checksums.mjs
+          "$RUNNER_TEMP/baudbound-release"
+
+      - name: Verify Linux native packages
+        run: >-
+          node apps/baudbound/scripts/verify-linux-packages-cli.mjs
+          "$RUNNER_TEMP/baudbound-release"
+          "$GITHUB_REF_NAME"
+
+      - name: Test Debian package installation and removal
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
+            debian:13-slim \
+            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            deb /packages "${GITHUB_REF_NAME#v}"
+
+      - name: Test Ubuntu package installation and removal
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
+            ubuntu:24.04 \
+            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            deb /packages "${GITHUB_REF_NAME#v}"
+
+      - name: Test RPM package installation and removal
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
+            fedora:43 \
+            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            rpm /packages "${GITHUB_REF_NAME#v}"
+
       - name: Verify updater manifest and artifacts
         run: >-
           node apps/baudbound/scripts/verify-release-assets.mjs
@@ -218,3 +273,11 @@ jobs:
           "$GITHUB_REF_NAME"
           "NATroutter/BaudBound"
           "$RUNNER_TEMP/baudbound-release-assets.json"
+
+      - name: Upload release checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          "$RUNNER_TEMP/baudbound-release/SHA256SUMS"
+          --clobber

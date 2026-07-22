@@ -13,6 +13,8 @@ use baudbound_triggers::{
 };
 use toml_edit::{DocumentMut, value};
 
+use crate::trigger_monitor::TriggerMonitor;
+
 #[derive(Clone)]
 pub struct ServeOptions {
     pub(crate) file_watch_enabled: bool,
@@ -31,6 +33,7 @@ pub struct ServeOptions {
     pub(crate) serial_connections: Arc<SerialConnectionRegistry>,
     pub(crate) serial_port_rebind_sink: Option<Arc<dyn SerialPortRebindSink>>,
     pub(crate) startup_enabled: bool,
+    pub(crate) trigger_monitor: Option<TriggerMonitor>,
     pub(crate) webhook_allow_browser_origins: BTreeSet<String>,
     pub(crate) webhook_allow_unauthenticated_public_bind: bool,
     pub webhook_bind: String,
@@ -97,6 +100,7 @@ impl ServeOptions {
             serial_connections,
             serial_port_rebind_sink: None,
             startup_enabled: config.triggers.startup_enabled,
+            trigger_monitor: None,
             webhook_allow_browser_origins: config
                 .webhooks
                 .allow_browser_origins
@@ -138,6 +142,12 @@ impl ServeOptions {
     #[must_use]
     pub fn with_serial_connections(mut self, connections: Arc<SerialConnectionRegistry>) -> Self {
         self.serial_connections = connections;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn with_trigger_monitor(mut self, monitor: TriggerMonitor) -> Self {
+        self.trigger_monitor = Some(monitor);
         self
     }
 }

@@ -797,12 +797,17 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
                 json!({"data": "scanner value\r"})
             );
             Ok(RuntimeActionResult {
-                output_data: Map::new(),
+                output_data: Map::from_iter([
+                    ("status_code".to_owned(), json!(422)),
+                    ("status_text".to_owned(), json!("Unprocessable Entity")),
+                    ("duration_ms".to_owned(), json!(15)),
+                    ("body".to_owned(), json!("response\r\nbody")),
+                ]),
             })
         }
     }
 
-    execute_manual_program_with_actions(
+    let report = execute_manual_program_with_actions(
         &json!({
             "entry": {
                 "trigger": manual_trigger(),
@@ -837,6 +842,27 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
         &JsonBodyActionHandler,
     )
     .expect("JSON HTTP body should reach the action handler safely");
+
+    assert!(
+        report.logs.iter().any(|log| {
+            log.level == "debug"
+                && log
+                    .message
+                    .contains("HTTP request body (26 bytes): {\"data\":\"scanner value\\r\"}")
+        }),
+        "logs were {:#?}",
+        report.logs
+    );
+    assert!(report.logs.iter().any(|log| {
+        log.message
+            .contains("returned 422 Unprocessable Entity in 15 ms")
+    }));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.level == "debug" && log.message.ends_with("response\r\nbody") })
+    );
 }
 
 #[test]

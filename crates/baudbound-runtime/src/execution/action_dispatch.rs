@@ -57,6 +57,10 @@ impl RuntimeExecutor<'_> {
             node_id: node.id.clone(),
         };
 
+        if node.action_type == "action.http" {
+            self.log_http_request(node, &request.config);
+        }
+
         let result = match self.action_handler.execute_action(&request, &self.context) {
             Ok(result) => result,
             Err(RuntimeActionError::Cancelled) => return Err(RuntimeError::Cancelled),
@@ -68,6 +72,10 @@ impl RuntimeExecutor<'_> {
             }
         };
         self.ensure_not_cancelled()?;
+
+        if node.action_type == "action.http" {
+            self.log_http_response(node, &request.config, &result.output_data);
+        }
 
         for (key, value) in result.output_data {
             self.set_variable(

@@ -23,7 +23,7 @@ baudbound doctor
 baudbound config path
 ```
 
-`command -v baudbound` should normally print a path ending in `.local/bin/baudbound`. Keep the configuration path printed by `baudbound config path`. The service must use that same runner home.
+`command -v baudbound` normally prints `/usr/bin/baudbound` for a Debian or RPM installation. A manual AppImage installation normally prints a path ending in `.local/bin/baudbound`. Keep this executable path and the configuration path printed by `baudbound config path`. The service must use the same executable and runner home.
 
 Print the runner home itself and keep the result for the service-manager instructions:
 
@@ -82,7 +82,7 @@ User=YOUR_USER
 Group=YOUR_GROUP
 WorkingDirectory=/home/YOUR_USER
 Environment=BAUDBOUND_HOME=/home/YOUR_USER/.local/share/BaudBound/runner
-ExecStart=/home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage serve
+ExecStart=/usr/bin/baudbound serve
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
@@ -91,7 +91,7 @@ TimeoutStopSec=30s
 WantedBy=multi-user.target
 ```
 
-The `BAUDBOUND_HOME` line uses BaudBound's standard Linux path. If `dirname "$(baudbound config path)"` printed a different path, replace the value after `BAUDBOUND_HOME=` with that absolute path before continuing.
+The `BAUDBOUND_HOME` line uses BaudBound's standard Linux path. If `dirname "$(baudbound config path)"` printed a different path, replace the value after `BAUDBOUND_HOME=` with that absolute path before continuing. If `command -v baudbound` did not print `/usr/bin/baudbound`, replace the `ExecStart` executable with the exact path it printed.
 
 Load and start it:
 
@@ -127,7 +127,7 @@ Create `/etc/init.d/baudbound`, replacing every `YOUR_USER`, `YOUR_GROUP`, and `
 #!/sbin/openrc-run
 
 description="BaudBound automation runner"
-command="/home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage"
+command="/usr/bin/baudbound"
 command_args="serve"
 command_user="YOUR_USER:YOUR_GROUP"
 directory="/home/YOUR_USER"
@@ -142,7 +142,7 @@ depend() {
 export BAUDBOUND_HOME="/home/YOUR_USER/.local/share/BaudBound/runner"
 ```
 
-Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home.
+Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home. If `command -v baudbound` printed another path, use that exact path for `command`.
 
 Enable and start it:
 
@@ -173,10 +173,10 @@ Create `/etc/sv/baudbound/run`, replacing every `YOUR_USER`, `YOUR_GROUP`, and `
 export BAUDBOUND_HOME="/home/YOUR_USER/.local/share/BaudBound/runner"
 
 cd /home/YOUR_USER || exit 1
-exec chpst -u YOUR_USER:YOUR_GROUP /home/YOUR_USER/.local/opt/baudbound/BaudBound.AppImage serve
+exec chpst -u YOUR_USER:YOUR_GROUP /usr/bin/baudbound serve
 ```
 
-Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home.
+Also replace the `BAUDBOUND_HOME` value when `dirname "$(baudbound config path)"` printed a different runner home. If `command -v baudbound` printed another path, replace `/usr/bin/baudbound` with that exact path.
 
 Enable and inspect it on Void Linux:
 

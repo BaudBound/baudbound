@@ -102,6 +102,7 @@ impl HotkeyService {
         Ok(registrations
             .iter()
             .map(|registration| TriggerEvent {
+                action_type: registration.action_type.clone(),
                 node_id: registration.node_id.clone(),
                 payload: json!({
                     "key": normalized_key,

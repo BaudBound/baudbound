@@ -40,15 +40,26 @@ Retention never deletes installed scripts, approvals, persistent variables, glob
 
 ## Inspect in the desktop app
 
-1. Open **Scripts** and expand the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.
-2. Open **Runs** and check **Currently running** when the script has not finished. The live entry shows which trigger started it and displays new log messages as they are emitted.
-3. Choose **Stop** on an active entry when the run must end. Cancellation is cooperative, so the entry remains visible until the current action reaches a safe point.
-4. For a finished run, select the relevant script and choose the newest failed or cancelled record.
-5. Copy the run ID, trigger ID, status, and first useful error.
-6. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
-7. Open **Doctor** when the run never started or a configured serial reader is disconnected. It lists registered triggers and live serial readers. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state.
+1. Open **Scripts** and choose **View details** for the affected script. Confirm package hash, compatibility, enablement, approval, and required-secret state.
+2. Open **Monitor** and choose **Start monitoring** when an automatic trigger does not appear to work. Reproduce the event and check whether it was queued or rejected. A missing event means the trigger did not reach the execution queue. A rejected event includes the reason.
+3. Open **Runs** and check **Currently running** when the script has not finished. The live entry shows which trigger started it and displays new log messages as they are emitted.
+4. Choose **Stop** on an active entry when the run must end. Cancellation is cooperative, so the entry remains visible until the current action reaches a safe point.
+5. For a finished run, select the relevant script and choose the newest failed or cancelled record.
+6. Copy the run ID, trigger ID, status, and first useful error.
+7. Inspect its node logs and final variables. Each log time records when that entry was emitted, not when the run finished. A node ID connects a runtime failure to the editor graph.
+8. Open **Doctor** when the event is missing or a configured serial reader is disconnected. It lists registered triggers and live serial readers. Use **Tools** to scan the serial ports currently detected by the machine. Open **Service** for listener state.
 
-The **Logs** tab searches messages across recent runs. Use a run ID to avoid mixing errors from two overlapping executions.
+Monitor is a temporary live view. It keeps the latest 500 events in memory and does not replace Runs or Logs. A monitor omission warning means the UI copy could not be captured without slowing execution. The script event was not rejected. A row marked **Rejected** is different because it means the real execution queue did not accept the event.
+
+The **Logs** tab searches messages across all retained runs. Use a run ID to avoid mixing errors from two overlapping executions. Results are paginated, so a search is applied before the page is selected.
+
+For a support case, select the relevant records in Runs and choose **Export selected**. A single run produces one JSON file. Multiple runs produce a ZIP archive with one JSON file for every run and a manifest. The files include complete stored logs, final variable snapshots, scopes, script identity, trigger identity, timestamps, runner version, platform, and storage schema version. Managed secret values are excluded.
+
+Use **Export JSON** or **Export CSV** in Logs when the investigation needs messages from many runs. The current search controls which records are exported. Export includes all matching messages rather than only the visible page.
+
+Open **Variables** to inspect current persistent and global values together with defaults declared by installed packages. Choose **Export variables** to save the complete variable inventory as JSON. The export includes stored values, declared defaults, scopes, types, script ownership, runner information, and declaration warnings. Managed secrets are not included. Runtime and node output values belong to one execution and remain in that run's detail view.
+
+JSON exports identify their document structure with a `format` field. Run files use `baudbound.run`, log files use `baudbound.logs`, and variable files use `baudbound.variables`. The separate `format_version` number allows BaudBound tools to recognize future structural changes.
 
 Use **Clear runs** on the Runs page to delete every completed run record stored by the runner. This includes records that are older than the ones currently shown. BaudBound asks for confirmation before deleting them. Running scripts are not stopped and can create new records when they finish.
 
@@ -81,9 +92,9 @@ Use `--json` only on commands that document it when collecting structured diagno
 | Import rejected | `baudbound validate PACKAGE` | Package format, target, version, graph, declarations |
 | Script needs attention | Scripts or `baudbound script status` | Hash, approval, secrets, compatibility, enablement |
 | Manual run rejected | `baudbound script inspect` | Manual trigger, approval, policy, target, secrets |
-| No automatic event | Triggers and Service | Script enabled, registration, family toggle, OS prerequisite |
+| No automatic event | Monitor, Doctor, and Service | Script enabled, registration, family toggle, OS prerequisite |
 | Run failed at a node | Runs and Logs | Node config, resolved variables, native error, failure branch |
-| Serial disconnected | Triggers, then Tools | Reader state, detected ports, access, protocol, USB identity, ambiguity |
+| Serial disconnected | Doctor, then Tools | Reader state, detected ports, access, protocol, USB identity, ambiguity |
 | Webhook unavailable | Service listener | Bind, port, route, firewall/proxy, body limit |
 | Update unavailable | Update dialog/error | HTTPS, release metadata, platform artifact, signature, clock |
 
@@ -118,7 +129,7 @@ An update changed the package hash. Inspect the new access declarations and grap
 Confirm all of these:
 
 1. the script is enabled, valid, compatible, approved, and secret-ready.
-2. its trigger appears in **Triggers** or `baudbound script triggers SCRIPT`.
+2. its trigger appears in **Doctor** or `baudbound script triggers SCRIPT`.
 3. the trigger family is enabled in `config.toml`.
 4. one runner service owns the runner home and listener port.
 5. the watched path, process, serial device, hotkey session, or network route exists.
@@ -188,7 +199,7 @@ HTTP Response, File Download, and File Read fail before returning oversized data
 
 ### Update is rejected
 
-Check system time, HTTPS access to the GitHub release endpoint, availability of the exact Windows or Linux artifact, and updater signature metadata. On Linux, the AppImage must remain writable by its owner. Do not bypass signature verification. Use the documented manual fallback from [Installation and Updates](installation.md).
+Check system time, HTTPS access to the GitHub release endpoint, availability of the correct artifact, and updater metadata. An AppImage must remain writable by its owner. Debian and RPM installations must be updated through APT or DNF and never through the AppImage updater. Do not bypass signature or checksum verification. Use the matching recovery steps from [Installation and Updates](installation.md).
 
 ## Collect a useful support report
 

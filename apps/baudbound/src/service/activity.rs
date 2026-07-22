@@ -141,6 +141,7 @@ mod tests {
     fn records_failed_dispatch_event() {
         let mut activity = ServiceActivity::default();
         let event = TriggerEvent {
+            action_type: "trigger.webhook".to_owned(),
             node_id: "trigger-1".to_owned(),
             payload: json!({ "value": 1 }),
             script_id: "script-1".to_owned(),

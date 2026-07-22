@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateReleaseAssets } from "./release-assets.mjs";
+import { checksumManifest } from "./release-checksums.mjs";
 
 const TAG = "v2.0.0";
 const REPOSITORY = "NATroutter/BaudBound";
@@ -90,6 +91,57 @@ test("rejects a release without both supported platforms", (context) => {
   );
 });
 
+test("rejects a release without a Debian package", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "BaudBound_2.0.0_amd64.deb"));
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /exactly one Linux Debian package/,
+  );
+});
+
+test("rejects a release without an RPM package", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "BaudBound-2.0.0-1.x86_64.rpm"));
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /exactly one Linux RPM package/,
+  );
+});
+
+test("rejects a native package with the wrong version", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "BaudBound_2.0.0_amd64.deb"));
+  write(directory, "BaudBound_1.9.0_amd64.deb", "linux-deb");
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /Debian package filename does not contain version 2\.0\.0/,
+  );
+});
+
+test("rejects a modified installer", (context) => {
+  const directory = createRelease(context);
+  write(directory, "BaudBound_2.0.0_amd64.deb", "modified-linux-deb");
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /checksum does not match SHA256SUMS/,
+  );
+});
+
+test("rejects a release without checksums", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "SHA256SUMS"));
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /release is missing SHA256SUMS/,
+  );
+});
+
 function createRelease(context, alterManifest = () => {}) {
   const directory = mkdtempSync(join(tmpdir(), "baudbound-release-test-"));
   context.after(() => rmSync(directory, { force: true, recursive: true }));
@@ -113,7 +165,14 @@ function createRelease(context, alterManifest = () => {}) {
   write(directory, `${windows}.sig`, windowsSignature);
   write(directory, linux, "linux-appimage");
   write(directory, `${linux}.sig`, linuxSignature);
+  write(directory, "BaudBound_2.0.0_amd64.deb", "linux-deb");
+  write(directory, "BaudBound-2.0.0-1.x86_64.rpm", "linux-rpm");
   write(directory, "latest.json", JSON.stringify(manifest));
+  const assets = new Map(
+    [windows, linux, "BaudBound_2.0.0_amd64.deb", "BaudBound-2.0.0-1.x86_64.rpm"]
+      .map((name) => [name, join(directory, name)]),
+  );
+  write(directory, "SHA256SUMS", checksumManifest(assets));
   return directory;
 }
 

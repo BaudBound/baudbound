@@ -17,7 +17,9 @@ describe("runner navigation", () => {
       "diagnostics",
     ]);
     expect(navigationItems.some((item) => item.id === "tools")).toBe(true);
-    expect(navigationItems.some((item) => String(item.id) === "devices")).toBe(false);
+    expect(navigationItems.some((item) => String(item.id) === "devices")).toBe(
+      false,
+    );
   });
 
   it("keeps About separate from the operational navigation groups", () => {
@@ -25,11 +27,19 @@ describe("runner navigation", () => {
     expect(navigationItems.at(-1)?.id).toBe("about");
   });
 
-  it("keeps trigger inspection inside Doctor instead of a dedicated destination", () => {
+  it("keeps registration diagnostics in Doctor and exposes live monitoring", () => {
     const inspect = navigationGroups.find((group) => group.label === "Inspect");
 
-    expect(inspect?.items.map((item) => item.id)).toEqual(["security", "runs", "logs"]);
-    expect(navigationItems.some((item) => String(item.id) === "triggers")).toBe(false);
+    expect(inspect?.items.map((item) => item.id)).toEqual([
+      "security",
+      "runs",
+      "logs",
+      "monitor",
+      "variables",
+    ]);
+    expect(navigationItems.some((item) => String(item.id) === "triggers")).toBe(
+      false,
+    );
   });
 
   it("uses the Tools page identity", () => {

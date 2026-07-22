@@ -126,6 +126,7 @@ impl ScheduleService {
                 (now >= schedule.next_due).then(|| {
                     let missed_intervals = advance_schedule(schedule, now);
                     TriggerEvent {
+                        action_type: schedule.registration.action_type.clone(),
                         node_id: schedule.registration.node_id.clone(),
                         payload: json!({
                             "interval_seconds": schedule_number_payload(

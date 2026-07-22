@@ -12,6 +12,18 @@ use baudbound_runtime::RunIdentity;
 use serde_json::Value;
 
 use super::*;
+use crate::trigger_monitor::{
+    TriggerMonitor, TriggerMonitorEvent, TriggerMonitorEventSink, TriggerMonitorStatus,
+};
+
+#[derive(Default)]
+struct CollectingMonitorSink(std::sync::Mutex<Vec<TriggerMonitorEvent>>);
+
+impl TriggerMonitorEventSink for CollectingMonitorSink {
+    fn publish(&self, event: TriggerMonitorEvent) {
+        self.0.lock().unwrap().push(event);
+    }
+}
 
 #[test]
 fn executes_different_scripts_concurrently() {
@@ -116,8 +128,19 @@ fn rejects_work_when_the_bounded_queue_is_full() {
             Ok(report_for_event(&event))
         }) as Arc<TriggerRunner>
     };
-    let mut executor = TriggerExecutor::with_runner(1, 1, "test", runner)
-        .expect("test trigger executor should start");
+    let monitor = TriggerMonitor::default();
+    let monitor_sink = Arc::new(CollectingMonitorSink::default());
+    monitor.connect_sink(monitor_sink.clone()).unwrap();
+    monitor.start();
+    let mut executor = TriggerExecutor::with_runner_and_cancellation(
+        1,
+        1,
+        "test",
+        runner,
+        baudbound_runtime::RuntimeCancellationToken::new(),
+        Some(monitor),
+    )
+    .expect("test trigger executor should start");
 
     executor
         .submit_from(event("running"), "test")
@@ -131,6 +154,14 @@ fn rejects_work_when_the_bounded_queue_is_full() {
     assert_eq!(
         executor.submit_from(event("rejected"), "test"),
         Err(TriggerSubmitError::Full)
+    );
+    let monitored = wait_for_monitor_events(&monitor_sink, 3);
+    assert_eq!(monitored[0].status, TriggerMonitorStatus::Queued);
+    assert_eq!(monitored[1].status, TriggerMonitorStatus::Queued);
+    assert_eq!(monitored[2].status, TriggerMonitorStatus::Rejected);
+    assert_eq!(
+        monitored[2].error.as_deref(),
+        Some("trigger execution queue is at capacity")
     );
 
     release.wait();
@@ -163,9 +194,15 @@ fn preserves_dispatch_failures_in_completions() {
 fn dropping_executor_cancels_its_shared_runtime_token() {
     let cancellation = baudbound_runtime::RuntimeCancellationToken::new();
     let runner = Arc::new(|event: TriggerEvent| Ok(report_for_event(&event))) as Arc<TriggerRunner>;
-    let executor =
-        TriggerExecutor::with_runner_and_cancellation(1, 1, "test", runner, cancellation.clone())
-            .expect("test trigger executor should start");
+    let executor = TriggerExecutor::with_runner_and_cancellation(
+        1,
+        1,
+        "test",
+        runner,
+        cancellation.clone(),
+        None,
+    )
+    .expect("test trigger executor should start");
 
     drop(executor);
 
@@ -225,12 +262,24 @@ fn wait_for_completions(executor: &mut TriggerExecutor, count: usize) -> Vec<Tri
     completions
 }
 
+fn wait_for_monitor_events(sink: &CollectingMonitorSink, count: usize) -> Vec<TriggerMonitorEvent> {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let events = sink.0.lock().unwrap().clone();
+        if events.len() >= count || Instant::now() >= deadline {
+            return events;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
 fn event(node_id: &str) -> TriggerEvent {
     event_for_script("script-1", node_id)
 }
 
 fn event_for_script(script_id: &str, node_id: &str) -> TriggerEvent {
     TriggerEvent {
+        action_type: "trigger.manual".to_owned(),
         node_id: node_id.to_owned(),
         payload: Value::Null,
         script_id: script_id.to_owned(),

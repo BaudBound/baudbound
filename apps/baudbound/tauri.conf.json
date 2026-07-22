@@ -34,7 +34,10 @@
   },
   "bundle": {
     "active": true,
+    "category": "Utility",
+    "copyright": "Copyright (c) 2026 NATroutter",
     "createUpdaterArtifacts": true,
+    "homepage": "https://baudbound.app",
     "resources": {
       "../../CONTENT-LICENSE.md": "CONTENT-LICENSE.md",
       "../../LICENSE.md": "LICENSE.md",
@@ -45,7 +48,12 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
-    ]
+    ],
+    "license": "PolyForm-Noncommercial-1.0.0",
+    "licenseFile": "../../LICENSE.md",
+    "longDescription": "BaudBound is a local-first visual automation platform. Build workflows in the browser-based editor and run them natively on Windows or Linux.",
+    "publisher": "NATroutter",
+    "shortDescription": "Local-first visual automation runner"
   },
   "plugins": {
     "updater": {

@@ -28,7 +28,7 @@ export function desktopRuntimeHealth(dashboard: DashboardPayload): RuntimeHealth
   if (runner.state === "failed") {
     return {
       detail: runner.message || "Desktop background runner failed.",
-      issue: "Desktop app trigger listeners are not available until it starts again.",
+      issue: "Desktop trigger listeners are unavailable until the background runner starts again.",
       label: "Failed",
       state: "problem",
     };

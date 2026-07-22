@@ -87,8 +87,14 @@ pub fn serve_triggers_with_control(
     }
     let service_control = ServiceControlServer::bind()?;
     let cancellation = RuntimeCancellationToken::new();
-    let mut trigger_executor = TriggerExecutor::new(core, store, "listener", cancellation.clone())
-        .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;
+    let mut trigger_executor = TriggerExecutor::new(
+        core,
+        store,
+        "listener",
+        cancellation.clone(),
+        options.trigger_monitor.clone(),
+    )
+    .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;
     let status_revision = store
         .read_service_status()
         .context("failed to read the previous runner service status")?

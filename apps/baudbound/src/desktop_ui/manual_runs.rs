@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use baudbound_core::{CoreError, RunnerCore};
+use baudbound_core::{CoreError, RunnerCore, TriggerEvent};
 use baudbound_runtime::RuntimeError;
 use baudbound_storage::SqliteRunnerStore;
 use tauri::{Runtime, State, WebviewWindow};
@@ -13,6 +13,7 @@ use super::{
     command_guard::{SensitiveOperation, SensitiveOperationGuard},
     consume_sensitive_operation, current_core,
 };
+use crate::trigger_monitor::{TriggerMonitor, TriggerMonitorStatus};
 
 #[tauri::command]
 pub(super) async fn run_script<R: Runtime>(
@@ -33,11 +34,13 @@ pub(super) async fn run_script<R: Runtime>(
     )?;
     let core = Arc::clone(&state.core);
     let store = state.store.clone();
+    let trigger_monitor = state.trigger_monitor.clone();
 
-    let message =
-        tauri::async_runtime::spawn_blocking(move || execute_manual_run(core, store, reference))
-            .await
-            .map_err(|error| format!("manual script worker failed: {error}"))??;
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        execute_manual_run(core, store, reference, trigger_monitor)
+    })
+    .await
+    .map_err(|error| format!("manual script worker failed: {error}"))??;
 
     let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
     Ok(ActionPayload { dashboard, message })
@@ -47,11 +50,32 @@ fn execute_manual_run(
     core: Arc<Mutex<RunnerCore>>,
     store: SqliteRunnerStore,
     reference: String,
+    trigger_monitor: TriggerMonitor,
 ) -> Result<String, String> {
     let core = core
         .lock()
         .map_err(|_| "runner core lock is poisoned".to_owned())?
         .clone();
+    if let Ok(Some(registration)) = core
+        .list_trigger_registrations(&store, Some(&reference))
+        .map(|registrations| {
+            registrations
+                .into_iter()
+                .find(|registration| registration.action_type == "trigger.manual")
+        })
+    {
+        trigger_monitor.observe_submission(
+            &TriggerEvent {
+                action_type: registration.action_type,
+                node_id: registration.node_id,
+                payload: serde_json::Value::Null,
+                script_id: registration.script_id,
+            },
+            "manual",
+            TriggerMonitorStatus::Queued,
+            None,
+        );
+    }
     match core.run_installed(&store, &reference) {
         Ok(report) => Ok(format!(
             "Run {} completed for {reference}.",

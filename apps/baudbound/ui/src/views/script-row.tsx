@@ -1,8 +1,7 @@
-import { ChevronDown, ChevronUp, Info, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { Eye, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { ActionMenu } from "@/components/ui/action-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DashboardAction } from "@/lib/app-types";
@@ -21,24 +20,19 @@ import {
   riskVariant,
 } from "@/lib/status-format";
 import { scriptRunControl } from "@/lib/script-run-control";
-import { cn } from "@/lib/utils";
 
 export function ScriptRow({
   activeRuns,
   busyActions,
-  expanded,
-  onToggleDetails,
   onReviewApproval,
-  onShowAbout,
+  onViewDetails,
   runAction,
   script,
 }: {
   activeRuns: ActiveRun[];
   busyActions: Set<string>;
-  expanded: boolean;
-  onToggleDetails: (scriptId: string) => void;
   onReviewApproval: (scriptId: string) => void;
-  onShowAbout: (scriptId: string) => void;
+  onViewDetails: (scriptId: string) => void;
   runAction: DashboardAction;
   script: ScriptStatus;
 }) {
@@ -58,28 +52,11 @@ export function ScriptRow({
     activeRuns.length > 0 && activeRuns.every((run) => run.cancellation_requested);
 
   return (
-    <tr
-      className={cn(
-        "border-b border-border align-top last:border-b-0",
-        expanded && "bg-muted/35",
-      )}
-    >
+    <tr className="border-b border-border align-top last:border-b-0">
       <td className="px-3 py-3" data-label="Name">
-        <div className="flex items-start gap-2">
-          <Button
-            aria-label={`${expanded ? "Hide" : "Show"} details for ${script.installed.name}`}
-            className="mt-[-3px] size-7 p-0"
-            onClick={() => onToggleDetails(reference)}
-            size="sm"
-            title={expanded ? "Hide details" : "Show details"}
-            variant={expanded ? "secondary" : "outline"}
-          >
-            {expanded ? <ChevronUp /> : <ChevronDown />}
-          </Button>
-          <div className="min-w-0">
-            <div className="font-medium">{script.installed.name}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">{reference}</div>
-          </div>
+        <div className="min-w-0">
+          <div className="font-medium">{script.installed.name}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{reference}</div>
         </div>
         {script.package_error ? (
           <div className="mt-1 max-w-[360px] text-xs text-destructive">
@@ -107,8 +84,8 @@ export function ScriptRow({
       <td className="hidden px-3 py-3 xl:table-cell" data-label="Target">
         {script.installed.target_runtime}
       </td>
-      <td className="px-3 py-3" data-label="Run">
-        <div className="flex justify-start">
+      <td className="px-3 py-3" data-label="Actions">
+        <div className="ml-auto flex w-[11.5rem] justify-between max-[1280px]:ml-0">
           {runControl === "stop" ? (
             <Button
               aria-label={`Stop ${script.installed.name}`}
@@ -142,10 +119,16 @@ export function ScriptRow({
               </Button>
             </span>
           )}
-        </div>
-      </td>
-      <td className="px-3 py-3" data-label="Actions">
-        <div className="flex justify-start gap-1.5">
+          <Button
+            aria-label={`View details for ${script.installed.name}`}
+            className="size-8 p-0"
+            onClick={() => onViewDetails(reference)}
+            size="sm"
+            title="View details"
+            variant="outline"
+          >
+            <Eye />
+          </Button>
           <Button
             aria-label={`Review approval for ${script.installed.name}`}
             className="size-8 p-0"
@@ -157,35 +140,32 @@ export function ScriptRow({
           >
             <ShieldCheck />
           </Button>
-          <ActionMenu
-            items={[
-              {
-                icon: Info,
-                id: "about",
-                label: "About",
-                onSelect: () => onShowAbout(reference),
-              },
-              {
-                disabled: busyActions.has(toggleAction),
-                icon: Power,
-                id: "toggle",
-                label: script.installed.enabled ? "Disable" : "Enable",
-                onSelect: () =>
-                  runAction(toggleAction, () =>
-                    setScriptEnabled(reference, !script.installed.enabled),
-                  ),
-              },
-              {
-                destructive: true,
-                disabled: busyActions.has(removeAction),
-                icon: Trash2,
-                id: "remove",
-                label: "Remove",
-                onSelect: () => setConfirmRemoveOpen(true),
-              },
-            ]}
-            label={`More actions for ${script.installed.name}`}
-          />
+          <Button
+            aria-label={`${script.installed.enabled ? "Disable" : "Enable"} ${script.installed.name}`}
+            className="size-8 p-0"
+            disabled={busyActions.has(toggleAction)}
+            onClick={() =>
+              runAction(toggleAction, () =>
+                setScriptEnabled(reference, !script.installed.enabled),
+              )
+            }
+            size="sm"
+            title={script.installed.enabled ? "Disable" : "Enable"}
+            variant="outline"
+          >
+            <Power />
+          </Button>
+          <Button
+            aria-label={`Remove ${script.installed.name}`}
+            className="size-8 p-0"
+            disabled={busyActions.has(removeAction)}
+            onClick={() => setConfirmRemoveOpen(true)}
+            size="sm"
+            title="Remove"
+            variant="destructive"
+          >
+            <Trash2 />
+          </Button>
           <ConfirmDialog
             confirmLabel="Remove"
             description={`Remove ${script.installed.name} from this runner. The installed package copy and approval record will be deleted from local runner storage.`}

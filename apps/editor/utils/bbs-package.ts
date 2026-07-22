@@ -160,13 +160,16 @@ export async function exportBbsPackage(params: {
 
 	const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
 	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
 	try {
-		const link = document.createElement("a");
 		link.href = url;
 		link.download = `${slugFromName(params.projectSettings.name)}.bbs`;
+		link.hidden = true;
+		document.body.append(link);
 		link.click();
 	} finally {
-		window.setTimeout(() => URL.revokeObjectURL(url), 0);
+		link.remove();
+		window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 	}
 }
 

@@ -35,7 +35,7 @@ export function ScriptProblemPanel({
     <Card>
       <CardHeader className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <CardTitle>Script attention needed</CardTitle>
+          <CardTitle>Scripts needing attention</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
             Resolve approval, package integrity, and trigger registration issues before relying on automatic execution.
           </p>

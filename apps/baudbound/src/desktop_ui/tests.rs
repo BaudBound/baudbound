@@ -34,6 +34,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
             Arc::clone(&websocket_registry),
             config_path.clone(),
             core.serial_connections(),
+            crate::trigger_monitor::TriggerMonitor::default(),
         )),
         background_runner: DesktopRunnerSupervisor::default(),
         config_path: config_path.clone(),
@@ -44,6 +45,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         store,
         websocket_registry,
         operation_lock: Arc::new(Mutex::new(())),
+        trigger_monitor: crate::trigger_monitor::TriggerMonitor::default(),
     };
     let app = test::mock_builder()
         .plugin(

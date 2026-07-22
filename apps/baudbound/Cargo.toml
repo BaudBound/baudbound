@@ -3,7 +3,8 @@ name = "baudbound"
 description = "BaudBound runner."
 edition.workspace = true
 version.workspace = true
-authors.workspace = true
+authors = ["NATroutter"]
+homepage = "https://baudbound.app"
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
@@ -36,6 +37,7 @@ rodio = { version = "0.22.2", default-features = false, features = [
 	"mp3",
 	"mp4",
 	"playback",
+	"tracing",
 	"vorbis",
 	"wav",
 ] }
@@ -54,6 +56,7 @@ toml.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+zip.workspace = true
 windows-sys = { version = "0.61.2", features = [
 	"Win32_Foundation",
 	"Win32_Graphics_Dwm",
@@ -70,7 +73,6 @@ rusqlite.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.11.5", features = ["test"] }
 tempfile.workspace = true
-zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 enigo = "0.6.1"

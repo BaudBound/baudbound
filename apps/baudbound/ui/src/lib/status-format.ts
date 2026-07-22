@@ -8,6 +8,25 @@ export function approvalLabel(status: ApprovalStatus) {
   return approvalLabelByState(approvalState(status));
 }
 
+export function approvalIssueDescription(status: ApprovalStatus) {
+  switch (status.state) {
+    case "current":
+      return null;
+    case "missing":
+      return "This script needs approval.";
+    case "package_unavailable":
+      return "The installed package is unavailable, so its approval cannot be verified.";
+    case "permission_mismatch":
+      return "Approval is outdated because the package permissions changed.";
+    case "stale_package_hash":
+      return "Approval is outdated because the package content changed.";
+    case "error":
+      return status.message ?? "The approval check failed.";
+    case "unknown":
+      return "The approval status is unknown.";
+  }
+}
+
 export function isPackageHashValid(status: PackageHashStatus) {
   return packageHashState(status) === "valid";
 }

@@ -162,6 +162,27 @@ fn rejects_invalid_http_configuration_and_connection_failures() {
     assert!(error.to_string().contains("HTTP request GET"));
 }
 
+#[test]
+fn refuses_to_send_malformed_json_request_bodies() {
+    let error = execute(
+        "action.http",
+        json!({
+            "method": "POST",
+            "url": "http://127.0.0.1:1/not-reached",
+            "headers": {"Content-Type": "application/json"},
+            "timeoutSeconds": 1,
+            "body": "{\"data\":\"scanner\r\"}"
+        }),
+    )
+    .expect_err("raw control characters must not be sent as JSON");
+
+    assert!(
+        error
+            .to_string()
+            .contains("HTTP request body is not valid JSON")
+    );
+}
+
 struct LoopbackHttpServer {
     join_handle: thread::JoinHandle<String>,
     url: String,

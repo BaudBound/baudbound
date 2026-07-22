@@ -64,6 +64,30 @@ export type GeneratedTriggerToken = {
   token: string;
 };
 
+export type TriggerMonitorStatus = "queued" | "rejected";
+
+export type TriggerMonitorEvent = {
+  action_type: string;
+  error: string | null;
+  node_id: string;
+  omitted_event_count: number;
+  payload_bytes: number;
+  payload_json: string;
+  payload_truncated: boolean;
+  script_id: string;
+  sequence: number;
+  session_id: number;
+  source: string;
+  status: TriggerMonitorStatus;
+  timestamp_unix_ms: number;
+};
+
+export type TriggerMonitorState = {
+  enabled: boolean;
+  omitted_event_count: number;
+  session_id: number;
+};
+
 export type ScriptStatus = {
   approval_status: ApprovalStatus;
   declared_permissions: string[];
@@ -334,6 +358,85 @@ export type StoredRunRecord = {
   variables: Record<string, unknown>;
 };
 
+export type SortDirection = "ascending" | "descending";
+
+export type PaginatedRecords<T> = {
+  items: T[];
+  total: number;
+};
+
+export type RunHistoryQuery = {
+  direction: SortDirection;
+  limit: number;
+  offset: number;
+  script_id: string | null;
+  search: string;
+  sort:
+    | "completed"
+    | "recent_log"
+    | "run_id"
+    | "script"
+    | "status"
+    | "trigger"
+    | "trigger_type";
+  status: string | null;
+};
+
+export type RunLogQuery = {
+  direction: SortDirection;
+  limit: number;
+  offset: number;
+  search: string;
+  sort: "level" | "message" | "node" | "run" | "script" | "time" | "type";
+};
+
+export type StoredRunLogRecord = {
+  action_type: string | null;
+  level: string;
+  log_index: number;
+  message: string;
+  node_id: string | null;
+  run_id: string;
+  script_id: string;
+  script_name: string;
+  timestamp_unix_ms: number;
+};
+
+export type StoredVariableRecord = {
+  name: string;
+  scope: "global" | "persistent";
+  script_id: string | null;
+  script_name: string | null;
+  updated_at_unix: number;
+  value: unknown;
+  version: number;
+};
+
+export type StoredVariableChange = Omit<StoredVariableRecord, "script_name">;
+
+export type DeclaredVariableRecord = {
+  description: string;
+  name: string;
+  scope: "persistent" | "runtime";
+  script_id: string;
+  script_name: string;
+  value: unknown;
+  value_type: string;
+};
+
+export type VariableInventory = {
+  declared: DeclaredVariableRecord[];
+  script_names: Record<string, string>;
+  stored: StoredVariableRecord[];
+  warnings: string[];
+};
+
+export type ExportResult = {
+  cancelled: boolean;
+  exported_count: number;
+  file_name: string | null;
+};
+
 export type RunStatistics = {
   cancelled: number;
   completed: number;
@@ -521,14 +624,36 @@ async function invokeSensitive<T>(
   operation: SensitiveOperation,
   args: Record<string, unknown>,
 ) {
-  const challenge = await invoke<ConfirmationChallenge>("prepare_sensitive_operation", {
-    operation,
+  const challenge = await invoke<ConfirmationChallenge>(
+    "prepare_sensitive_operation",
+    {
+      operation,
+    },
+  );
+  return invoke<T>(command, {
+    ...args,
+    confirmationId: challenge.confirmation_id,
   });
-  return invoke<T>(command, { ...args, confirmationId: challenge.confirmation_id });
 }
 
 export function getDashboardState() {
   return invoke<DashboardPayload>("dashboard_state");
+}
+
+export function getTriggerMonitorState() {
+  return invoke<TriggerMonitorState>("trigger_monitor_state");
+}
+
+export function startTriggerMonitor() {
+  return invoke<TriggerMonitorState>("start_trigger_monitor");
+}
+
+export function stopTriggerMonitor() {
+  return invoke<TriggerMonitorState>("stop_trigger_monitor");
+}
+
+export function clearTriggerMonitor() {
+  return invoke<TriggerMonitorState>("clear_trigger_monitor");
 }
 
 export function readRunnerConfig() {
@@ -539,22 +664,36 @@ export function shouldCheckForUpdate() {
   return invoke<boolean>("should_check_for_update");
 }
 
-export function recordUpdateCheck(latestVersion: string | null, releaseNotes: string | null) {
+export function recordUpdateCheck(
+  latestVersion: string | null,
+  releaseNotes: string | null,
+) {
   return invoke<void>("record_update_check", { latestVersion, releaseNotes });
 }
 
 export function saveRunnerConfig(contents: string, restartBackground: boolean) {
   return invokeSensitive<ActionPayload>(
     "save_runner_config",
-    { kind: "save_runner_config", contents, restart_background: restartBackground },
+    {
+      kind: "save_runner_config",
+      contents,
+      restart_background: restartBackground,
+    },
     { contents, restartBackground },
   );
 }
 
-export function saveRunnerConfigModel(config: RunnerConfig, restartBackground: boolean) {
+export function saveRunnerConfigModel(
+  config: RunnerConfig,
+  restartBackground: boolean,
+) {
   return invokeSensitive<ActionPayload>(
     "save_runner_config_model",
-    { kind: "save_runner_config_model", config, restart_background: restartBackground },
+    {
+      kind: "save_runner_config_model",
+      config,
+      restart_background: restartBackground,
+    },
     { config, restartBackground },
   );
 }
@@ -592,15 +731,17 @@ export function discoverMonitors() {
 }
 
 export function startCoordinatePicker() {
-  return invoke<CoordinatePickerStartPayload>("start_coordinate_picker").catch((error) => {
-    const message = String(error);
-    if (message.includes("Command start_coordinate_picker not found")) {
-      throw new Error(
-        "The coordinate picker requires the latest desktop backend. Close BaudBound and start the desktop app again so the new Rust command is available.",
-      );
-    }
-    throw error;
-  });
+  return invoke<CoordinatePickerStartPayload>("start_coordinate_picker").catch(
+    (error) => {
+      const message = String(error);
+      if (message.includes("Command start_coordinate_picker not found")) {
+        throw new Error(
+          "The coordinate picker requires the latest desktop backend. Close BaudBound and start the desktop app again so the new Rust command is available.",
+        );
+      }
+      throw error;
+    },
+  );
 }
 
 export function selectCoordinatePicker(sessionId: string) {
@@ -612,7 +753,9 @@ export function cancelCoordinatePicker(sessionId: string) {
 }
 
 export function selectPackageFile(operation: "import" | "update") {
-  return invoke<PackageFileSelection | null>("select_package_file", { operation });
+  return invoke<PackageFileSelection | null>("select_package_file", {
+    operation,
+  });
 }
 
 export function approveScript(reference: string) {
@@ -670,7 +813,35 @@ export function clearRunHistory() {
 }
 
 export function clearRunLogs() {
-  return invokeSensitive<ActionPayload>("clear_run_logs", { kind: "clear_run_logs" }, {});
+  return invokeSensitive<ActionPayload>(
+    "clear_run_logs",
+    { kind: "clear_run_logs" },
+    {},
+  );
+}
+
+export function queryRunHistory(query: RunHistoryQuery) {
+  return invoke<PaginatedRecords<StoredRunRecord>>("query_runs", { query });
+}
+
+export function queryRunLogs(query: RunLogQuery) {
+  return invoke<PaginatedRecords<StoredRunLogRecord>>("query_logs", { query });
+}
+
+export function getVariableInventory() {
+  return invoke<VariableInventory>("variable_inventory");
+}
+
+export function exportRuns(runIds: string[]) {
+  return invoke<ExportResult>("export_runs", { runIds });
+}
+
+export function exportLogs(format: "csv" | "json", query: RunLogQuery) {
+  return invoke<ExportResult>("export_logs", { format, query });
+}
+
+export function exportVariables() {
+  return invoke<ExportResult>("export_variables");
 }
 
 export function runScript(reference: string) {
@@ -733,7 +904,11 @@ export function setNetworkTriggerAuthEnabled(
   );
 }
 
-export function setScriptSecret(reference: string, name: string, value: string) {
+export function setScriptSecret(
+  reference: string,
+  name: string,
+  value: string,
+) {
   return invokeSensitive<ActionPayload>(
     "set_script_secret",
     { kind: "set_script_secret", name, reference, value },

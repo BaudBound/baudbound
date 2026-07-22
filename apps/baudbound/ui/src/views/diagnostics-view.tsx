@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCount } from "@/lib/count-format";
 import type { DashboardPayload, NativeDoctorCheck } from "@/lib/runner-api";
 import { TriggerRegistrationPanel } from "@/views/diagnostics/trigger-registration-panel";
 
@@ -188,7 +189,7 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
       : referencedSerialDevices.size > 0
         ? `${referencedSerialDevices.size} serial device ID${referencedSerialDevices.size === 1 ? "" : "s"} referenced by installed scripts.`
         : serialDevices.length > 0
-          ? `${serialDevices.length} local serial device config${serialDevices.length === 1 ? "" : "s"} available.`
+          ? `${formatCount(serialDevices.length, "local serial device configuration")} available.`
           : "No serial devices are configured or referenced.";
 
   return [
@@ -228,7 +229,7 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
     {
       detail: hasEnabledScripts
         ? `${dashboard.runner.enabled_script_count} script${dashboard.runner.enabled_script_count === 1 ? "" : "s"} enabled.`
-        : "All installed scripts are disabled.",
+        : "No scripts are enabled.",
       icon: <CheckCircle2 className="size-4" />,
       label: "Enabled scripts",
       state: hasEnabledScripts ? "ok" : "warn",

@@ -5,14 +5,17 @@ import {
   Gauge,
   Info,
   MonitorCog,
+  RadioTower,
   ScrollText,
   ShieldCheck,
   Stethoscope,
+  Variable,
   Wrench,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
 import type { TabId } from "@/lib/app-types";
+import { formatCount } from "@/lib/count-format";
 import type { DashboardPayload } from "@/lib/runner-api";
 
 export type NavigationItem = {
@@ -21,7 +24,10 @@ export type NavigationItem = {
   label: string;
 };
 
-export const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
+export const navigationGroups: Array<{
+  items: NavigationItem[];
+  label: string;
+}> = [
   {
     label: "Operate",
     items: [
@@ -36,6 +42,8 @@ export const navigationGroups: Array<{ items: NavigationItem[]; label: string }>
       { icon: ShieldCheck, id: "security", label: "Security" },
       { icon: FileClock, id: "runs", label: "Runs" },
       { icon: ClipboardCheck, id: "logs", label: "Logs" },
+      { icon: RadioTower, id: "monitor", label: "Monitor" },
+      { icon: Variable, id: "variables", label: "Variables" },
     ],
   },
   {
@@ -64,25 +72,31 @@ export function pageTitle(activeTab: TabId) {
     dashboard: "Dashboard",
     diagnostics: "Doctor",
     logs: "Logs",
+    monitor: "Monitor",
     runs: "Runs",
     scripts: "Scripts",
     security: "Security",
     service: "Service",
     tools: "Tools",
+    variables: "Variables",
   };
   return labels[activeTab];
 }
 
-export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | null) {
+export function pageSubtitle(
+  activeTab: TabId,
+  dashboard: DashboardPayload | null,
+) {
   if (!dashboard) return "Loading runner state...";
   if (activeTab === "about") {
     return "Application information, project links, and updates";
   }
   if (activeTab === "scripts") {
-    return `${dashboard.runner.total_script_count} installed scripts`;
+    return formatCount(dashboard.runner.total_script_count, "installed script");
   }
   if (activeTab === "security") {
-    return `${dashboard.runner.problem_count} scripts need attention`;
+    const count = dashboard.runner.problem_count;
+    return `${formatCount(count, "script")} ${count === 1 ? "needs" : "need"} attention`;
   }
   if (activeTab === "tools") {
     return "Utilities for inspecting and configuring the local runner";
@@ -94,10 +108,16 @@ export function pageSubtitle(activeTab: TabId, dashboard: DashboardPayload | nul
     return dashboard.config_path;
   }
   if (activeTab === "runs") {
-    return `${dashboard.run_statistics.total} retained run records`;
+    return formatCount(dashboard.run_statistics.total, "retained run record");
   }
   if (activeTab === "logs") {
     return "Recent run output and action messages";
+  }
+  if (activeTab === "monitor") {
+    return "Live input from registered triggers";
+  }
+  if (activeTab === "variables") {
+    return "Stored values and defaults declared by installed scripts";
   }
   if (activeTab === "diagnostics") {
     return "Readiness checks and troubleshooting signals";

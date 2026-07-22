@@ -16,6 +16,7 @@ import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
 import { useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
+import { visibleText } from "@/lib/visible-text";
 
 const allLevels = "all";
 
@@ -169,7 +170,9 @@ export function RunLogPanel({
                     {log.action_type ?? "-"}
                   </td>
                   <td className="px-3 py-2" data-label="Message">
-                    {log.message}
+                    <span className="break-words font-mono text-xs">
+                      {visibleText(log.message)}
+                    </span>
                   </td>
                 </tr>
               ))}

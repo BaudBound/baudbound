@@ -7,6 +7,8 @@ export type TabId =
   | "tools"
   | "runs"
   | "logs"
+  | "monitor"
+  | "variables"
   | "service"
   | "config"
   | "diagnostics"

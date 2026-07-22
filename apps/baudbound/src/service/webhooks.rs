@@ -257,8 +257,14 @@ pub(super) fn build_webhook_host(
     Ok(Some(WebhookHost {
         allow_browser_origins: options.webhook_allow_browser_origins.clone(),
         authenticator: Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store)),
-        executor: TriggerExecutor::new(core, store, "webhook", cancellation.clone())
-            .map_err(|error| anyhow!("failed to start webhook executor: {error}"))?,
+        executor: TriggerExecutor::new(
+            core,
+            store,
+            "webhook",
+            cancellation.clone(),
+            options.trigger_monitor.clone(),
+        )
+        .map_err(|error| anyhow!("failed to start webhook executor: {error}"))?,
         pending: BTreeMap::new(),
         server,
         service,

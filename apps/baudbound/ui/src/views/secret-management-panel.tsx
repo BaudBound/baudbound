@@ -1,4 +1,6 @@
 import {
+  Eye,
+  EyeOff,
   KeyRound,
   LoaderCircle,
   LockKeyhole,
@@ -45,6 +47,7 @@ export function SecretManagementPanel({
   runAction: DashboardAction;
 }) {
   const [selection, setSelection] = useState<SecretSelection | null>(null);
+  const [valueVisible, setValueVisible] = useState(false);
   const [value, setValue] = useState("");
   const scriptsWithSecrets = dashboard.runner.scripts.filter(
     (script) => (dashboard.secret_statuses[script.installed.id] ?? []).length > 0,
@@ -55,6 +58,7 @@ export function SecretManagementPanel({
   const close = () => {
     setSelection(null);
     setValue("");
+    setValueVisible(false);
   };
   const save = async () => {
     if (!selection || value === "") return;
@@ -159,6 +163,7 @@ export function SecretManagementPanel({
                                 secret,
                               });
                               setValue("");
+                              setValueVisible(false);
                             }}
                           >
                             <LockKeyhole /> {secret.configured ? "Replace" : "Configure"}
@@ -201,16 +206,28 @@ export function SecretManagementPanel({
           </DialogHeader>
           <label className="grid gap-1.5 text-sm">
             Secret value
-            <Input
-              autoComplete="new-password"
-              autoFocus
-              type="password"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void save();
-              }}
-            />
+            <div className="relative w-full">
+              <Input
+                autoComplete="new-password"
+                autoFocus
+                className="secret-value-input w-full pr-10"
+                type={valueVisible ? "text" : "password"}
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void save();
+                }}
+              />
+              <button
+                aria-label={valueVisible ? "Hide secret value" : "Show secret value"}
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45"
+                onClick={() => setValueVisible((visible) => !visible)}
+                title={valueVisible ? "Hide secret value" : "Show secret value"}
+                type="button"
+              >
+                {valueVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
           </label>
           <p className="text-xs text-muted-foreground">
             Expected type: {selection?.secret.value_type}. Objects and lists use JSON syntax.

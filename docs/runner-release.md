@@ -4,8 +4,11 @@ BaudBound desktop releases are built only by the tag-gated GitHub Actions workfl
 
 - a Windows NSIS installer;
 - a Linux AppImage built on Ubuntu 22.04;
+- a Debian package for 64-bit Debian and Ubuntu;
+- an RPM package for 64-bit Fedora;
 - Tauri updater signatures; and
-- `latest.json`, which points installed desktop applications to the signed platform artifact.
+- `latest.json`, which points self-updating desktop installations to the signed platform artifact; and
+- `SHA256SUMS`, which records the installer and package checksums.
 
 ## Signing Identity
 
@@ -73,7 +76,7 @@ The normal assisted release flow is:
 # After CI creates the draft release:
 & $releaseTool -Action Inspect -Version $version
 
-# Only after manually testing both downloaded platform packages:
+# Only after manually testing every downloaded platform package:
 & $releaseTool -Action Publish -Version $version -ConfirmPublish
 ```
 
@@ -247,7 +250,7 @@ git tag -a $tag -m "BaudBound $tag"
 git push origin $tag
 ```
 
-Pushing the tag starts `.github/workflows/runner-release.yml`. The workflow reruns the full quality gate, builds Windows NSIS and Linux AppImage packages, signs updater artifacts, generates `latest.json`, and creates a draft GitHub Release.
+Pushing the tag starts `.github/workflows/runner-release.yml`. The workflow reruns the full quality gate, builds the Windows NSIS installer and the Linux AppImage, Debian, and RPM packages, signs updater artifacts, generates `latest.json`, and creates a draft GitHub Release.
 
 ## Monitor The Release Build
 
@@ -312,7 +315,10 @@ The draft must contain at least:
 - its `.sig` updater signature;
 - a Linux AppImage;
 - its `.sig` updater signature; and
-- `latest.json`.
+- a Debian `.deb` package;
+- an `.rpm` package;
+- `latest.json`; and
+- `SHA256SUMS` containing all four installable artifacts.
 
 Inspect the updater manifest:
 
@@ -343,22 +349,28 @@ Before publishing the draft:
 
 1. Install the NSIS package on a clean Windows test environment.
 2. Confirm shortcuts, first launch, config initialization, CLI commands, and uninstall registration.
-3. Run the AppImage on the supported Linux test environments.
-4. Confirm the application reports the expected version:
+3. Install the Debian package with APT on a clean supported Debian or Ubuntu test environment.
+4. Install the RPM package with DNF on a clean supported Fedora test environment.
+5. Confirm both native packages add the application-menu launcher and `baudbound` command.
+6. Run the AppImage on the supported Linux test environments.
+7. Confirm every installation reports the expected version:
 
 ```powershell
 baudbound --version
 ```
 
-5. Import, approve, and run a small known package.
-6. Start and stop the desktop background runner.
-7. Import a package with Webhook and WebSocket triggers, approve it, and confirm the one time token dialog shows each new token before the values become unrecoverable.
-8. Confirm a Webhook request without `X-BaudBound-Token` receives `401` and the current token succeeds.
-9. Confirm a WebSocket handshake without a token is rejected and the current token succeeds.
-10. Confirm a public bind refuses to start when one matching trigger has authentication disabled and the unsafe override is off.
-11. Confirm oversized HTTP responses, downloads, and file reads fail without replacing an existing download destination.
-12. Confirm Run Process is shown as Dangerous and requires approval for the current revision.
-13. Review generated release notes and remove unrelated or misleading text.
+8. Import, approve, and run a small known package.
+9. Start and stop the desktop background runner.
+10. Import a package with Webhook and WebSocket triggers, approve it, and confirm the one time token dialog shows each new token before the values become unrecoverable.
+11. Confirm a Webhook request without `X-BaudBound-Token` receives `401` and the current token succeeds.
+12. Confirm a WebSocket handshake without a token is rejected and the current token succeeds.
+13. Confirm a public bind refuses to start when one matching trigger has authentication disabled and the unsafe override is off.
+14. Confirm oversized HTTP responses, downloads, and file reads fail without replacing an existing download destination.
+15. Confirm Run Process is shown as Dangerous and requires approval for the current revision.
+16. Upgrade each native package by installing the newer file over the old version, then remove and reinstall it.
+17. Confirm package upgrades and removal preserve the runner data in the user profile.
+18. Confirm Debian and RPM installations show package-manager update instructions instead of in-app installation buttons.
+19. Review generated release notes and remove unrelated or misleading text.
 
 The release notes must explain that network trigger tokens are runner owned, approval shows new values once, and generating a replacement shows that value only once. They must also call out the exact browser Origin allowlist, public bind refusal, Run Process risk change, and external data limits. Existing pre-release integrations must be updated with a current token before they can call a protected trigger.
 
@@ -366,7 +378,7 @@ The release remains invisible to the production updater while it is a draft.
 
 ## Publish The Release
 
-Publish and explicitly mark the release as latest only after both platform artifacts pass validation:
+Publish and explicitly mark the release as latest only after all platform artifacts pass validation:
 
 ```powershell
 gh release edit $tag --draft=false --latest

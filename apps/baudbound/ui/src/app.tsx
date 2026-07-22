@@ -1,9 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import {
-  Activity,
-  RefreshCw,
-  ShieldCheck,
-} from "lucide-react";
+import { Activity, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -27,6 +23,7 @@ import {
   type ActiveRunState,
 } from "@/lib/active-run-events";
 import type { DashboardAction, Notice, TabId } from "@/lib/app-types";
+import { formatCount } from "@/lib/count-format";
 import {
   navigationGroups,
   navigationItems,
@@ -43,8 +40,12 @@ import {
   type ServiceStatusEvent,
   getDashboardState,
 } from "@/lib/runner-api";
-import { createDesktopTimeFormatter, DesktopTimeProvider } from "@/lib/time-format";
+import {
+  createDesktopTimeFormatter,
+  DesktopTimeProvider,
+} from "@/lib/time-format";
 import { useAppUpdater } from "@/hooks/use-app-updater";
+import { useTriggerMonitor } from "@/hooks/use-trigger-monitor";
 import { AboutView } from "@/views/about-view";
 import { DashboardView } from "@/views/dashboard-view";
 import { DiagnosticsView } from "@/views/diagnostics-view";
@@ -55,9 +56,13 @@ import { OneTimeTriggerTokensDialog } from "@/views/security/one-time-trigger-to
 import { ScriptsView } from "@/views/scripts-view";
 import { ServiceView } from "@/views/service-view";
 import { ToolsView } from "@/views/tools-view";
+import { TriggerMonitorView } from "@/views/trigger-monitor-view";
+import { VariablesView } from "@/views/variables-view";
 
 const ConfigView = lazy(() =>
-  import("@/views/config-view").then((module) => ({ default: module.ConfigView })),
+  import("@/views/config-view").then((module) => ({
+    default: module.ConfigView,
+  })),
 );
 const activeRunEventChannel = "runner-active-run";
 const serviceStatusEventChannel = "runner-service-status";
@@ -65,12 +70,17 @@ const desktopRunnerEventChannel = "runner-desktop-background";
 const secretVaultEventChannel = "runner-secret-vault";
 
 export function App() {
+  const triggerMonitor = useTriggerMonitor();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
-  const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
+  const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(
+    null,
+  );
   const [busyActions, setBusyActions] = useState<Set<string>>(new Set());
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
-  const [generatedTriggerTokens, setGeneratedTriggerTokens] = useState<GeneratedTriggerToken[]>([]);
+  const [generatedTriggerTokens, setGeneratedTriggerTokens] = useState<
+    GeneratedTriggerToken[]
+  >([]);
   const dashboardRef = useRef<DashboardPayload | null>(null);
   const backgroundStopPending = useRef(false);
   const backgroundStopRequestAcknowledged = useRef(false);
@@ -103,45 +113,49 @@ export function App() {
     dashboard?.automatic_update_checks ?? false,
   );
 
-  const installDashboard = useCallback((incoming: DashboardPayload) => {
-    const current = dashboardRef.current;
-    let acceptedIncoming =
-      current &&
-      incoming.desktop_background.revision < current.desktop_background.revision
-        ? { ...incoming, desktop_background: current.desktop_background }
-        : incoming;
-    if (
-      current?.service_status &&
-      (incoming.service_status?.status_revision ?? 0) <
-        (current.service_status.status_revision ?? 0)
-    ) {
-      acceptedIncoming = {
-        ...acceptedIncoming,
-        service_health: current.service_health,
-        service_status: current.service_status,
-      };
-    }
-    let activeState = mergeActiveRunState(
-      current ? activeRunState(current) : activeRunState(acceptedIncoming),
-      activeRunState(acceptedIncoming),
-    );
-    for (const event of pendingActiveRunEvents.current) {
-      activeState = applyActiveRunEvent(activeState, event);
-    }
-    pendingActiveRunEvents.current = [];
-    const next = withActiveRunState(acceptedIncoming, activeState);
-    dashboardRef.current = next;
-    setDashboard(next);
-    if (
-      acceptedIncoming.desktop_background.state === "stopped" &&
-      backgroundStopRequestAcknowledged.current
-    ) {
-      completeBackgroundStopNotification();
-    } else if (acceptedIncoming.desktop_background.state === "failed") {
-      backgroundStopPending.current = false;
-      backgroundStopRequestAcknowledged.current = false;
-    }
-  }, [completeBackgroundStopNotification]);
+  const installDashboard = useCallback(
+    (incoming: DashboardPayload) => {
+      const current = dashboardRef.current;
+      let acceptedIncoming =
+        current &&
+        incoming.desktop_background.revision <
+          current.desktop_background.revision
+          ? { ...incoming, desktop_background: current.desktop_background }
+          : incoming;
+      if (
+        current?.service_status &&
+        (incoming.service_status?.status_revision ?? 0) <
+          (current.service_status.status_revision ?? 0)
+      ) {
+        acceptedIncoming = {
+          ...acceptedIncoming,
+          service_health: current.service_health,
+          service_status: current.service_status,
+        };
+      }
+      let activeState = mergeActiveRunState(
+        current ? activeRunState(current) : activeRunState(acceptedIncoming),
+        activeRunState(acceptedIncoming),
+      );
+      for (const event of pendingActiveRunEvents.current) {
+        activeState = applyActiveRunEvent(activeState, event);
+      }
+      pendingActiveRunEvents.current = [];
+      const next = withActiveRunState(acceptedIncoming, activeState);
+      dashboardRef.current = next;
+      setDashboard(next);
+      if (
+        acceptedIncoming.desktop_background.state === "stopped" &&
+        backgroundStopRequestAcknowledged.current
+      ) {
+        completeBackgroundStopNotification();
+      } else if (acceptedIncoming.desktop_background.state === "failed") {
+        backgroundStopPending.current = false;
+        backgroundStopRequestAcknowledged.current = false;
+      }
+    },
+    [completeBackgroundStopNotification],
+  );
 
   const refresh = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -177,16 +191,20 @@ export function App() {
     let disposed = false;
     let removeListener: (() => void) | undefined;
 
-    void listen<DesktopBackgroundRunnerState>(desktopRunnerEventChannel, (event) => {
-      const current = dashboardRef.current;
-      if (!current) {
-        void refresh({ silent: true });
-        return;
-      }
-      if (event.payload.revision <= current.desktop_background.revision) return;
-      installDashboard({ ...current, desktop_background: event.payload });
-      setLastUpdatedAt(new Date());
-    })
+    void listen<DesktopBackgroundRunnerState>(
+      desktopRunnerEventChannel,
+      (event) => {
+        const current = dashboardRef.current;
+        if (!current) {
+          void refresh({ silent: true });
+          return;
+        }
+        if (event.payload.revision <= current.desktop_background.revision)
+          return;
+        installDashboard({ ...current, desktop_background: event.payload });
+        setLastUpdatedAt(new Date());
+      },
+    )
       .then((unlisten) => {
         if (disposed) {
           unlisten();
@@ -224,7 +242,10 @@ export function App() {
         return;
       }
       const currentActiveState = activeRunState(current);
-      const nextActiveState = applyActiveRunEvent(currentActiveState, event.payload);
+      const nextActiveState = applyActiveRunEvent(
+        currentActiveState,
+        event.payload,
+      );
       if (nextActiveState === currentActiveState) return;
       const next = withActiveRunState(current, nextActiveState);
       dashboardRef.current = next;
@@ -330,7 +351,6 @@ export function App() {
   }, [pushNotice, refresh]);
 
   useEffect(() => {
-
     function refreshWhenVisible() {
       if (document.visibilityState === "visible") {
         void refresh({ silent: true });
@@ -359,10 +379,7 @@ export function App() {
         installDashboard(result.dashboard);
         const newTokens = result.generated_trigger_tokens;
         if (newTokens?.length) {
-          setGeneratedTriggerTokens((current) => [
-            ...current,
-            ...newTokens,
-          ]);
+          setGeneratedTriggerTokens((current) => [...current, ...newTokens]);
         }
         setLastUpdatedAt(new Date());
         pushNotice({ kind: "success", message: result.message });
@@ -388,185 +405,229 @@ export function App() {
         });
       }
     },
-    [busyActions, completeBackgroundStopNotification, installDashboard, pushNotice],
+    [
+      busyActions,
+      completeBackgroundStopNotification,
+      installDashboard,
+      pushNotice,
+    ],
   );
 
   const activePageLabel = useMemo(() => pageTitle(activeTab), [activeTab]);
-  const subtitle = useMemo(() => pageSubtitle(activeTab, dashboard), [activeTab, dashboard]);
+  const subtitle = useMemo(
+    () => pageSubtitle(activeTab, dashboard),
+    [activeTab, dashboard],
+  );
   const timeFormat = dashboard?.time_format ?? "24-hour";
-  const desktopTime = useMemo(() => createDesktopTimeFormatter(timeFormat), [timeFormat]);
+  const desktopTime = useMemo(
+    () => createDesktopTimeFormatter(timeFormat),
+    [timeFormat],
+  );
 
   return (
     <DesktopTimeProvider timeFormat={timeFormat}>
       <div className="grid h-screen min-h-screen grid-cols-[244px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(0,1fr)]">
-      <aside className="flex h-screen min-h-screen flex-col border-r border-border bg-[#0a0f1a] p-3 max-lg:h-auto max-lg:min-h-0 max-lg:min-w-0 max-lg:border-b max-lg:border-r-0">
-        <div className="mb-5 flex shrink-0 items-center gap-2.5 max-lg:mb-3">
-          <img alt="" className="size-9 rounded-md" draggable={false} src="/logo-notext.svg" />
-          <div className="min-w-0">
-            <div className="truncate font-semibold">BaudBound</div>
-            <div className="truncate text-xs text-muted-foreground">Desktop runner</div>
-          </div>
-        </div>
-        <nav className="min-h-0 flex-1 overflow-auto pr-1 max-lg:hidden">
-          {navigationGroups.map((group) => (
-            <div className="mb-4 min-w-0" key={group.label}>
-              <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {group.label}
-              </div>
-              <div className="grid gap-1">
-                {group.items.map((tab) => {
-                  const Icon = tab.icon;
-                  return (
-                    <Button
-                      data-active={activeTab === tab.id}
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      variant="tab"
-                    >
-                      <Icon className="size-4" />
-                      {tab.label}
-                    </Button>
-                  );
-                })}
+        <aside className="flex h-screen min-h-screen flex-col border-r border-border bg-[#0a0f1a] p-3 max-lg:h-auto max-lg:min-h-0 max-lg:min-w-0 max-lg:border-b max-lg:border-r-0">
+          <div className="mb-5 flex shrink-0 items-center gap-2.5 max-lg:mb-3">
+            <img
+              alt=""
+              className="size-9 rounded-md"
+              draggable={false}
+              src="/logo-notext.svg"
+            />
+            <div className="min-w-0">
+              <div className="truncate font-semibold">BaudBound</div>
+              <div className="truncate text-xs text-muted-foreground">
+                Desktop runner
               </div>
             </div>
-          ))}
-        </nav>
-        <nav
-          aria-label="Application information"
-          className="mt-auto grid shrink-0 gap-1 border-t border-border pt-3 max-lg:hidden"
-        >
-          {utilityNavigationItems.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <Button
-                data-active={activeTab === tab.id}
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                variant="tab"
-              >
-                <Icon className="size-4" />
-                {tab.label}
-              </Button>
-            );
-          })}
-        </nav>
-        <nav className="hidden min-w-0 flex-wrap gap-1.5 max-lg:flex" aria-label="Runner sections">
-          {navigationItems.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <Button
-                className="h-8 w-auto flex-none px-2.5 text-xs"
-                data-active={activeTab === tab.id}
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                variant="tab"
-              >
-                <Icon className="size-3.5" />
-                {tab.label}
-              </Button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <main className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-card/35 px-5 py-3 max-md:px-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold">{activePageLabel}</h1>
-            <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>
           </div>
-          <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
-            {dashboard ? (
-              <Badge variant={dashboard.desktop_background.running ? "good" : "muted"}>
-                <Activity className="mr-1 size-3" />
-                {dashboard.desktop_background.running ? "Runner active" : "Runner stopped"}
-              </Badge>
-            ) : null}
-            {lastUpdatedAt ? (
-              <Badge
-                title="When the desktop interface last received runner data"
-                variant="muted"
-              >
-                <RefreshCw className="mr-1 size-3" />
-                Refreshed {desktopTime.formatTime(lastUpdatedAt)}
-              </Badge>
-            ) : null}
-          </div>
-        </header>
+          <nav className="min-h-0 flex-1 overflow-auto pr-1 max-lg:hidden">
+            {navigationGroups.map((group) => (
+              <div className="mb-4 min-w-0" key={group.label}>
+                <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  {group.label}
+                </div>
+                <div className="grid gap-1">
+                  {group.items.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <Button
+                        data-active={activeTab === tab.id}
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        variant="tab"
+                      >
+                        <Icon className="size-4" />
+                        {tab.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
+          <nav
+            aria-label="Application information"
+            className="mt-auto grid shrink-0 gap-1 border-t border-border pt-3 max-lg:hidden"
+          >
+            {utilityNavigationItems.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <Button
+                  data-active={activeTab === tab.id}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  variant="tab"
+                >
+                  <Icon className="size-4" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </nav>
+          <nav
+            className="hidden min-w-0 flex-wrap gap-1.5 max-lg:flex"
+            aria-label="Runner sections"
+          >
+            {navigationItems.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <Button
+                  className="h-8 w-auto flex-none px-2.5 text-xs"
+                  data-active={activeTab === tab.id}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  variant="tab"
+                >
+                  <Icon className="size-3.5" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </nav>
+        </aside>
 
-        {dashboard?.runner.problem_count ? (
-          <div className="border-b border-baud-amber/25 bg-baud-amber/10 px-5 py-2 text-sm text-baud-amber max-md:px-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="size-4 shrink-0" />
-              <span>
-                {dashboard.runner.problem_count} script
-                {dashboard.runner.problem_count === 1 ? "" : "s"} need review.
-              </span>
+        <main className="flex min-h-0 min-w-0 flex-col">
+          <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-card/35 px-5 py-3 max-md:px-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl font-semibold">{activePageLabel}</h1>
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                {subtitle}
+              </p>
             </div>
-          </div>
-        ) : null}
+            <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
+              {dashboard ? (
+                <Badge
+                  variant={
+                    dashboard.desktop_background.running ? "good" : "muted"
+                  }
+                >
+                  <Activity className="mr-1 size-3" />
+                  {dashboard.desktop_background.running
+                    ? "Runner active"
+                    : "Runner stopped"}
+                </Badge>
+              ) : null}
+              {lastUpdatedAt ? (
+                <Badge
+                  title="When the desktop interface last received runner data"
+                  variant="muted"
+                >
+                  <RefreshCw className="mr-1 size-3" />
+                  Refreshed {desktopTime.formatTime(lastUpdatedAt)}
+                </Badge>
+              ) : null}
+            </div>
+          </header>
 
-        <section className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-5 max-md:p-3">
-          {!dashboard ? (
-            <DashboardLoadState
-              error={dashboardLoadError}
-              onRetry={() => void refresh()}
-            />
-          ) : activeTab === "dashboard" ? (
-            <DashboardView dashboard={dashboard} />
-          ) : activeTab === "scripts" ? (
-            <ScriptsView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "security" ? (
-            <SecurityView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              onDashboard={installDashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "tools" ? (
-            <ToolsView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "runs" ? (
-            <RunsView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "logs" ? (
-            <LogsView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "service" ? (
-            <ServiceView
-              busyActions={busyActions}
-              dashboard={dashboard}
-              runAction={runAction}
-            />
-          ) : activeTab === "config" ? (
-            <Suspense fallback={<EmptyState>Loading configuration UI...</EmptyState>}>
-              <ConfigView
+          {dashboard?.runner.problem_count ? (
+            <div className="border-b border-baud-amber/25 bg-baud-amber/10 px-5 py-2 text-sm text-baud-amber max-md:px-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-4 shrink-0" />
+                <span>
+                  {formatCount(dashboard.runner.problem_count, "script")} {dashboard.runner.problem_count === 1 ? "needs" : "need"} review.
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          <section className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-5 max-md:p-3">
+            {!dashboard ? (
+              <DashboardLoadState
+                error={dashboardLoadError}
+                onRetry={() => void refresh()}
+              />
+            ) : activeTab === "dashboard" ? (
+              <DashboardView dashboard={dashboard} />
+            ) : activeTab === "scripts" ? (
+              <ScriptsView
                 busyActions={busyActions}
                 dashboard={dashboard}
                 runAction={runAction}
               />
-            </Suspense>
-          ) : activeTab === "about" ? (
-            <AboutView updater={updater} />
-          ) : (
-            <DiagnosticsView dashboard={dashboard} />
-          )}
-        </section>
-      </main>
+            ) : activeTab === "security" ? (
+              <SecurityView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                onDashboard={installDashboard}
+                runAction={runAction}
+              />
+            ) : activeTab === "tools" ? (
+              <ToolsView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                runAction={runAction}
+              />
+            ) : activeTab === "runs" ? (
+              <RunsView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                runAction={runAction}
+              />
+            ) : activeTab === "logs" ? (
+              <LogsView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                runAction={runAction}
+              />
+            ) : activeTab === "variables" ? (
+              <VariablesView
+                scriptRevision={dashboard.runner.scripts
+                  .map(
+                    (script) =>
+                      `${script.installed.id}:${script.installed.package_hash}`,
+                  )
+                  .join("\n")}
+              />
+            ) : activeTab === "monitor" ? (
+              <TriggerMonitorView
+                controller={triggerMonitor}
+                dashboard={dashboard}
+              />
+            ) : activeTab === "service" ? (
+              <ServiceView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                runAction={runAction}
+              />
+            ) : activeTab === "config" ? (
+              <Suspense
+                fallback={<EmptyState>Loading configuration UI...</EmptyState>}
+              >
+                <ConfigView
+                  busyActions={busyActions}
+                  dashboard={dashboard}
+                  runAction={runAction}
+                />
+              </Suspense>
+            ) : activeTab === "about" ? (
+              <AboutView updater={updater} />
+            ) : (
+              <DiagnosticsView dashboard={dashboard} />
+            )}
+          </section>
+        </main>
         <AppUpdateDialog updater={updater} />
         <OneTimeTriggerTokensDialog
           onDone={() => setGeneratedTriggerTokens([])}
