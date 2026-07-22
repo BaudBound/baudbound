@@ -7,7 +7,7 @@ Unless a file or page says otherwise, the following original BaudBound content i
 - original screenshots and diagrams
 - original non-code website copy and media
 
-When sharing or adapting this content, credit "NATroutter", link to <https://github.com/NATroutter/BaudBound>, link to the CC BY-NC-SA 4.0 license, and indicate whether you made changes.
+When sharing or adapting this content, credit "NATroutter", link to <https://github.com/BaudBound/baudbound>, link to the CC BY-NC-SA 4.0 license, and indicate whether you made changes.
 
 This content license does not cover:
 
