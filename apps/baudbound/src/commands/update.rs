@@ -76,11 +76,11 @@ fn current_installation() -> Installation {
             }
         }
 
-        return Installation {
+        Installation {
             name: "unpackaged Linux executable",
             update_method: "GitHub Release",
             instructions: RELEASE_INSTRUCTIONS,
-        };
+        }
     }
 
     #[cfg(target_os = "windows")]
