@@ -131,7 +131,6 @@ Install exact locked dependencies and run every automated contract used by the r
 
 ```powershell
 pnpm --dir apps/baudbound/ui install --frozen-lockfile
-pnpm --dir apps/editor install --frozen-lockfile
 
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -139,9 +138,6 @@ cargo test --workspace --locked
 
 pnpm --dir apps/baudbound/ui test
 pnpm --dir apps/baudbound/ui build
-
-pnpm --dir apps/editor schemas:check
-pnpm --dir apps/editor test
 
 git diff --check
 ```
@@ -388,14 +384,14 @@ gh release view $tag --json tagName,isDraft,isPrerelease,publishedAt,url
 Publishing activates this updater endpoint:
 
 ```text
-https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json
+https://github.com/BaudBound/baudbound/releases/latest/download/latest.json
 ```
 
 Verify the public endpoint returns the expected version:
 
 ```powershell
 $publicManifest = Invoke-RestMethod `
-  "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json"
+  "https://github.com/BaudBound/baudbound/releases/latest/download/latest.json"
 
 if ($publicManifest.version -ne $version) {
     throw "The public updater manifest does not point to $version"

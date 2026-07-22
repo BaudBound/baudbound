@@ -7,7 +7,7 @@ import { validateReleaseAssets } from "./release-assets.mjs";
 import { checksumManifest } from "./release-checksums.mjs";
 
 const TAG = "v2.0.0";
-const REPOSITORY = "NATroutter/BaudBound";
+const REPOSITORY = "BaudBound/baudbound";
 
 test("accepts matching Windows and Linux updater artifacts", (context) => {
   const directory = createRelease(context);
@@ -54,7 +54,7 @@ test("rejects a Tauri API URL for another repository", (context) => {
 
   assert.throws(
     () => validateReleaseAssets({ directory, releaseAssets, repository: REPOSITORY, tag: TAG }),
-    /API URL must target NATroutter\/BaudBound/,
+    /API URL must target BaudBound\/baudbound/,
   );
 });
 
@@ -76,7 +76,7 @@ test("rejects updater URLs for another release tag", (context) => {
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
-    /must target NATroutter\/BaudBound release v2\.0\.0/,
+    /must target BaudBound\/baudbound release v2\.0\.0/,
   );
 });
 

@@ -1,8 +1,0 @@
-*
-!deploy/
-!deploy/schemas/
-!deploy/schemas/nginx.conf
-!schemas/
-!schemas/*.schema.json
-!schemas/nodes/
-!schemas/nodes/*.schema.json

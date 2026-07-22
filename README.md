@@ -1,10 +1,8 @@
 <div align="center">
   <img src="assets/logo.svg" alt="BaudBound" width="320" />
   <br /><br />
-  <p><strong>Local-first visual automation scripting.</strong></p>
-  <p>Build workflows in the web editor, export portable <code>.bbs</code> packages, and execute them with the native runner.</p>
+  <p><strong>Native execution for BaudBound visual automation scripts.</strong></p>
 
-  ![Editor](https://img.shields.io/badge/Editor-Next.js-111827?style=for-the-badge&logo=nextdotjs&logoColor=white)
   ![Runner](https://img.shields.io/badge/Runner-Rust-b7410e?style=for-the-badge&logo=rust&logoColor=white)
   ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey?style=for-the-badge)
   [![License](https://img.shields.io/badge/Code-PolyForm%20Noncommercial-blue?style=for-the-badge)](LICENSE.md)
@@ -12,73 +10,66 @@
 
 ## Overview
 
-BaudBound separates visual authoring from trusted native execution:
+This repository contains the BaudBound runner. One Rust application provides
+the native desktop interface, command line interface, background trigger
+service, package validation, approvals, durable SQLite state, and supported
+Windows and Linux actions.
+
+Scripts are created with the [BaudBound editor](https://editor.baudbound.app/)
+and exported as `.bbs` packages. The runner recalculates package permissions,
+capabilities, and risk before approval and execution.
+
+User and contributor documentation is available at
+[wiki.baudbound.app](https://wiki.baudbound.app/). Its source is maintained in
+the [documentation repository](https://github.com/BaudBound/documentation).
+
+## Repository layout
 
 ```text
-Editor builds and simulates scripts.
-Runner validates, approves, and executes them.
+apps/baudbound/          CLI, Tauri host, desktop UI, and release scripts
+crates/                  Runtime, storage, security, actions, and triggers
+schemas/                 Pinned package contract snapshots consumed by Rust
+tools/                   Runner development and release helpers
+docs/runner-release.md   Maintainer release runbook
 ```
 
-The [public editor](https://editor.baudbound.app/) is a browser-based Next.js application. The unified `baudbound` Rust application provides a Tauri desktop UI, CLI, background trigger service, package security, durable SQLite state, and native Windows and Linux execution.
-
-Complete user, operator, deployment, and contributor documentation lives at [wiki.baudbound.app](https://wiki.baudbound.app/). Repository Markdown under `docs/wiki` is its source of truth.
-
-## Repository
-
-```text
-apps/
-  editor/                 Visual workflow editor
-  baudbound/              Unified runner CLI and Tauri desktop app
-crates/
-  baudbound-actions/      Shared and native action implementations
-  baudbound-core/         Runner orchestration
-  baudbound-runtime/      Graph execution and runtime data
-  baudbound-script/       Package and language contracts
-  baudbound-security/     Capabilities, risk, approvals, and policy
-  baudbound-storage/      SQLite durable state
-  baudbound-triggers/     Background trigger services
-schemas/                  JSON Schema package contracts
-deploy/                   Container and service templates
-docs/wiki/                Canonical public documentation
-tools/                    Development, release, and wiki tooling
-```
+Shared public contracts are published from
+[BaudBound/contracts](https://github.com/BaudBound/contracts). The snapshots in
+this repository are pinned so builds remain reproducible and do not download
+moving contracts from the network.
 
 ## Development
 
-Requirements include Rust 1.95 or newer, Node.js 24, pnpm, and the platform dependencies required by Tauri 2.
+Requirements include Rust 1.95 or newer, Node.js 24, pnpm, and the platform
+dependencies required by Tauri 2.
 
-Use the interactive development helper:
+Use the interactive Windows development helper:
 
 ```powershell
 ./tools/development.ps1
 ```
 
-Choose **Build runner packages** to build a local Windows installer, all Linux packages, or both. The Linux build produces an AppImage, Debian package, and RPM package. On Windows, Linux packages are built with Docker Desktop using Linux containers. These local packages are unsigned and intended for development testing.
-
-Common verification commands:
+Run the main quality gates from the repository root:
 
 ```text
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
-pnpm --dir apps/editor verify:release
+pnpm --dir apps/baudbound/ui typecheck
+pnpm --dir apps/baudbound/ui test
 pnpm --dir apps/baudbound/ui build
-pnpm --dir tools/wiki-publisher test
-pnpm --dir tools/wiki-publisher validate
 ```
 
-Read the [developer documentation](https://wiki.baudbound.app/developers) before changing package contracts, node compatibility, native actions, security behavior, or release infrastructure.
+## Related repositories
 
-## Documentation Policy
-
-Detailed documentation belongs in `docs/wiki`. The only standalone Markdown outside that tree is this repository entry point, the root legal notices, and `docs/runner-release.md`, which is an internal release runbook. The publisher reconciles page content and the static navigation declared in `docs/wiki/navigation.json`.
+The visual editor is in [BaudBound/editor](https://github.com/BaudBound/editor).
+Installation scripts are in [BaudBound/get](https://github.com/BaudBound/get).
+The public website is in [BaudBound/website](https://github.com/BaudBound/website).
 
 ## License
 
 BaudBound is source available and accepts community contributions.
 
-- Software is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
-- Original documentation and non-code creative content are licensed under [CC BY-NC-SA 4.0](CONTENT-LICENSE.md).
-- The BaudBound name and logos are reserved under the [brand notice](TRADEMARKS.md).
-
-These licenses permit noncommercial use subject to their terms. They do not grant permission to use BaudBound commercially. Third-party components remain subject to their own licenses.
+Software is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+The BaudBound name and logos are reserved under the [brand notice](TRADEMARKS.md).
+Third-party components remain subject to their own licenses.

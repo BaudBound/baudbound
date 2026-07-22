@@ -58,7 +58,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json"
+        "https://github.com/BaudBound/baudbound/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4NTkwMEY0NTI4QTI4RkQKUldUOUtJcFM5QUJaU0RNVVh0b1Mva3Z1NG5QUFFhN0w1Y0lkNEk5Rjl5QzRETmFEWU8rMmx0U3kK"
     }

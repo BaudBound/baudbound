@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateReleaseAssets } from "./release-assets.mjs";
 
-const [directory, tag, repository = "NATroutter/BaudBound", releaseAssetsPath] = process.argv.slice(2);
+const [directory, tag, repository = "BaudBound/baudbound", releaseAssetsPath] = process.argv.slice(2);
 
 try {
   const releaseAssets = releaseAssetsPath

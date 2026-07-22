@@ -56,15 +56,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: |
-            apps/baudbound/ui/pnpm-lock.yaml
-            apps/editor/pnpm-lock.yaml
+          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
 
       - name: Install desktop UI dependencies
         run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
-
-      - name: Install editor dependencies
-        run: pnpm --dir apps/editor install --frozen-lockfile
 
       - name: Verify release version
         run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
@@ -72,15 +67,8 @@ jobs:
       - name: Test release artifact contracts
         run: node --test apps/baudbound/scripts/*.test.mjs
 
-      - name: Check Linux installer shell scripts
-        run: >-
-          shellcheck
-          deploy/get/public/linux
-          deploy/get/tests/linux.sh
-          apps/baudbound/scripts/test-linux-package-install.sh
-
-      - name: Test hosted Linux installer
-        run: bash deploy/get/tests/linux.sh
+      - name: Check Linux package test script
+        run: shellcheck apps/baudbound/scripts/test-linux-package-install.sh
 
       - name: Check Linux RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
@@ -102,12 +90,6 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --workspace --locked
-
-      - name: Verify editor schemas
-        run: pnpm --dir apps/editor schemas:check
-
-      - name: Run editor contract tests
-        run: pnpm --dir apps/editor test
 
       - name: Test desktop UI contracts
         run: pnpm --dir apps/baudbound/ui test
@@ -271,7 +253,7 @@ jobs:
           node apps/baudbound/scripts/verify-release-assets.mjs
           "$RUNNER_TEMP/baudbound-release"
           "$GITHUB_REF_NAME"
-          "NATroutter/BaudBound"
+          "BaudBound/baudbound"
           "$RUNNER_TEMP/baudbound-release-assets.json"
 
       - name: Upload release checksums

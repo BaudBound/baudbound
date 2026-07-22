@@ -1,7 +1,7 @@
 import { BundleType } from "@tauri-apps/api/app";
 
 export const LATEST_RELEASE_URL =
-  "https://github.com/NATroutter/BaudBound/releases/latest";
+  "https://github.com/BaudBound/baudbound/releases/latest";
 export const LINUX_INSTALL_COMMAND =
   "curl -fsSL https://get.baudbound.app/linux | sh";
 

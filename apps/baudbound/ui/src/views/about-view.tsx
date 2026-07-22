@@ -42,8 +42,8 @@ export function AboutView({ updater }: { updater: AppUpdaterController }) {
           <CardContent className="grid gap-3 sm:grid-cols-2">
             <ProjectLink href="https://baudbound.app" label="Website" />
             <ProjectLink href="https://wiki.baudbound.app" label="Documentation" />
-            <ProjectLink href="https://github.com/NATroutter/BaudBound" label="Source repository" />
-            <ProjectLink href="https://github.com/NATroutter/BaudBound/issues" label="Report an issue" />
+            <ProjectLink href="https://github.com/BaudBound/baudbound" label="Source repository" />
+            <ProjectLink href="https://github.com/BaudBound/baudbound/issues" label="Report an issue" />
           </CardContent>
         </Card>
 

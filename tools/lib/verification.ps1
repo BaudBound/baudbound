@@ -6,7 +6,6 @@ function Invoke-QualityGate {
 
     Write-Step "Installing exact locked JavaScript dependencies"
     Invoke-External "pnpm" @("--dir", "apps/baudbound/ui", "install", "--frozen-lockfile")
-    Invoke-External "pnpm" @("--dir", "apps/editor", "install", "--frozen-lockfile")
 
     Write-Step "Checking Rust formatting and lint rules"
     Invoke-External "cargo" @("fmt", "--all", "--", "--check")
@@ -22,10 +21,6 @@ function Invoke-QualityGate {
             ForEach-Object FullName
     )
     Invoke-External "node" (@("--test") + $artifactTests)
-
-    Write-Step "Verifying editor schemas and contracts"
-    Invoke-External "pnpm" @("--dir", "apps/editor", "schemas:check")
-    Invoke-External "pnpm" @("--dir", "apps/editor", "test")
 
     Write-Step "Testing and building the desktop UI"
     Invoke-External "pnpm" @("--dir", "apps/baudbound/ui", "test")

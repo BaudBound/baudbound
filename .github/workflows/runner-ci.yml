@@ -8,9 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "apps/baudbound/**"
-      - "apps/editor/**"
       - "crates/**"
-      - "deploy/get/**"
       - "schemas/**"
       - "deny.toml"
       - "tools/runner-release.ps1"
@@ -25,9 +23,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "apps/baudbound/**"
-      - "apps/editor/**"
       - "crates/**"
-      - "deploy/get/**"
       - "schemas/**"
       - "deny.toml"
       - "tools/runner-release.ps1"
@@ -45,8 +41,8 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  linux-installer-contract:
-    name: Linux installer contract
+  linux-package-script:
+    name: Linux package script
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
@@ -59,15 +55,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
-      - name: Check installer shell scripts
-        run: >-
-          shellcheck
-          deploy/get/public/linux
-          deploy/get/tests/linux.sh
-          apps/baudbound/scripts/test-linux-package-install.sh
-
-      - name: Test hosted Linux installer
-        run: bash deploy/get/tests/linux.sh
+      - name: Check Linux package test script
+        run: shellcheck apps/baudbound/scripts/test-linux-package-install.sh
 
   dependency-security:
     name: Rust dependency advisories (${{ matrix.target }})
@@ -152,37 +141,6 @@ jobs:
 
       - name: Build runner application
         run: cargo build -p baudbound --locked
-
-  editor-contract:
-    name: Editor contract
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.10.0
-          run_install: false
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: apps/editor/pnpm-lock.yaml
-
-      - name: Install editor dependencies
-        run: pnpm --dir apps/editor install --frozen-lockfile
-
-      - name: Verify schemas are current
-        run: pnpm --dir apps/editor schemas:check
-
-      - name: Run editor contract tests
-        run: pnpm --dir apps/editor test
 
   desktop-ui:
     name: Desktop UI

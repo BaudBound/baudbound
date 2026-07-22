@@ -16,7 +16,7 @@ Launches BaudBound development applications and checks from an interactive menu.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet("Desktop", "DesktopUi", "Editor", "Service", "Status", "Install", "Checks", "Tests", "EditorE2E", "Schemas", "Build", "RunnerBuild")]
+    [ValidateSet("Desktop", "DesktopUi", "Service", "Status", "Install", "Checks", "Tests", "Build", "RunnerBuild")]
     [string]$Action,
 
     [ValidateSet("Both", "Linux", "Windows")]

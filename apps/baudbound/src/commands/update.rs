@@ -51,7 +51,7 @@ struct Installation {
 }
 
 const RELEASE_INSTRUCTIONS: &str =
-    "Open https://github.com/NATroutter/BaudBound/releases/latest for installation options.";
+    "Open https://github.com/BaudBound/baudbound/releases/latest for installation options.";
 #[cfg(target_os = "linux")]
 const NATIVE_LINUX_INSTRUCTIONS: &str = "Stop active runs and the background runner, fully quit BaudBound, then run:\ncurl -fsSL https://get.baudbound.app/linux | sh";
 

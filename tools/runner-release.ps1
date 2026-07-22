@@ -47,7 +47,7 @@ $OutputEncoding = $utf8Encoding
 $script:RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:ReleaseWorkflow = "runner-release.yml"
 $script:CiWorkflow = "runner-ci.yml"
-$script:Repository = "NATroutter/BaudBound"
+$script:Repository = "BaudBound/baudbound"
 $script:ReleaseCmdlet = $PSCmdlet
 
 $script:ReleaseToolLib = Join-Path $PSScriptRoot "lib"

@@ -13,7 +13,7 @@ mod worker;
 pub use worker::AutomaticUpdateWorker;
 
 pub const RELEASE_FEED_URL: &str =
-    "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json";
+    "https://github.com/BaudBound/baudbound/releases/latest/download/latest.json";
 const MAX_RELEASE_FEED_BYTES: u64 = 1024 * 1024;
 const MAX_RELEASE_NOTES_BYTES: usize = 256 * 1024;
 const MAX_PUBLISHED_AT_BYTES: usize = 128;
