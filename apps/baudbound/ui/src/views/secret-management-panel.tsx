@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SECRET_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import type { DashboardAction } from "@/lib/app-types";
 import {
   type DashboardPayload,
@@ -211,6 +212,7 @@ export function SecretManagementPanel({
                 autoComplete="new-password"
                 autoFocus
                 className="secret-value-input w-full pr-10"
+                maxLength={SECRET_INPUT_MAX_LENGTH}
                 type={valueVisible ? "text" : "password"}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}

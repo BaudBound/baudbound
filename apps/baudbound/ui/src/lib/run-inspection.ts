@@ -45,9 +45,22 @@ export function nodeActionType(logs: RunLogEntry[], nodeId: string) {
   return logs.find((log) => log.node_id === nodeId && log.action_type)?.action_type ?? null;
 }
 
-export function runStatusVariant(status: StoredRunRecord["status"]) {
-  if (status === "completed") return "good" as const;
-  return status === "cancelled" ? ("medium" as const) : ("destructive" as const);
+export function runStatusPresentation(
+  run: Pick<StoredRunRecord, "logs" | "status">,
+) {
+  if (
+    run.status === "completed" &&
+    run.logs.some((log) => log.level.toLowerCase() === "error")
+  ) {
+    return { hasErrors: true, label: "completed", variant: "good" as const };
+  }
+  if (run.status === "completed") {
+    return { hasErrors: false, label: "completed", variant: "good" as const };
+  }
+  if (run.status === "cancelled") {
+    return { hasErrors: false, label: "cancelled", variant: "medium" as const };
+  }
+  return { hasErrors: false, label: "failed", variant: "destructive" as const };
 }
 
 export function variableRows(

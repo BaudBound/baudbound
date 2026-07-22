@@ -16,16 +16,17 @@ mod graph;
 mod limits;
 mod manifest;
 mod numeric;
-mod schema;
+pub(crate) mod schema;
 
 use color_match::validate_program_color_match_contract;
 use graph::validate_program_graph;
 use limits::package_limits;
 use manifest::{
-    validate_manifest_secrets, validate_manifest_variable_operations, validate_manifest_variables,
+    validate_manifest_metadata, validate_manifest_secrets, validate_manifest_variable_operations,
+    validate_manifest_variables,
 };
 use numeric::validate_program_numeric_contract;
-use schema::validate_program_schema;
+use schema::{validate_manifest_schema, validate_program_schema};
 
 const REQUIRED_PACKAGE_FILES: &[&str] = &[
     "manifest.json",
@@ -106,6 +107,8 @@ pub enum PackageLoadError {
     SchemaContract(String),
     #[error("program.json does not match the runner schema: {0}")]
     ProgramSchema(String),
+    #[error("manifest.json does not match the runner schema: {0}")]
+    ManifestSchema(String),
     #[error("embedded node port contract is invalid: {0}")]
     PortContract(String),
     #[error("embedded numeric field contract is invalid: {0}")]
@@ -160,7 +163,8 @@ pub fn read_package_asset_reader<R: Read + Seek>(
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
 
-    let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
+    let manifest = read_manifest_file(&mut archive)?;
+    validate_manifest_metadata(&manifest)?;
     validate_manifest_assets(&entries, &manifest)?;
     validate_manifest_variables(&manifest)?;
     validate_manifest_secrets(&manifest)?;
@@ -203,7 +207,8 @@ pub fn load_script_package_reader<R: Read + Seek>(
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
 
-    let manifest = read_json_file::<Manifest, _>(&mut archive, "manifest.json")?;
+    let manifest = read_manifest_file(&mut archive)?;
+    validate_manifest_metadata(&manifest)?;
     let program = read_json_file::<Program, _>(&mut archive, "program.json")?;
     validate_program_schema(&program)?;
     validate_program_numeric_contract(&program)?;
@@ -440,6 +445,17 @@ fn read_json_file<T: DeserializeOwned, R: Read + Seek>(
         .map_err(|source| PackageLoadError::Json { file_name, source })
 }
 
+fn read_manifest_file<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+) -> Result<Manifest, PackageLoadError> {
+    let value = read_json_file::<serde_json::Value, _>(archive, "manifest.json")?;
+    validate_manifest_schema(&value)?;
+    serde_json::from_value(value).map_err(|source| PackageLoadError::Json {
+        file_name: "manifest.json",
+        source,
+    })
+}
+
 fn read_optional_json_file<T: DeserializeOwned, R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     file_name: &'static str,
@@ -566,11 +582,11 @@ mod tests {
                     "created_at": "2026-01-01T00:00:00.000Z",
                     "minimum_runner_version": "0.1.0",
                     "secrets": [
-                        {"name": "api_token", "type": "string"},
-                        {"name": "api_token", "type": "string"}
+                        {"name": "api_token", "type": "string", "required": false},
+                        {"name": "api_token", "type": "string", "required": false}
                     ]
                 }"#,
-                "duplicate manifest secret name",
+                "non-unique elements",
             ),
             (
                 r#"{
@@ -581,7 +597,7 @@ mod tests {
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
                     "minimum_runner_version": "0.1.0",
-                    "secrets": [{"name": "system_token", "type": "string"}]
+                    "secrets": [{"name": "system_token", "type": "string", "required": false}]
                 }"#,
                 "reserved variable prefix",
             ),
@@ -594,9 +610,9 @@ mod tests {
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
                     "minimum_runner_version": "0.1.0",
-                    "secrets": [{"name": "api_token", "type": "binary"}]
+                    "secrets": [{"name": "api_token", "type": "binary", "required": false}]
                 }"#,
-                "unsupported type",
+                "is not one of",
             ),
         ] {
             let error = load_script_package_reader(Cursor::new(create_test_package_with_manifest(

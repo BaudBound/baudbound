@@ -237,6 +237,13 @@
 			},
 			"path_rules": []
 		},
+		"action.url.parse": {
+			"permission": {
+				"name": "parse_url",
+				"risk": "low"
+			},
+			"path_rules": []
+		},
 		"action.webhook_response": {
 			"permission": {
 				"name": "webhook_response",

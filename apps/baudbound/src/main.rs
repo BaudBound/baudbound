@@ -16,6 +16,7 @@ mod desktop_startup;
 mod desktop_ui;
 mod output;
 mod paths;
+mod script_updates;
 mod secrets;
 mod service;
 mod time_format;

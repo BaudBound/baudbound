@@ -22,6 +22,8 @@ mod http_action;
 mod process_actions;
 #[path = "tests/text_format.rs"]
 mod text_format;
+#[path = "tests/url_parse.rs"]
+mod url_parse;
 
 #[derive(Default)]
 struct FakeWebSocketSink {

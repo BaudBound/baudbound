@@ -14,7 +14,7 @@ Every terminal run record contains:
 - a run ID and stable script ID.
 - the trigger node ID.
 - completion timestamp.
-- status: `completed`, `failed`, or `cancelled`.
+- status: `completed`, `failed`, or `cancelled`. A completed run that emitted error logs also displays a separate `with errors` badge.
 - structured log entries with their own emission timestamp, level, message, and optional node ID.
 - the final non-secret variable snapshot available for inspection.
 

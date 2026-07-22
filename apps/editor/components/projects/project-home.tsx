@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { createEmptyEditorProject, createProjectIdentity, defaultProjectSettings } from "@/data/projects/defaults";
 import type { EditorProject, ProjectSummary } from "@/data/projects/model";
+import { editorProjectSchemaVersion } from "@/data/projects/model";
 import {
 	createProject,
 	deleteProject,
@@ -300,7 +301,7 @@ function importedToProject(imported: Awaited<ReturnType<typeof importBbsPackage>
 		identity: imported.identity,
 		nodes: imported.nodes,
 		revision: 1,
-		schemaVersion: 1,
+		schemaVersion: editorProjectSchemaVersion,
 		secretDeclarations: imported.secretDeclarations,
 		settings: imported.projectSettings,
 		updatedAt: new Date().toISOString(),

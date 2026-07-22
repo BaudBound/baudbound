@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeExternalUrl } from "@/lib/external-url";
+import { normalizeExternalUrl, tryNormalizeExternalUrl } from "@/lib/external-url";
 
 describe("normalizeExternalUrl", () => {
   it("accepts HTTP and HTTPS project links", () => {
@@ -16,6 +16,14 @@ describe("normalizeExternalUrl", () => {
     );
     expect(() => normalizeExternalUrl("file:///tmp/package.bbs")).toThrow(
       "Only HTTP and HTTPS links can be opened.",
+    );
+  });
+
+  it("returns no renderable URL for invalid or unsafe values", () => {
+    expect(tryNormalizeExternalUrl("javascript:alert(1)")).toBeNull();
+    expect(tryNormalizeExternalUrl("not a URL")).toBeNull();
+    expect(tryNormalizeExternalUrl(" https://baudbound.app/docs ")).toBe(
+      "https://baudbound.app/docs",
     );
   });
 });

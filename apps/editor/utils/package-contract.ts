@@ -64,6 +64,7 @@ export const canonicalPermissions = [
 	"math",
 	"calculate",
 	"text_transform",
+	"parse_url",
 	"set_local_variable",
 	"set_persistent_variable",
 	"set_global_variable",
@@ -105,6 +106,30 @@ export const canonicalPermissions = [
 
 const capabilitySet = new Set<string>(canonicalCapabilities);
 const permissionSet = new Set<string>(canonicalPermissions);
+const manifestFields = new Set([
+	"format_version",
+	"script_language_version",
+	"id",
+	"name",
+	"version",
+	"update_url",
+	"description",
+	"author",
+	"website",
+	"source",
+	"created_with",
+	"created_at",
+	"updated_at",
+	"tags",
+	"minimum_runner_version",
+	"assets",
+	"variables",
+	"secrets",
+]);
+const assetFields = new Set(["id", "kind", "media_type", "name", "path", "size"]);
+const variableFields = new Set(["name", "scope", "type", "description", "value"]);
+const secretFields = new Set(["name", "type", "description", "required"]);
+const maximumDefaultValueBytes = 1_048_576;
 const riskWeight: Record<RiskLevel, number> = {
 	low: 1,
 	medium: 2,
@@ -139,6 +164,7 @@ export function validateManifestContract(value: unknown) {
 	if (!manifest) {
 		return ["manifest.json must be an object."];
 	}
+	errors.push(...validateKnownFields(manifest, manifestFields, "manifest.json"));
 
 	for (const field of [
 		"format_version",
@@ -154,25 +180,63 @@ export function validateManifestContract(value: unknown) {
 		}
 	}
 
-	if (typeof manifest.format_version !== "number" || manifest.format_version < 1) {
+	if (!Number.isSafeInteger(manifest.format_version) || (manifest.format_version as number) < 1) {
 		errors.push("manifest.json format_version must be a positive number.");
 	}
-	if (typeof manifest.script_language_version !== "number" || manifest.script_language_version < 1) {
+	if (!Number.isSafeInteger(manifest.script_language_version) || (manifest.script_language_version as number) < 1) {
 		errors.push("manifest.json script_language_version must be a positive number.");
 	}
-	if (typeof manifest.name !== "string" || !manifest.name.trim()) {
-		errors.push("manifest.json name must be a non-empty string.");
+	validateManifestText(errors, "id", manifest.id, 36, false, true);
+	validateManifestText(errors, "name", manifest.name, 128, false, true);
+	validateManifestText(errors, "version", manifest.version, 128, false, false);
+	if (
+		manifest.version !== undefined &&
+		(typeof manifest.version !== "string" ||
+			!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/.test(
+				manifest.version,
+			))
+	) {
+		errors.push("manifest.json version must be a valid semantic version.");
 	}
+	validateManifestUpdateUrl(errors, manifest.update_url);
+	validateManifestText(errors, "description", manifest.description, 4096, true, false);
+	validateManifestText(errors, "author", manifest.author, 128, false, false);
+	validateManifestUrl(errors, "website", manifest.website);
+	validateManifestUrl(errors, "source", manifest.source);
+	validateManifestText(errors, "created_with", manifest.created_with, 128, false, true);
+	validateManifestText(errors, "created_at", manifest.created_at, 64, false, true);
+	validateManifestText(errors, "updated_at", manifest.updated_at, 64, false, false);
+	validateManifestDateTime(errors, "created_at", manifest.created_at, true);
+	validateManifestDateTime(errors, "updated_at", manifest.updated_at, false);
+	validateManifestText(errors, "minimum_runner_version", manifest.minimum_runner_version, 64, false, true);
 	if (manifest.tags !== undefined && !isStringArray(manifest.tags)) {
 		errors.push("manifest.json tags must be an array of strings.");
+	} else if (Array.isArray(manifest.tags)) {
+		if (manifest.tags.length > 32) errors.push("manifest.json tags cannot contain more than 32 entries.");
+		if (new Set(manifest.tags).size !== manifest.tags.length) errors.push("manifest.json tags must be unique.");
+		for (const tag of manifest.tags) validateManifestText(errors, "tag", tag, 64, false, true);
 	}
 	if (manifest.assets !== undefined && !Array.isArray(manifest.assets)) {
 		errors.push("manifest.json assets must be an array when present.");
+	} else if (Array.isArray(manifest.assets)) {
+		if (manifest.assets.length > 256) errors.push("manifest.json assets cannot contain more than 256 entries.");
+		for (const value of manifest.assets) {
+			const asset = asRecord(value);
+			if (!asset) {
+				errors.push("manifest.json asset declarations must be objects.");
+				continue;
+			}
+			errors.push(...validateKnownFields(asset, assetFields, "manifest.json asset"));
+			validateManifestText(errors, "asset id", asset.id, 128, false, true);
+			validateManifestText(errors, "asset media type", asset.media_type, 128, false, true);
+			validateManifestText(errors, "asset name", asset.name, 256, false, true);
+		}
 	}
 	if (manifest.secrets !== undefined) {
 		if (!Array.isArray(manifest.secrets)) {
 			errors.push("manifest.json secrets must be an array when present.");
 		} else {
+			if (manifest.secrets.length > 256) errors.push("manifest.json secrets cannot contain more than 256 entries.");
 			const names = new Set<string>();
 			for (const value of manifest.secrets) {
 				const secret = asRecord(value);
@@ -180,6 +244,7 @@ export function validateManifestContract(value: unknown) {
 					errors.push("manifest.json secret declarations must be objects.");
 					continue;
 				}
+				errors.push(...validateKnownFields(secret, secretFields, "manifest.json secret"));
 				const name = typeof secret.name === "string" ? secret.name : "";
 				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.startsWith("system_") || name.startsWith("manifest_")) {
 					errors.push(`manifest.json secret name "${name}" is invalid or reserved.`);
@@ -196,6 +261,8 @@ export function validateManifestContract(value: unknown) {
 				}
 				if (secret.description !== undefined && typeof secret.description !== "string") {
 					errors.push(`manifest.json secret "${name}" description must be a string.`);
+				} else {
+					validateManifestText(errors, "secret description", secret.description, 1024, true, false);
 				}
 			}
 		}
@@ -204,6 +271,7 @@ export function validateManifestContract(value: unknown) {
 		if (!Array.isArray(manifest.variables)) {
 			errors.push("manifest.json variables must be an array when present.");
 		} else {
+			if (manifest.variables.length > 256) errors.push("manifest.json variables cannot contain more than 256 entries.");
 			const names = new Set<string>();
 			const secretNames = new Set(
 				Array.isArray(manifest.secrets)
@@ -219,6 +287,7 @@ export function validateManifestContract(value: unknown) {
 					errors.push("manifest.json variable declarations must be objects.");
 					continue;
 				}
+				errors.push(...validateKnownFields(variable, variableFields, "manifest.json variable"));
 				const name = typeof variable.name === "string" ? variable.name : "";
 				const type = variable.type as (typeof variableTypes)[number];
 				if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.startsWith("system_") || name.startsWith("manifest_")) {
@@ -237,12 +306,115 @@ export function validateManifestContract(value: unknown) {
 				}
 				if (variable.description !== undefined && typeof variable.description !== "string") {
 					errors.push(`manifest.json variable "${name}" description must be a string.`);
+				} else {
+					validateManifestText(errors, "variable description", variable.description, 1024, true, false);
+				}
+				if (serializedByteLength(variable.value) > maximumDefaultValueBytes) {
+					errors.push(`manifest.json variable "${name}" default value exceeds ${maximumDefaultValueBytes} bytes.`);
 				}
 			}
 		}
 	}
 
 	return errors;
+}
+
+function validateManifestUpdateUrl(errors: string[], value: unknown) {
+	if (value === undefined || value === "") return;
+	if (typeof value !== "string" || value.length > 2048) {
+		errors.push("manifest.json update_url must be a string no longer than 2048 characters.");
+		return;
+	}
+	try {
+		const url = new URL(value);
+		const filename = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+		if (
+			url.protocol !== "https:" ||
+			!url.hostname ||
+			url.username ||
+			url.password ||
+			url.hash ||
+			filename !== "update.json"
+		) {
+			throw new Error("invalid update URL");
+		}
+	} catch {
+		errors.push(
+			"manifest.json update_url must be an HTTPS URL without credentials or a fragment and must end in update.json.",
+		);
+	}
+}
+
+function validateKnownFields(value: Record<string, unknown>, allowed: Set<string>, label: string) {
+	return Object.keys(value)
+		.filter((field) => !allowed.has(field))
+		.map((field) => `${label} contains unsupported field "${field}".`);
+}
+
+function validateManifestUrl(errors: string[], field: string, value: unknown) {
+	validateManifestText(errors, field, value, 2048, false, false);
+	if (value === undefined || value === "") return;
+	if (typeof value !== "string") return;
+	try {
+		const url = new URL(value);
+		if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.hostname) {
+			errors.push(`manifest.json ${field} must be an absolute HTTP or HTTPS URL.`);
+		}
+	} catch {
+		errors.push(`manifest.json ${field} must be an absolute HTTP or HTTPS URL.`);
+	}
+}
+
+function validateManifestText(
+	errors: string[],
+	field: string,
+	value: unknown,
+	maximumCharacters: number,
+	multiline: boolean,
+	required: boolean,
+) {
+	if (value === undefined && !required) return;
+	if (typeof value !== "string") {
+		errors.push(`manifest.json ${field} must be a string.`);
+		return;
+	}
+	if (required && !value.trim()) errors.push(`manifest.json ${field} cannot be empty.`);
+	if (value && value.trim() !== value) errors.push(`manifest.json ${field} cannot start or end with whitespace.`);
+	if ([...value].length > maximumCharacters) {
+		errors.push(`manifest.json ${field} cannot exceed ${maximumCharacters} characters.`);
+	}
+	for (const character of value) {
+		const codePoint = character.codePointAt(0) ?? 0;
+		const control =
+			(codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)) &&
+			!(multiline && (character === "\n" || character === "\t"));
+		const bidirectional =
+			codePoint === 0x061c ||
+			codePoint === 0x200e ||
+			codePoint === 0x200f ||
+			(codePoint >= 0x202a && codePoint <= 0x202e) ||
+			(codePoint >= 0x2066 && codePoint <= 0x2069);
+		if (control || bidirectional) {
+			errors.push(`manifest.json ${field} contains unsupported control characters.`);
+			break;
+		}
+	}
+}
+
+function validateManifestDateTime(errors: string[], field: string, value: unknown, required: boolean) {
+	if ((!required && (value === undefined || value === "")) || typeof value !== "string") return;
+	const parsed = Date.parse(value);
+	if (!Number.isFinite(parsed) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+		errors.push(`manifest.json ${field} must be an ISO 8601 date and time.`);
+	}
+}
+
+function serializedByteLength(value: unknown) {
+	try {
+		return new TextEncoder().encode(JSON.stringify(value)).length;
+	} catch {
+		return Number.POSITIVE_INFINITY;
+	}
 }
 
 function validateDefaultVariableProgramContract(manifestValue: unknown, programValue: unknown) {

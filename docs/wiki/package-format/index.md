@@ -36,7 +36,7 @@ No other root files are accepted. Directory entries do not count as package docu
 | `script_language_version` | Version of executable graph semantics |
 | `id` | Stable script identity used to match updates |
 | `name`, `description`, `author` | Human-facing identity and explanation |
-| `website`, `repository`, `tags` | Optional discovery and source metadata |
+| `website`, `source`, `tags` | Optional discovery and source metadata |
 | `created_with`, `created_at`, `updated_at` | Exporting editor and timestamps |
 | `minimum_runner_version` | Oldest runner version allowed to execute the package |
 | `assets` | Declared asset records with ID, kind, media type, name, path, and byte size |

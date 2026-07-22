@@ -30,6 +30,7 @@ import type {
   DashboardPayload,
   TriggerMonitorEvent,
 } from "@/lib/runner-api";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import { triggerMonitorEventMatches } from "@/lib/trigger-monitor-events";
 import { useDesktopTime } from "@/lib/time-format";
 import { visibleText } from "@/lib/visible-text";
@@ -204,6 +205,7 @@ export function TriggerMonitorView({
           <div className="grid min-w-0 grid-cols-[minmax(12rem,1fr)_minmax(12rem,18rem)_minmax(10rem,14rem)] gap-2 max-md:grid-cols-1">
             <Input
               aria-label="Search trigger events"
+              maxLength={SEARCH_INPUT_MAX_LENGTH}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search script, trigger, type, source, or payload"
               value={search}

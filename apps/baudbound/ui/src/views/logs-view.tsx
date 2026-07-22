@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
 import { formatCount } from "@/lib/count-format";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
   clearRunLogs,
   exportLogs,
@@ -152,6 +153,7 @@ export function LogsView({
           </div>
           <Input
             aria-label="Search logs"
+            maxLength={SEARCH_INPUT_MAX_LENGTH}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search message, script, type, node, run, or level"
             value={search}

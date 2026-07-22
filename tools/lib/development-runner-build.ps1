@@ -97,7 +97,7 @@ function Invoke-DockerLinuxRunnerBuild {
         "--workdir", "/workspace",
         $image,
         "bash", "-lc",
-        "pnpm --dir apps/baudbound/ui install --frozen-lockfile && cd apps/baudbound && node ui/node_modules/@tauri-apps/cli/tauri.js build --bundles appimage,deb,rpm --ci --no-sign --config tauri.local-build.conf.json && rm -f /artifacts/*.AppImage /artifacts/*.deb /artifacts/*.rpm && cp /workspace-target/release/bundle/appimage/*.AppImage /workspace-target/release/bundle/deb/*.deb /workspace-target/release/bundle/rpm/*.rpm /artifacts/ && cd /workspace && node apps/baudbound/scripts/verify-linux-packages-cli.mjs /artifacts $versionTag"
+        "pnpm --dir apps/baudbound/ui install --frozen-lockfile && rm -rf /workspace-target/release/bundle/appimage /workspace-target/release/bundle/deb /workspace-target/release/bundle/rpm && cd apps/baudbound && node ui/node_modules/@tauri-apps/cli/tauri.js build --bundles appimage,deb,rpm --ci --no-sign --config tauri.local-build.conf.json && rm -f /artifacts/*.AppImage /artifacts/*.deb /artifacts/*.rpm && cp /workspace-target/release/bundle/appimage/*.AppImage /workspace-target/release/bundle/deb/*.deb /workspace-target/release/bundle/rpm/*.rpm /artifacts/ && cd /workspace && node apps/baudbound/scripts/verify-linux-packages-cli.mjs /artifacts $versionTag"
     )
     Write-LocalRunnerArtifacts -Path "target/local-build/linux/artifacts" -Label "Linux"
 }

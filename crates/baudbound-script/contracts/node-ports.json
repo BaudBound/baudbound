@@ -288,6 +288,16 @@
 				"out"
 			]
 		},
+		"action.url.parse": {
+			"kind": "fixed",
+			"inputs": [
+				"input"
+			],
+			"outputs": [
+				"success",
+				"failed"
+			]
+		},
 		"action.webhook_response": {
 			"kind": "fixed",
 			"inputs": [

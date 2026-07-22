@@ -168,13 +168,13 @@ cd "$HOME/Downloads"
 3. Confirm that the directory contains only the BaudBound package you intend to install:
 
 ```bash
-ls -1 BaudBound_*_amd64.deb
+ls -1 Baudbound_*_amd64.deb
 ```
 
 4. Ask APT to verify dependencies and install the local package:
 
 ```bash
-sudo apt install ./BaudBound_*_amd64.deb
+sudo apt install ./Baudbound_*_amd64.deb
 ```
 
 APT installs a newer package over an older BaudBound version. You do not need to remove the old version first.
@@ -191,13 +191,13 @@ cd "$HOME/Downloads"
 3. Confirm that the directory contains only the BaudBound package you intend to install:
 
 ```bash
-ls -1 BaudBound-*.x86_64.rpm
+ls -1 Baudbound-*.x86_64.rpm
 ```
 
 4. Ask DNF to verify dependencies and install the local package:
 
 ```bash
-sudo dnf install ./BaudBound-*.x86_64.rpm
+sudo dnf install ./Baudbound-*.x86_64.rpm
 ```
 
 DNF installs a newer package over an older BaudBound version. You do not need to remove the old version first.
@@ -225,10 +225,10 @@ cd "$HOME/Downloads"
 3. List the downloaded BaudBound AppImage. This check helps you avoid copying an older release by mistake:
 
 ```bash
-ls -1 BaudBound_*.AppImage
+ls -1 Baudbound_*.AppImage
 ```
 
-Exactly one filename should be printed. If several files are printed, move the older files elsewhere or replace `BaudBound_*.AppImage` in the later copy command with the exact filename you want to install.
+Exactly one filename should be printed. If several files are printed, move the older files elsewhere or replace `Baudbound_*.AppImage` in the later copy command with the exact filename you want to install.
 
 4. Create a permanent directory for the application:
 
@@ -239,7 +239,7 @@ mkdir -p "$HOME/.local/opt/baudbound"
 5. Copy the downloaded AppImage into that directory. The destination has a stable name so updates can replace the same file later:
 
 ```bash
-cp BaudBound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage"
+cp Baudbound_*.AppImage "$HOME/.local/opt/baudbound/BaudBound.AppImage"
 ```
 
 6. Give the AppImage permission to run:
@@ -503,18 +503,18 @@ These commands remove only the old application files and launchers. They do not 
 
 ## Removing a native package
 
-The application command is `baudbound`. The native package database identifier is `baud-bound`, which is why the removal commands use that spelling.
+The application command and native package database identifier are both `baudbound`.
 
 On Debian or Ubuntu, remove the application files owned by APT with:
 
 ```bash
-sudo apt remove baud-bound
+sudo apt remove baudbound
 ```
 
 On Fedora, remove the application files owned by DNF with:
 
 ```bash
-sudo dnf remove baud-bound
+sudo dnf remove baudbound
 ```
 
 Package removal leaves the runner data in your user profile. This protects scripts, configuration, secrets, logs, and run history when reinstalling. Delete that data separately only when you intentionally want a complete cleanup.

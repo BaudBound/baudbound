@@ -25,6 +25,7 @@ export type ActionType =
 	| "runtime.set_variable"
 	| "action.calculate"
 	| "action.text.format"
+	| "action.url.parse"
 	| "action.log"
 	| "action.delay"
 	| "action.http"
@@ -71,10 +72,12 @@ export type TargetRuntime =
 
 export type ProjectSettings = {
 	name: string;
+	version: string;
+	updateUrl: string;
 	description: string;
 	author: string;
 	website: string;
-	repository: string;
+	source: string;
 	tags: string[];
 	targetRuntime: TargetRuntime;
 	minimumRunnerVersion: string;

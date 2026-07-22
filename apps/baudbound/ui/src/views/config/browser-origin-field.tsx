@@ -7,6 +7,10 @@ import {
 } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  BROWSER_ORIGIN_MAX_COUNT,
+  BROWSER_ORIGIN_MAX_LENGTH,
+} from "@/lib/input-limits";
 
 export function BrowserOriginField({
   onChange,
@@ -86,6 +90,7 @@ export function BrowserOriginField({
           aria-invalid={Boolean(error)}
           className="min-w-48 flex-1 bg-transparent px-1 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
           id={inputId}
+          maxLength={BROWSER_ORIGIN_MAX_LENGTH}
           onBlur={() => {
             if (draft.trim()) commitDraft();
           }}
@@ -113,6 +118,12 @@ export function BrowserOriginField({
 }
 
 export function appendBrowserOrigins(current: string[], input: string) {
+  if (input.length > BROWSER_ORIGIN_MAX_COUNT * (BROWSER_ORIGIN_MAX_LENGTH + 1)) {
+    return {
+      origins: current,
+      error: "The pasted browser origin list is too large.",
+    };
+  }
   const additions = parseBrowserOrigins(input);
   for (const origin of additions) {
     if (!isValidBrowserOrigin(origin)) {
@@ -126,6 +137,12 @@ export function appendBrowserOrigins(current: string[], input: string) {
   const origins = [...current];
   for (const origin of additions) {
     if (!origins.includes(origin)) origins.push(origin);
+  }
+  if (origins.length > BROWSER_ORIGIN_MAX_COUNT) {
+    return {
+      origins: current,
+      error: `No more than ${BROWSER_ORIGIN_MAX_COUNT} browser origins can be configured.`,
+    };
   }
 
   return {
@@ -151,6 +168,7 @@ export function isValidBrowserOrigin(origin: string) {
   return (
     authority !== null &&
     authority.length > 0 &&
+    origin.length <= BROWSER_ORIGIN_MAX_LENGTH &&
     !/[/?#@\s]/.test(authority) &&
     origin === origin.trim()
   );

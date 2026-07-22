@@ -17,6 +17,7 @@ import type {
 	SecretDeclaration,
 } from "@/lib/types";
 import { isSelfConnection, withEdgeExecutionOrder } from "@/utils/editor-graph";
+import { DEFAULT_SCRIPT_VERSION } from "@/utils/script-update";
 import { type EditorProject, editorProjectSchemaVersion, type ProjectSummary } from "./model";
 
 export type StoredProjectRecord = {
@@ -265,6 +266,7 @@ function toStoredAssetMetadata(asset: EditorAsset): StoredAssetMetadata {
 }
 
 function requireStoredProjectRecord(value: unknown): StoredProjectRecord {
+	value = migrateStoredProjectRecord(value);
 	if (!isRecord(value)) {
 		throw new Error("Stored project record is not an object.");
 	}
@@ -316,16 +318,34 @@ function isProjectSettings(value: unknown): value is ProjectSettings {
 	return (
 		isRecord(value) &&
 		typeof value.name === "string" &&
+		typeof value.version === "string" &&
+		typeof value.updateUrl === "string" &&
 		typeof value.description === "string" &&
 		typeof value.author === "string" &&
 		typeof value.website === "string" &&
-		typeof value.repository === "string" &&
+		typeof value.source === "string" &&
 		Array.isArray(value.tags) &&
 		value.tags.every((tag) => typeof tag === "string") &&
 		typeof value.targetRuntime === "string" &&
 		targetRuntimes.includes(value.targetRuntime as ProjectSettings["targetRuntime"]) &&
 		typeof value.minimumRunnerVersion === "string"
 	);
+}
+
+function migrateStoredProjectRecord(value: unknown): unknown {
+	if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.settings)) {
+		return value;
+	}
+
+	return {
+		...value,
+		schemaVersion: editorProjectSchemaVersion,
+		settings: {
+			...value.settings,
+			version: typeof value.settings.version === "string" ? value.settings.version : DEFAULT_SCRIPT_VERSION,
+			updateUrl: typeof value.settings.updateUrl === "string" ? value.settings.updateUrl : "",
+		},
+	};
 }
 
 function isStoredNode(value: unknown): value is StoredScriptNode {

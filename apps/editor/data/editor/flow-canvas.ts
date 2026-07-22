@@ -1,15 +1,15 @@
 import type { DefaultEdgeOptions } from "@xyflow/react";
 
 export const edgeStyleOptions = [
-	{ label: "Smooth step", value: "smoothstep" },
 	{ label: "Bezier", value: "bezier" },
-	{ label: "Straight", value: "straight" },
+	{ label: "Smooth step", value: "smoothstep" },
 	{ label: "Step", value: "step" },
+	{ label: "Straight", value: "straight" },
 ] as const;
 
 export type EditorEdgeStyle = (typeof edgeStyleOptions)[number]["value"];
 
-export const defaultEditorEdgeStyle: EditorEdgeStyle = "smoothstep";
+export const defaultEditorEdgeStyle: EditorEdgeStyle = "bezier";
 
 export const editorEdgeZIndex = 10;
 

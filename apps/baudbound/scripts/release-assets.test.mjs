@@ -49,7 +49,7 @@ test("rejects a Tauri API URL for another repository", (context) => {
   const directory = createRelease(context, (manifest) => {
     const url = "https://api.github.com/repos/another/project/releases/assets/1002";
     manifest.platforms["linux-x86_64"].url = url;
-    releaseAssets.push({ apiUrl: url, name: "BaudBound_2.0.0_amd64.AppImage" });
+    releaseAssets.push({ apiUrl: url, name: "Baudbound_2.0.0_amd64.AppImage" });
   });
 
   assert.throws(
@@ -93,7 +93,7 @@ test("rejects a release without both supported platforms", (context) => {
 
 test("rejects a release without a Debian package", (context) => {
   const directory = createRelease(context);
-  rmSync(join(directory, "BaudBound_2.0.0_amd64.deb"));
+  rmSync(join(directory, "Baudbound_2.0.0_amd64.deb"));
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
@@ -103,7 +103,7 @@ test("rejects a release without a Debian package", (context) => {
 
 test("rejects a release without an RPM package", (context) => {
   const directory = createRelease(context);
-  rmSync(join(directory, "BaudBound-2.0.0-1.x86_64.rpm"));
+  rmSync(join(directory, "Baudbound-2.0.0-1.x86_64.rpm"));
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
@@ -113,8 +113,8 @@ test("rejects a release without an RPM package", (context) => {
 
 test("rejects a native package with the wrong version", (context) => {
   const directory = createRelease(context);
-  rmSync(join(directory, "BaudBound_2.0.0_amd64.deb"));
-  write(directory, "BaudBound_1.9.0_amd64.deb", "linux-deb");
+  rmSync(join(directory, "Baudbound_2.0.0_amd64.deb"));
+  write(directory, "Baudbound_1.9.0_amd64.deb", "linux-deb");
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
@@ -124,7 +124,7 @@ test("rejects a native package with the wrong version", (context) => {
 
 test("rejects a modified installer", (context) => {
   const directory = createRelease(context);
-  write(directory, "BaudBound_2.0.0_amd64.deb", "modified-linux-deb");
+  write(directory, "Baudbound_2.0.0_amd64.deb", "modified-linux-deb");
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
@@ -147,7 +147,7 @@ function createRelease(context, alterManifest = () => {}) {
   context.after(() => rmSync(directory, { force: true, recursive: true }));
 
   const windows = "BaudBound_2.0.0_x64-setup.exe";
-  const linux = "BaudBound_2.0.0_amd64.AppImage";
+  const linux = "Baudbound_2.0.0_amd64.AppImage";
   const windowsSignature = "windows-signature";
   const linuxSignature = "linux-signature";
   const manifest = {
@@ -165,11 +165,11 @@ function createRelease(context, alterManifest = () => {}) {
   write(directory, `${windows}.sig`, windowsSignature);
   write(directory, linux, "linux-appimage");
   write(directory, `${linux}.sig`, linuxSignature);
-  write(directory, "BaudBound_2.0.0_amd64.deb", "linux-deb");
-  write(directory, "BaudBound-2.0.0-1.x86_64.rpm", "linux-rpm");
+  write(directory, "Baudbound_2.0.0_amd64.deb", "linux-deb");
+  write(directory, "Baudbound-2.0.0-1.x86_64.rpm", "linux-rpm");
   write(directory, "latest.json", JSON.stringify(manifest));
   const assets = new Map(
-    [windows, linux, "BaudBound_2.0.0_amd64.deb", "BaudBound-2.0.0-1.x86_64.rpm"]
+    [windows, linux, "Baudbound_2.0.0_amd64.deb", "Baudbound-2.0.0-1.x86_64.rpm"]
       .map((name) => [name, join(directory, name)]),
   );
   write(directory, "SHA256SUMS", checksumManifest(assets));

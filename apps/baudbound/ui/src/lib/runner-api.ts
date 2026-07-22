@@ -10,6 +10,41 @@ export type PackageFileSelection = {
   package_path: string;
 };
 
+export type RemotePackageOperation = "import" | "update";
+export type RemotePackageSource = "descriptor" | "package";
+export type RemotePreparationStage =
+  | "downloading_descriptor"
+  | "downloading_package"
+  | "verifying_hash"
+  | "validating_package"
+  | "awaiting_review";
+
+export type RemotePreparationProgress = {
+  request_id: string;
+  stage: RemotePreparationStage;
+  total_bytes: number | null;
+  transferred_bytes: number;
+};
+
+export const remotePackageProgressEvent = "runner-remote-package-progress";
+
+export type RemotePackageReview = {
+  capabilities: string[];
+  current_version: string | null;
+  operation: RemotePackageOperation;
+  permissions: string[];
+  review_id: string;
+  risk_level: string;
+  script_id: string;
+  script_name: string;
+  sha256: string;
+  size: number;
+  source: RemotePackageSource;
+  target_runtime: string;
+  update_url: string;
+  version: string;
+};
+
 export type ApprovalStatus =
   | { state: "current" }
   | { state: "missing" }
@@ -104,10 +139,36 @@ export type ScriptMetadata = {
   created_with: string;
   description: string;
   minimum_runner_version: string;
-  repository: string;
+  version: string;
+  update_url: string;
+  source: string;
   tags: string[];
   updated_at: string;
   website: string;
+};
+
+export type ScriptUpdateStatus =
+  | "available"
+  | "failed"
+  | "not_checked"
+  | "unavailable"
+  | "unconfigured"
+  | "up_to_date";
+
+export type ScriptUpdateState = {
+  automatic_checks_enabled: boolean;
+  checked_update_url: string | null;
+  last_checked_at_unix: number | null;
+  last_error: string | null;
+  last_success_at_unix: number | null;
+  latest_version: string | null;
+  package_sha256: string | null;
+  package_size: number | null;
+  package_url: string | null;
+  published_at: string | null;
+  release_notes: string | null;
+  script_id: string;
+  status: ScriptUpdateStatus;
 };
 
 export type RunnerStatus = {
@@ -469,6 +530,7 @@ export type DashboardPayload = {
   runner: RunnerStatus;
   secret_vault: SecretVaultSnapshot;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
+  script_updates: Record<string, ScriptUpdateState>;
   serial_devices: SerialDeviceStatus[];
   service_health: ServiceHealthDocument;
   service_status: ServiceStatusDocument | null;
@@ -782,6 +844,61 @@ export function updateScriptPackage(selection: PackageFileSelection) {
     confirmationId: selection.confirmation_id,
     packagePath: selection.package_path,
   });
+}
+
+export function prepareRemoteScriptPackage(
+  operation: RemotePackageOperation,
+  requestId: string,
+  source: RemotePackageSource,
+  url: string,
+) {
+  return invoke<RemotePackageReview>("prepare_remote_script_package", {
+    request: { operation, requestId, source, url },
+  });
+}
+
+export function prepareDiscoveredScriptUpdate(reference: string, requestId: string) {
+  return invoke<RemotePackageReview>("prepare_discovered_script_update", {
+    reference,
+    requestId,
+  });
+}
+
+export function cancelRemoteScriptPackagePreparation(requestId: string) {
+  return invoke<boolean>("cancel_remote_script_package_preparation", {
+    requestId,
+  });
+}
+
+export function discardRemotePackageReview(reviewId: string) {
+  return invoke<boolean>("discard_remote_package_review", { reviewId });
+}
+
+export function installRemoteScriptPackage(review: RemotePackageReview) {
+  return invokeSensitive<ActionPayload>(
+    "install_remote_script_package",
+    {
+      kind: "install_remote_script_package",
+      review_id: review.review_id,
+      sha256: review.sha256,
+    },
+    { reviewId: review.review_id, sha256: review.sha256 },
+  );
+}
+
+export function checkScriptUpdate(reference: string) {
+  return invoke<ActionPayload>("check_script_update", { reference });
+}
+
+export function setScriptAutomaticUpdateChecks(
+  reference: string,
+  enabled: boolean,
+) {
+  return invokeSensitive<ActionPayload>(
+    "set_script_automatic_update_checks",
+    { kind: "set_script_automatic_update_checks", reference, enabled },
+    { reference, enabled },
+  );
 }
 
 export function startBackgroundRunner() {

@@ -12,6 +12,7 @@
     { "id": "section-editor", "kind": "header", "label": "Editor" },
     { "id": "editor", "kind": "link", "label": "Visual Editor", "icon": "mdi-pencil", "path": "editor" },
     { "id": "editor-projects", "kind": "link", "label": "Projects, Assets, and Export", "icon": "mdi-package-up", "path": "editor/projects-assets-export" },
+    { "id": "editor-publishing-updates", "kind": "link", "label": "Publishing Script Updates", "icon": "mdi-update", "path": "editor/publishing-script-updates" },
     { "id": "editor-nodes", "kind": "link", "label": "Node Reference", "icon": "mdi-view-list", "path": "editor/node-reference" },
     { "id": "editor-variables", "kind": "link", "label": "Variables and Data", "icon": "mdi-database", "path": "editor/variables" },
     { "id": "editor-simulation", "kind": "link", "label": "Verification and Simulation", "icon": "mdi-play-circle", "path": "editor/simulation" },
@@ -37,7 +38,7 @@
     { "id": "security-approvals", "kind": "link", "label": "Approvals, Capabilities, and Risk", "icon": "mdi-shield-key", "path": "security/approvals-capabilities" },
 
     { "id": "section-self-hosting", "kind": "header", "label": "Self-Hosting" },
-    { "id": "self-hosting", "kind": "link", "label": "Self-Hosting Guide", "icon": "mdi-server-network", "path": "self-hosting" },
+    { "id": "self-hosting", "kind": "link", "label": "Editor Self Hosting", "icon": "mdi-server-network", "path": "self-hosting" },
 
     { "id": "section-developers", "kind": "header", "label": "Developers" },
     { "id": "developers", "kind": "link", "label": "Developer Overview", "icon": "mdi-code-braces", "path": "developers" },

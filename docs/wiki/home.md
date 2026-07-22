@@ -20,7 +20,7 @@ BaudBound can automate tasks such as reacting to a schedule or file change, rece
 | Install or update the runner | [Installation and Updates](runner/installation.md) |
 | Keep triggers running on a desktop | [Background Service and Triggers](runner/service-triggers.md) |
 | Run BaudBound on a headless Linux machine | [Linux Background Service](runner/linux-background-service.md) |
-| Host the editor or schema service | [Self-Hosting Guide](self-hosting/index.md) |
+| Host the editor on your own server | [Editor Self Hosting](self-hosting/index.md) |
 | Contribute to BaudBound | [Developer Overview](developers/index.md) |
 
 ## How a workflow reaches the runner

@@ -19,7 +19,7 @@
   ],
   "requiredPages": [
     "home", "getting-started", "tutorials", "concepts", "licensing", "editor",
-    "editor/projects-assets-export", "editor/node-reference", "editor/variables",
+    "editor/projects-assets-export", "editor/publishing-script-updates", "editor/node-reference", "editor/variables",
     "editor/simulation", "editor/target-runtimes", "runner", "runner/installation",
     "runner/desktop-app", "runner/script-management", "runner/configuration",
     "runner/service-triggers", "runner/network-listeners", "runner/secrets",
@@ -44,8 +44,8 @@
   "nodes": {
     "sources": "apps/editor/data/nodes/definitions/**/*.ts",
     "page": "editor/node-reference",
-    "expectedCount": 49,
-    "sourceFingerprint": "2706304f1289d90672d0bd01162ed8a1e32dadd444c67c6a73855c7bd11a5874"
+    "expectedCount": 50,
+    "sourceFingerprint": "e607a0182848887cbb280c21e8bb10a47380405b6c3dbec46373bc93b278cd41"
   },
   "desktop": {
     "source": "apps/baudbound/ui/src/lib/navigation.ts",

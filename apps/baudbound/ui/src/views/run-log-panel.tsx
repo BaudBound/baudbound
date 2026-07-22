@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
 import { useSortableRows } from "@/lib/table-sorting";
@@ -81,6 +82,7 @@ export function RunLogPanel({
       <div className="grid items-center gap-2 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
         <Input
           aria-label="Search run logs"
+          maxLength={SEARCH_INPUT_MAX_LENGTH}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search log message, type, node, or level"
           value={query}

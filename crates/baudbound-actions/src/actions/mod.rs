@@ -5,6 +5,7 @@ pub(crate) mod process;
 pub(crate) mod serial;
 pub(crate) mod system;
 pub(crate) mod text;
+pub(crate) mod url;
 
 pub(crate) use files::{
     copy_file_action, delete_file_action, download_file_action, move_file_action, read_file_action,
@@ -18,3 +19,4 @@ pub(crate) use process::{
 pub use serial::{SerialConnectionRegistry, SerialDeviceConfig};
 pub(crate) use system::desktop_only_action;
 pub(crate) use text::text_format_action;
+pub(crate) use url::parse_url_action;

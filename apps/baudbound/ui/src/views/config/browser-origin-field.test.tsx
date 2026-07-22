@@ -2,6 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  BROWSER_ORIGIN_MAX_COUNT,
+  BROWSER_ORIGIN_MAX_LENGTH,
+} from "@/lib/input-limits";
+import {
   appendBrowserOrigins,
   BrowserOriginField,
   isValidBrowserOrigin,
@@ -58,5 +62,17 @@ describe("browser origin field", () => {
       origins: current,
       error: "https://invalid.example/path is not an exact http or https origin.",
     });
+  });
+
+  it("rejects oversized origins and origin lists", () => {
+    expect(isValidBrowserOrigin(`https://${"a".repeat(BROWSER_ORIGIN_MAX_LENGTH)}`)).toBe(false);
+    const origins = Array.from(
+      { length: BROWSER_ORIGIN_MAX_COUNT },
+      (_, index) => `https://${index}.example.com`,
+    );
+
+    expect(appendBrowserOrigins(origins, "https://extra.example.com").error).toContain(
+      "No more than",
+    );
   });
 });

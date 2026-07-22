@@ -73,13 +73,18 @@ export function SharedConfiguration({
               </span>
               <Input
                 disabled={!config.updates.automatic_checks}
+                max={8_760}
                 min={1}
                 onChange={(event) =>
                   onChange({
                     ...config,
                     updates: {
                       ...config.updates,
-                      check_interval_hours: positiveInteger(event.target.valueAsNumber),
+                      check_interval_hours: boundedInteger(
+                        event.target.valueAsNumber,
+                        1,
+                        8_760,
+                      ),
                     },
                   })
                 }
@@ -241,6 +246,8 @@ function TimeFormatRow({
   );
 }
 
-function positiveInteger(value: number) {
-  return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : 1;
+function boundedInteger(value: number, min: number, max: number) {
+  return Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.trunc(value)))
+    : min;
 }

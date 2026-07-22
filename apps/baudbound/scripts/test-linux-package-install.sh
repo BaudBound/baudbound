@@ -5,7 +5,7 @@ set -euo pipefail
 format="${1:-}"
 package_directory="${2:-}"
 expected_version="${3:-}"
-package_name="baud-bound"
+package_name="baudbound"
 user_data_directory="${HOME}/.local/share/BaudBound/runner"
 user_data_marker="${user_data_directory}/package-preservation-test"
 
@@ -28,7 +28,7 @@ find_package() {
 
 verify_installed_files() {
     [[ -x /usr/bin/baudbound ]] || fail "installed baudbound command is missing"
-    [[ -f /usr/share/applications/BaudBound.desktop ]] \
+    [[ -f /usr/share/applications/Baudbound.desktop ]] \
         || fail "installed desktop entry is missing"
     [[ -f /usr/share/icons/hicolor/128x128/apps/baudbound.png ]] \
         || fail "installed application icon is missing"
@@ -39,7 +39,7 @@ verify_installed_files() {
 
 verify_removed_files() {
     [[ ! -e /usr/bin/baudbound ]] || fail "package removal left /usr/bin/baudbound behind"
-    [[ ! -e /usr/share/applications/BaudBound.desktop ]] \
+    [[ ! -e /usr/share/applications/Baudbound.desktop ]] \
         || fail "package removal left the desktop entry behind"
     [[ -f "$user_data_marker" ]] \
         || fail "package removal deleted runner user data"

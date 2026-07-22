@@ -255,7 +255,17 @@ const simulationRows = [
 	{
 		label: "Export package",
 		description:
-			"Export writes manifest.json, program.json, editor.json, permissions.json, capabilities.json, README.md, and assets/.",
+			"Export generates and verifies the package once. The final screen can download those exact .bbs bytes and create a matching update.json descriptor.",
+	},
+	{
+		label: "Script version",
+		description:
+			"Project Settings stores the semantic script version used by update checks. Increase it before publishing a changed package.",
+	},
+	{
+		label: "Update URL",
+		description:
+			"Project Settings can declare a future public HTTPS update.json address. The editor validates its shape but does not contact it.",
 	},
 ];
 
@@ -672,6 +682,15 @@ function SimulationAndExportSection() {
 					Executable graph data is exported to <Code>{"program.json"}</Code>. Canvas positions are exported to{" "}
 					<Code>{"editor.json"}</Code>. Permissions and capabilities are recalculated and written separately so the
 					runner can compare declared values against its own calculation.
+				</InfoCard>
+			</div>
+
+			<div className="space-y-3">
+				<SectionTitle icon={PackageCheck} title="Publishing Updates" />
+				<InfoCard>
+					Set a new semantic version before exporting a changed script. After verification, download the package and
+					create <Code>{"update.json"}</Code> from the same generated package. Upload both files to the public HTTPS
+					addresses entered during export. The runner discovers updates but still requires package review and approval.
 				</InfoCard>
 			</div>
 		</section>

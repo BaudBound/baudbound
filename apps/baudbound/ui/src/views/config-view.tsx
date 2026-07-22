@@ -24,6 +24,14 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { DashboardAction } from "@/lib/app-types";
 import {
+  BIND_ADDRESS_MAX_LENGTH,
+  RUNNER_CONFIG_MAX_BYTES,
+  RUNNER_TEXT_INPUT_MAX_LENGTH,
+  SERIAL_DEVICE_ID_MAX_LENGTH,
+  SERIAL_METADATA_MAX_LENGTH,
+  utf8Length,
+} from "@/lib/input-limits";
+import {
   type DashboardPayload,
   type RunnerConfig,
   type SerialDeviceSettings,
@@ -39,6 +47,7 @@ import {
   DesktopConfiguration,
   SharedConfiguration,
 } from "@/views/configuration-preferences";
+import { normalizeSerialDeviceId } from "@/views/tools/serial-device-model";
 
 type ConfigMode = "simple" | "advanced";
 
@@ -92,6 +101,8 @@ export function ConfigView({
     mode === "advanced"
       ? contents !== savedContents
       : JSON.stringify(config) !== JSON.stringify(savedConfig);
+  const configBytes = useMemo(() => utf8Length(contents), [contents]);
+  const configTooLarge = mode === "advanced" && configBytes > RUNNER_CONFIG_MAX_BYTES;
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
@@ -139,7 +150,7 @@ export function ConfigView({
 
   function addSerialDevice() {
     if (!config) return;
-    const id = newDeviceId.trim();
+    const id = normalizeSerialDeviceId(newDeviceId);
     if (!id || config.serial.devices[id]) return;
     setConfig({
       ...config,
@@ -206,7 +217,14 @@ export function ConfigView({
                 Reload
               </Button>
               <Button
-                disabled={!isDirty || isSaving || isResetting || isLoading || !config}
+                disabled={
+                  !isDirty ||
+                  configTooLarge ||
+                  isSaving ||
+                  isResetting ||
+                  isLoading ||
+                  !config
+                }
                 onClick={saveConfig}
               >
                 <Save />
@@ -225,9 +243,11 @@ export function ConfigView({
         </Card>
       ) : mode === "advanced" ? (
         <AdvancedConfigEditor
+          byteCount={configBytes}
           contents={contents}
           disabled={isLoading}
           lineCount={lineCount}
+          oversized={configTooLarge}
           onChange={setContents}
         />
       ) : (
@@ -342,6 +362,7 @@ function SimpleConfigEditor({
         <CardContent className="grid gap-4 md:grid-cols-2">
           <NumberField
             label="Trigger reload seconds"
+            max={86_400}
             min={1}
             onChange={(trigger_reload_seconds) =>
               onChange({
@@ -353,6 +374,7 @@ function SimpleConfigEditor({
           />
           <NumberField
             label="Maximum stored runs"
+            max={10_000_000}
             min={1}
             onChange={(run_history_max_records) =>
               onChange({
@@ -364,6 +386,7 @@ function SimpleConfigEditor({
           />
           <NumberField
             label="Run history age in days"
+            max={36_500}
             min={1}
             onChange={(run_history_max_age_days) =>
               onChange({
@@ -393,6 +416,7 @@ function SimpleConfigEditor({
         <CardContent className="grid gap-4 md:grid-cols-3">
           <NumberField
             label="Maximum HTTP response bytes"
+            max={4_294_967_296}
             min={1}
             onChange={(max_http_response_bytes) =>
               onChange({
@@ -404,6 +428,7 @@ function SimpleConfigEditor({
           />
           <NumberField
             label="Maximum file download bytes"
+            max={4_294_967_296}
             min={1}
             onChange={(max_file_download_bytes) =>
               onChange({
@@ -415,6 +440,7 @@ function SimpleConfigEditor({
           />
           <NumberField
             label="Maximum file read bytes"
+            max={4_294_967_296}
             min={1}
             onChange={(max_file_read_bytes) =>
               onChange({
@@ -538,6 +564,7 @@ function SimpleConfigEditor({
           <CardTitle>Serial devices</CardTitle>
           <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto">
             <Input
+              maxLength={SERIAL_DEVICE_ID_MAX_LENGTH}
               onChange={(event) => onNewDeviceIdChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") onAddSerialDevice();
@@ -546,7 +573,10 @@ function SimpleConfigEditor({
               value={newDeviceId}
             />
             <Button
-              disabled={!newDeviceId.trim() || Boolean(config.serial.devices[newDeviceId.trim()])}
+              disabled={
+                !normalizeSerialDeviceId(newDeviceId) ||
+                Boolean(config.serial.devices[normalizeSerialDeviceId(newDeviceId)])
+              }
               onClick={onAddSerialDevice}
               variant="secondary"
             >
@@ -621,7 +651,12 @@ function NetworkSection({
   return (
     <div className="grid gap-3 rounded-md border border-border bg-background p-3">
       <div className="text-sm font-medium">{title}</div>
-      <TextField label="Bind address" onChange={onBindChange} value={bind} />
+      <TextField
+        label="Bind address"
+        maxLength={BIND_ADDRESS_MAX_LENGTH}
+        onChange={onBindChange}
+        value={bind}
+      />
       <BrowserOriginField
         onChange={onAllowBrowserOriginsChange}
         value={allowBrowserOrigins}
@@ -629,6 +664,7 @@ function NetworkSection({
       <NumberField label="Port" max={65535} min={1} onChange={onPortChange} value={port} />
       <NumberField
         label={maxBytesLabel}
+        max={4_294_967_296}
         min={1}
         onChange={onMaxBytesChange}
         value={maxBytes}
@@ -636,6 +672,7 @@ function NetworkSection({
       {maxConnections !== undefined && onMaxConnectionsChange ? (
         <NumberField
           label="Max concurrent connections"
+          max={10_000}
           min={1}
           onChange={onMaxConnectionsChange}
           value={maxConnections}
@@ -689,11 +726,13 @@ function SerialDeviceCard({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <TextField
             label="Port"
+            maxLength={RUNNER_TEXT_INPUT_MAX_LENGTH}
             onChange={(port) => onChange({ ...device, port })}
             value={device.port}
           />
           <NumberField
             label="Baud rate"
+            max={4_294_967_295}
             min={1}
             onChange={(baud_rate) => onChange({ ...device, baud_rate })}
             value={device.baud_rate}
@@ -737,11 +776,13 @@ function SerialDeviceCard({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <TextField
             label="Vendor ID"
+            maxLength={6}
             onChange={(vendor_id) => onChange({ ...device, vendor_id: nullableText(vendor_id) })}
             value={device.vendor_id ?? ""}
           />
           <TextField
             label="Product ID"
+            maxLength={6}
             onChange={(product_id) =>
               onChange({ ...device, product_id: nullableText(product_id) })
             }
@@ -749,6 +790,7 @@ function SerialDeviceCard({
           />
           <TextField
             label="Serial number"
+            maxLength={SERIAL_METADATA_MAX_LENGTH}
             onChange={(serial_number) =>
               onChange({ ...device, serial_number: nullableText(serial_number) })
             }
@@ -756,6 +798,7 @@ function SerialDeviceCard({
           />
           <TextField
             label="Manufacturer"
+            maxLength={SERIAL_METADATA_MAX_LENGTH}
             onChange={(manufacturer) =>
               onChange({ ...device, manufacturer: nullableText(manufacturer) })
             }
@@ -763,6 +806,7 @@ function SerialDeviceCard({
           />
           <TextField
             label="Product"
+            maxLength={SERIAL_METADATA_MAX_LENGTH}
             onChange={(product) => onChange({ ...device, product: nullableText(product) })}
             value={device.product ?? ""}
           />
@@ -926,24 +970,35 @@ function serialReadModeDescription(value: string) {
 }
 
 function AdvancedConfigEditor({
+  byteCount,
   contents,
   disabled,
   lineCount,
   onChange,
+  oversized,
 }: {
+  byteCount: number;
   contents: string;
   disabled: boolean;
   lineCount: number;
   onChange: (contents: string) => void;
+  oversized: boolean;
 }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Raw TOML</CardTitle>
-        <div className="text-xs text-muted-foreground">{lineCount} lines</div>
+        <div className="text-xs text-muted-foreground">
+          {lineCount} lines, {byteCount} bytes
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-2">
         <TomlCodeEditor disabled={disabled} onChange={onChange} value={contents} />
+        {oversized ? (
+          <div className="text-xs text-destructive">
+            The configuration is larger than the 1,048,576 byte limit and cannot be saved.
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -951,17 +1006,23 @@ function AdvancedConfigEditor({
 
 function TextField({
   label,
+  maxLength = RUNNER_TEXT_INPUT_MAX_LENGTH,
   onChange,
   value,
 }: {
   label: string;
+  maxLength?: number;
   onChange: (value: string) => void;
   value: string;
 }) {
   return (
     <label className="grid gap-1.5 text-sm">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <Input onChange={(event) => onChange(event.target.value)} value={value} />
+      <Input
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      />
     </label>
   );
 }

@@ -48,6 +48,7 @@ import { mouseClickNode } from "./definitions/actions/mouse-click";
 import { moveMouseNode } from "./definitions/actions/move-mouse";
 import { notificationNode } from "./definitions/actions/notification";
 import { openApplicationNode } from "./definitions/actions/open-application";
+import { parseUrlNode } from "./definitions/actions/parse-url";
 import { playSoundNode } from "./definitions/actions/play-sound";
 import { processStatusNode } from "./definitions/actions/process-status";
 import { runProcessNode } from "./definitions/actions/run-process";
@@ -106,6 +107,7 @@ const nodeDefinitions: NodeDefinition[] = [
 	variableOperationNode,
 	calculateNode,
 	formatTextNode,
+	parseUrlNode,
 	logNode,
 	delayNode,
 	httpRequestNode,
@@ -157,7 +159,12 @@ const actionPaletteCategories = [
 		id: "actions-data",
 		label: "Data & Variables",
 		icon: Database,
-		actionTypes: ["runtime.set_variable", "action.calculate", "action.text.format"] satisfies ActionType[],
+		actionTypes: [
+			"runtime.set_variable",
+			"action.calculate",
+			"action.text.format",
+			"action.url.parse",
+		] satisfies ActionType[],
 	},
 	{
 		id: "actions-output",

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import { formatCount } from "@/lib/count-format";
 import {
   clearRunHistory,
@@ -35,7 +36,7 @@ import {
   type RunHistoryQuery,
   type StoredRunRecord,
 } from "@/lib/runner-api";
-import { nodeActionType, runStatusVariant } from "@/lib/run-inspection";
+import { nodeActionType, runStatusPresentation } from "@/lib/run-inspection";
 import { nextSortState, type SortState } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 import { visibleText } from "@/lib/visible-text";
@@ -271,6 +272,7 @@ export function RunsView({
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
             <Input
               aria-label="Search runs"
+              maxLength={SEARCH_INPUT_MAX_LENGTH}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search run ID, script, trigger, or logs"
               value={search}
@@ -429,6 +431,7 @@ function RunRow({
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   const lastLog = run.logs.at(-1);
+  const status = runStatusPresentation(run);
   return (
     <tr className="border-b border-border align-top last:border-0">
       <td className="px-3 py-3" data-label="Select">
@@ -457,7 +460,10 @@ function RunRow({
         {nodeActionType(run.logs, run.trigger_node_id) ?? "-"}
       </td>
       <td className="px-3 py-3" data-label="Status">
-        <Badge variant={runStatusVariant(run.status)}>{run.status}</Badge>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant={status.variant}>{status.label}</Badge>
+          {status.hasErrors ? <Badge variant="destructive">with errors</Badge> : null}
+        </div>
       </td>
       <td
         className="break-all px-3 py-3 font-mono text-xs text-muted-foreground"

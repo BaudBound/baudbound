@@ -213,6 +213,7 @@
 				"allows_variables": true
 			}
 		},
+		"action.url.parse": {},
 		"action.webhook_response": {
 			"statusCode": {
 				"kind": "integer",

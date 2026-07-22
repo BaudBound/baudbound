@@ -259,6 +259,42 @@ pub struct UpdateCheckCache {
     pub update_available: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScriptUpdateState {
+    pub automatic_checks_enabled: bool,
+    pub checked_update_url: Option<String>,
+    pub last_checked_at_unix: Option<u64>,
+    pub last_error: Option<String>,
+    pub last_success_at_unix: Option<u64>,
+    pub latest_version: Option<String>,
+    pub package_sha256: Option<String>,
+    pub package_size: Option<u64>,
+    pub package_url: Option<String>,
+    pub published_at: Option<String>,
+    pub release_notes: Option<String>,
+    pub script_id: String,
+}
+
+impl ScriptUpdateState {
+    #[must_use]
+    pub fn empty(script_id: impl Into<String>) -> Self {
+        Self {
+            automatic_checks_enabled: false,
+            checked_update_url: None,
+            last_checked_at_unix: None,
+            last_error: None,
+            last_success_at_unix: None,
+            latest_version: None,
+            package_sha256: None,
+            package_size: None,
+            package_url: None,
+            published_at: None,
+            release_notes: None,
+            script_id: script_id.into(),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("script {0} is already installed")]

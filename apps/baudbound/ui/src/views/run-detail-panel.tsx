@@ -11,7 +11,7 @@ import {
   countLogsByLevel,
   filterVariableMetadata,
   nodeActionType,
-  runStatusVariant,
+  runStatusPresentation,
   variableRows,
 } from "@/lib/run-inspection";
 import { useDesktopTime } from "@/lib/time-format";
@@ -29,6 +29,7 @@ export function RunDetailPanel({
   const logCounts = countLogsByLevel(run.logs);
   const errorCount = logCounts.error ?? 0;
   const warningCount = (logCounts.warn ?? 0) + (logCounts.warning ?? 0);
+  const status = runStatusPresentation(run);
   const dataVariableCount = filterVariableMetadata(
     variableRows(run.variables, run.variable_scopes),
     false,
@@ -61,9 +62,7 @@ export function RunDetailPanel({
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              <Badge variant={runStatusVariant(run.status)}>
-                {run.status}
-              </Badge>
+              <Badge variant={status.variant}>{status.label}</Badge>
               <Badge variant="muted">{run.logs.length} log entries</Badge>
               <Badge variant={errorCount > 0 ? "destructive" : "muted"}>
                 {errorCount} errors

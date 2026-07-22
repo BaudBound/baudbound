@@ -1,8 +1,10 @@
 {
+  "productName": "Baudbound",
   "bundle": {
     "targets": ["appimage", "deb", "rpm"],
     "linux": {
       "deb": {
+        "desktopTemplate": "linux/baudbound.desktop.hbs",
         "depends": [
           "libasound2",
           "libudev1"
@@ -11,6 +13,7 @@
         "section": "utils"
       },
       "rpm": {
+        "desktopTemplate": "linux/baudbound.desktop.hbs",
         "depends": [
           "libasound.so.2()(64bit)",
           "libudev.so.1()(64bit)"

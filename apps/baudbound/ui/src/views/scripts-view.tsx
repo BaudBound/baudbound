@@ -16,6 +16,7 @@ import { ScriptDetailPanel } from "@/views/script-detail-panel";
 import { ScriptPackageToolbar } from "@/views/script-package-toolbar";
 import { ScriptProblemPanel } from "@/views/script-problem-panel";
 import { ScriptRow } from "@/views/script-row";
+import { ScriptUpdateCheckDialog } from "@/views/script-update-check-dialog";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 
 type ScriptSortColumn =
@@ -50,15 +51,18 @@ function riskOrder(risk: string) {
 export function ScriptsView({
   busyActions,
   dashboard,
+  onDashboard,
   runAction,
 }: {
   busyActions: Set<string>;
   dashboard: DashboardPayload;
+  onDashboard: (dashboard: DashboardPayload) => void;
   runAction: DashboardAction;
 }) {
   const [detailScriptId, setDetailScriptId] = useState<string | null>(null);
   const [detailRun, setDetailRun] = useState<StoredRunRecord | null>(null);
   const [approvalScriptId, setApprovalScriptId] = useState<string | null>(null);
+  const [checkUpdatesOpen, setCheckUpdatesOpen] = useState(false);
   const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
     dashboard.runner.scripts,
     scriptSortSelectors,
@@ -72,7 +76,14 @@ export function ScriptsView({
 
   return (
     <div className="grid gap-4">
-      <ScriptPackageToolbar busyActions={busyActions} runAction={runAction} />
+      <ScriptPackageToolbar
+        busyActions={busyActions}
+        canCheckUpdates={dashboard.runner.scripts.some((script) =>
+          Boolean(script.metadata?.update_url.trim()),
+        )}
+        onCheckUpdates={() => setCheckUpdatesOpen(true)}
+        runAction={runAction}
+      />
       <ScriptProblemPanel
         onApproveScript={setApprovalScriptId}
         scripts={dashboard.runner.scripts}
@@ -116,6 +127,7 @@ export function ScriptsView({
                   >
                     Target
                   </SortableTableHeader>
+                  <th className="px-3 py-2">Update</th>
                   <th className="px-3 py-2">
                     <span className="ml-auto block w-[11.5rem]">Actions</span>
                   </th>
@@ -133,6 +145,7 @@ export function ScriptsView({
                     onViewDetails={setDetailScriptId}
                     runAction={runAction}
                     script={script}
+                    updateState={dashboard.script_updates[script.installed.id]}
                   />
                 ))}
               </tbody>
@@ -170,9 +183,12 @@ export function ScriptsView({
         {detailScript ? (
           <>
             <ScriptDetailPanel
+              busyActions={busyActions}
               onViewRun={setDetailRun}
               recentRuns={dashboard.recent_runs}
+              runAction={runAction}
               script={detailScript}
+              updateState={dashboard.script_updates[detailScript.installed.id]}
             />
             <DetailDialog
               description={
@@ -196,6 +212,14 @@ export function ScriptsView({
           </>
         ) : null}
       </DetailDialog>
+      <ScriptUpdateCheckDialog
+        busyActions={busyActions}
+        dashboard={dashboard}
+        onDashboard={onDashboard}
+        onOpenChange={setCheckUpdatesOpen}
+        open={checkUpdatesOpen}
+        runAction={runAction}
+      />
     </div>
   );
 }

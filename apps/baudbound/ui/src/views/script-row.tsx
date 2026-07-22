@@ -10,6 +10,7 @@ import {
   runScript,
   type ActiveRun,
   type ScriptStatus,
+  type ScriptUpdateState,
   setScriptEnabled,
   stopScriptRuns,
 } from "@/lib/runner-api";
@@ -28,6 +29,7 @@ export function ScriptRow({
   onViewDetails,
   runAction,
   script,
+  updateState,
 }: {
   activeRuns: ActiveRun[];
   busyActions: Set<string>;
@@ -35,6 +37,7 @@ export function ScriptRow({
   onViewDetails: (scriptId: string) => void;
   runAction: DashboardAction;
   script: ScriptStatus;
+  updateState: ScriptUpdateState;
 }) {
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const reference = script.installed.id;
@@ -83,6 +86,11 @@ export function ScriptRow({
       </td>
       <td className="hidden px-3 py-3 xl:table-cell" data-label="Target">
         {script.installed.target_runtime}
+      </td>
+      <td className="px-3 py-3" data-label="Update">
+        <Badge variant={updateStatusVariant(updateState.status)}>
+          {updateStatusLabel(updateState.status)}
+        </Badge>
       </td>
       <td className="px-3 py-3" data-label="Actions">
         <div className="ml-auto flex w-[11.5rem] justify-between max-[1280px]:ml-0">
@@ -182,6 +190,24 @@ export function ScriptRow({
       </td>
     </tr>
   );
+}
+
+function updateStatusLabel(status: ScriptUpdateState["status"]) {
+  switch (status) {
+    case "available": return "Available";
+    case "failed": return "Failed";
+    case "not_checked": return "Not checked";
+    case "unavailable": return "Unavailable";
+    case "unconfigured": return "Not configured";
+    case "up_to_date": return "Up to date";
+  }
+}
+
+function updateStatusVariant(status: ScriptUpdateState["status"]) {
+  if (status === "available") return "medium" as const;
+  if (status === "failed" || status === "unavailable") return "destructive" as const;
+  if (status === "up_to_date") return "good" as const;
+  return "muted" as const;
 }
 
 function manualRunUnavailableReason(script: ScriptStatus) {

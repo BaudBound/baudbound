@@ -8,7 +8,7 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use baudbound_core::RunnerConfig;
+use baudbound_core::{MAX_RUNNER_CONFIG_BYTES, MAX_SECRET_INPUT_BYTES, RunnerConfig};
 use baudbound_storage::{NetworkTriggerType, ScriptStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,6 +18,10 @@ use super::DesktopUiState;
 
 const CHALLENGE_LIFETIME: Duration = Duration::from_secs(120);
 const MAX_PENDING_CHALLENGES: usize = 128;
+const MAX_REFERENCE_BYTES: usize = 256;
+const MAX_NODE_ID_BYTES: usize = 128;
+const MAX_NAME_BYTES: usize = 128;
+const MAX_PACKAGE_PATH_BYTES: usize = 32_768;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -30,6 +34,14 @@ pub(super) enum SensitiveOperation {
     },
     UpdateScriptPackage {
         package_path: String,
+    },
+    SetScriptAutomaticUpdateChecks {
+        reference: String,
+        enabled: bool,
+    },
+    InstallRemoteScriptPackage {
+        review_id: String,
+        sha256: String,
     },
     RunScript {
         reference: String,
@@ -75,6 +87,8 @@ impl SensitiveOperation {
             Self::ApproveScript { .. } => "approve_script",
             Self::ImportScriptPackage { .. } => "import_script_package",
             Self::UpdateScriptPackage { .. } => "update_script_package",
+            Self::SetScriptAutomaticUpdateChecks { .. } => "set_script_automatic_update_checks",
+            Self::InstallRemoteScriptPackage { .. } => "install_remote_script_package",
             Self::RunScript { .. } => "run_script",
             Self::SaveRunnerConfig { .. } => "save_runner_config",
             Self::SaveRunnerConfigModel { .. } => "save_runner_config_model",
@@ -96,6 +110,13 @@ impl SensitiveOperation {
             }
             Self::UpdateScriptPackage { package_path } => {
                 format!("Update package from {package_path}")
+            }
+            Self::SetScriptAutomaticUpdateChecks { reference, enabled } => format!(
+                "{} automatic update checks for {reference}",
+                if *enabled { "Enable" } else { "Disable" }
+            ),
+            Self::InstallRemoteScriptPackage { .. } => {
+                "Install the reviewed remote script package".to_owned()
             }
             Self::RunScript { reference } => format!("Run {reference}"),
             Self::SaveRunnerConfig { .. } | Self::SaveRunnerConfigModel { .. } => {
@@ -193,6 +214,7 @@ impl SensitiveOperationGuard {
         state: &DesktopUiState,
         authorization: ChallengeAuthorization,
     ) -> Result<ConfirmationChallenge, String> {
+        validate_operation(operation, state)?;
         let digest = operation_digest(operation, state)?;
         let mut pending = self
             .pending
@@ -260,6 +282,7 @@ impl SensitiveOperationGuard {
         state: &DesktopUiState,
         authorization: ChallengeAuthorization,
     ) -> Result<(), String> {
+        validate_operation(operation, state)?;
         let challenge = self
             .pending
             .lock()
@@ -291,6 +314,96 @@ impl SensitiveOperationGuard {
             challenge.expires_at = Instant::now() - Duration::from_secs(1);
         }
     }
+}
+
+fn validate_operation(
+    operation: &SensitiveOperation,
+    state: &DesktopUiState,
+) -> Result<(), String> {
+    match operation {
+        SensitiveOperation::ApproveScript { reference }
+        | SensitiveOperation::RunScript { reference }
+        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)
+        }
+        SensitiveOperation::ImportScriptPackage { package_path }
+        | SensitiveOperation::UpdateScriptPackage { package_path } => {
+            validate_text("package path", package_path, MAX_PACKAGE_PATH_BYTES, false)
+        }
+        SensitiveOperation::InstallRemoteScriptPackage { review_id, sha256 } => {
+            validate_text("review ID", review_id, 128, false)?;
+            validate_text("package SHA256", sha256, 64, false)?;
+            if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err("package SHA256 must contain 64 hexadecimal characters".to_owned());
+            }
+            Ok(())
+        }
+        SensitiveOperation::SaveRunnerConfig { contents, .. } => {
+            if contents.len() > MAX_RUNNER_CONFIG_BYTES {
+                return Err(format!(
+                    "runner configuration exceeds {MAX_RUNNER_CONFIG_BYTES} bytes"
+                ));
+            }
+            RunnerConfig::from_toml(contents, &state.config_path)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+        SensitiveOperation::SaveRunnerConfigModel { config, .. } => {
+            let contents = config.to_pretty_toml().map_err(|error| error.to_string())?;
+            RunnerConfig::from_toml(&contents, &state.config_path)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+        SensitiveOperation::RotateNetworkTriggerToken {
+            reference, node_id, ..
+        }
+        | SensitiveOperation::SetNetworkTriggerAuthEnabled {
+            reference, node_id, ..
+        } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
+            validate_text("node ID", node_id, MAX_NODE_ID_BYTES, false)
+        }
+        SensitiveOperation::SetScriptSecret {
+            reference,
+            name,
+            value,
+        } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
+            validate_text("secret name", name, MAX_NAME_BYTES, false)?;
+            if value.is_empty() || value.len() > MAX_SECRET_INPUT_BYTES {
+                return Err(format!(
+                    "secret value must contain between 1 and {MAX_SECRET_INPUT_BYTES} bytes"
+                ));
+            }
+            Ok(())
+        }
+        SensitiveOperation::RemoveScriptSecret { reference, name } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
+            validate_text("secret name", name, MAX_NAME_BYTES, false)
+        }
+        SensitiveOperation::ResetRunnerConfig { .. }
+        | SensitiveOperation::ClearRunHistory
+        | SensitiveOperation::ClearRunLogs => Ok(()),
+    }
+}
+
+fn validate_text(
+    label: &str,
+    value: &str,
+    max_bytes: usize,
+    allow_empty: bool,
+) -> Result<(), String> {
+    if (!allow_empty && value.is_empty()) || value.len() > max_bytes || value.contains('\0') {
+        return Err(format!(
+            "{label} must contain {} and at most {max_bytes} bytes without null characters",
+            if allow_empty {
+                "valid text"
+            } else {
+                "at least one byte"
+            }
+        ));
+    }
+    Ok(())
 }
 
 impl ConfirmationChallenge {
@@ -330,7 +443,8 @@ fn operation_digest(
     hasher.update(operation_json);
     match operation {
         SensitiveOperation::ApproveScript { reference }
-        | SensitiveOperation::RunScript { reference } => {
+        | SensitiveOperation::RunScript { reference }
+        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
             let installed = state
                 .store
                 .verify_script_package_hash(reference)

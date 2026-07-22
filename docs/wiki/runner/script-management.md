@@ -45,7 +45,7 @@ baudbound script import "$HOME/Downloads/desk-lights.bbs"
 
 Import validates the archive, manifest, executable graph, node configuration, integrity hashes, minimum runner version, target runtime, permissions, and capabilities before installation. A successful import prints the installed script name and ID. Import does not create Webhook or WebSocket credentials. Those credentials are created only after you review and approve the package. A failed import does not install a partially accepted package.
 
-In the desktop app, choose **View details** on a script row to read the descriptive information stored in the verified package manifest. The dialog shows the author, description, website, repository, tags, creation details, minimum runner version, target runtime, package identity, health, permissions, triggers, and recent runs when those values are available. These fields describe the package but do not replace the approval review. Always review permissions, capabilities, risk, and package integrity separately.
+In the desktop app, choose **View details** on a script row to read the descriptive information stored in the verified package manifest. The dialog shows the author, description, website, source, tags, creation details, minimum runner version, target runtime, package identity, health, permissions, triggers, and recent runs when those values are available. These fields describe the package but do not replace the approval review. Always review permissions, capabilities, risk, and package integrity separately.
 
 The runner stages validation before durable installation. Rejection leaves existing script records, package files, approvals, variables, secrets, and registrations unchanged.
 
@@ -128,6 +128,38 @@ Removal deletes the installed package copy and script row. Database foreign-key 
 
 > Removal is not a temporary disable operation. Use `baudbound script disable SCRIPT` when you want to keep package state and stop unattended listeners.
 {.is-warning}
+
+## Remote import and update checks
+
+The desktop **Import** command can use a local `.bbs` file, a direct public `.bbs` URL, or a public `update.json` URL. The desktop **Update** command accepts a local `.bbs` file or a direct public `.bbs` URL.
+
+A remote package is downloaded into protected temporary storage. The runner validates it and displays its identity, version, SHA256, target, risk, permissions, and capabilities before installation. Installing does not approve or run it.
+
+When an installed package declares an update URL, its details dialog contains an **Updates** section. Choose **Check for updates** to check only that script. Choose **Check updates** on the main Scripts page to check every configured script. Scripts without an update URL are listed as **Not configured** and are not contacted.
+
+The main page can show these states:
+
+| State | Meaning |
+| --- | --- |
+| **Not configured** | The package does not declare an update URL |
+| **Not checked** | An update URL exists but no successful check matches it yet |
+| **Up to date** | The descriptor is valid and does not publish a newer version |
+| **Update available** | A valid descriptor publishes a newer version |
+| **Check failed** | The descriptor could not be fetched or validated |
+| **Unavailable** | The installed package metadata cannot be inspected |
+
+Choose **Review update** to download the discovered package. The runner verifies the package against the descriptor again before showing the review. Replacing the installed package makes the previous approval stale. Review and approve the new exact hash before enabling or running it.
+
+**Update all** creates a review queue. It does not approve packages as a group. Review, install, skip, or cancel each package separately.
+
+Automatic checks are disabled for every script by default. Enabling **Automatic update checks** requires confirmation because the publisher's server can observe the runner's public IP address and request time. Automatic checks only discover metadata. They never download or install a package.
+
+Remote URLs must use public HTTPS destinations. The runner rejects credentials in URLs, unsafe redirects, local addresses, private network addresses, oversized responses, unexpected filenames, hash mismatches, reused versions with changed bytes, and downgrades.
+
+> A valid package is not automatically trustworthy. Install scripts only from publishers you trust. BaudBound checks structure, integrity, compatibility, declared access, and exact package bytes. It cannot determine the intentions of a publisher or script.
+{.is-warning}
+
+Authors can read [Publishing Script Updates](../editor/publishing-script-updates.md) for the complete `update.json` and GitHub publishing workflow.
 
 ## Desktop equivalents
 

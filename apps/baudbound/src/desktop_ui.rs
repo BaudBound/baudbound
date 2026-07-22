@@ -8,8 +8,8 @@ use anyhow::{Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings, TimeFormat};
 use baudbound_storage::{
-    GeneratedTriggerToken, NetworkTriggerType, ScriptStore, SqliteRunnerStore, StoredRunRecord,
-    TriggerAuthStatus,
+    GeneratedTriggerToken, NetworkTriggerType, ScriptStore, ScriptUpdateState, SqliteRunnerStore,
+    StoredRunRecord, TriggerAuthStatus,
 };
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,8 @@ macro_rules! desktop_command_handler {
             approve_script,
             clear_run_history,
             clear_run_logs,
+            check_script_update,
+            cancel_remote_script_package_preparation,
             prepare_sensitive_operation,
             dashboard_state,
             history::export_logs,
@@ -57,6 +59,10 @@ macro_rules! desktop_command_handler {
             coordinate_picker::cancel_coordinate_picker,
             tools::discover_monitors,
             import_script_package,
+            install_remote_script_package,
+            discard_remote_package_review,
+            prepare_remote_script_package,
+            prepare_discovered_script_update,
             prepare_for_update,
             remove_script,
             revoke_script_approval,
@@ -77,6 +83,7 @@ macro_rules! desktop_command_handler {
             rotate_network_trigger_token,
             select_package_file,
             set_script_enabled,
+            set_script_automatic_update_checks,
             set_network_trigger_auth_enabled,
             start_background_runner,
             coordinate_picker::start_coordinate_picker,
@@ -131,6 +138,8 @@ pub fn run_desktop_ui(
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(SensitiveOperationGuard::default())
+        .manage(crate::script_updates::RemotePreparationRegistry::default())
+        .manage(crate::script_updates::RemotePackageReviews::default())
         .manage(DesktopUiState {
             background_options: Mutex::new(background_options),
             active_runs,
@@ -140,6 +149,7 @@ pub fn run_desktop_ui(
             runner_config: Mutex::new(runner_config),
             core: Arc::new(Mutex::new(core)),
             secret_vault: secret_vault.clone(),
+            script_update_worker: crate::script_updates::ScriptUpdateWorker::default(),
             store,
             websocket_registry,
             operation_lock: Arc::new(Mutex::new(())),
@@ -168,6 +178,11 @@ pub fn run_desktop_ui(
             state
                 .secret_vault
                 .start(app.handle().clone(), state.store.clone());
+            state.script_update_worker.start(
+                app.handle().clone(),
+                state.config_path.clone(),
+                state.store.clone(),
+            );
             desktop_config::start_configured_background_runner(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 window
@@ -190,6 +205,7 @@ pub(super) struct DesktopUiState {
     runner_config: Mutex<RunnerConfig>,
     core: Arc<Mutex<RunnerCore>>,
     secret_vault: secret_vault::SecretVaultController,
+    script_update_worker: crate::script_updates::ScriptUpdateWorker,
     store: SqliteRunnerStore,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Arc<Mutex<()>>,
@@ -300,6 +316,34 @@ fn record_update_check(
 ) -> Result<(), String> {
     crate::updates::record_desktop_check(&state.store, latest_version.as_deref(), release_notes)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn check_script_update<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    reference: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    let store = state.store.clone();
+    let package_limit = current_runner_config(&state)
+        .map_err(|error| error.to_string())?
+        .limits
+        .max_file_download_bytes as u64;
+    let reference_for_check = reference.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::script_updates::check_script_update(&store, package_limit, &reference_for_check)
+    })
+    .await
+    .map_err(|error| format!("update check task failed: {error}"))?;
+    if let Err(error) = app.emit(crate::script_updates::SCRIPT_UPDATE_EVENT, &reference) {
+        tracing::debug!(%error, "failed to publish manual script update state event");
+    }
+    result.map_err(|error| error.to_string())?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload {
+        dashboard,
+        message: format!("Checked {reference} for updates."),
+    })
 }
 
 #[tauri::command]
@@ -447,8 +491,20 @@ fn update_script_package<R: tauri::Runtime>(
         &window,
     )?;
     let path = PathBuf::from(package_path);
+    let has_update_url = !baudbound_script::load_script_package(&path)
+        .map_err(|error| error.to_string())?
+        .manifest
+        .update_url
+        .trim()
+        .is_empty();
     let script = run_locked_value(&state, || {
-        Ok(current_core(&state)?.update_package(&state.store, &path)?)
+        let script = current_core(&state)?.update_package(&state.store, &path)?;
+        crate::script_updates::reconcile_script_update_state_after_install(
+            &state.store,
+            &script.id,
+            has_update_url,
+        )?;
+        Ok(script)
     })?;
     let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
     Ok(ActionPayload {
@@ -458,6 +514,225 @@ fn update_script_package<R: tauri::Runtime>(
             script.name, script.id, script.package_file_name
         ),
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrepareRemotePackageRequest {
+    operation: crate::script_updates::RemotePackageOperation,
+    request_id: String,
+    source: crate::script_updates::RemotePackageSource,
+    url: String,
+}
+
+#[derive(Serialize)]
+struct RemotePackageReviewPayload {
+    review_id: String,
+    #[serde(flatten)]
+    review: crate::script_updates::RemotePackageReview,
+}
+
+const REMOTE_PACKAGE_PROGRESS_EVENT: &str = "runner-remote-package-progress";
+
+#[derive(Clone, Serialize)]
+struct RemotePackageProgressPayload {
+    request_id: String,
+    #[serde(flatten)]
+    progress: crate::script_updates::RemotePreparationProgress,
+}
+
+#[tauri::command]
+async fn prepare_remote_script_package<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    preparations: State<'_, crate::script_updates::RemotePreparationRegistry>,
+    request: PrepareRemotePackageRequest,
+    reviews: State<'_, crate::script_updates::RemotePackageReviews>,
+    state: State<'_, DesktopUiState>,
+) -> Result<RemotePackageReviewPayload, String> {
+    let preparation = preparations.start(&request.request_id)?;
+    let request_id = request.request_id.clone();
+    let core = current_core(&state).map_err(|error| error.to_string())?;
+    let store = state.store.clone();
+    let package_limit = current_runner_config(&state)
+        .map_err(|error| error.to_string())?
+        .limits
+        .max_file_download_bytes as u64;
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let mut progress = |progress| {
+            if preparation.is_cancelled() {
+                return false;
+            }
+            let _ = app.emit(
+                REMOTE_PACKAGE_PROGRESS_EVENT,
+                RemotePackageProgressPayload {
+                    request_id: request_id.clone(),
+                    progress,
+                },
+            );
+            !preparation.is_cancelled()
+        };
+        crate::script_updates::prepare_remote_package_with_progress(
+            &core,
+            &store,
+            package_limit,
+            request.operation,
+            request.source,
+            &request.url,
+            &mut progress,
+        )
+    })
+    .await
+    .map_err(|error| format!("remote package preparation task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let review = prepared.review.clone();
+    let review_id = reviews.insert(prepared)?;
+    Ok(RemotePackageReviewPayload { review_id, review })
+}
+
+#[tauri::command]
+async fn prepare_discovered_script_update<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    preparations: State<'_, crate::script_updates::RemotePreparationRegistry>,
+    reference: String,
+    request_id: String,
+    reviews: State<'_, crate::script_updates::RemotePackageReviews>,
+    state: State<'_, DesktopUiState>,
+) -> Result<RemotePackageReviewPayload, String> {
+    let preparation = preparations.start(&request_id)?;
+    let core = current_core(&state).map_err(|error| error.to_string())?;
+    let store = state.store.clone();
+    let package_limit = current_runner_config(&state)
+        .map_err(|error| error.to_string())?
+        .limits
+        .max_file_download_bytes as u64;
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let mut progress = |progress| {
+            if preparation.is_cancelled() {
+                return false;
+            }
+            let _ = app.emit(
+                REMOTE_PACKAGE_PROGRESS_EVENT,
+                RemotePackageProgressPayload {
+                    request_id: request_id.clone(),
+                    progress,
+                },
+            );
+            !preparation.is_cancelled()
+        };
+        crate::script_updates::prepare_discovered_update_with_progress(
+            &core,
+            &store,
+            package_limit,
+            &reference,
+            &mut progress,
+        )
+    })
+    .await
+    .map_err(|error| format!("remote update preparation task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let review = prepared.review.clone();
+    let review_id = reviews.insert(prepared)?;
+    Ok(RemotePackageReviewPayload { review_id, review })
+}
+
+#[tauri::command]
+fn cancel_remote_script_package_preparation(
+    request_id: String,
+    preparations: State<'_, crate::script_updates::RemotePreparationRegistry>,
+) -> Result<bool, String> {
+    preparations.cancel(&request_id)
+}
+
+#[tauri::command]
+fn discard_remote_package_review(
+    review_id: String,
+    reviews: State<'_, crate::script_updates::RemotePackageReviews>,
+) -> Result<bool, String> {
+    reviews.discard(&review_id)
+}
+
+#[tauri::command]
+fn install_remote_script_package<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    review_id: String,
+    reviews: State<'_, crate::script_updates::RemotePackageReviews>,
+    sha256: String,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::InstallRemoteScriptPackage {
+            review_id: review_id.clone(),
+            sha256: sha256.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
+    let prepared = reviews.take(&review_id, &sha256)?;
+    let actual_hash = sha256_path(prepared.download.file.path())?;
+    if actual_hash != sha256 {
+        return Err("the downloaded package changed after review".to_owned());
+    }
+    let operation = prepared.review.operation;
+    let script_id = prepared.review.script_id.clone();
+    let script_name = prepared.review.script_name.clone();
+    let has_update_url = !prepared.review.update_url.trim().is_empty();
+    run_locked_value(&state, || {
+        let directory = tempfile::Builder::new()
+            .prefix("baudbound-reviewed-package-")
+            .tempdir()?;
+        let package_path = directory.path().join(format!("{script_id}.bbs"));
+        fs::copy(prepared.download.file.path(), &package_path)?;
+        match operation {
+            crate::script_updates::RemotePackageOperation::Import => {
+                current_core(&state)?.import_package(&state.store, &package_path)?;
+            }
+            crate::script_updates::RemotePackageOperation::Update => {
+                current_core(&state)?.update_package(&state.store, &package_path)?;
+                crate::script_updates::reconcile_script_update_state_after_install(
+                    &state.store,
+                    &script_id,
+                    has_update_url,
+                )?;
+            }
+        }
+        Ok(())
+    })?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload {
+        dashboard,
+        message: format!(
+            "{} {script_name}. Review and approve the installed package before running it.",
+            match operation {
+                crate::script_updates::RemotePackageOperation::Import => "Imported",
+                crate::script_updates::RemotePackageOperation::Update => "Updated",
+            }
+        ),
+    })
+}
+
+fn sha256_path(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 #[tauri::command]
@@ -560,6 +835,44 @@ fn set_script_enabled(
         Ok(format!(
             "{} {reference}.",
             if enabled { "Enabled" } else { "Disabled" }
+        ))
+    })
+}
+
+#[tauri::command]
+fn set_script_automatic_update_checks<R: tauri::Runtime>(
+    confirmation_id: String,
+    enabled: bool,
+    guard: State<'_, SensitiveOperationGuard>,
+    reference: String,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::SetScriptAutomaticUpdateChecks {
+            reference: reference.clone(),
+            enabled,
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
+    run_locked_action(&state, || {
+        if enabled {
+            let installed = state.store.verify_script_package_hash(&reference)?;
+            let package = baudbound_script::load_script_package(&installed.package_path)?;
+            if package.manifest.update_url.trim().is_empty() {
+                return Err(anyhow!("this script does not provide an update URL"));
+            }
+        }
+        state
+            .store
+            .set_script_automatic_update_checks(&reference, enabled)?;
+        state.script_update_worker.wake();
+        Ok(format!(
+            "Automatic update checks are {} for {reference}.",
+            if enabled { "enabled" } else { "disabled" }
         ))
     })
 }
@@ -876,6 +1189,8 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
     let recent_runs = state.store.list_run_records(None, Some(50))?;
     let run_statistics = state.store.run_statistics()?;
+    let script_updates =
+        script_update_payloads(&runner.scripts, state.store.list_script_update_states()?);
     let active_runs = state.active_runs.snapshot();
     let desktop_background = state.background_runner.snapshot()?;
     let runner_config = current_runner_config(state)?;
@@ -917,6 +1232,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
         runner,
         secret_vault: state.secret_vault.snapshot(),
         secret_statuses,
+        script_updates,
         serial_devices,
         service_health,
         service_status: public_service_status,
@@ -954,12 +1270,71 @@ struct DashboardPayload {
     runner: baudbound_core::RunnerStatus,
     secret_vault: secret_vault::SecretVaultSnapshot,
     secret_statuses: std::collections::BTreeMap<String, Vec<baudbound_core::InstalledSecretStatus>>,
+    script_updates: std::collections::BTreeMap<String, ScriptUpdatePayload>,
     serial_devices: Vec<SerialDevicePayload>,
     service_health: Value,
     service_status: Option<Value>,
     storage_root: String,
     time_format: TimeFormat,
     trigger_auth_statuses: std::collections::BTreeMap<String, Vec<TriggerAuthStatus>>,
+}
+
+#[derive(Serialize)]
+struct ScriptUpdatePayload {
+    #[serde(flatten)]
+    state: ScriptUpdateState,
+    status: &'static str,
+}
+
+fn script_update_payloads(
+    scripts: &[baudbound_core::ScriptStatus],
+    states: Vec<ScriptUpdateState>,
+) -> std::collections::BTreeMap<String, ScriptUpdatePayload> {
+    let mut states = states
+        .into_iter()
+        .map(|state| (state.script_id.clone(), state))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    scripts
+        .iter()
+        .map(|script| {
+            let id = script.installed.id.clone();
+            let state = states
+                .remove(&id)
+                .unwrap_or_else(|| ScriptUpdateState::empty(id.clone()));
+            let status = script_update_status(script, &state);
+            (id, ScriptUpdatePayload { state, status })
+        })
+        .collect()
+}
+
+fn script_update_status(
+    script: &baudbound_core::ScriptStatus,
+    state: &ScriptUpdateState,
+) -> &'static str {
+    let Some(metadata) = script.metadata.as_ref() else {
+        return "unavailable";
+    };
+    let update_url = metadata.update_url.trim();
+    if update_url.is_empty() {
+        return "unconfigured";
+    }
+    if state.checked_update_url.as_deref() != Some(update_url) {
+        return "not_checked";
+    }
+    if state.last_error.is_some() {
+        return "failed";
+    }
+    let (Ok(current), Some(Ok(latest))) = (
+        semver::Version::parse(&metadata.version),
+        state.latest_version.as_deref().map(semver::Version::parse),
+    ) else {
+        return "unavailable";
+    };
+    if latest > current {
+        "available"
+    } else {
+        "up_to_date"
+    }
 }
 
 fn desktop_platform() -> &'static str {

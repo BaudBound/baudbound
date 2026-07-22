@@ -34,7 +34,7 @@ const manifestValueResolvers: Record<string, (settings: ProjectSettings) => Buil
 	manifest_author: (settings: ProjectSettings) => settings.author,
 	manifest_description: (settings: ProjectSettings) => settings.description,
 	manifest_website: (settings: ProjectSettings) => settings.website,
-	manifest_repository: (settings: ProjectSettings) => settings.repository,
+	manifest_source: (settings: ProjectSettings) => settings.source,
 	manifest_minimum_runner_version: (settings: ProjectSettings) => settings.minimumRunnerVersion,
 };
 
@@ -96,12 +96,12 @@ export const builtInVariableGroups: BuiltInVariableGroup[] = [
 				runtimeBinding: "manifest.website",
 			},
 			{
-				name: "manifest_repository",
-				token: "{{manifest_repository}}",
+				name: "manifest_source",
+				token: "{{manifest_source}}",
 				type: "string",
-				description: "Repository URL from project settings.",
+				description: "Source URL from project settings.",
 				example: "https://github.com/example/script",
-				runtimeBinding: "manifest.repository",
+				runtimeBinding: "manifest.source",
 			},
 			{
 				name: "manifest_minimum_runner_version",

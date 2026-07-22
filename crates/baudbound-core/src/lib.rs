@@ -13,7 +13,12 @@ mod sub_script;
 mod triggers;
 mod version;
 
-use std::{path::Path, sync::Arc};
+use std::{
+    fs::{File, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use baudbound_actions::{ActionLimits, HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
@@ -54,12 +59,12 @@ pub use config::{
     DEFAULT_TRIGGER_RELOAD_SECONDS, DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, DEFAULT_WEBHOOK_BIND,
     DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
     DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
-    LimitSettings, MAX_SERIAL_MESSAGE_BYTES, MAX_SERIAL_MESSAGE_GAP_MS, RunnerConfig,
-    RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings, TimeFormat,
-    TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
+    LimitSettings, MAX_RUNNER_CONFIG_BYTES, MAX_SERIAL_MESSAGE_BYTES, MAX_SERIAL_MESSAGE_GAP_MS,
+    RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings,
+    TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
 };
 pub use package::PackageInspection;
-pub use secrets::InstalledSecretStatus;
+pub use secrets::{InstalledSecretStatus, MAX_SECRET_INPUT_BYTES};
 pub use serial::{SerialDeviceConfig, serial_device_configs_from_settings};
 pub use status::{
     ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptMetadata, ScriptStatus,
@@ -183,11 +188,11 @@ impl RunnerCore {
         store: &impl ScriptStore,
         path: impl AsRef<Path>,
     ) -> Result<InstalledScript, CoreError> {
-        let path = path.as_ref();
-        let package = load_script_package(path)?;
+        let staged = StagedPackage::copy_from(path.as_ref())?;
+        let package = load_script_package(&staged.path)?;
         self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
         store
-            .import_script(import_request_from_package(path, package))
+            .import_script(import_request_from_package(&staged.path, package))
             .map_err(CoreError::Storage)
     }
 
@@ -196,8 +201,8 @@ impl RunnerCore {
         store: &impl ScriptStore,
         path: impl AsRef<Path>,
     ) -> Result<InstalledScript, CoreError> {
-        let path = path.as_ref();
-        let package = load_script_package(path)?;
+        let staged = StagedPackage::copy_from(path.as_ref())?;
+        let package = load_script_package(&staged.path)?;
         self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
         let declared_secret_names = package
             .manifest
@@ -205,7 +210,7 @@ impl RunnerCore {
             .iter()
             .map(|secret| secret.name.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        let result = store.update_script(import_request_from_package(path, package))?;
+        let result = store.update_script(import_request_from_package(&staged.path, package))?;
         for secret in store.list_secret_statuses(&result.id)? {
             if !declared_secret_names.contains(&secret.name) {
                 store.remove_secret(&result.id, &secret.name)?;
@@ -757,6 +762,12 @@ pub enum CoreError {
     Storage(#[from] StorageError),
     #[error("script {0} is disabled")]
     ScriptDisabled(String),
+    #[error("failed to stage package {path}: {source}")]
+    PackageStage {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("sub-script execution would deadlock while {owner} waits for {target}")]
     SubScriptDeadlock { owner: String, target: String },
     #[error("sub-script cycle detected: {0}")]
@@ -765,6 +776,66 @@ pub enum CoreError {
     InvalidSecret(String),
     #[error(transparent)]
     Version(#[from] VersionCompatibilityError),
+}
+
+struct StagedPackage {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl StagedPackage {
+    fn copy_from(source_path: &Path) -> Result<Self, CoreError> {
+        let file_name = source_path
+            .file_name()
+            .ok_or_else(|| CoreError::PackageStage {
+                path: source_path.to_path_buf(),
+                source: io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "package path has no file name",
+                ),
+            })?;
+        let directory = tempfile::Builder::new()
+            .prefix("baudbound-package-")
+            .tempdir()
+            .map_err(|source| CoreError::PackageStage {
+                path: source_path.to_path_buf(),
+                source,
+            })?;
+        let staged_path = directory.path().join(file_name);
+        let mut source = File::open(source_path).map_err(|source| CoreError::PackageStage {
+            path: source_path.to_path_buf(),
+            source,
+        })?;
+        let mut destination = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&staged_path)
+            .map_err(|source| CoreError::PackageStage {
+                path: staged_path.clone(),
+                source,
+            })?;
+        io::copy(&mut source, &mut destination).map_err(|source| CoreError::PackageStage {
+            path: staged_path.clone(),
+            source,
+        })?;
+        destination
+            .flush()
+            .map_err(|source| CoreError::PackageStage {
+                path: staged_path.clone(),
+                source,
+            })?;
+        destination
+            .sync_all()
+            .map_err(|source| CoreError::PackageStage {
+                path: staged_path.clone(),
+                source,
+            })?;
+
+        Ok(Self {
+            _directory: directory,
+            path: staged_path,
+        })
+    }
 }
 
 #[cfg(test)]

@@ -2,11 +2,13 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
+    net::Ipv4Addr,
     path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use url::Url;
 
 pub const DEFAULT_WEBHOOK_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBHOOK_PORT: u16 = 43891;
@@ -28,6 +30,19 @@ pub const DEFAULT_SERIAL_READ_MODE: &str = "idle_gap";
 pub const MAX_SERIAL_OPEN_STABILIZATION_MS: u64 = 60_000;
 pub const MAX_SERIAL_MESSAGE_GAP_MS: u64 = 60_000;
 pub const MAX_SERIAL_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_RUNNER_CONFIG_BYTES: usize = 1024 * 1024;
+pub const MAX_BROWSER_ORIGINS: usize = 128;
+pub const MAX_BROWSER_ORIGIN_LENGTH: usize = 2048;
+pub const MAX_SERIAL_DEVICES: usize = 128;
+pub const MAX_SERIAL_DEVICE_ID_LENGTH: usize = 64;
+pub const MAX_SERIAL_PORT_LENGTH: usize = 1024;
+pub const MAX_SERIAL_METADATA_LENGTH: usize = 512;
+const MAX_RUN_HISTORY_RECORDS: usize = 10_000_000;
+const MAX_RUN_HISTORY_AGE_DAYS: u64 = 36_500;
+const MAX_TRIGGER_RELOAD_SECONDS: u64 = 86_400;
+const MAX_UPDATE_CHECK_INTERVAL_HOURS: u64 = 8_760;
+const MAX_NETWORK_CONNECTIONS: usize = 10_000;
+const MAX_EXTERNAL_DATA_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 pub use baudbound_actions::{
     DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
 };
@@ -76,6 +91,14 @@ impl RunnerConfig {
 
     pub fn from_toml(contents: &str, path: impl AsRef<Path>) -> Result<Self, RunnerConfigError> {
         let path = path.as_ref();
+        if contents.len() > MAX_RUNNER_CONFIG_BYTES {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "configuration exceeds the maximum size of {MAX_RUNNER_CONFIG_BYTES} bytes"
+                ),
+            });
+        }
         let config: Self = toml::from_str(contents).map_err(|source| RunnerConfigError::Parse {
             path: path.to_path_buf(),
             source,
@@ -91,22 +114,37 @@ impl RunnerConfig {
     }
 
     fn validate(&self, path: &Path) -> Result<(), RunnerConfigError> {
-        if self.runner.run_history_max_records == 0 {
+        if !(1..=MAX_RUN_HISTORY_RECORDS).contains(&self.runner.run_history_max_records) {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "runner.run_history_max_records must be greater than zero".to_owned(),
+                message: format!(
+                    "runner.run_history_max_records must be between 1 and {MAX_RUN_HISTORY_RECORDS}"
+                ),
             });
         }
-        if self.runner.run_history_max_age_days == 0 {
+        if !(1..=MAX_RUN_HISTORY_AGE_DAYS).contains(&self.runner.run_history_max_age_days) {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "runner.run_history_max_age_days must be greater than zero".to_owned(),
+                message: format!(
+                    "runner.run_history_max_age_days must be between 1 and {MAX_RUN_HISTORY_AGE_DAYS}"
+                ),
             });
         }
-        if self.updates.check_interval_hours == 0 {
+        if !(1..=MAX_TRIGGER_RELOAD_SECONDS).contains(&self.runner.trigger_reload_seconds) {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "updates.check_interval_hours must be greater than zero".to_owned(),
+                message: format!(
+                    "runner.trigger_reload_seconds must be between 1 and {MAX_TRIGGER_RELOAD_SECONDS}"
+                ),
+            });
+        }
+        validate_target_runtimes(path, &self.runner.target_runtimes)?;
+        if !(1..=MAX_UPDATE_CHECK_INTERVAL_HOURS).contains(&self.updates.check_interval_hours) {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "updates.check_interval_hours must be between 1 and {MAX_UPDATE_CHECK_INTERVAL_HOURS}"
+                ),
             });
         }
         for (setting, value) in [
@@ -123,17 +161,23 @@ impl RunnerConfig {
                 self.limits.max_file_read_bytes,
             ),
         ] {
-            if value == 0 {
+            if value == 0 || value > MAX_EXTERNAL_DATA_BYTES {
                 return Err(RunnerConfigError::Validate {
                     path: path.to_path_buf(),
-                    message: format!("{setting} must be greater than zero"),
+                    message: format!("{setting} must be between 1 and {MAX_EXTERNAL_DATA_BYTES}"),
                 });
             }
         }
-        if self.webhooks.max_body_bytes == 0 {
+        validate_bind_address(path, "webhooks.bind", &self.webhooks.bind)?;
+        if self.webhooks.max_body_bytes == 0
+            || u64::try_from(self.webhooks.max_body_bytes)
+                .map_or(true, |value| value > MAX_EXTERNAL_DATA_BYTES)
+        {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "webhooks.max_body_bytes must be greater than zero".to_owned(),
+                message: format!(
+                    "webhooks.max_body_bytes must be between 1 and {MAX_EXTERNAL_DATA_BYTES}"
+                ),
             });
         }
         validate_browser_origins(
@@ -141,16 +185,24 @@ impl RunnerConfig {
             "webhooks.allow_browser_origins",
             &self.webhooks.allow_browser_origins,
         )?;
-        if self.websockets.max_connections == 0 {
+        validate_bind_address(path, "websockets.bind", &self.websockets.bind)?;
+        if !(1..=MAX_NETWORK_CONNECTIONS).contains(&self.websockets.max_connections) {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "websockets.max_connections must be greater than zero".to_owned(),
+                message: format!(
+                    "websockets.max_connections must be between 1 and {MAX_NETWORK_CONNECTIONS}"
+                ),
             });
         }
-        if self.websockets.max_message_bytes == 0 {
+        if self.websockets.max_message_bytes == 0
+            || u64::try_from(self.websockets.max_message_bytes)
+                .map_or(true, |value| value > MAX_EXTERNAL_DATA_BYTES)
+        {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
-                message: "websockets.max_message_bytes must be greater than zero".to_owned(),
+                message: format!(
+                    "websockets.max_message_bytes must be between 1 and {MAX_EXTERNAL_DATA_BYTES}"
+                ),
             });
         }
         validate_browser_origins(
@@ -158,6 +210,14 @@ impl RunnerConfig {
             "websockets.allow_browser_origins",
             &self.websockets.allow_browser_origins,
         )?;
+        if self.serial.devices.len() > MAX_SERIAL_DEVICES {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "serial.devices contains more than {MAX_SERIAL_DEVICES} configured devices"
+                ),
+            });
+        }
         for (device_id, device) in &self.serial.devices {
             validate_serial_device(path, device_id, device)?;
         }
@@ -558,6 +618,42 @@ fn validate_serial_device(
         message: format!("serial device {device_id:?} {message}"),
     };
 
+    if device_id.is_empty()
+        || device_id.len() > MAX_SERIAL_DEVICE_ID_LENGTH
+        || !device_id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
+    {
+        return Err(invalid(format!(
+            "ID must contain 1 to {MAX_SERIAL_DEVICE_ID_LENGTH} lowercase letters, numbers, underscores, or hyphens"
+        )));
+    }
+    validate_bounded_text(
+        path,
+        &format!("serial.devices.{device_id}.port"),
+        &device.port,
+        MAX_SERIAL_PORT_LENGTH,
+        false,
+        true,
+    )?;
+    for (field, value) in [
+        ("manufacturer", &device.manufacturer),
+        ("product", &device.product),
+        ("serial_number", &device.serial_number),
+    ] {
+        if let Some(value) = value {
+            validate_bounded_text(
+                path,
+                &format!("serial.devices.{device_id}.{field}"),
+                value,
+                MAX_SERIAL_METADATA_LENGTH,
+                true,
+                false,
+            )?;
+        }
+    }
+    validate_optional_usb_id(path, device_id, "vendor_id", &device.vendor_id)?;
+    validate_optional_usb_id(path, device_id, "product_id", &device.product_id)?;
     if device.baud_rate == 0 {
         return Err(invalid("baud_rate must be greater than zero".to_owned()));
     }
@@ -653,21 +749,53 @@ fn validate_usb_id(
     Ok(())
 }
 
+fn validate_optional_usb_id(
+    path: &Path,
+    device_id: &str,
+    field: &str,
+    value: &Option<String>,
+) -> Result<(), RunnerConfigError> {
+    let Some(value) = value.as_deref() else {
+        return Ok(());
+    };
+    if value.is_empty() {
+        return Ok(());
+    }
+    let digits = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    if digits.is_empty() || digits.len() > 4 || !digits.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!(
+                "serial device {device_id:?} {field} must be a 1 to 4 digit hexadecimal value"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn validate_browser_origins(
     path: &Path,
     setting: &str,
     origins: &[String],
 ) -> Result<(), RunnerConfigError> {
+    if origins.len() > MAX_BROWSER_ORIGINS {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!("{setting} contains more than {MAX_BROWSER_ORIGINS} origins"),
+        });
+    }
     let mut unique = BTreeSet::new();
     for origin in origins {
-        let authority = origin
-            .strip_prefix("http://")
-            .or_else(|| origin.strip_prefix("https://"));
-        let valid = origin == origin.trim()
-            && authority.is_some_and(|authority| {
-                !authority.is_empty()
-                    && !authority.contains(['/', '?', '#', '@'])
-                    && !authority.chars().any(char::is_whitespace)
+        let parsed = Url::parse(origin).ok();
+        let valid = origin.len() <= MAX_BROWSER_ORIGIN_LENGTH
+            && origin == origin.trim()
+            && !contains_unsafe_text(origin)
+            && parsed.is_some_and(|parsed| {
+                matches!(parsed.scheme(), "http" | "https")
+                    && parsed.origin().ascii_serialization() == *origin
             });
         if !valid {
             return Err(RunnerConfigError::Validate {
@@ -685,6 +813,86 @@ fn validate_browser_origins(
         }
     }
     Ok(())
+}
+
+fn validate_bind_address(path: &Path, setting: &str, value: &str) -> Result<(), RunnerConfigError> {
+    if value != value.trim() || value.parse::<Ipv4Addr>().is_err() {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!("{setting} must be an IPv4 address"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_target_runtimes(path: &Path, values: &[String]) -> Result<(), RunnerConfigError> {
+    const ALLOWED: [&str; 6] = [
+        "Generic Headless",
+        "Linux Headless",
+        "Windows Headless",
+        "Generic Desktop",
+        "Windows Desktop",
+        "Linux Desktop",
+    ];
+    let mut unique = BTreeSet::new();
+    for value in values {
+        if !ALLOWED.contains(&value.as_str()) {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!("runner.target_runtimes contains unknown value {value:?}"),
+            });
+        }
+        if !unique.insert(value) {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!("runner.target_runtimes contains duplicate value {value:?}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_bounded_text(
+    path: &Path,
+    setting: &str,
+    value: &str,
+    max_length: usize,
+    allow_empty: bool,
+    require_trimmed: bool,
+) -> Result<(), RunnerConfigError> {
+    if (!allow_empty && value.is_empty())
+        || value.len() > max_length
+        || (require_trimmed && value != value.trim())
+        || contains_unsafe_text(value)
+    {
+        return Err(RunnerConfigError::Validate {
+            path: path.to_path_buf(),
+            message: format!(
+                "{setting} must {}contain at most {max_length} bytes without unsafe control characters{}",
+                if allow_empty { "" } else { "not be empty and " },
+                if require_trimmed {
+                    " or surrounding whitespace"
+                } else {
+                    ""
+                }
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn contains_unsafe_text(value: &str) -> bool {
+    value.chars().any(|character| {
+        character.is_control()
+            || matches!(
+                character,
+                '\u{061c}'
+                    | '\u{200e}'
+                    | '\u{200f}'
+                    | '\u{202a}'..='\u{202e}'
+                    | '\u{2066}'..='\u{2069}'
+            )
+    })
 }
 
 #[cfg(test)]
@@ -781,6 +989,7 @@ mod tests {
                 validate_usb_identity = true
                 vendor_id = "1A86"
                 product_id = "7523"
+                manufacturer = "Prolific Technology Inc. "
                 serial_number = "ABC123"
 
                 [webhooks]
@@ -831,6 +1040,10 @@ mod tests {
         assert_eq!(device.open_stabilization_ms, 750);
         assert!(device.auto_rebind_port);
         assert_eq!(device.vendor_id.as_deref(), Some("1A86"));
+        assert_eq!(
+            device.manufacturer.as_deref(),
+            Some("Prolific Technology Inc. ")
+        );
         assert_eq!(device.serial_number.as_deref(), Some("ABC123"));
     }
 
@@ -842,7 +1055,30 @@ mod tests {
         ] {
             let error = RunnerConfig::from_toml(contents, "runner.toml")
                 .expect_err("run history retention must stay bounded");
-            assert!(error.to_string().contains("must be greater than zero"));
+            assert!(error.to_string().contains("must be between 1"));
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_config_before_parsing() {
+        let contents = "#".repeat(MAX_RUNNER_CONFIG_BYTES + 1);
+        let error = RunnerConfig::from_toml(&contents, "runner.toml")
+            .expect_err("oversized configuration must be rejected");
+
+        assert!(error.to_string().contains("maximum size"));
+    }
+
+    #[test]
+    fn rejects_invalid_bind_addresses_and_target_runtimes() {
+        for contents in [
+            "[webhooks]\nbind = \"localhost\"",
+            "[webhooks]\nbind = \"::1\"",
+            "[websockets]\nbind = \"127.0.0.1\\n\"",
+            "[runner]\ntarget_runtimes = [\"Unknown Desktop\"]",
+            "[runner]\ntarget_runtimes = [\"Generic Desktop\", \"Generic Desktop\"]",
+        ] {
+            RunnerConfig::from_toml(contents, "runner.toml")
+                .expect_err("invalid bounded config text must be rejected");
         }
     }
 
@@ -896,6 +1132,8 @@ mod tests {
             "dashboard.example.com",
             "https://dashboard.example.com/path",
             "https://user@dashboard.example.com",
+            "https://dashboard.example.com:not-a-port",
+            "https://dashboard.example.com/",
             " https://dashboard.example.com",
         ] {
             let contents = format!(
@@ -923,6 +1161,19 @@ mod tests {
         .expect_err("duplicate browser origins should be rejected");
 
         assert!(error.to_string().contains("duplicate origin"));
+    }
+
+    #[test]
+    fn rejects_excessive_browser_origins() {
+        let mut config = RunnerConfig::default();
+        config.webhooks.allow_browser_origins = (0..=MAX_BROWSER_ORIGINS)
+            .map(|index| format!("https://{index}.example.com"))
+            .collect();
+        let contents = config.to_pretty_toml().expect("config should serialize");
+        let error = RunnerConfig::from_toml(&contents, "runner.toml")
+            .expect_err("excessive origin lists must be rejected");
+
+        assert!(error.to_string().contains("more than"));
     }
 
     #[test]
@@ -1037,6 +1288,19 @@ mod tests {
         .expect_err("invalid USB identity should fail");
 
         assert!(error.to_string().contains("vendor_id"));
+    }
+
+    #[test]
+    fn rejects_unsafe_serial_device_text() {
+        for contents in [
+            "[serial.devices.\"Bad ID\"]\nport = \"COM3\"",
+            "[serial.devices.controller]\nport = \" COM3\"",
+            "[serial.devices.controller]\nport = \"COM3\"\nmanufacturer = \"trusted\\nspoofed\"",
+            "[serial.devices.controller]\nport = \"COM3\"\nvendor_id = \"not-hex\"",
+        ] {
+            RunnerConfig::from_toml(contents, "runner.toml")
+                .expect_err("unsafe serial configuration text must be rejected");
+        }
     }
 
     #[test]

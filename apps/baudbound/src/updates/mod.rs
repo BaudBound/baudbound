@@ -1,4 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    io::Read,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_storage::{SqliteRunnerStore, UpdateCheckCache};
@@ -11,6 +14,9 @@ pub use worker::AutomaticUpdateWorker;
 
 pub const RELEASE_FEED_URL: &str =
     "https://github.com/NATroutter/BaudBound/releases/latest/download/latest.json";
+const MAX_RELEASE_FEED_BYTES: u64 = 1024 * 1024;
+const MAX_RELEASE_NOTES_BYTES: usize = 256 * 1024;
+const MAX_PUBLISHED_AT_BYTES: usize = 128;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateCheckResult {
@@ -42,11 +48,26 @@ pub fn check_now(store: &SqliteRunnerStore) -> Result<UpdateCheckResult> {
         .context("failed to request the BaudBound release feed")?
         .error_for_status()
         .context("the BaudBound release feed returned an error")?;
-    let body = response
-        .text()
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RELEASE_FEED_BYTES)
+    {
+        return Err(anyhow!(
+            "the BaudBound release feed exceeds {MAX_RELEASE_FEED_BYTES} bytes"
+        ));
+    }
+    let mut body = Vec::new();
+    response
+        .take(MAX_RELEASE_FEED_BYTES + 1)
+        .read_to_end(&mut body)
         .context("failed to read the BaudBound release feed")?;
+    if body.len() as u64 > MAX_RELEASE_FEED_BYTES {
+        return Err(anyhow!(
+            "the BaudBound release feed exceeds {MAX_RELEASE_FEED_BYTES} bytes"
+        ));
+    }
     let feed: ReleaseFeed =
-        serde_json::from_str(&body).context("the BaudBound release feed is not valid JSON")?;
+        serde_json::from_slice(&body).context("the BaudBound release feed is not valid JSON")?;
     let result = result_from_feed(feed, current_unix_timestamp()?)?;
     store
         .write_update_check_cache(&UpdateCheckCache {
@@ -77,6 +98,12 @@ pub fn record_desktop_check(
     latest_version: Option<&str>,
     release_notes: Option<String>,
 ) -> Result<()> {
+    validate_optional_text(
+        "release notes",
+        release_notes.as_deref(),
+        MAX_RELEASE_NOTES_BYTES,
+        true,
+    )?;
     let current = current_version()?;
     let latest = latest_version
         .map(parse_version)
@@ -94,6 +121,18 @@ pub fn record_desktop_check(
 }
 
 fn result_from_feed(feed: ReleaseFeed, checked_at_unix: u64) -> Result<UpdateCheckResult> {
+    validate_optional_text(
+        "release notes",
+        feed.notes.as_deref(),
+        MAX_RELEASE_NOTES_BYTES,
+        true,
+    )?;
+    validate_optional_text(
+        "release publication date",
+        feed.pub_date.as_deref(),
+        MAX_PUBLISHED_AT_BYTES,
+        false,
+    )?;
     let current = current_version()?;
     let latest = parse_version(&feed.version)?;
     Ok(UpdateCheckResult {
@@ -104,6 +143,36 @@ fn result_from_feed(feed: ReleaseFeed, checked_at_unix: u64) -> Result<UpdateChe
         release_notes: feed.notes.filter(|notes| !notes.trim().is_empty()),
         update_available: latest > current,
     })
+}
+
+fn validate_optional_text(
+    label: &str,
+    value: Option<&str>,
+    max_bytes: usize,
+    allow_line_breaks: bool,
+) -> Result<()> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let invalid_character = value.chars().any(|character| {
+        let invalid_control = character.is_control()
+            && !(allow_line_breaks && matches!(character, '\n' | '\r' | '\t'));
+        invalid_control
+            || matches!(
+                character,
+                '\u{061c}'
+                    | '\u{200e}'
+                    | '\u{200f}'
+                    | '\u{202a}'..='\u{202e}'
+                    | '\u{2066}'..='\u{2069}'
+            )
+    });
+    if value.len() > max_bytes || invalid_character {
+        return Err(anyhow!(
+            "{label} must contain at most {max_bytes} bytes and no unsafe control characters"
+        ));
+    }
+    Ok(())
 }
 
 fn current_version() -> Result<Version> {
@@ -146,6 +215,37 @@ mod tests {
     #[test]
     fn rejects_invalid_release_versions() {
         assert!(parse_version("newest").is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_or_unsafe_release_metadata() {
+        assert!(
+            validate_optional_text(
+                "release notes",
+                Some(&"x".repeat(MAX_RELEASE_NOTES_BYTES + 1)),
+                MAX_RELEASE_NOTES_BYTES,
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_optional_text(
+                "release notes",
+                Some("trusted\u{202e}spoofed"),
+                MAX_RELEASE_NOTES_BYTES,
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_optional_text(
+                "release notes",
+                Some("line one\nline two"),
+                MAX_RELEASE_NOTES_BYTES,
+                true,
+            )
+            .is_ok()
+        );
     }
 
     #[test]

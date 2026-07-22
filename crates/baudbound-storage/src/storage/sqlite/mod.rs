@@ -23,6 +23,7 @@ mod rows;
 mod run_retention;
 mod schema;
 mod scoped_variables;
+mod script_updates;
 mod secrets;
 mod update_cache;
 

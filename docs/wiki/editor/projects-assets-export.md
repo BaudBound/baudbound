@@ -14,12 +14,14 @@ Open **Project Settings** from the editor top bar. These values are stored in th
 | Setting | Purpose | Guidance |
 | --- | --- | --- |
 | **Name** | Human-readable project and package name | Required. Use a concise name that distinguishes the automation. |
+| **Script Version** | Published version of this script | Use semantic versions such as `1.0.0`. Increase it before publishing changed package bytes. |
+| **Update URL** | Optional public location of `update.json` | Use an HTTPS URL whose filename is `update.json`. The file may be published after the first export. |
 | **Target Runtime** | Intended operating system and desktop/headless environment | Choose before adding platform-specific nodes. See [Target Runtimes](target-runtimes.md). |
 | **Description** | Explains what the package does | State its trigger, side effects, and intended operator. |
 | **Author** | Human-readable creator or organization | Informational. It is not a cryptographic signature. |
 | **Minimum Runner** | Oldest runner version allowed to execute the package | Raise this only when the workflow depends on a newer contract or runtime feature. |
 | **Website** | Optional project or product URL | Must be an HTTP or HTTPS URL. |
-| **Repository** | Optional source repository URL | Use when reviewers can inspect the workflow's source or release process. |
+| **Source** | Optional source URL | Use when reviewers can inspect the workflow's source or release process. |
 | **Tags** | Search and classification labels | Press Enter, Space, Tab, or comma to finish a tag. |
 
 The project has a stable manifest identity separate from its display name and exported filename. Importing an updated package with the same identity updates the installed script. A different identity creates another script.
@@ -114,7 +116,7 @@ The editor checks graph structure, node configuration, variables, assets, target
 
 Warnings require review but may not block export. Read [Verification and Simulation](simulation.md) for the difference between failures, warnings, and risk notices.
 
-After verification passes, choose **Download .bbs**. The browser saves the generated filename. Its download location is controlled by browser settings.
+After verification passes, generate the package. The final view offers **Download package** and **Create update.json** from the same verified package bytes. Use the descriptor option only when publishing remote script updates. Read [Publishing Script Updates](publishing-script-updates.md) for the complete workflow.
 
 ## Integrity and archive handling
 

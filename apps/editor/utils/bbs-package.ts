@@ -29,6 +29,7 @@ import { DEFAULT_MINIMUM_RUNNER_VERSION, EDITOR_CREATED_WITH } from "../lib/vers
 import { calculateCapabilities, calculatePermissions, calculateRiskLevel, toProgramJson } from "./analysis";
 import { isSelfConnection, withEdgeExecutionOrder } from "./editor-graph";
 import { validatePackageJsonContracts } from "./package-contract";
+import { downloadBytes } from "./script-update";
 import {
 	createPackageVerificationChecks,
 	getRequiredPackageFiles,
@@ -48,6 +49,13 @@ export type ImportedBbsPackage = {
 	secretDeclarations: SecretDeclaration[];
 };
 
+export type GeneratedBbsPackage = {
+	bytes: Uint8Array;
+	filename: string;
+	scriptId: string;
+	version: string;
+};
+
 type PackageAssetRecord = {
 	asset: Record<string, unknown>;
 	packageEntry: JSZip.JSZipObject;
@@ -60,7 +68,7 @@ const DEFAULT_COMMENT_FONT_SIZE = 14;
 const MIN_COMMENT_FONT_SIZE = 12;
 const MAX_COMMENT_FONT_SIZE = 72;
 
-export async function exportBbsPackage(params: {
+export async function buildBbsPackage(params: {
 	identity: ProjectIdentity;
 	projectSettings: ProjectSettings;
 	nodes: Node<ScriptNodeData>[];
@@ -81,10 +89,12 @@ export async function exportBbsPackage(params: {
 		script_language_version: 1,
 		id: params.identity.id,
 		name: params.projectSettings.name,
+		version: params.projectSettings.version,
+		update_url: params.projectSettings.updateUrl,
 		description: params.projectSettings.description,
 		author: params.projectSettings.author,
 		website: params.projectSettings.website,
-		repository: params.projectSettings.repository,
+		source: params.projectSettings.source,
 		created_with: EDITOR_CREATED_WITH,
 		created_at: params.identity.createdAt,
 		updated_at: now,
@@ -158,19 +168,22 @@ export async function exportBbsPackage(params: {
 	zip.file("capabilities.json", JSON.stringify(capabilitiesJson, null, 2));
 	zip.file("README.md", `# ${params.projectSettings.name}\n\nExported from BaudBound Editor.\n`);
 
-	const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-	const url = URL.createObjectURL(blob);
-	const link = document.createElement("a");
-	try {
-		link.href = url;
-		link.download = `${slugFromName(params.projectSettings.name)}.bbs`;
-		link.hidden = true;
-		document.body.append(link);
-		link.click();
-	} finally {
-		link.remove();
-		window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-	}
+	return {
+		bytes: await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }),
+		filename: `${slugFromName(params.projectSettings.name)}.bbs`,
+		scriptId: params.identity.id,
+		version: params.projectSettings.version,
+	} satisfies GeneratedBbsPackage;
+}
+
+export async function exportBbsPackage(params: Parameters<typeof buildBbsPackage>[0]) {
+	const generated = await buildBbsPackage(params);
+	downloadGeneratedBbsPackage(generated);
+	return generated;
+}
+
+export function downloadGeneratedBbsPackage(generated: GeneratedBbsPackage) {
+	downloadBytes(generated.bytes, generated.filename, "application/vnd.baudbound.script+zip");
 }
 
 export async function inspectBbsPackage(file: File) {
@@ -409,10 +422,12 @@ function toProjectSettings(manifest: Record<string, unknown>, capabilities: Reco
 
 	return {
 		name: stringOrDefault(manifest.name, "untitled-script"),
+		version: stringOrDefault(manifest.version, "1.0.0"),
+		updateUrl: stringOrDefault(manifest.update_url, ""),
 		description: stringOrDefault(manifest.description, ""),
 		author: stringOrDefault(manifest.author, ""),
 		website: stringOrDefault(manifest.website, ""),
-		repository: stringOrDefault(manifest.repository, ""),
+		source: stringOrDefault(manifest.source, ""),
 		tags: Array.isArray(manifest.tags) ? manifest.tags.filter((tag): tag is string => typeof tag === "string") : [],
 		targetRuntime,
 		minimumRunnerVersion: stringOrDefault(manifest.minimum_runner_version, DEFAULT_MINIMUM_RUNNER_VERSION),

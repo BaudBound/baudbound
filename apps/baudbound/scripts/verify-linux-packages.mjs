@@ -9,13 +9,13 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const PACKAGE_NAME = "baud-bound";
+const PACKAGE_NAME = "baudbound";
 const REQUIRED_FILES = [
   "/usr/bin/baudbound",
-  "/usr/lib/BaudBound/CONTENT-LICENSE.md",
-  "/usr/lib/BaudBound/LICENSE.md",
-  "/usr/lib/BaudBound/TRADEMARKS.md",
-  "/usr/share/applications/BaudBound.desktop",
+  "/usr/lib/Baudbound/CONTENT-LICENSE.md",
+  "/usr/lib/Baudbound/LICENSE.md",
+  "/usr/lib/Baudbound/TRADEMARKS.md",
+  "/usr/share/applications/Baudbound.desktop",
   "/usr/share/icons/hicolor/32x32/apps/baudbound.png",
   "/usr/share/icons/hicolor/128x128/apps/baudbound.png",
   "/usr/share/icons/hicolor/256x256@2/apps/baudbound.png",
@@ -60,7 +60,7 @@ export function verifyLinuxPackages({ directory, tag }) {
 
 function verifyDebPackage(packagePath, version, extractionDirectory) {
   assert(
-    basename(packagePath) === `BaudBound_${version}_amd64.deb`,
+    basename(packagePath) === `Baudbound_${version}_amd64.deb`,
     `unexpected Debian package filename ${basename(packagePath)}`,
   );
   assertField("Debian package name", debField(packagePath, "Package"), PACKAGE_NAME);
@@ -91,7 +91,7 @@ function verifyDebPackage(packagePath, version, extractionDirectory) {
 
 function verifyRpmPackage(packagePath, version) {
   assert(
-    basename(packagePath) === `BaudBound-${version}-1.x86_64.rpm`,
+    basename(packagePath) === `Baudbound-${version}-1.x86_64.rpm`,
     `unexpected RPM package filename ${basename(packagePath)}`,
   );
   assertField("RPM package name", rpmField(packagePath, "%{NAME}"), PACKAGE_NAME);
@@ -137,7 +137,7 @@ function verifyInstalledTree(extractionDirectory, format) {
   );
 
   const desktopEntry = readFileSync(
-    join(extractionDirectory, "usr/share/applications/BaudBound.desktop"),
+    join(extractionDirectory, "usr/share/applications/Baudbound.desktop"),
     "utf8",
   );
   for (const line of [

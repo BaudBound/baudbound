@@ -46,13 +46,14 @@ export function VariableCodeInput({
 	const highlightRef = useRef<HTMLPreElement>(null);
 	const lineNumberRef = useRef<HTMLDivElement>(null);
 	const [caretPosition, setCaretPosition] = useState(0);
+	const [isFocused, setIsFocused] = useState(false);
 	const lineCount = Math.max(1, value.split("\n").length);
 	const lineNumberWidth = `calc(${String(lineCount).length}ch + 1.5rem)`;
 	const textLayerStyle = multiline ? { paddingLeft: `calc(${lineNumberWidth} + 0.625rem)` } : undefined;
 	const variableNames = useMemo(() => new Set(variables.map((variable) => variable.name)), [variables]);
 	const completion = getCompletionState(value, caretPosition);
 	const suggestions = completion ? getSuggestions(variables, completion.query) : [];
-	const showSuggestions = !!completion && suggestions.length > 0;
+	const showSuggestions = isFocused && !!completion && suggestions.length > 0;
 	const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1);
 
 	const syncCaret = () => {
@@ -186,8 +187,15 @@ export function VariableCodeInput({
 						wrap={multiline ? "soft" : "off"}
 						placeholder={placeholder}
 						style={textLayerStyle}
-						onBlur={syncCaret}
+						onBlur={() => {
+							syncCaret();
+							setIsFocused(false);
+						}}
 						onClick={syncCaret}
+						onFocus={() => {
+							setIsFocused(true);
+							syncCaret();
+						}}
 						onKeyDown={handleKeyDown}
 						onKeyUp={syncCaret}
 						onSelect={syncCaret}

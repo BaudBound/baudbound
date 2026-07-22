@@ -3,6 +3,7 @@
 mod color_match;
 mod package;
 mod types;
+mod update;
 
 pub use color_match::{
     ColorComparisonMode, ColorMatchEvaluation, RgbColor, evaluate_color_match, parse_rgb_color,
@@ -15,4 +16,9 @@ pub use package::{
 pub use types::{
     Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
     RiskLevel, SecretDeclaration,
+};
+pub use update::{
+    MAX_RELEASE_NOTES_CHARS, SCRIPT_UPDATE_FORMAT, SCRIPT_UPDATE_FORMAT_VERSION,
+    ScriptUpdateDescriptor, ScriptUpdateError, ScriptUpdateRelease, parse_script_update_descriptor,
+    validate_public_https_package_url, validate_script_update_descriptor,
 };

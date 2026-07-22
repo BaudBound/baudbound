@@ -7,10 +7,19 @@ use super::PackageLoadError;
 
 include!(concat!(env!("OUT_DIR"), "/embedded_schemas.rs"));
 
+pub(super) fn validate_manifest_schema(manifest: &Value) -> Result<(), PackageLoadError> {
+    let validator = manifest_validator().map_err(PackageLoadError::SchemaContract)?;
+    validate_schema(validator, manifest).map_err(PackageLoadError::ManifestSchema)
+}
+
 pub(super) fn validate_program_schema(program: &Value) -> Result<(), PackageLoadError> {
     let validator = program_validator().map_err(PackageLoadError::SchemaContract)?;
+    validate_schema(validator, program).map_err(PackageLoadError::ProgramSchema)
+}
+
+fn validate_schema(validator: &Validator, value: &Value) -> Result<(), String> {
     let errors = validator
-        .iter_errors(program)
+        .iter_errors(value)
         .take(20)
         .map(|error| {
             let path = error.instance_path().to_string();
@@ -24,7 +33,15 @@ pub(super) fn validate_program_schema(program: &Value) -> Result<(), PackageLoad
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(PackageLoadError::ProgramSchema(errors.join("; ")))
+        Err(errors.join("; "))
+    }
+}
+
+fn manifest_validator() -> Result<&'static Validator, String> {
+    static VALIDATOR: OnceLock<Result<Validator, String>> = OnceLock::new();
+    match VALIDATOR.get_or_init(|| build_standalone_validator(MANIFEST_SCHEMA_JSON)) {
+        Ok(validator) => Ok(validator),
+        Err(message) => Err(message.clone()),
     }
 }
 
@@ -67,6 +84,13 @@ fn build_program_validator() -> Result<Validator, String> {
         .map_err(|error| error.to_string())
 }
 
+fn build_standalone_validator(source: &str) -> Result<Validator, String> {
+    let schema = serde_json::from_str::<Value>(source).map_err(|error| error.to_string())?;
+    jsonschema::draft202012::options()
+        .build(&schema)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -76,6 +100,26 @@ mod tests {
     #[test]
     fn accepts_a_schema_complete_minimal_program() {
         validate_program_schema(&minimal_program()).expect("minimal program should match schema");
+    }
+
+    #[test]
+    fn validates_manifest_schema_before_deserialization() {
+        let manifest = minimal_manifest();
+        validate_manifest_schema(&manifest).expect("minimal manifest should match schema");
+
+        let mut unknown_field = manifest.clone();
+        unknown_field["unexpected"] = json!(true);
+        assert!(matches!(
+            validate_manifest_schema(&unknown_field),
+            Err(PackageLoadError::ManifestSchema(_))
+        ));
+
+        let mut oversized_name = manifest;
+        oversized_name["name"] = json!("x".repeat(129));
+        assert!(matches!(
+            validate_manifest_schema(&oversized_name),
+            Err(PackageLoadError::ManifestSchema(_))
+        ));
     }
 
     #[test]
@@ -127,6 +171,36 @@ mod tests {
             validate_program_schema(&program)
                 .unwrap_or_else(|error| panic!("{operation} export should match schema: {error}"));
         }
+    }
+
+    #[test]
+    fn accepts_parse_url_contract_exported_by_the_editor() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["steps"] = json!([{
+            "id": "n-parse-url",
+            "action_type": "action.url.parse",
+            "type": "action",
+            "action": "parse_url",
+            "config": {
+                "url": "{{request_url}}"
+            },
+            "runtime_outputs": [
+                {
+                    "name": "protocol",
+                    "type": "string",
+                    "description": "URL protocol.",
+                    "example": "n-parse-url.protocol"
+                },
+                {
+                    "name": "query_parameters",
+                    "type": "list",
+                    "description": "Ordered query parameter entries.",
+                    "example": "n-parse-url.query_parameters"
+                }
+            ]
+        }]);
+
+        validate_program_schema(&program).expect("Parse URL export should match schema");
     }
 
     #[test]
@@ -261,6 +335,18 @@ mod tests {
                     "edges": []
                 }
             }
+        })
+    }
+
+    fn minimal_manifest() -> Value {
+        json!({
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+            "name": "schema-test",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "2.0.0"
         })
     }
 }

@@ -7,6 +7,8 @@ use serde_json::Value;
 
 use crate::{CoreError, RunnerCore};
 
+pub const MAX_SECRET_INPUT_BYTES: usize = 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct InstalledSecretStatus {
     pub configured: bool,
@@ -105,6 +107,16 @@ fn merge_status(
 }
 
 fn parse_secret_value(value_type: &str, input: &str) -> Result<Value, CoreError> {
+    if input.is_empty() {
+        return Err(CoreError::InvalidSecret(
+            "secret value must not be empty".to_owned(),
+        ));
+    }
+    if input.len() > MAX_SECRET_INPUT_BYTES {
+        return Err(CoreError::InvalidSecret(format!(
+            "secret value exceeds the maximum size of {MAX_SECRET_INPUT_BYTES} bytes"
+        )));
+    }
     match value_type {
         "string" | "file_path" => Ok(Value::String(input.to_owned())),
         "number" => input
@@ -136,5 +148,26 @@ fn parse_json_container(input: &str, object: bool) -> Result<Value, CoreError> {
             "expected a JSON {}",
             if object { "object" } else { "array" }
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_string_secret_contents() {
+        let value =
+            parse_secret_value("string", "  exact value\n").expect("string secret should parse");
+
+        assert_eq!(value, Value::String("  exact value\n".to_owned()));
+    }
+
+    #[test]
+    fn rejects_empty_and_oversized_secret_input() {
+        for input in [String::new(), "x".repeat(MAX_SECRET_INPUT_BYTES + 1)] {
+            parse_secret_value("string", &input)
+                .expect_err("unbounded secret input must be rejected");
+        }
     }
 }

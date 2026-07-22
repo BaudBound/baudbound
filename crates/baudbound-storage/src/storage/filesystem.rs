@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::Read,
+    io::{Read, Write},
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -82,14 +82,49 @@ fn lowercase_hex(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), StorageError> {
-    if let Some(parent) = destination.parent() {
-        create_dir_all(parent)?;
-    }
-
-    fs::copy(source, destination).map_err(|source| StorageError::Io {
+    let parent = destination.parent().ok_or_else(|| StorageError::Io {
         path: destination.to_path_buf(),
-        source,
+        source: std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "package destination has no parent directory",
+        ),
     })?;
+    create_dir_all(parent)?;
+    let mut source_file = fs::File::open(source).map_err(|error| StorageError::Io {
+        path: source.to_path_buf(),
+        source: error,
+    })?;
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|source| StorageError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    std::io::copy(&mut source_file, temporary.as_file_mut()).map_err(|source| {
+        StorageError::Io {
+            path: destination.to_path_buf(),
+            source,
+        }
+    })?;
+    temporary
+        .as_file_mut()
+        .flush()
+        .map_err(|source| StorageError::Io {
+            path: destination.to_path_buf(),
+            source,
+        })?;
+    temporary
+        .as_file_mut()
+        .sync_all()
+        .map_err(|source| StorageError::Io {
+            path: destination.to_path_buf(),
+            source,
+        })?;
+    temporary
+        .persist(destination)
+        .map_err(|error| StorageError::Io {
+            path: destination.to_path_buf(),
+            source: error.error,
+        })?;
     Ok(())
 }
 

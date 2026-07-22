@@ -208,6 +208,15 @@ Risk and permission meanings are defined in [Approvals, Capabilities, and Risk](
 - **Output:** transformed result data available from the node output.
 - **Failure:** invalid regex, encoding, indexes, or input shape produces validation/runtime error as applicable.
 
+### Parse URL
+
+- **Action type:** `action.url.parse`. Capability `action.text`. Permission `parse_url`. Low risk. Fallible.
+- **Configuration:** a variable-aware absolute URL. Standard protocols such as `https` and custom protocols such as `ptr` are supported.
+- **Outputs:** `protocol`, `host`, `port`, `path`, raw `query`, decoded `query_parameters`, and `fragment`.
+- **Query parameters:** an ordered list of objects with `name` and `value` fields. Repeated names remain separate entries and keep their original order.
+- **Failure:** missing, relative, and malformed URLs continue through `failed` with structured error details.
+- **Example:** `ptr://command/move?param=value1` produces protocol `ptr`, host `command`, path `/move`, and query parameters `[ { "name": "param", "value": "value1" } ]`.
+
 ### Log
 
 - **Action type:** `action.log`. Capability `action.log`. Permission `log`. Low risk.

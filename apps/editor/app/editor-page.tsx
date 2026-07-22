@@ -73,7 +73,7 @@ import {
 	createConsoleLogs,
 	createExportSummary,
 } from "@/utils/analysis";
-import { exportBbsPackage } from "@/utils/bbs-package";
+import { buildBbsPackage } from "@/utils/bbs-package";
 import {
 	createEditorVerificationSignature,
 	createGraphFragment,
@@ -295,6 +295,8 @@ export function EditorPage({
 	const normalizedProjectSettings = {
 		...projectSettings,
 		name: projectSettings.name.trim() || "untitled-script",
+		version: projectSettings.version.trim(),
+		updateUrl: projectSettings.updateUrl.trim(),
 		minimumRunnerVersion: projectSettings.minimumRunnerVersion.trim() || DEFAULT_MINIMUM_RUNNER_VERSION,
 	};
 	const currentProject = useMemo<EditorProject>(
@@ -451,8 +453,8 @@ export function EditorPage({
 		setExportOpen(true);
 	};
 
-	const handleDownloadExport = async () => {
-		await exportBbsPackage({
+	const handlePrepareExport = async () => {
+		return buildBbsPackage({
 			identity: persistedProject.identity,
 			projectSettings: normalizedProjectSettings,
 			nodes: scriptNodes,
@@ -1289,6 +1291,7 @@ export function EditorPage({
 			/>
 			<ProjectSettingsModal
 				open={projectSettingsOpen}
+				projectId={persistedProject.identity.id}
 				settings={projectSettings}
 				onClose={() => setProjectSettingsOpen(false)}
 				onSave={handleSaveProjectSettings}
@@ -1308,7 +1311,7 @@ export function EditorPage({
 				projectSettings={normalizedProjectSettings}
 				riskLevel={riskLevel}
 				onClose={() => setExportOpen(false)}
-				onDownload={handleDownloadExport}
+				onPrepareExport={handlePrepareExport}
 				onVerificationComplete={handleExportVerificationComplete}
 			/>
 			<HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />

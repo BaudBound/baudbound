@@ -15,8 +15,8 @@ pub use actions::{SerialConnectionRegistry, SerialDeviceConfig};
 use actions::{
     copy_file_action, delete_file_action, desktop_only_action, download_file_action,
     http_request_action, kill_process_action, move_file_action, open_application_action,
-    process_status_action, read_file_action, run_process_action, shell_command_action,
-    text_format_action, webhook_response_action, write_file_action,
+    parse_url_action, process_status_action, read_file_action, run_process_action,
+    shell_command_action, text_format_action, webhook_response_action, write_file_action,
 };
 pub use limits::{
     ActionLimits, DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES,
@@ -49,6 +49,7 @@ pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
     "action.shell",
     "action.sound.play",
     "action.text.format",
+    "action.url.parse",
     "action.webhook_response",
     "action.websocket.write",
     "action.window.active",
@@ -405,6 +406,7 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.shell" => shell_command_action(request, context),
             "action.sound.play" => desktop_only_action(request, "audio playback"),
             "action.text.format" => text_format_action(request),
+            "action.url.parse" => parse_url_action(request),
             "action.webhook_response" => webhook_response_action(request, context),
             "action.websocket.write" => self.websocket_write_action(request),
             action_type => Err(RuntimeActionError::Unsupported(action_type.to_owned())),

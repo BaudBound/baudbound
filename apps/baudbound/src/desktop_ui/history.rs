@@ -470,7 +470,15 @@ fn write_log_csv_row(
 }
 
 fn csv_field(value: &str) -> String {
-    format!("\"{}\"", value.replace('"', "\"\""))
+    let spreadsheet_safe =
+        if value.chars().next().is_some_and(|character| {
+            matches!(character, '=' | '+' | '-' | '@' | '\t' | '\r' | '\n')
+        }) {
+            format!("'{value}")
+        } else {
+            value.to_owned()
+        };
+    format!("\"{}\"", spreadsheet_safe.replace('"', "\"\""))
 }
 
 fn safe_file_component(value: &str) -> String {
@@ -524,6 +532,20 @@ mod tests {
             csv_field("line 1\n\"line 2\""),
             "\"line 1\n\"\"line 2\"\"\""
         );
+    }
+
+    #[test]
+    fn csv_fields_neutralize_spreadsheet_formulas() {
+        for value in [
+            "=HYPERLINK(\"https://example.invalid\")",
+            "+1",
+            "-1",
+            "@SUM(1,2)",
+            "\tformula",
+        ] {
+            assert!(csv_field(value).starts_with("\"'"));
+        }
+        assert_eq!(csv_field("ordinary value"), "\"ordinary value\"");
     }
 
     #[test]

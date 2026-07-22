@@ -18,10 +18,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { targetRuntimes } from "@/data/project/runtimes";
 import type { ProjectSettings, TargetRuntime } from "@/lib/types";
 import { DEFAULT_MINIMUM_RUNNER_VERSION } from "@/lib/version";
+import { getScriptVersionError, getUpdateDescriptorUrlError } from "@/utils/script-update";
 
 type ProjectSettingsModalProps = {
 	description?: string;
 	open: boolean;
+	projectId?: string;
 	saveLabel?: string;
 	settings: ProjectSettings;
 	title?: string;
@@ -32,6 +34,7 @@ type ProjectSettingsModalProps = {
 export function ProjectSettingsModal({
 	description = "Configure package metadata and runtime settings used during export.",
 	open,
+	projectId,
 	saveLabel = "Save Settings",
 	settings,
 	title = "Project Settings",
@@ -55,9 +58,28 @@ export function ProjectSettingsModal({
 	}, [open, settings]);
 
 	const nameError = draft.name.trim().length === 0 ? "Project name is required." : "";
+	const nameLengthError = draft.name.length > 128 ? "Project name cannot exceed 128 characters." : "";
+	const descriptionError = draft.description.length > 4096 ? "Description cannot exceed 4096 characters." : "";
+	const authorError = draft.author.length > 128 ? "Author cannot exceed 128 characters." : "";
+	const minimumRunnerError =
+		draft.minimumRunnerVersion.length > 64 ? "Minimum runner cannot exceed 64 characters." : "";
+	const versionError = getScriptVersionError(draft.version);
+	const updateUrlError = getUpdateDescriptorUrlError(draft.updateUrl);
 	const websiteError = getOptionalUrlError(draft.website);
-	const repositoryError = getOptionalUrlError(draft.repository);
-	const hasErrors = Boolean(nameError || websiteError || repositoryError);
+	const sourceError = getOptionalUrlError(draft.source);
+	const tagsError = getTagsError(appendTags(tagsDraft, tagInput));
+	const hasErrors = Boolean(
+		nameError ||
+			nameLengthError ||
+			descriptionError ||
+			authorError ||
+			versionError ||
+			updateUrlError ||
+			minimumRunnerError ||
+			websiteError ||
+			sourceError ||
+			tagsError,
+	);
 
 	const handleSave = () => {
 		if (hasErrors) {
@@ -71,8 +93,10 @@ export function ProjectSettingsModal({
 			name: draft.name.trim(),
 			description: draft.description.trim(),
 			author: draft.author.trim(),
+			version: draft.version.trim(),
+			updateUrl: draft.updateUrl.trim(),
 			website: draft.website.trim(),
-			repository: draft.repository.trim(),
+			source: draft.source.trim(),
 			minimumRunnerVersion: draft.minimumRunnerVersion.trim() || DEFAULT_MINIMUM_RUNNER_VERSION,
 			tags: nextTags,
 		});
@@ -88,11 +112,23 @@ export function ProjectSettingsModal({
 				</DialogHeader>
 
 				<div className="grid max-h-[70vh] gap-4 overflow-y-auto pr-1">
+					{projectId && (
+						<div>
+							<label htmlFor={`${titleId}-project-id`} className="mb-1 block font-mono text-sm text-baud-muted">
+								Project ID
+							</label>
+							<Input id={`${titleId}-project-id`} value={projectId} readOnly className="font-mono" />
+							<p className="mt-1 text-xs leading-4 text-baud-muted">
+								This stable ID lets the runner recognize later exports as the same script.
+							</p>
+						</div>
+					)}
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<TextField
 							label="Name"
 							value={draft.name}
-							error={nameError}
+							error={nameError || nameLengthError}
+							maxLength={128}
 							onChange={(value) => setDraft((current) => ({ ...current, name: value }))}
 						/>
 						<div>
@@ -106,6 +142,26 @@ export function ProjectSettingsModal({
 						</div>
 					</div>
 
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+						<TextField
+							label="Script Version"
+							value={draft.version}
+							error={versionError}
+							maxLength={128}
+							onChange={(value) => setDraft((current) => ({ ...current, version: value }))}
+						/>
+						<TextField
+							label="Update URL"
+							value={draft.updateUrl}
+							error={updateUrlError}
+							maxLength={2048}
+							onChange={(value) => setDraft((current) => ({ ...current, updateUrl: value }))}
+						/>
+					</div>
+					<p className="-mt-3 text-xs leading-4 text-baud-muted">
+						The optional update URL must use HTTPS and point to update.json. The editor does not contact it.
+					</p>
+
 					<div>
 						<label htmlFor={descriptionId} className="mb-1 block font-mono text-sm text-baud-muted">
 							Description
@@ -115,18 +171,24 @@ export function ProjectSettingsModal({
 							value={draft.description}
 							onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
 							className="min-h-24"
+							maxLength={4096}
 						/>
+						{descriptionError && <p className="mt-1 text-xs leading-4 text-baud-danger">{descriptionError}</p>}
 					</div>
 
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<TextField
 							label="Author"
 							value={draft.author}
+							error={authorError}
+							maxLength={128}
 							onChange={(value) => setDraft((current) => ({ ...current, author: value }))}
 						/>
 						<TextField
 							label="Minimum Runner"
 							value={draft.minimumRunnerVersion}
+							error={minimumRunnerError}
+							maxLength={64}
 							onChange={(value) => setDraft((current) => ({ ...current, minimumRunnerVersion: value }))}
 						/>
 					</div>
@@ -136,17 +198,25 @@ export function ProjectSettingsModal({
 							label="Website"
 							value={draft.website}
 							error={websiteError}
+							maxLength={2048}
 							onChange={(value) => setDraft((current) => ({ ...current, website: value }))}
 						/>
 						<TextField
-							label="Repository"
-							value={draft.repository}
-							error={repositoryError}
-							onChange={(value) => setDraft((current) => ({ ...current, repository: value }))}
+							label="Source"
+							value={draft.source}
+							error={sourceError}
+							maxLength={2048}
+							onChange={(value) => setDraft((current) => ({ ...current, source: value }))}
 						/>
 					</div>
 
-					<TagField tags={tagsDraft} inputValue={tagInput} onInputChange={setTagInput} onTagsChange={setTagsDraft} />
+					<TagField
+						tags={tagsDraft}
+						inputValue={tagInput}
+						error={tagsError}
+						onInputChange={setTagInput}
+						onTagsChange={setTagsDraft}
+					/>
 				</div>
 
 				<DialogFooter className="bg-baud-panel">
@@ -165,11 +235,13 @@ export function ProjectSettingsModal({
 function TextField({
 	error,
 	label,
+	maxLength,
 	value,
 	onChange,
 }: {
 	error?: string;
 	label: string;
+	maxLength?: number;
 	value: string;
 	onChange: (value: string) => void;
 }) {
@@ -183,6 +255,7 @@ function TextField({
 			<Input
 				id={inputId}
 				value={value}
+				maxLength={maxLength}
 				onChange={(event) => onChange(event.target.value)}
 				aria-invalid={Boolean(error)}
 			/>
@@ -192,11 +265,13 @@ function TextField({
 }
 
 function TagField({
+	error,
 	inputValue,
 	tags,
 	onInputChange,
 	onTagsChange,
 }: {
+	error?: string;
 	inputValue: string;
 	tags: string[];
 	onInputChange: (value: string) => void;
@@ -265,8 +340,10 @@ function TagField({
 					onBlur={commitInput}
 					className="min-w-24 flex-1 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-baud-muted"
 					placeholder={tags.length === 0 ? "Add tags..." : ""}
+					maxLength={64}
 				/>
 			</div>
+			{error && <p className="mt-1 text-xs leading-4 text-baud-danger">{error}</p>}
 			<p className="mt-1 text-xs leading-4 text-baud-muted">Press Enter, Space, Tab, or comma to create a tag.</p>
 		</div>
 	);
@@ -295,6 +372,9 @@ function parseTags(value: string) {
 }
 
 function getOptionalUrlError(value: string) {
+	if (value.length > 2048) {
+		return "URL cannot exceed 2048 characters.";
+	}
 	const trimmedValue = value.trim();
 	if (!trimmedValue) {
 		return "";
@@ -306,4 +386,10 @@ function getOptionalUrlError(value: string) {
 	} catch {
 		return "Use a valid URL.";
 	}
+}
+
+function getTagsError(tags: string[]) {
+	if (tags.length > 32) return "A project can have at most 32 tags.";
+	if (tags.some((tag) => tag.length > 64)) return "Each tag can contain at most 64 characters.";
+	return "";
 }

@@ -128,7 +128,7 @@ Manifest values are read-only and come from the exported package and project set
 | `{{manifest_author}}` | Author |
 | `{{manifest_description}}` | Description |
 | `{{manifest_website}}` | Project website |
-| `{{manifest_repository}}` | Repository URL |
+| `{{manifest_source}}` | Source URL |
 | `{{manifest_minimum_runner_version}}` | Minimum compatible runner version |
 
 ### System variables

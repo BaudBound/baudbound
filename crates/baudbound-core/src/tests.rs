@@ -31,6 +31,21 @@ fn test_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
     .expect("SQLite test store should open")
 }
 
+#[test]
+fn staged_packages_are_independent_of_the_selected_source_file() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let source = directory.path().join("selected.bbs");
+    fs::write(&source, b"validated package bytes").expect("source package should be written");
+
+    let staged = StagedPackage::copy_from(&source).expect("package should be staged");
+    fs::write(&source, b"replacement bytes").expect("source package should be replaced");
+
+    assert_eq!(
+        fs::read(&staged.path).expect("staged package should remain readable"),
+        b"validated package bytes"
+    );
+}
+
 #[derive(Default)]
 struct RecordingActionHandler {
     actions: Mutex<Vec<String>>,
@@ -95,12 +110,14 @@ fn creates_failed_run_record_with_package_identity() {
             description: String::new(),
             author: String::new(),
             website: String::new(),
-            repository: String::new(),
+            source: String::new(),
             created_with: "test".to_owned(),
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
             updated_at: String::new(),
             tags: Vec::new(),
             minimum_runner_version: "0.1.0".to_owned(),
+            version: "1.0.0".to_owned(),
+            update_url: String::new(),
             assets: Vec::new(),
             secrets: Vec::new(),
         },

@@ -17,6 +17,7 @@
 					"math",
 					"calculate",
 					"text_transform",
+					"parse_url",
 					"set_local_variable",
 					"set_persistent_variable",
 					"set_global_variable",

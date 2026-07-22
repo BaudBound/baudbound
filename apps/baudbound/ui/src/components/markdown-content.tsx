@@ -36,6 +36,7 @@ export function MarkdownContent({ className, source }: { className?: string; sou
           ul: ({ children }) => <ul className="my-2 grid gap-1">{children}</ul>,
         }}
         remarkPlugins={[remarkGfm]}
+        skipHtml
       >
         {source}
       </ReactMarkdown>

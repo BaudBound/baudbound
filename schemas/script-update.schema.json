@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.baudbound.app/script-update.schema.json",
+  "title": "BaudBound Script Update Descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "format_version", "script_id", "latest"],
+  "properties": {
+    "format": {
+      "const": "baudbound.script-update"
+    },
+    "format_version": {
+      "const": 1
+    },
+    "script_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-8][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$",
+      "maxLength": 36
+    },
+    "latest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "package_url", "sha256", "size", "published_at", "release_notes"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "maxLength": 128
+        },
+        "package_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "maxLength": 2048
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        },
+        "release_notes": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      }
+    }
+  }
+}

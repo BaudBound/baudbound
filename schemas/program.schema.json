@@ -65,6 +65,7 @@
 				"action.shell",
 				"action.sound.play",
 				"action.text.format",
+				"action.url.parse",
 				"action.webhook_response",
 				"action.websocket.write",
 				"action.window.active",
@@ -144,6 +145,7 @@
 				"action.shell",
 				"action.sound.play",
 				"action.text.format",
+				"action.url.parse",
 				"action.webhook_response",
 				"action.websocket.write",
 				"action.window.active",
@@ -196,6 +198,7 @@
 				"run_shell_command",
 				"play_sound",
 				"format_text",
+				"parse_url",
 				"webhook_response",
 				"websocket_write",
 				"get_active_window",
@@ -714,6 +717,9 @@
 				},
 				{
 					"$ref": "https://schemas.baudbound.app/nodes/action-text-format.schema.json"
+				},
+				{
+					"$ref": "https://schemas.baudbound.app/nodes/action-url-parse.schema.json"
 				},
 				{
 					"$ref": "https://schemas.baudbound.app/nodes/action-webhook-response.schema.json"

@@ -14,7 +14,7 @@ pub struct Manifest {
     #[serde(default)]
     pub website: String,
     #[serde(default)]
-    pub repository: String,
+    pub source: String,
     pub created_with: String,
     pub created_at: String,
     #[serde(default)]
@@ -22,12 +22,20 @@ pub struct Manifest {
     #[serde(default)]
     pub tags: Vec<String>,
     pub minimum_runner_version: String,
+    #[serde(default = "default_script_version")]
+    pub version: String,
+    #[serde(default)]
+    pub update_url: String,
     #[serde(default)]
     pub assets: Vec<ManifestAsset>,
     #[serde(default)]
     pub variables: Vec<DefaultVariable>,
     #[serde(default)]
     pub secrets: Vec<SecretDeclaration>,
+}
+
+fn default_script_version() -> String {
+    "1.0.0".to_owned()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

@@ -29,9 +29,20 @@ pub(super) fn update_script(
     store: &SqliteRunnerStore,
     package: PathBuf,
 ) -> Result<()> {
+    let has_update_url = !baudbound_script::load_script_package(&package)?
+        .manifest
+        .update_url
+        .trim()
+        .is_empty();
     let script = core
         .update_package(store, &package)
         .with_context(|| format!("failed to update from {}", package.display()))?;
+    crate::script_updates::reconcile_script_update_state_after_install(
+        store,
+        &script.id,
+        has_update_url,
+    )
+    .context("failed to clear stale script update state")?;
     println!(
         "Updated {} ({}) as {}",
         script.name, script.id, script.package_file_name

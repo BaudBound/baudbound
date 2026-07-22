@@ -120,6 +120,38 @@ test("schemas are valid JSON", () => {
 	}
 });
 
+test("manifest metadata is bounded and untrusted links are validated", () => {
+	const manifestSchema = JSON.parse(read(join(schemasRoot, "manifest.schema.json")));
+	const contractSource = read(join(appRoot, "utils", "package-contract.ts"));
+
+	assert.equal(manifestSchema.additionalProperties, false);
+	assert.equal(manifestSchema.properties.name.maxLength, 128);
+	assert.equal(manifestSchema.properties.description.maxLength, 4096);
+	assert.equal(manifestSchema.properties.author.maxLength, 128);
+	assert.equal(manifestSchema.properties.website.maxLength, 2048);
+	assert.equal(manifestSchema.properties.source.maxLength, 2048);
+	assert.equal(manifestSchema.properties.tags.maxItems, 32);
+	assert.equal(manifestSchema.properties.assets.maxItems, 256);
+	assert.equal(manifestSchema.properties.variables.maxItems, 256);
+	assert.equal(manifestSchema.properties.secrets.maxItems, 256);
+	assert.match(contractSource, /absolute HTTP or HTTPS URL/);
+	assert.match(contractSource, /unsupported control characters/);
+	assert.match(contractSource, /maximumDefaultValueBytes/);
+});
+
+test("script update descriptor schema is strict and bounded", () => {
+	const schema = JSON.parse(read(join(schemasRoot, "script-update.schema.json")));
+
+	assert.equal(schema.additionalProperties, false);
+	assert.deepEqual(schema.required, ["format", "format_version", "script_id", "latest"]);
+	assert.equal(schema.properties.format.const, "baudbound.script-update");
+	assert.equal(schema.properties.format_version.const, 1);
+	assert.equal(schema.properties.latest.additionalProperties, false);
+	assert.equal(schema.properties.latest.properties.sha256.pattern, "^[0-9a-f]{64}$");
+	assert.equal(schema.properties.latest.properties.size.minimum, 1);
+	assert.equal(schema.properties.latest.properties.release_notes.maxLength, 65_536);
+});
+
 test("generated node schemas are current", () => {
 	assert.doesNotThrow(() => {
 		execFileSync("node", ["scripts/generate-node-schemas.mjs", "--check"], {
@@ -319,6 +351,7 @@ test("editor schema and package contract support editor-only metadata", () => {
 	const programSchema = JSON.parse(read(join(schemasRoot, "program.schema.json")));
 	const packageContractSource = read(join(appRoot, "utils", "package-contract.ts"));
 	const packageSource = read(join(appRoot, "utils", "bbs-package.ts"));
+	const flowCanvasSource = read(join(appRoot, "data", "editor", "flow-canvas.ts"));
 
 	assert.ok(editorSchema.properties.comments, "editor.schema.json should define editor-only comments");
 	assert.deepEqual(editorSchema.properties.canvas.properties.edge_style.enum, [
@@ -346,6 +379,18 @@ test("editor schema and package contract support editor-only metadata", () => {
 	assert.match(packageSource, /font_size/);
 	assert.match(packageSource, /comments: comments\.map/);
 	assert.match(packageSource, /function toEditorComments/);
+	const edgeStyleBlock = flowCanvasSource.match(/edgeStyleOptions = \[([\s\S]*?)\] as const/);
+	assert.ok(edgeStyleBlock, "flow-canvas.ts should define edge style options");
+	assert.deepEqual(
+		[...edgeStyleBlock[1].matchAll(/label: "([^"]+)", value: "([^"]+)"/g)].map((match) => [match[1], match[2]]),
+		[
+			["Bezier", "bezier"],
+			["Smooth step", "smoothstep"],
+			["Step", "step"],
+			["Straight", "straight"],
+		],
+	);
+	assert.match(flowCanvasSource, /defaultEditorEdgeStyle: EditorEdgeStyle = "bezier"/);
 	assert.equal(
 		programSchema.$defs.actionType.enum.includes("commentNode"),
 		false,

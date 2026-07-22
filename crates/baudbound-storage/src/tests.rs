@@ -822,6 +822,49 @@ fn paginates_and_searches_run_history_and_logs() {
 }
 
 #[test]
+fn rejects_unbounded_or_invalid_history_queries() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+
+    let run_error = store
+        .query_run_history(&RunHistoryQuery {
+            direction: SortDirection::Descending,
+            limit: 50,
+            offset: 0,
+            script_id: None,
+            search: "x".repeat(1_025),
+            sort: RunHistorySort::Completed,
+            status: None,
+        })
+        .expect_err("oversized run search must be rejected");
+    assert!(run_error.to_string().contains("run search"));
+
+    let status_error = store
+        .query_run_history(&RunHistoryQuery {
+            direction: SortDirection::Descending,
+            limit: 50,
+            offset: 0,
+            script_id: None,
+            search: String::new(),
+            sort: RunHistorySort::Completed,
+            status: Some("unknown".to_owned()),
+        })
+        .expect_err("unknown status filter must be rejected");
+    assert!(status_error.to_string().contains("unsupported run status"));
+
+    let log_error = store
+        .query_run_logs(&RunLogQuery {
+            direction: SortDirection::Descending,
+            limit: 50,
+            offset: 0,
+            search: "\0".to_owned(),
+            sort: RunLogSort::Time,
+        })
+        .expect_err("null characters must be rejected");
+    assert!(log_error.to_string().contains("log search"));
+}
+
+#[test]
 fn lists_persistent_and_global_variables_without_secret_values() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
@@ -1157,4 +1200,80 @@ fn current_test_timestamp() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should follow Unix epoch")
         .as_secs()
+}
+
+#[test]
+fn persists_script_update_preferences_and_discovery_results() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+
+    let initial = store
+        .script_update_state("script-1")
+        .expect("empty update state should load");
+    assert!(!initial.automatic_checks_enabled);
+    assert!(initial.latest_version.is_none());
+
+    store
+        .set_script_automatic_update_checks("script-1", true)
+        .expect("automatic checks should be enabled");
+    let mut checked = ScriptUpdateState::empty("script-1");
+    checked.automatic_checks_enabled = true;
+    checked.checked_update_url = Some("https://example.com/update.json".to_owned());
+    checked.last_checked_at_unix = Some(100);
+    checked.last_success_at_unix = Some(100);
+    checked.latest_version = Some("1.2.0".to_owned());
+    checked.package_url = Some("https://example.com/script-1.2.0.bbs".to_owned());
+    checked.package_sha256 = Some("a".repeat(64));
+    checked.package_size = Some(42);
+    checked.published_at = Some("2026-07-22T12:00:00Z".to_owned());
+    checked.release_notes = Some("Release notes".to_owned());
+    store
+        .record_script_update_success(&checked)
+        .expect("update discovery should persist");
+
+    assert_eq!(
+        store
+            .script_update_state("script-1")
+            .expect("saved update state should load"),
+        checked
+    );
+
+    store
+        .record_script_update_failure(
+            "script-1",
+            "https://example.com/update.json",
+            101,
+            "server unavailable",
+        )
+        .expect("update failure should persist");
+    let failed = store
+        .script_update_state("script-1")
+        .expect("failed update state should load");
+    assert!(failed.automatic_checks_enabled);
+    assert_eq!(failed.last_error.as_deref(), Some("server unavailable"));
+    assert!(failed.latest_version.is_none());
+    assert!(failed.package_sha256.is_none());
+}
+
+#[test]
+fn rejects_script_update_values_that_exceed_sqlite_integer_limits() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    let mut state = ScriptUpdateState::empty("script-1");
+    state.last_checked_at_unix = Some(u64::MAX);
+    state.last_success_at_unix = Some(u64::MAX);
+
+    assert!(store.record_script_update_success(&state).is_err());
+    assert!(
+        store
+            .record_script_update_failure(
+                "script-1",
+                "https://example.com/update.json",
+                u64::MAX,
+                "failed",
+            )
+            .is_err()
+    );
 }

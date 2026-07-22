@@ -88,6 +88,9 @@
 		"action.text.format": [
 			"action.text"
 		],
+		"action.url.parse": [
+			"action.text"
+		],
 		"action.webhook_response": [
 			"action.webhook_response"
 		],

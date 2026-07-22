@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
   filterVariables,
   filterVariableMetadata,
@@ -81,6 +82,7 @@ export function RunVariablePanel({
       <div className="grid gap-2">
         <Input
           aria-label="Search run variables"
+          maxLength={SEARCH_INPUT_MAX_LENGTH}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search variable name, scope, type, or value"
           value={query}

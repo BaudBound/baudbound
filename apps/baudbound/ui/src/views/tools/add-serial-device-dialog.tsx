@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { DashboardAction } from "@/lib/app-types";
+import { SERIAL_DEVICE_ID_MAX_LENGTH } from "@/lib/input-limits";
 import type { SerialPortScanResult } from "@/lib/runner-api";
 import { readRunnerConfig, saveRunnerConfigModel } from "@/lib/runner-api";
 import {
@@ -90,6 +91,7 @@ export function AddSerialDeviceDialog({
               <span className="text-xs text-muted-foreground">Device ID</span>
               <Input
                 autoFocus
+                maxLength={SERIAL_DEVICE_ID_MAX_LENGTH}
                 onChange={(event) => setDeviceId(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && void addDevice()}
                 placeholder="main_controller"

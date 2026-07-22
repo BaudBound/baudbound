@@ -24,52 +24,74 @@
     },
     "id": {
       "type": "string",
-      "format": "uuid"
+      "format": "uuid",
+      "maxLength": 36
     },
     "name": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128
     },
     "description": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 4096
     },
     "author": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 128
     },
     "website": {
       "type": "string",
-      "format": "uri"
+      "maxLength": 2048
     },
-    "repository": {
+    "source": {
       "type": "string",
-      "format": "uri"
+      "maxLength": 2048
     },
     "created_with": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "maxLength": 64
     },
     "updated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "maxLength": 64
     },
     "tags": {
       "type": "array",
+      "maxItems": 32,
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "maxLength": 64
       },
       "uniqueItems": true
     },
     "minimum_runner_version": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "maxLength": 128
+    },
+    "update_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "maxLength": 2048
     },
     "assets": {
       "type": "array",
+      "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -77,22 +99,26 @@
         "properties": {
           "id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 128
           },
           "kind": {
             "enum": ["audio", "image", "text"]
           },
           "media_type": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 128
           },
           "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 256
           },
           "path": {
             "type": "string",
-            "pattern": "^assets\\/[a-z0-9._-]+$"
+            "pattern": "^assets(?:\\/[a-z0-9._-]+)+$",
+            "maxLength": 256
           },
           "size": {
             "type": "integer",
@@ -104,6 +130,7 @@
     },
     "variables": {
       "type": "array",
+      "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -111,7 +138,8 @@
         "properties": {
           "name": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "maxLength": 128
           },
           "scope": {
             "type": "string",
@@ -122,7 +150,8 @@
             "enum": ["string", "number", "boolean", "object", "list", "http_response", "datetime", "duration", "file_path"]
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1024
           },
           "value": {
             "type": ["string", "number", "boolean", "object", "array", "null"]
@@ -194,6 +223,7 @@
     },
     "secrets": {
       "type": "array",
+      "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -201,14 +231,16 @@
         "properties": {
           "name": {
             "type": "string",
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "maxLength": 128
           },
           "type": {
             "type": "string",
             "enum": ["string", "number", "boolean", "object", "list", "http_response", "datetime", "duration", "file_path"]
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1024
           },
           "required": {
             "type": "boolean"

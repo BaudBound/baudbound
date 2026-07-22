@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   filterVariableMetadata,
+  runStatusPresentation,
   variableScopeLabel,
   variableRows,
 } from "@/lib/run-inspection";
@@ -58,5 +59,30 @@ describe("run variable inspection", () => {
     const [row] = variableRows({ serial: "value\r\n" });
 
     expect(row.preview).toBe('"value\\r\\n"');
+  });
+});
+
+describe("run status presentation", () => {
+  it("distinguishes completed runs that emitted errors", () => {
+    expect(
+      runStatusPresentation({
+        logs: [
+          {
+            level: "error",
+            message: "An action reported an error.",
+            timestamp_unix_ms: 1,
+          },
+        ],
+        status: "completed",
+      }),
+    ).toEqual({ hasErrors: true, label: "completed", variant: "good" });
+  });
+
+  it("keeps ordinary completed runs successful", () => {
+    expect(runStatusPresentation({ logs: [], status: "completed" })).toEqual({
+      hasErrors: false,
+      label: "completed",
+      variant: "good",
+    });
   });
 });

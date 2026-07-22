@@ -1,8 +1,11 @@
-import { Eye } from "lucide-react";
+import { Eye, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Details } from "@/components/details";
 import { EmptyState } from "@/components/empty-state";
 import { ExternalLink } from "@/components/external-link";
+import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,10 +15,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
-import { type ScriptStatus, type StoredRunRecord } from "@/lib/runner-api";
+import { Switch } from "@/components/ui/switch";
+import type { DashboardAction } from "@/lib/app-types";
+import {
+  checkScriptUpdate,
+  type ScriptStatus,
+  type ScriptUpdateState,
+  setScriptAutomaticUpdateChecks,
+  type StoredRunRecord,
+} from "@/lib/runner-api";
 import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
 import { useDesktopTime } from "@/lib/time-format";
 import { useSortableRows } from "@/lib/table-sorting";
+import { RemotePackageDialog } from "@/views/remote-package-dialog";
 
 type TriggerSortColumn = "action" | "node" | "runnerType";
 type RecentRunSortColumn = "completed" | "runId" | "status" | "trigger";
@@ -40,14 +52,22 @@ const recentRunSortSelectors: Record<
 };
 
 export function ScriptDetailPanel({
+  busyActions,
   onViewRun,
   recentRuns,
+  runAction,
   script,
+  updateState,
 }: {
+  busyActions: Set<string>;
   onViewRun: (run: StoredRunRecord) => void;
   recentRuns: StoredRunRecord[];
+  runAction: DashboardAction;
   script: ScriptStatus;
+  updateState: ScriptUpdateState;
 }) {
+  const [enableChecksOpen, setEnableChecksOpen] = useState(false);
+  const [reviewUpdateOpen, setReviewUpdateOpen] = useState(false);
   const { formatUnixSeconds } = useDesktopTime();
   const metadata = script.metadata;
   const scriptRuns = recentRuns
@@ -85,11 +105,13 @@ export function ScriptDetailPanel({
                   ["Created with", metadata.created_with],
                   ["Created", metadata.created_at],
                   ["Updated", metadata.updated_at],
+                  ["Version", metadata.version],
+                  ["Update URL", metadata.update_url || "Not configured"],
                   ["Minimum runner", metadata.minimum_runner_version],
                 ]}
               />
 
-              {metadata.website.trim() || metadata.repository.trim() ? (
+              {metadata.website.trim() || metadata.source.trim() ? (
                 <section className="grid gap-2">
                   <h3 className="font-medium">Links</h3>
                   {metadata.website.trim() ? (
@@ -100,11 +122,11 @@ export function ScriptDetailPanel({
                       </ExternalLink>
                     </div>
                   ) : null}
-                  {metadata.repository.trim() ? (
+                  {metadata.source.trim() ? (
                     <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
-                      <span className="text-muted-foreground">Repository</span>
-                      <ExternalLink href={metadata.repository}>
-                        {metadata.repository}
+                      <span className="text-muted-foreground">Source</span>
+                      <ExternalLink href={metadata.source}>
+                        {metadata.source}
                       </ExternalLink>
                     </div>
                   ) : null}
@@ -129,6 +151,135 @@ export function ScriptDetailPanel({
               Package information is unavailable because the installed package could not be read and verified.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Updates</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">Update status</span>
+                <Badge variant={updateStatusVariant(updateState.status)}>
+                  {updateStatusLabel(updateState.status)}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Checking only discovers published packages. BaudBound never installs or approves a script update automatically.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {updateState.status === "available" ? (
+                <Button onClick={() => setReviewUpdateOpen(true)} size="sm">
+                  Review update
+                </Button>
+              ) : null}
+              <Button
+                disabled={
+                  !metadata?.update_url.trim() ||
+                  busyActions.has(`check-script-update:${script.installed.id}`)
+                }
+                onClick={() =>
+                  runAction(`check-script-update:${script.installed.id}`, () =>
+                    checkScriptUpdate(script.installed.id),
+                  )
+                }
+                size="sm"
+                variant="outline"
+              >
+                <RefreshCw />
+                {busyActions.has(`check-script-update:${script.installed.id}`)
+                  ? "Checking..."
+                  : "Check for updates"}
+              </Button>
+            </div>
+          </div>
+
+          {metadata?.update_url.trim() ? (
+            <div className="grid gap-2 text-sm">
+              <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3">
+                <span className="text-muted-foreground">Update URL</span>
+                <ExternalLink href={metadata.update_url}>
+                  {metadata.update_url}
+                </ExternalLink>
+              </div>
+              <MetadataRows
+                rows={[
+                  ["Current version", metadata.version],
+                  ["Latest version", updateState.latest_version ?? "Not checked"],
+                  [
+                    "Package size",
+                    updateState.package_size === null
+                      ? "Not available"
+                      : formatBytes(updateState.package_size),
+                  ],
+                  ["Published", updateState.published_at ?? "Not available"],
+                  ["Last error", updateState.last_error ?? ""],
+                ]}
+              />
+              {updateState.release_notes?.trim() ? (
+                <section className="grid gap-2 border-t border-border pt-3">
+                  <h3 className="font-medium">Release notes</h3>
+                  <LazyMarkdownContent source={updateState.release_notes} />
+                </section>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This script does not provide an update URL.
+            </p>
+          )}
+
+          <div className="flex items-start justify-between gap-4 border-t border-border pt-4">
+            <div>
+              <div className="text-sm font-medium">Automatic update checks</div>
+              <p className="text-xs text-muted-foreground">
+                Contact this script publisher on the configured schedule to discover new versions.
+              </p>
+            </div>
+            <Switch
+              checked={updateState.automatic_checks_enabled}
+              disabled={
+                !metadata?.update_url.trim() ||
+                busyActions.has(`automatic-script-updates:${script.installed.id}`)
+              }
+              onCheckedChange={(enabled) => {
+                if (enabled) {
+                  setEnableChecksOpen(true);
+                  return;
+                }
+                void runAction(`automatic-script-updates:${script.installed.id}`, () =>
+                  setScriptAutomaticUpdateChecks(script.installed.id, false),
+                );
+              }}
+            />
+          </div>
+          <ConfirmDialog
+            confirmLabel="Enable checks"
+            description="BaudBound will periodically contact the update server selected by this script publisher. The server can observe your IP address and the time of each check. Updates will only be discovered. They will not be downloaded, installed, enabled, or approved automatically."
+            disabled={busyActions.has(`automatic-script-updates:${script.installed.id}`)}
+            onConfirm={async () => {
+              await runAction(`automatic-script-updates:${script.installed.id}`, () =>
+                setScriptAutomaticUpdateChecks(script.installed.id, true),
+              );
+            }}
+            onOpenChange={setEnableChecksOpen}
+            open={enableChecksOpen}
+            title="Enable automatic update checks?"
+          />
+          {reviewUpdateOpen ? (
+            <RemotePackageDialog
+              busyActions={busyActions}
+              discoveredScriptId={script.installed.id}
+              onOpenChange={setReviewUpdateOpen}
+              open
+              operation="update"
+              runAction={runAction}
+            />
+          ) : null}
         </CardContent>
       </Card>
 
@@ -318,6 +469,30 @@ export function ScriptDetailPanel({
       </Card>
     </div>
   );
+}
+
+function updateStatusLabel(status: ScriptUpdateState["status"]) {
+  switch (status) {
+    case "available": return "Update available";
+    case "failed": return "Check failed";
+    case "not_checked": return "Not checked";
+    case "unavailable": return "Unavailable";
+    case "unconfigured": return "Not configured";
+    case "up_to_date": return "Up to date";
+  }
+}
+
+function updateStatusVariant(status: ScriptUpdateState["status"]) {
+  if (status === "available") return "medium" as const;
+  if (status === "failed" || status === "unavailable") return "destructive" as const;
+  if (status === "up_to_date") return "good" as const;
+  return "muted" as const;
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function MetadataRows({ rows }: { rows: Array<[string, string]> }) {

@@ -8,6 +8,8 @@ use crate::{
 use super::{SqliteRunnerStore, conversions::usize_to_sqlite, rows::row_to_run_record};
 
 const MAX_PAGE_SIZE: usize = 200;
+const MAX_SEARCH_BYTES: usize = 1024;
+const MAX_FILTER_BYTES: usize = 256;
 
 impl SqliteRunnerStore {
     pub fn find_run_record_by_id(
@@ -36,6 +38,18 @@ impl SqliteRunnerStore {
         &self,
         query: &RunHistoryQuery,
     ) -> Result<PaginatedRecords<StoredRunRecord>, StorageError> {
+        validate_query_text("run search", &query.search, MAX_SEARCH_BYTES)?;
+        if let Some(script_id) = &query.script_id {
+            validate_query_text("script filter", script_id, MAX_FILTER_BYTES)?;
+        }
+        if let Some(status) = &query.status {
+            validate_query_text("status filter", status, MAX_FILTER_BYTES)?;
+            if !matches!(status.as_str(), "completed" | "failed" | "cancelled") {
+                return Err(StorageError::Operation(format!(
+                    "unsupported run status filter {status:?}"
+                )));
+            }
+        }
         let connection = self.connection()?;
         let search = query.search.trim();
         let script_id = query.script_id.as_deref().unwrap_or("");
@@ -82,6 +96,7 @@ impl SqliteRunnerStore {
         &self,
         query: &RunLogQuery,
     ) -> Result<PaginatedRecords<StoredRunLogRecord>, StorageError> {
+        validate_query_text("log search", &query.search, MAX_SEARCH_BYTES)?;
         let connection = self.connection()?;
         let search = query.search.trim();
         let count_sql = format!("SELECT COUNT(*) {LOG_FROM_SQL}");
@@ -163,6 +178,15 @@ impl SqliteRunnerStore {
             source,
         }
     }
+}
+
+fn validate_query_text(label: &str, value: &str, max_bytes: usize) -> Result<(), StorageError> {
+    if value.len() > max_bytes || value.chars().any(|character| character == '\0') {
+        return Err(StorageError::Operation(format!(
+            "{label} must contain at most {max_bytes} bytes and no null characters"
+        )));
+    }
+    Ok(())
 }
 
 const RUN_FILTER_SQL: &str = r#"

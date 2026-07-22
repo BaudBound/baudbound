@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatCount } from "@/lib/count-format";
+import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
   exportVariables,
   getVariableInventory,
@@ -92,6 +93,7 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Input
           aria-label="Search variables"
+          maxLength={SEARCH_INPUT_MAX_LENGTH}
           className="min-w-56 flex-1"
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search name, script, scope, type, description, or value"

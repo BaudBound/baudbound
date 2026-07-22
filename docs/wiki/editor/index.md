@@ -95,7 +95,7 @@ When a comment overlaps an executable node, the executable node is rendered abov
 
 ## Edge style
 
-The canvas edge selector applies one style to all graph edges. Available styles map to React Flow's straight, step, smooth-step, and default Bezier rendering. The selected style is editor metadata saved in `editor.json`. It does not change execution order.
+The canvas edge selector applies one style to all graph edges. The choices are Bezier, Smooth Step, Step, and Straight. New projects use Bezier. The selected style is editor metadata saved in `editor.json`. It does not change execution order.
 
 ## Project, assets, and packages
 

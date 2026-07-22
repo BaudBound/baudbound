@@ -68,6 +68,7 @@ const activeRunEventChannel = "runner-active-run";
 const serviceStatusEventChannel = "runner-service-status";
 const desktopRunnerEventChannel = "runner-desktop-background";
 const secretVaultEventChannel = "runner-secret-vault";
+const scriptUpdateEventChannel = "runner-script-update-state-changed";
 
 export function App() {
   const triggerMonitor = useTriggerMonitor();
@@ -267,6 +268,35 @@ export function App() {
             message: `Could not initialize live runner events: ${String(error)}`,
           });
           void refresh();
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [pushNotice, refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
+    void listen<string>(scriptUpdateEventChannel, () => {
+      void refresh({ silent: true });
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize script update events: ${String(error)}`,
+          });
         }
       });
 
@@ -564,6 +594,7 @@ export function App() {
               <ScriptsView
                 busyActions={busyActions}
                 dashboard={dashboard}
+                onDashboard={installDashboard}
                 runAction={runAction}
               />
             ) : activeTab === "security" ? (

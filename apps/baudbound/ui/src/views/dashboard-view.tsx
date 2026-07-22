@@ -7,7 +7,7 @@ import { SummaryCard } from "@/components/summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload } from "@/lib/runner-api";
-import { runStatusVariant } from "@/lib/run-inspection";
+import { runStatusPresentation } from "@/lib/run-inspection";
 import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
 import { useDesktopTime } from "@/lib/time-format";
 
@@ -115,26 +115,34 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
             <EmptyState>No script runs have been recorded yet.</EmptyState>
           ) : (
             <div className="grid gap-2">
-              {latestRuns.map((run) => (
-                <div
-                  className="grid gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm md:grid-cols-[180px_minmax(0,1fr)_auto]"
-                  key={run.run_id}
-                >
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Clock3 className="size-4" />
-                    {formatUnixSeconds(run.completed_at_unix)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{scriptName(dashboard, run.script_id)}</div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {run.run_id}
+              {latestRuns.map((run) => {
+                const status = runStatusPresentation(run);
+                return (
+                  <div
+                    className="grid gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm md:grid-cols-[180px_minmax(0,1fr)_auto]"
+                    key={run.run_id}
+                  >
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock3 className="size-4" />
+                      {formatUnixSeconds(run.completed_at_unix)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {scriptName(dashboard, run.script_id)}
+                      </div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {run.run_id}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <Badge variant={status.variant}>{status.label}</Badge>
+                      {status.hasErrors ? (
+                        <Badge variant="destructive">with errors</Badge>
+                      ) : null}
                     </div>
                   </div>
-                  <Badge variant={runStatusVariant(run.status)}>
-                    {run.status}
-                  </Badge>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

@@ -42,6 +42,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         runner_config: Mutex::new(runner_config.clone()),
         core: Arc::new(Mutex::new(core)),
         secret_vault: secret_vault::SecretVaultController::default(),
+        script_update_worker: crate::script_updates::ScriptUpdateWorker::default(),
         store,
         websocket_registry,
         operation_lock: Arc::new(Mutex::new(())),
@@ -56,6 +57,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         )
         .manage(coordinate_picker::CoordinatePickerState::default())
         .manage(SensitiveOperationGuard::default())
+        .manage(crate::script_updates::RemotePreparationRegistry::default())
+        .manage(crate::script_updates::RemotePackageReviews::default())
         .manage(state)
         .invoke_handler(desktop_command_handler!())
         .build(test::mock_context(test::noop_assets()))

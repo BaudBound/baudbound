@@ -56,7 +56,7 @@ Each script row provides frequent actions directly:
 - Each recent run in the script details dialog has its own **View details** button. It opens that run's complete logs, result, and variable snapshot without closing the script details.
 - The remaining row buttons enable or disable the script and remove it.
 
-The Script Details dialog includes the information supplied by the verified package. Empty optional fields are hidden. Website and repository links open in the system browser only after you select them.
+The Script Details dialog includes the information supplied by the verified package. Empty optional fields are hidden. Website and source links open in the system browser only after you select them.
 
 The displayed package name is not the stable script identity. The ID shown with it controls update matching.
 
