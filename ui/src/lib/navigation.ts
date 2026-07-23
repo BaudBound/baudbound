@@ -1,5 +1,6 @@
 import {
   ClipboardCheck,
+  GalleryVerticalEnd,
   FileClock,
   FileCog,
   Gauge,
@@ -32,6 +33,7 @@ export const navigationGroups: Array<{
     label: "Operate",
     items: [
       { icon: Gauge, id: "dashboard", label: "Dashboard" },
+      { icon: GalleryVerticalEnd, id: "browse", label: "Browse Scripts" },
       { icon: ScrollText, id: "scripts", label: "Scripts" },
       { icon: MonitorCog, id: "service", label: "Service" },
     ],
@@ -68,6 +70,7 @@ export const navigationItems = [
 export function pageTitle(activeTab: TabId) {
   const labels: Record<TabId, string> = {
     about: "About",
+    browse: "Browse Scripts",
     config: "Config",
     dashboard: "Dashboard",
     diagnostics: "Doctor",
@@ -90,6 +93,9 @@ export function pageSubtitle(
   if (!dashboard) return "Loading runner state...";
   if (activeTab === "about") {
     return "Application information, project links, and updates";
+  }
+  if (activeTab === "browse") {
+    return "Discover scripts from official and user managed repositories";
   }
   if (activeTab === "scripts") {
     return formatCount(dashboard.runner.total_script_count, "installed script");

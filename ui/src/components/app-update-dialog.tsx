@@ -98,7 +98,7 @@ export function AppUpdateDialog({
         {state.phase === "ready" ? (
           <div className="flex items-start gap-3 rounded-md border border-baud-green/25 bg-baud-green/10 p-3 text-sm text-baud-green">
             <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-            <span>The signed update is downloaded and verified. Restart to install it.</span>
+            <span>The signed update has been downloaded and verified. Restart to install it.</span>
           </div>
         ) : null}
 
@@ -149,7 +149,7 @@ function dialogTitle(
   if (failedOperation === "download") return "Could not download update";
   if (failedOperation === "verify") return "Could not verify update";
   if (failedOperation === "install") return "Could not install update";
-  return "Could not check for updates";
+  return "Unable to check for updates";
 }
 
 function dialogDescription(phase: string, installationType: AppInstallationType) {
@@ -160,7 +160,7 @@ function dialogDescription(phase: string, installationType: AppInstallationType)
     return "Keep BaudBound open while the update is downloaded and verified.";
   }
   if (phase === "ready") return "Your running scripts will stop when the application restarts.";
-  return "The current version is still installed and can continue running normally.";
+  return "The current version remains installed and can continue running normally.";
 }
 
 function progressLabel(percent: number | null, downloadedBytes: number) {

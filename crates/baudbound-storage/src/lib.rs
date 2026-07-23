@@ -163,6 +163,126 @@ pub struct PaginatedRecords<T> {
     pub total: usize,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RepositorySource {
+    pub description: String,
+    pub enabled: bool,
+    pub etag: Option<String>,
+    pub homepage: String,
+    pub information_mismatch_count: usize,
+    pub last_error: Option<String>,
+    pub last_modified: Option<String>,
+    pub last_refresh_at_unix: Option<u64>,
+    pub last_success_at_unix: Option<u64>,
+    pub name: String,
+    pub official: bool,
+    pub revision: u64,
+    pub script_count: usize,
+    pub url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RepositoryCacheEntry {
+    pub author: String,
+    pub entry_json: String,
+    pub name: String,
+    pub published_at: String,
+    pub risk_level: String,
+    pub script_id: String,
+    pub summary: String,
+    pub target_runtime: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RepositoryCacheReplacement {
+    pub description: String,
+    pub etag: Option<String>,
+    pub entries: Vec<RepositoryCacheEntry>,
+    pub homepage: String,
+    pub last_modified: Option<String>,
+    pub name: String,
+    pub refreshed_at_unix: u64,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RepositoryScriptRecord {
+    pub author: String,
+    pub entry: serde_json::Value,
+    pub installed: bool,
+    pub information_mismatch: Option<String>,
+    pub information_mismatch_refresh_required: bool,
+    pub name: String,
+    pub official: bool,
+    pub published_at: String,
+    pub repository_name: String,
+    pub repository_url: String,
+    pub risk_level: String,
+    pub script_id: String,
+    pub summary: String,
+    pub target_runtime: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RepositoryScriptSummary {
+    pub author: String,
+    pub installed: bool,
+    pub information_mismatch: Option<String>,
+    pub information_mismatch_refresh_required: bool,
+    pub minimum_runner_version: String,
+    pub name: String,
+    pub official: bool,
+    pub published_at: String,
+    pub repository_name: String,
+    pub repository_url: String,
+    pub risk_level: String,
+    pub script_id: String,
+    pub summary: String,
+    pub target_runtime: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepositoryScriptSort {
+    Author,
+    Published,
+    Repository,
+    Risk,
+    #[default]
+    Name,
+    Version,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RepositoryScriptQuery {
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    pub direction: SortDirection,
+    #[serde(default)]
+    pub installed: Vec<bool>,
+    pub limit: usize,
+    pub offset: usize,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub repository_urls: Vec<String>,
+    #[serde(default)]
+    pub risk_levels: Vec<String>,
+    pub search: String,
+    pub sort: RepositoryScriptSort,
+    #[serde(default)]
+    pub target_runtimes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RepositoryScriptFilterOptions {
+    pub capabilities: Vec<String>,
+    pub permissions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SortDirection {
@@ -262,7 +382,7 @@ pub struct UpdateCheckCache {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ScriptUpdateState {
     pub automatic_checks_enabled: bool,
-    pub checked_update_url: Option<String>,
+    pub checked_repository_url: Option<String>,
     pub last_checked_at_unix: Option<u64>,
     pub last_error: Option<String>,
     pub last_success_at_unix: Option<u64>,
@@ -280,7 +400,7 @@ impl ScriptUpdateState {
     pub fn empty(script_id: impl Into<String>) -> Self {
         Self {
             automatic_checks_enabled: false,
-            checked_update_url: None,
+            checked_repository_url: None,
             last_checked_at_unix: None,
             last_error: None,
             last_success_at_unix: None,

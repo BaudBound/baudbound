@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { formatCount } from "@/lib/count-format";
 import type { StoredRunRecord } from "@/lib/runner-api";
 import {
   countLogsByLevel,
@@ -63,14 +64,14 @@ export function RunDetailPanel({
           <CardContent>
             <div className="flex flex-wrap gap-2">
               <Badge variant={status.variant}>{status.label}</Badge>
-              <Badge variant="muted">{run.logs.length} log entries</Badge>
+              <Badge variant="muted">{formatCount(run.logs.length, "log entry")}</Badge>
               <Badge variant={errorCount > 0 ? "destructive" : "muted"}>
-                {errorCount} errors
+                {formatCount(errorCount, "error")}
               </Badge>
               <Badge variant={warningCount > 0 ? "medium" : "muted"}>
-                {warningCount} warnings
+                {formatCount(warningCount, "warning")}
               </Badge>
-              <Badge variant="muted">{dataVariableCount} variables</Badge>
+              <Badge variant="muted">{formatCount(dataVariableCount, "variable")}</Badge>
             </div>
           </CardContent>
         </Card>

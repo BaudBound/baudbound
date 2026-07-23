@@ -17,6 +17,7 @@ import type { DashboardAction } from "@/lib/app-types";
 import { runWithConcurrency } from "@/lib/bounded-concurrency";
 import {
   checkScriptUpdate,
+  checkScriptUpdates,
   cancelRemoteScriptPackagePreparation,
   prepareDiscoveredScriptUpdate,
   remotePackageProgressEvent,
@@ -95,7 +96,7 @@ export function ScriptUpdateCheckDialog({
       preparationRequestId: null,
       review: null,
       script,
-      status: script.metadata?.update_url.trim() ? "pending" : "unconfigured",
+      status: script.metadata?.repository_url.trim() ? "pending" : "unconfigured",
     }));
     setRows(initialRows);
     void checkEligibleScripts(initialRows, onDashboard, setRows);
@@ -209,7 +210,7 @@ export function ScriptUpdateCheckDialog({
           <DialogHeader>
             <DialogTitle>Check script updates</DialogTitle>
             <DialogDescription>
-              BaudBound checks every configured update descriptor. No package is installed or approved automatically.
+              BaudBound checks every configured script repository. No package is installed or approved automatically.
             </DialogDescription>
           </DialogHeader>
 
@@ -345,23 +346,62 @@ async function checkEligibleScripts(
   setRows: React.Dispatch<React.SetStateAction<CheckRow[]>>,
 ) {
   const eligible = initialRows.filter((row) => row.status === "pending");
-  let index = 0;
-  const workers = Array.from({ length: Math.min(checkConcurrency, eligible.length) }, async () => {
-    while (index < eligible.length) {
-      const row = eligible[index++];
-      const scriptId = row.script.installed.id;
-      setRows((current) => updateRow(current, scriptId, { status: "checking" }));
+  const grouped = new Map<string, CheckRow[]>();
+  for (const row of eligible) {
+    const repositoryUrl = row.script.metadata?.repository_url.trim();
+    if (!repositoryUrl) continue;
+    const group = grouped.get(repositoryUrl) ?? [];
+    group.push(row);
+    grouped.set(repositoryUrl, group);
+  }
+  await runWithConcurrency(
+    [...grouped.values()],
+    checkConcurrency,
+    async (group) => {
+      const scriptIds = group.map((row) => row.script.installed.id);
+      setRows((current) =>
+        scriptIds.reduce(
+          (next, scriptId) =>
+            updateRow(next, scriptId, { error: null, status: "checking" }),
+          current,
+        ),
+      );
       try {
-        const state = await checkOne(row.script, onDashboard);
-        setRows((current) => applyCheckResult(current, scriptId, state));
+        const result = await checkScriptUpdates(scriptIds);
+        onDashboard(result.dashboard);
+        setRows((current) =>
+          scriptIds.reduce((next, scriptId) => {
+            const error = result.errors[scriptId];
+            if (error) {
+              return updateRow(next, scriptId, {
+                error,
+                status: "failed",
+              });
+            }
+            const state = result.dashboard.script_updates[scriptId];
+            return state
+              ? applyCheckResult(next, scriptId, state)
+              : updateRow(next, scriptId, {
+                  error: "The runner did not return an update state.",
+                  status: "failed",
+                });
+          }, current),
+        );
       } catch (error) {
         setRows((current) =>
-          updateRow(current, scriptId, { error: String(error), status: "failed" }),
+          scriptIds.reduce(
+            (next, scriptId) =>
+              updateRow(next, scriptId, {
+                error: String(error),
+                status: "failed",
+              }),
+            current,
+          ),
         );
       }
-    }
-  });
-  await Promise.all(workers);
+    },
+    () => false,
+  );
 }
 
 async function prepareAvailableUpdates(
@@ -449,8 +489,8 @@ function preparationSummary(progress: RemotePreparationProgress | null) {
   if (!progress) return "Starting secure download";
   const labels: Record<RemotePreparationProgress["stage"], string> = {
     awaiting_review: "Preparing review",
-    downloading_descriptor: "Downloading update information",
     downloading_package: "Downloading package",
+    downloading_repository: "Downloading repository",
     validating_package: "Validating package",
     verifying_hash: "Verifying package hash",
   };

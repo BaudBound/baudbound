@@ -72,7 +72,7 @@ pub(super) fn validate_manifest_metadata(manifest: &Manifest) -> Result<(), Pack
     if Version::parse(&manifest.version).is_err() {
         errors.push("manifest version must be a valid semantic version".to_owned());
     }
-    validate_update_url(&manifest.update_url, &mut errors);
+    validate_repository_url(&manifest.repository_url, &mut errors);
 
     for tag in &manifest.tags {
         validate_text("tag", tag, 64, false, true, &mut errors);
@@ -121,8 +121,8 @@ pub(super) fn validate_manifest_metadata(manifest: &Manifest) -> Result<(), Pack
     finish_validation(errors)
 }
 
-fn validate_update_url(value: &str, errors: &mut Vec<String>) {
-    validate_text("update_url", value, 2048, false, false, errors);
+fn validate_repository_url(value: &str, errors: &mut Vec<String>) {
+    validate_text("repository_url", value, 2048, false, false, errors);
     if value.is_empty() {
         return;
     }
@@ -133,9 +133,9 @@ fn validate_update_url(value: &str, errors: &mut Vec<String>) {
                 && url.username().is_empty()
                 && url.password().is_none()
                 && url.fragment().is_none()
-                && url.path_segments().and_then(Iterator::last) == Some("update.json") => {}
+                && url.path_segments().and_then(Iterator::last) == Some("repository.json") => {}
         _ => errors.push(
-            "manifest update_url must be an HTTPS URL without credentials or a fragment and must end in update.json"
+            "manifest repository_url must be an HTTPS URL without credentials or a fragment and must end in repository.json"
                 .to_owned(),
         ),
     }
@@ -464,6 +464,7 @@ mod tests {
             "script_language_version": 1,
             "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
             "name": "default-variables",
+            "version": "1.0.0",
             "created_with": "BaudBound Test",
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "0.1.0",

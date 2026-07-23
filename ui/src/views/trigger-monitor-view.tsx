@@ -30,6 +30,7 @@ import type {
   DashboardPayload,
   TriggerMonitorEvent,
 } from "@/lib/runner-api";
+import { formatCount } from "@/lib/count-format";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import { triggerMonitorEventMatches } from "@/lib/trigger-monitor-events";
 import { useDesktopTime } from "@/lib/time-format";
@@ -169,7 +170,7 @@ export function TriggerMonitorView({
               checked={follow}
               onCheckedChange={(checked) => setFollow(checked === true)}
             />
-            Follow newest
+            Follow latest
           </label>
         </CardContent>
       </Card>
@@ -181,13 +182,15 @@ export function TriggerMonitorView({
       ) : null}
       {controller.omittedEventCount > 0 ? (
         <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
-          {controller.omittedEventCount} monitor events were omitted because the
+          {formatCount(controller.omittedEventCount, "monitor event")}{" "}
+          {controller.omittedEventCount === 1 ? "was" : "were"} omitted because the
           interface could not keep up. Script execution was not affected.
         </div>
       ) : null}
       {controller.pausedOmittedEventCount > 0 ? (
         <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
-          {controller.pausedOmittedEventCount} paused events were omitted after
+          {formatCount(controller.pausedOmittedEventCount, "paused event")}{" "}
+          {controller.pausedOmittedEventCount === 1 ? "was" : "were"} omitted after
           the 500 event pause buffer filled. Script execution was not affected.
         </div>
       ) : null}

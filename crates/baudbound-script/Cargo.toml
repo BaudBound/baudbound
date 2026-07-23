@@ -17,3 +17,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
 zip.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true

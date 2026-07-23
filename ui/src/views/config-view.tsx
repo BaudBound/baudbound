@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { DashboardAction } from "@/lib/app-types";
+import { formatCount } from "@/lib/count-format";
 import {
   BIND_ADDRESS_MAX_LENGTH,
   RUNNER_CONFIG_MAX_BYTES,
@@ -569,7 +570,7 @@ function SimpleConfigEditor({
               onKeyDown={(event) => {
                 if (event.key === "Enter") onAddSerialDevice();
               }}
-              placeholder="device id"
+              placeholder="Device ID"
               value={newDeviceId}
             />
             <Button
@@ -588,7 +589,7 @@ function SimpleConfigEditor({
         <CardContent className="grid gap-4">
           {Object.entries(config.serial.devices).length === 0 ? (
             <div className="rounded-md border border-border bg-background px-3 py-3 text-sm text-muted-foreground">
-              No serial devices configured.
+              No serial devices are configured.
             </div>
           ) : (
             Object.entries(config.serial.devices).map(([id, device]) => (
@@ -712,7 +713,7 @@ function SerialDeviceCard({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-sm font-medium">{id}</div>
-          <div className="text-xs text-muted-foreground">Referenced by Serial Input Trigger</div>
+          <div className="text-xs text-muted-foreground">Referenced by Serial Input nodes</div>
         </div>
         <Button onClick={onRemove} size="sm" variant="destructive">
           <Trash2 />
@@ -720,7 +721,7 @@ function SerialDeviceCard({
         </Button>
       </div>
       <SerialConfigGroup
-        description="Use the values specified by the physical device manual."
+        description="Use the values specified in the manual for the physical device."
         title="Native serial port"
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -989,7 +990,7 @@ function AdvancedConfigEditor({
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Raw TOML</CardTitle>
         <div className="text-xs text-muted-foreground">
-          {lineCount} lines, {byteCount} bytes
+          {formatCount(lineCount, "line")}, {formatCount(byteCount, "byte")}
         </div>
       </CardHeader>
       <CardContent className="grid gap-2">

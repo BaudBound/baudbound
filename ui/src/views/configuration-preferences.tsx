@@ -32,7 +32,7 @@ export function SharedConfiguration({
   return (
     <div className="grid gap-4">
       <ConfigGroupHeading
-        description="Preferences used by both the desktop app and command line interface."
+        description="Preferences used by both the desktop app and the command-line interface."
         title="Shared configuration"
       />
       <div className="grid gap-4 lg:grid-cols-2">
@@ -68,11 +68,10 @@ export function SharedConfiguration({
               <span>
                 <span className="block text-sm font-medium">Check interval</span>
                 <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                  Minimum number of hours between automatic checks.
+                  Minimum hours between repository refreshes and enabled automatic checks.
                 </span>
               </span>
               <Input
-                disabled={!config.updates.automatic_checks}
                 max={8_760}
                 min={1}
                 onChange={(event) =>
@@ -127,10 +126,10 @@ export function DesktopConfiguration({
             variant={registrationMatches ? (launchAtLoginRegistered ? "good" : "muted") : "medium"}
           >
             {!registrationMatches
-              ? "Registration will be repaired when saved"
+              ? "Save to repair launch at login"
               : launchAtLoginRegistered
-                ? "Login startup registered"
-                : "Login startup off"}
+                ? "Launch at login enabled"
+                : "Launch at login disabled"}
           </Badge>
         </CardHeader>
         <CardContent className="divide-y divide-border p-0">
@@ -224,7 +223,7 @@ function TimeFormatRow({
         <div className="min-w-0">
           <div className="text-sm font-medium">Clock format</div>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            Choose how human readable timestamps are displayed.
+            Choose how timestamps are displayed.
           </p>
         </div>
       </div>

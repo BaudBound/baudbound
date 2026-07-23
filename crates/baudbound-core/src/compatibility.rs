@@ -483,7 +483,7 @@ mod tests {
                 tags: Vec::new(),
                 minimum_runner_version: "0.1.0".to_owned(),
                 version: "1.0.0".to_owned(),
-                update_url: String::new(),
+                repository_url: String::new(),
                 assets: Vec::new(),
                 secrets: Vec::new(),
             },

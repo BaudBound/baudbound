@@ -18,7 +18,7 @@ describe("DashboardLoadState", () => {
       <DashboardLoadState error="Database could not be read" onRetry={() => undefined} />,
     );
 
-    expect(markup).toContain("Runner state could not be loaded");
+    expect(markup).toContain("Unable to load runner state");
     expect(markup).toContain("Database could not be read");
     expect(markup).toContain("Retry");
   });

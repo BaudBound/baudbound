@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { SummaryCard } from "@/components/summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCount } from "@/lib/count-format";
 import type { DashboardPayload } from "@/lib/runner-api";
 import { runStatusPresentation } from "@/lib/run-inspection";
 import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
@@ -46,7 +47,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
                 value={dashboard.desktop_background.state}
               />
               <OverviewTile
-                detail={`${dashboard.runner.trigger_count} trigger registrations`}
+                detail={formatCount(dashboard.runner.trigger_count, "trigger registration")}
                 icon={<PlayCircle className="size-4" />}
                 label="Automation"
                 value={

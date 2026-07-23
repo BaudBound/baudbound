@@ -11,10 +11,10 @@ export type PackageFileSelection = {
 };
 
 export type RemotePackageOperation = "import" | "update";
-export type RemotePackageSource = "descriptor" | "package";
+export type RemotePackageSource = "package" | "repository";
 export type RemotePreparationStage =
-  | "downloading_descriptor"
   | "downloading_package"
+  | "downloading_repository"
   | "verifying_hash"
   | "validating_package"
   | "awaiting_review";
@@ -27,6 +27,126 @@ export type RemotePreparationProgress = {
 };
 
 export const remotePackageProgressEvent = "runner-remote-package-progress";
+export const repositoryChangedEvent = "runner-repository-changed";
+export const repositoryProgressEvent = "runner-repository-progress";
+
+export type RepositoryRefreshStage =
+  | "downloading"
+  | "validating"
+  | "replacing_cache"
+  | "complete";
+
+export type RepositoryRefreshProgress = {
+  repository_url: string;
+  request_id: string;
+  stage: RepositoryRefreshStage;
+  total_bytes: number | null;
+  transferred_bytes: number;
+};
+
+export type RepositorySource = {
+  description: string;
+  enabled: boolean;
+  homepage: string;
+  information_mismatch_count: number;
+  last_error: string | null;
+  last_refresh_at_unix: number | null;
+  last_success_at_unix: number | null;
+  name: string;
+  official: boolean;
+  revision: number;
+  script_count: number;
+  url: string;
+};
+
+export type RepositoryPreview = {
+  description: string;
+  homepage: string;
+  name: string;
+  script_count: number;
+  url: string;
+};
+
+export type RepositoryRelease = {
+  package_url: string;
+  published_at: string;
+  release_notes: string;
+  sha256: string;
+  size: number;
+  version: string;
+};
+
+export type RepositoryScriptEntry = {
+  author: string;
+  capabilities: string[];
+  description: string;
+  latest: RepositoryRelease;
+  license: string;
+  minimum_runner_version: string;
+  name: string;
+  permissions: string[];
+  risk_level: string;
+  script_id: string;
+  source: string;
+  summary: string;
+  tags: string[];
+  target_runtime: string;
+  website: string;
+};
+
+export type RepositoryScriptRecord = {
+  author: string;
+  entry: RepositoryScriptEntry;
+  installed: boolean;
+  information_mismatch: string | null;
+  information_mismatch_refresh_required: boolean;
+  name: string;
+  official: boolean;
+  published_at: string;
+  repository_name: string;
+  repository_url: string;
+  risk_level: string;
+  script_id: string;
+  summary: string;
+  target_runtime: string;
+  version: string;
+};
+
+export type RepositoryScriptSummary = Omit<RepositoryScriptRecord, "entry"> & {
+  minimum_runner_version: string;
+};
+
+export type RepositoryScriptSort =
+  | "author"
+  | "published"
+  | "repository"
+  | "risk"
+  | "name"
+  | "version";
+
+export type RepositoryScriptQuery = {
+  capabilities: string[];
+  direction: "ascending" | "descending";
+  installed: boolean[];
+  limit: number;
+  offset: number;
+  permissions: string[];
+  repository_urls: string[];
+  risk_levels: string[];
+  search: string;
+  sort: RepositoryScriptSort;
+  target_runtimes: string[];
+};
+
+export type RepositoryScriptFilterOptions = {
+  capabilities: string[];
+  permissions: string[];
+};
+
+export type RefreshAllRepositoriesResult = {
+  failures: Array<{ message: string; repository_url: string }>;
+  repositories: RepositorySource[];
+};
 
 export type RemotePackageReview = {
   capabilities: string[];
@@ -41,7 +161,7 @@ export type RemotePackageReview = {
   size: number;
   source: RemotePackageSource;
   target_runtime: string;
-  update_url: string;
+  repository_url: string;
   version: string;
 };
 
@@ -140,7 +260,7 @@ export type ScriptMetadata = {
   description: string;
   minimum_runner_version: string;
   version: string;
-  update_url: string;
+  repository_url: string;
   source: string;
   tags: string[];
   updated_at: string;
@@ -157,7 +277,7 @@ export type ScriptUpdateStatus =
 
 export type ScriptUpdateState = {
   automatic_checks_enabled: boolean;
-  checked_update_url: string | null;
+  checked_repository_url: string | null;
   last_checked_at_unix: number | null;
   last_error: string | null;
   last_success_at_unix: number | null;
@@ -175,6 +295,7 @@ export type RunnerStatus = {
   disabled_script_count: number;
   enabled_script_count: number;
   problem_count: number;
+  runner_version: string;
   scripts: ScriptStatus[];
   supported_target_runtimes: string[];
   total_script_count: number;
@@ -559,6 +680,11 @@ export type ActionPayload = {
   message: string;
 };
 
+export type ScriptUpdateBatchPayload = {
+  dashboard: DashboardPayload;
+  errors: Record<string, string>;
+};
+
 export type PackageActionPayload = ActionPayload & {
   generated_trigger_tokens: GeneratedTriggerToken[];
 };
@@ -857,6 +983,83 @@ export function prepareRemoteScriptPackage(
   });
 }
 
+export function getRepositorySources() {
+  return invoke<RepositorySource[]>("repository_sources");
+}
+
+export function queryRepositoryScripts(query: RepositoryScriptQuery) {
+  return invoke<PaginatedRecords<RepositoryScriptSummary>>(
+    "query_repository_scripts",
+    { query },
+  );
+}
+
+export function getRepositoryScriptFilterOptions() {
+  return invoke<RepositoryScriptFilterOptions>(
+    "repository_script_filter_options",
+  );
+}
+
+export function getRepositoryScript(repositoryUrl: string, scriptId: string) {
+  return invoke<RepositoryScriptRecord>("repository_script_details", {
+    repositoryUrl,
+    scriptId,
+  });
+}
+
+export function addScriptRepository(requestId: string, url: string) {
+  return invoke<RepositorySource>("add_script_repository", {
+    request: { requestId, url },
+  });
+}
+
+export function previewScriptRepository(requestId: string, url: string) {
+  return invoke<RepositoryPreview>("preview_script_repository", {
+    request: { requestId, url },
+  });
+}
+
+export function refreshScriptRepository(requestId: string, url: string) {
+  return invoke<RepositorySource>("refresh_script_repository", {
+    requestId,
+    url,
+  });
+}
+
+export function refreshAllScriptRepositories(requestId: string) {
+  return invoke<RefreshAllRepositoriesResult>(
+    "refresh_all_script_repositories",
+    { requestId },
+  );
+}
+
+export function cancelRepositoryRequest(requestId: string) {
+  return invoke<boolean>("cancel_remote_script_package_preparation", {
+    requestId,
+  });
+}
+
+export function setScriptRepositoryEnabled(url: string, enabled: boolean) {
+  return invoke<RepositorySource>("set_script_repository_enabled", {
+    enabled,
+    url,
+  });
+}
+
+export function removeScriptRepository(url: string) {
+  return invoke<boolean>("remove_script_repository", { url });
+}
+
+export function prepareRepositoryScript(
+  repositoryUrl: string,
+  scriptId: string,
+  requestId: string,
+) {
+  return invoke<RemotePackageReview>("prepare_repository_script", {
+    request: { repositoryUrl, requestId, scriptId },
+  });
+}
+
 export function prepareDiscoveredScriptUpdate(reference: string, requestId: string) {
   return invoke<RemotePackageReview>("prepare_discovered_script_update", {
     reference,
@@ -882,12 +1085,18 @@ export function installRemoteScriptPackage(review: RemotePackageReview) {
       review_id: review.review_id,
       sha256: review.sha256,
     },
-    { reviewId: review.review_id, sha256: review.sha256 },
+    { request: { reviewId: review.review_id, sha256: review.sha256 } },
   );
 }
 
 export function checkScriptUpdate(reference: string) {
   return invoke<ActionPayload>("check_script_update", { reference });
+}
+
+export function checkScriptUpdates(references: string[]) {
+  return invoke<ScriptUpdateBatchPayload>("check_script_updates", {
+    references,
+  });
 }
 
 export function setScriptAutomaticUpdateChecks(

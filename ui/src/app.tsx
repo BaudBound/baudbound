@@ -47,6 +47,7 @@ import {
 import { useAppUpdater } from "@/hooks/use-app-updater";
 import { useTriggerMonitor } from "@/hooks/use-trigger-monitor";
 import { AboutView } from "@/views/about-view";
+import { BrowseScriptsView } from "@/views/browse-scripts-view";
 import { DashboardView } from "@/views/dashboard-view";
 import { DiagnosticsView } from "@/views/diagnostics-view";
 import { LogsView } from "@/views/logs-view";
@@ -590,6 +591,12 @@ export function App() {
               />
             ) : activeTab === "dashboard" ? (
               <DashboardView dashboard={dashboard} />
+            ) : activeTab === "browse" ? (
+              <BrowseScriptsView
+                busyActions={busyActions}
+                dashboard={dashboard}
+                runAction={runAction}
+              />
             ) : activeTab === "scripts" ? (
               <ScriptsView
                 busyActions={busyActions}
@@ -644,7 +651,7 @@ export function App() {
               />
             ) : activeTab === "config" ? (
               <Suspense
-                fallback={<EmptyState>Loading configuration UI...</EmptyState>}
+                fallback={<EmptyState>Loading configuration...</EmptyState>}
               >
                 <ConfigView
                   busyActions={busyActions}

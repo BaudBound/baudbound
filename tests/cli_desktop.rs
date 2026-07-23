@@ -636,6 +636,7 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
             "script_language_version": 1,
             "id": "desktop-script",
             "name": "{script_name}",
+            "version": "1.0.0",
             "created_with": "BaudBound Desktop Test",
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "0.1.0"
@@ -714,6 +715,7 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
             "script_language_version": 1,
             "id": "hotkey-script",
             "name": "{script_name}",
+            "version": "1.0.0",
             "created_with": "BaudBound Desktop Test",
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "0.1.0"

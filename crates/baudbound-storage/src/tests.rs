@@ -1219,7 +1219,7 @@ fn persists_script_update_preferences_and_discovery_results() {
         .expect("automatic checks should be enabled");
     let mut checked = ScriptUpdateState::empty("script-1");
     checked.automatic_checks_enabled = true;
-    checked.checked_update_url = Some("https://example.com/update.json".to_owned());
+    checked.checked_repository_url = Some("https://example.com/repository.json".to_owned());
     checked.last_checked_at_unix = Some(100);
     checked.last_success_at_unix = Some(100);
     checked.latest_version = Some("1.2.0".to_owned());
@@ -1242,7 +1242,7 @@ fn persists_script_update_preferences_and_discovery_results() {
     store
         .record_script_update_failure(
             "script-1",
-            "https://example.com/update.json",
+            "https://example.com/repository.json",
             101,
             "server unavailable",
         )
@@ -1270,10 +1270,332 @@ fn rejects_script_update_values_that_exceed_sqlite_integer_limits() {
         store
             .record_script_update_failure(
                 "script-1",
-                "https://example.com/update.json",
+                "https://example.com/repository.json",
                 u64::MAX,
                 "failed",
             )
             .is_err()
     );
+}
+
+#[test]
+fn persists_repository_sources_and_replaces_cached_entries() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let repository_url = "https://example.com/repository.json";
+    store
+        .ensure_repository_source(repository_url, false)
+        .expect("repository source should be stored");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            description: "Test scripts".to_owned(),
+            etag: Some("\"test\"".to_owned()),
+            entries: vec![test_repository_entry(
+                "00000000-0000-4000-8000-000000000001",
+                "Alpha Script",
+                "low",
+            )],
+            homepage: "https://example.com".to_owned(),
+            last_modified: Some("Wed, 23 Jul 2026 12:00:00 GMT".to_owned()),
+            name: "Test Repository".to_owned(),
+            refreshed_at_unix: 100,
+            url: repository_url.to_owned(),
+        })
+        .expect("repository cache should be replaced");
+
+    let source = store
+        .repository_source(repository_url)
+        .expect("repository source should load")
+        .expect("repository source should exist");
+    assert_eq!(source.name, "Test Repository");
+    assert_eq!(source.script_count, 1);
+    assert_eq!(source.last_success_at_unix, Some(100));
+    assert_eq!(source.etag.as_deref(), Some("\"test\""));
+    assert!(source.last_error.is_none());
+
+    store
+        .record_repository_refresh_failure(repository_url, 101, "temporarily unavailable")
+        .expect("refresh failure should be recorded");
+    let cached = store
+        .repository_script(repository_url, "00000000-0000-4000-8000-000000000001")
+        .expect("repository script should load")
+        .expect("last valid cached script should remain");
+    assert_eq!(cached.name, "Alpha Script");
+    assert_eq!(
+        store
+            .repository_source(repository_url)
+            .expect("source should load")
+            .expect("source should exist")
+            .last_error
+            .as_deref(),
+        Some("temporarily unavailable")
+    );
+
+    let reopened = SqliteRunnerStore::open(store.path()).expect("store should reopen");
+    assert_eq!(
+        reopened
+            .list_repository_sources()
+            .expect("repository sources should list")
+            .len(),
+        1
+    );
+    assert!(
+        reopened
+            .remove_repository_source(repository_url)
+            .expect("user repository should be removed")
+    );
+    assert!(
+        reopened
+            .repository_script(repository_url, "00000000-0000-4000-8000-000000000001")
+            .expect("removed cache query should succeed")
+            .is_none()
+    );
+}
+
+#[test]
+fn repository_mismatch_requires_refresh_and_explicit_verification_to_clear() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let repository_url = "https://example.com/repository.json";
+    let script_id = "00000000-0000-4000-8000-000000000001";
+    store
+        .ensure_repository_source(repository_url, false)
+        .expect("repository source should be stored");
+    let replacement = RepositoryCacheReplacement {
+        description: "Test scripts".to_owned(),
+        etag: Some("\"first\"".to_owned()),
+        entries: vec![test_repository_entry(script_id, "Alpha Script", "low")],
+        homepage: "https://example.com".to_owned(),
+        last_modified: None,
+        name: "Test Repository".to_owned(),
+        refreshed_at_unix: 100,
+        url: repository_url.to_owned(),
+    };
+    store
+        .replace_repository_cache(&replacement)
+        .expect("repository cache should be stored");
+    store
+        .record_repository_information_mismatch(repository_url, script_id, "risk level differs")
+        .expect("mismatch should be recorded");
+
+    let mismatched = store
+        .repository_script(repository_url, script_id)
+        .expect("repository script should load")
+        .expect("repository script should exist");
+    assert_eq!(
+        mismatched.information_mismatch.as_deref(),
+        Some("risk level differs")
+    );
+    assert!(mismatched.information_mismatch_refresh_required);
+    assert_eq!(
+        store
+            .repository_source(repository_url)
+            .expect("repository source should load")
+            .expect("repository source should exist")
+            .information_mismatch_count,
+        1
+    );
+
+    store
+        .record_repository_refresh_failure(repository_url, 101, "unavailable")
+        .expect("failed refresh should be recorded");
+    assert!(
+        store
+            .repository_script(repository_url, script_id)
+            .expect("repository script should load")
+            .expect("repository script should exist")
+            .information_mismatch_refresh_required
+    );
+
+    store
+        .record_repository_not_modified(repository_url, 102)
+        .expect("unchanged successful refresh should be recorded");
+    let unchanged = store
+        .repository_script(repository_url, script_id)
+        .expect("repository script should load")
+        .expect("repository script should exist");
+    assert_eq!(
+        unchanged.information_mismatch.as_deref(),
+        Some("risk level differs")
+    );
+    assert!(!unchanged.information_mismatch_refresh_required);
+
+    store
+        .record_repository_information_mismatch(repository_url, script_id, "risk level differs")
+        .expect("a repeated mismatch should require another refresh");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            etag: Some("\"second\"".to_owned()),
+            refreshed_at_unix: 103,
+            ..replacement
+        })
+        .expect("successful refresh should replace the cache");
+    let refreshed = store
+        .repository_script(repository_url, script_id)
+        .expect("repository script should load")
+        .expect("repository script should exist");
+    assert_eq!(
+        refreshed.information_mismatch.as_deref(),
+        Some("risk level differs")
+    );
+    assert!(!refreshed.information_mismatch_refresh_required);
+
+    store
+        .clear_repository_information_mismatch(repository_url, script_id)
+        .expect("successful package verification should clear the mismatch");
+    let cleared = store
+        .repository_script(repository_url, script_id)
+        .expect("repository script should load")
+        .expect("repository script should exist");
+    assert!(cleared.information_mismatch.is_none());
+    assert!(!cleared.information_mismatch_refresh_required);
+    assert_eq!(
+        store
+            .repository_source(repository_url)
+            .expect("repository source should load")
+            .expect("repository source should exist")
+            .information_mismatch_count,
+        0
+    );
+}
+
+#[test]
+fn queries_repository_scripts_with_search_filters_and_pagination() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let repository_url = "https://example.com/repository.json";
+    store
+        .ensure_repository_source(repository_url, false)
+        .expect("repository source should be stored");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            description: String::new(),
+            etag: None,
+            entries: vec![
+                test_repository_entry(
+                    "00000000-0000-4000-8000-000000000001",
+                    "Alpha Script",
+                    "low",
+                ),
+                test_repository_entry(
+                    "00000000-0000-4000-8000-000000000002",
+                    "Beta Script",
+                    "high",
+                ),
+            ],
+            homepage: String::new(),
+            last_modified: None,
+            name: "Test Repository".to_owned(),
+            refreshed_at_unix: 100,
+            url: repository_url.to_owned(),
+        })
+        .expect("repository cache should be stored");
+
+    let result = store
+        .query_repository_scripts(&RepositoryScriptQuery {
+            capabilities: vec!["action.log".to_owned()],
+            direction: SortDirection::Ascending,
+            installed: Vec::new(),
+            limit: 1,
+            offset: 0,
+            permissions: vec!["log".to_owned()],
+            repository_urls: Vec::new(),
+            risk_levels: Vec::new(),
+            search: "script".to_owned(),
+            sort: RepositoryScriptSort::Name,
+            target_runtimes: Vec::new(),
+        })
+        .expect("repository scripts should be queried");
+    assert_eq!(result.total, 2);
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].name, "Alpha Script");
+    let missing_combination = store
+        .query_repository_scripts(&RepositoryScriptQuery {
+            capabilities: vec!["action.log".to_owned()],
+            direction: SortDirection::Ascending,
+            installed: Vec::new(),
+            limit: 50,
+            offset: 0,
+            permissions: vec!["log".to_owned(), "file.read".to_owned()],
+            repository_urls: Vec::new(),
+            risk_levels: Vec::new(),
+            search: String::new(),
+            sort: RepositoryScriptSort::Name,
+            target_runtimes: Vec::new(),
+        })
+        .expect("multiple repository filters should be applied");
+    assert_eq!(missing_combination.total, 0);
+
+    let high_risk = store
+        .query_repository_scripts(&RepositoryScriptQuery {
+            capabilities: Vec::new(),
+            direction: SortDirection::Ascending,
+            installed: vec![false],
+            limit: 50,
+            offset: 0,
+            permissions: Vec::new(),
+            repository_urls: vec![repository_url.to_owned()],
+            risk_levels: vec!["high".to_owned()],
+            search: String::new(),
+            sort: RepositoryScriptSort::Name,
+            target_runtimes: vec!["Generic Desktop".to_owned()],
+        })
+        .expect("repository filters should be applied");
+    assert_eq!(high_risk.total, 1);
+    assert_eq!(high_risk.items[0].name, "Beta Script");
+
+    let multiple_risks = store
+        .query_repository_scripts(&RepositoryScriptQuery {
+            capabilities: Vec::new(),
+            direction: SortDirection::Ascending,
+            installed: vec![true, false],
+            limit: 50,
+            offset: 0,
+            permissions: Vec::new(),
+            repository_urls: vec![repository_url.to_owned()],
+            risk_levels: vec!["low".to_owned(), "high".to_owned()],
+            search: String::new(),
+            sort: RepositoryScriptSort::Name,
+            target_runtimes: vec!["Generic Desktop".to_owned()],
+        })
+        .expect("multiple values in one category should be combined");
+    assert_eq!(multiple_risks.total, 2);
+}
+
+fn test_repository_entry(script_id: &str, name: &str, risk_level: &str) -> RepositoryCacheEntry {
+    let entry = serde_json::json!({
+        "script_id": script_id,
+        "name": name,
+        "summary": format!("{name} summary"),
+        "description": "",
+        "author": "Test Author",
+        "website": "",
+        "source": "",
+        "license": "",
+        "target_runtime": "Generic Desktop",
+        "minimum_runner_version": "2.0.0",
+        "risk_level": risk_level,
+        "tags": ["test"],
+        "permissions": ["log"],
+        "capabilities": ["action.log"],
+        "latest": {
+            "version": "1.0.0",
+            "package_url": format!("https://example.com/{script_id}.bbs"),
+            "sha256": "a".repeat(64),
+            "size": 42,
+            "published_at": "2026-07-23T12:00:00Z",
+            "release_notes": "Initial version."
+        }
+    });
+    RepositoryCacheEntry {
+        author: "Test Author".to_owned(),
+        entry_json: serde_json::to_string(&entry).expect("entry should serialize"),
+        name: name.to_owned(),
+        published_at: "2026-07-23T12:00:00Z".to_owned(),
+        risk_level: risk_level.to_owned(),
+        script_id: script_id.to_owned(),
+        summary: format!("{name} summary"),
+        target_runtime: "Generic Desktop".to_owned(),
+        version: "1.0.0".to_owned(),
+    }
 }

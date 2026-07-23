@@ -41,6 +41,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         login_startup_registered: Mutex::new(None),
         runner_config: Mutex::new(runner_config.clone()),
         core: Arc::new(Mutex::new(core)),
+        repository_refresh_worker: repositories::RepositoryRefreshWorker::default(),
         secret_vault: secret_vault::SecretVaultController::default(),
         script_update_worker: crate::script_updates::ScriptUpdateWorker::default(),
         store,
@@ -451,6 +452,7 @@ fn create_test_package() -> Vec<u8> {
                 "script_language_version": 1,
                 "id": "desktop-workflow",
                 "name": "Desktop Workflow",
+                "version": "1.0.0",
                 "created_with": "BaudBound Tauri Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
                 "minimum_runner_version": "0.1.0"

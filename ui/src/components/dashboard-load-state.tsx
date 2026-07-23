@@ -18,7 +18,7 @@ export function DashboardLoadState({
     <EmptyState>
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-3">
         <div>
-          <div className="font-medium text-foreground">Runner state could not be loaded</div>
+          <div className="font-medium text-foreground">Unable to load runner state</div>
           <div className="mt-1 break-words text-sm">{error}</div>
         </div>
         <Button onClick={onRetry} variant="outline">

@@ -37,6 +37,7 @@ export function DialogOverlay({
 export function DialogContent({
   children,
   className,
+  onInteractOutside,
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
@@ -52,6 +53,10 @@ export function DialogContent({
         )}
         data-slot="dialog-content"
         {...props}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          event.preventDefault();
+        }}
       >
         {children}
         {showCloseButton ? (

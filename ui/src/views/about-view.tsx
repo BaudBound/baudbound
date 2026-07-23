@@ -165,7 +165,7 @@ function UpdateSummary({ state }: { state: AppUpdateState }) {
     return (
       <div className="flex items-start gap-2 text-sm text-baud-green">
         <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-        <span>BaudBound {state.currentVersion ?? ""} is the newest available version.</span>
+        <span>BaudBound {state.currentVersion ?? ""} is the latest available version.</span>
       </div>
     );
   }

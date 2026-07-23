@@ -8,7 +8,7 @@ use std::{
 use reqwest::{
     StatusCode,
     blocking::{Client, Response},
-    header::LOCATION,
+    header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION},
 };
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
@@ -18,12 +18,12 @@ use url::Url;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REDIRECTS: usize = 5;
-pub(crate) const MAX_DESCRIPTOR_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_REPOSITORY_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RemoteResourceKind {
-    Descriptor,
     Package,
+    Repository,
 }
 
 impl RemoteResourceKind {
@@ -34,8 +34,8 @@ impl RemoteResourceKind {
             .filter(|value| !value.is_empty())
             .ok_or(RemoteFetchError::InvalidPath(self))?;
         let valid = match self {
-            Self::Descriptor => file_name.eq_ignore_ascii_case("update.json"),
             Self::Package => file_name.to_ascii_lowercase().ends_with(".bbs"),
+            Self::Repository => file_name == "repository.json",
         };
         if valid {
             Ok(())
@@ -50,6 +50,17 @@ pub(crate) struct RemoteDownload {
     pub(crate) file: NamedTempFile,
     pub(crate) sha256: String,
     pub(crate) size: u64,
+}
+
+#[derive(Debug)]
+pub(crate) enum RepositoryFetchResult {
+    Modified {
+        bytes: Vec<u8>,
+        etag: Option<String>,
+        final_url: Url,
+        last_modified: Option<String>,
+    },
+    NotModified,
 }
 
 #[derive(Debug, Error)]
@@ -92,25 +103,51 @@ impl RemoteFetchService {
         Self { package_limit }
     }
 
-    pub(crate) fn fetch_descriptor(&self, value: &str) -> Result<(Vec<u8>, Url), RemoteFetchError> {
-        self.fetch_descriptor_with_progress(value, &mut |_, _| true)
+    pub(crate) fn fetch_repository(&self, value: &str) -> Result<(Vec<u8>, Url), RemoteFetchError> {
+        match self.fetch_repository_with_progress(value, &mut |_, _| true)? {
+            RepositoryFetchResult::Modified {
+                bytes, final_url, ..
+            } => Ok((bytes, final_url)),
+            RepositoryFetchResult::NotModified => Err(RemoteFetchError::Request),
+        }
     }
 
-    pub(crate) fn fetch_descriptor_with_progress(
+    pub(crate) fn fetch_repository_with_progress(
         &self,
         value: &str,
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
-    ) -> Result<(Vec<u8>, Url), RemoteFetchError> {
-        let url = validate_url(value, RemoteResourceKind::Descriptor)?;
-        let (mut response, final_url) = self.send(url)?;
+    ) -> Result<RepositoryFetchResult, RemoteFetchError> {
+        self.fetch_repository_conditional(value, None, None, progress)
+    }
+
+    pub(crate) fn fetch_repository_conditional(
+        &self,
+        value: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<RepositoryFetchResult, RemoteFetchError> {
+        let url = validate_url(value, RemoteResourceKind::Repository)?;
+        let (mut response, final_url) = self.send(url, etag, last_modified)?;
+        if response.status() == StatusCode::NOT_MODIFIED {
+            ensure_continues(progress, 0, Some(0))?;
+            return Ok(RepositoryFetchResult::NotModified);
+        }
+        let response_etag = header_value(&response, ETAG);
+        let response_last_modified = header_value(&response, LAST_MODIFIED);
         let expected_length = response.content_length();
         let bytes = read_bounded(
             &mut response,
             expected_length,
-            MAX_DESCRIPTOR_BYTES,
+            MAX_REPOSITORY_BYTES,
             progress,
         )?;
-        Ok((bytes, final_url))
+        Ok(RepositoryFetchResult::Modified {
+            bytes,
+            etag: response_etag,
+            final_url,
+            last_modified: response_last_modified,
+        })
     }
 
     pub(crate) fn fetch_package_with_progress(
@@ -119,7 +156,7 @@ impl RemoteFetchService {
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<RemoteDownload, RemoteFetchError> {
         let url = validate_url(value, RemoteResourceKind::Package)?;
-        let (mut response, _) = self.send(url)?;
+        let (mut response, _) = self.send(url, None, None)?;
         let expected_length = response.content_length();
         if expected_length.is_some_and(|length| length > self.package_limit) {
             return Err(RemoteFetchError::TooLarge {
@@ -168,15 +205,26 @@ impl RemoteFetchService {
         Ok(RemoteDownload { file, sha256, size })
     }
 
-    fn send(&self, mut url: Url) -> Result<(Response, Url), RemoteFetchError> {
+    fn send(
+        &self,
+        mut url: Url,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> Result<(Response, Url), RemoteFetchError> {
         for redirect_count in 0..=MAX_REDIRECTS {
             let addresses = resolve_public_addresses(&url)?;
             let host = url.host_str().ok_or(RemoteFetchError::InvalidUrl)?;
             let client = pinned_client(host, &addresses)?;
-            let response = client
-                .get(url.clone())
-                .send()
-                .map_err(|_| RemoteFetchError::Request)?;
+            let mut request = client.get(url.clone());
+            if redirect_count == 0 {
+                if let Some(etag) = etag {
+                    request = request.header(IF_NONE_MATCH, etag);
+                }
+                if let Some(last_modified) = last_modified {
+                    request = request.header(IF_MODIFIED_SINCE, last_modified);
+                }
+            }
+            let response = request.send().map_err(|_| RemoteFetchError::Request)?;
             if response.status().is_redirection() {
                 if redirect_count == MAX_REDIRECTS {
                     return Err(RemoteFetchError::TooManyRedirects);
@@ -192,13 +240,21 @@ impl RemoteFetchService {
                 validate_transport_url(&url)?;
                 continue;
             }
-            if !response.status().is_success() {
+            if !response.status().is_success() && response.status() != StatusCode::NOT_MODIFIED {
                 return Err(RemoteFetchError::HttpStatus(response.status()));
             }
             return Ok((response, url));
         }
         Err(RemoteFetchError::TooManyRedirects)
     }
+}
+
+fn header_value(response: &Response, name: reqwest::header::HeaderName) -> Option<String> {
+    response
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
 }
 
 fn validate_url(value: &str, kind: RemoteResourceKind) -> Result<Url, RemoteFetchError> {
@@ -355,8 +411,8 @@ mod tests {
     fn validates_resource_urls() {
         assert!(
             validate_url(
-                "https://example.com/update.json",
-                RemoteResourceKind::Descriptor
+                "https://example.com/repository.json",
+                RemoteResourceKind::Repository
             )
             .is_ok()
         );
@@ -378,7 +434,14 @@ mod tests {
         assert!(
             validate_url(
                 "https://example.com/other.json",
-                RemoteResourceKind::Descriptor
+                RemoteResourceKind::Repository
+            )
+            .is_err()
+        );
+        assert!(
+            validate_url(
+                "https://example.com/repository.json",
+                RemoteResourceKind::Package
             )
             .is_err()
         );

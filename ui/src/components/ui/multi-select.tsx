@@ -45,7 +45,11 @@ export function MultiSelect({
   }
 
   return (
-    <div className={cn("relative", className)} ref={rootRef}>
+    <div
+      className={cn("relative", className)}
+      data-slot="multi-select"
+      ref={rootRef}
+    >
       <Button
         aria-expanded={open}
         className="h-auto min-h-9 w-full justify-between whitespace-normal px-2 py-1.5"

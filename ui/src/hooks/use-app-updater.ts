@@ -138,7 +138,7 @@ export function useAppUpdater(onError: (message: string) => void, checkOnStartup
       });
       setDialogOpen(true);
     } catch (error) {
-      const message = `Update check failed: ${String(error)}`;
+      const message = `Unable to check for updates: ${String(error)}`;
       setState((current) => ({
         ...current,
         error: message,

@@ -60,7 +60,7 @@ describe("browser origin field", () => {
 
     expect(appendBrowserOrigins(current, "https://invalid.example/path")).toEqual({
       origins: current,
-      error: "https://invalid.example/path is not an exact http or https origin.",
+      error: "https://invalid.example/path is not an exact HTTP or HTTPS origin.",
     });
   });
 

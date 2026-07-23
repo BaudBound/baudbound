@@ -117,7 +117,7 @@ fn creates_failed_run_record_with_package_identity() {
             tags: Vec::new(),
             minimum_runner_version: "0.1.0".to_owned(),
             version: "1.0.0".to_owned(),
-            update_url: String::new(),
+            repository_url: String::new(),
             assets: Vec::new(),
             secrets: Vec::new(),
         },
@@ -1050,7 +1050,8 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
                     "name": "{script_name}",
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
-                    "minimum_runner_version": "0.1.0"
+                    "minimum_runner_version": "0.1.0",
+                    "version": "1.0.0"
                 }}"#
     );
     let program = complete_test_program_contract(&format!(
@@ -1117,7 +1118,8 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
                 "name": "{script_id}",
                 "created_with": "BaudBound Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
-                "minimum_runner_version": "0.1.0"
+                "minimum_runner_version": "0.1.0",
+                "version": "1.0.0"
             }}"#
     );
     let program = format!(
@@ -1225,7 +1227,8 @@ fn create_cancellable_test_package() -> Vec<u8> {
                 "name": "cancellable",
                 "created_with": "BaudBound Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
-                "minimum_runner_version": "0.1.0"
+                "minimum_runner_version": "0.1.0",
+                "version": "1.0.0"
             }"#,
         ),
         ("program.json", program),
@@ -1305,7 +1308,8 @@ fn create_action_handler_test_package_with_capabilities(
                     "name": "action-handler-test",
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
-                    "minimum_runner_version": "0.1.0"
+                    "minimum_runner_version": "0.1.0",
+                    "version": "1.0.0"
                 }"#,
         ),
         ("program.json", program),
@@ -1352,7 +1356,8 @@ fn create_target_runtime_test_package_with_action_config(
                 "name": "{script_id}",
                 "created_with": "BaudBound Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
-                "minimum_runner_version": "0.1.0"
+                "minimum_runner_version": "0.1.0",
+                "version": "1.0.0"
             }}"#
     );
     let program = format!(
@@ -1413,7 +1418,8 @@ fn create_minimum_runner_version_test_package(script_id: &str, minimum_version: 
                 "name": "{script_id}",
                 "created_with": "BaudBound Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
-                "minimum_runner_version": "{minimum_version}"
+                "minimum_runner_version": "{minimum_version}",
+                "version": "1.0.0"
             }}"#
     );
 

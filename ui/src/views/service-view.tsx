@@ -65,7 +65,7 @@ function ServiceControlPanel({
           </div>
           <div className="text-xs text-muted-foreground">
             Runs trigger listeners inside this desktop app. Closing the service loop stops
-            schedules, webhooks, serial input, and other listener based triggers.
+            schedules, webhooks, serial input, and other triggers that rely on listeners.
           </div>
           <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
             <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">

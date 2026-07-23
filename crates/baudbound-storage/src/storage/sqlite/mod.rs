@@ -19,6 +19,7 @@ use crate::{
 mod conversions;
 mod history_queries;
 mod network_auth;
+mod repositories;
 mod rows;
 mod run_retention;
 mod schema;

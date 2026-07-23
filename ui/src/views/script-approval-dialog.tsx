@@ -69,7 +69,8 @@ export function ScriptApprovalDialog({
         <DialogHeader>
           <DialogTitle>Review script approval</DialogTitle>
           <DialogDescription>
-            Approval allows this installed package hash and declared permission set to run on this runner.
+            Approving this script allows the installed package with this hash and permission set to
+            run on this runner.
           </DialogDescription>
         </DialogHeader>
 

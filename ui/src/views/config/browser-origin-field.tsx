@@ -110,7 +110,7 @@ export function BrowserOriginField({
         </span>
       ) : null}
       <span className="text-xs text-muted-foreground" id={`${inputId}-help`}>
-        Enter an exact http or https origin, then press Enter or comma. Leave empty to block browser
+        Enter an exact HTTP or HTTPS origin, then press Enter or comma. Leave empty to block browser
         clients.
       </span>
     </div>
@@ -129,7 +129,7 @@ export function appendBrowserOrigins(current: string[], input: string) {
     if (!isValidBrowserOrigin(origin)) {
       return {
         origins: current,
-        error: `${origin} is not an exact http or https origin.`,
+        error: `${origin} is not an exact HTTP or HTTPS origin.`,
       };
     }
   }

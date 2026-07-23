@@ -29,9 +29,9 @@ pub(super) fn update_script(
     store: &SqliteRunnerStore,
     package: PathBuf,
 ) -> Result<()> {
-    let has_update_url = !baudbound_script::load_script_package(&package)?
+    let has_repository_url = !baudbound_script::load_script_package(&package)?
         .manifest
-        .update_url
+        .repository_url
         .trim()
         .is_empty();
     let script = core
@@ -40,7 +40,7 @@ pub(super) fn update_script(
     crate::script_updates::reconcile_script_update_state_after_install(
         store,
         &script.id,
-        has_update_url,
+        has_repository_url,
     )
     .context("failed to clear stale script update state")?;
     println!(

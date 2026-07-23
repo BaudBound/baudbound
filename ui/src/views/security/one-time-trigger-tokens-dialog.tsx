@@ -51,7 +51,7 @@ export function OneTimeTriggerTokensDialog({
           </div>
           <DialogDescription>
             These tokens are shown only once. Store them securely before continuing. Lost tokens
-            cannot be recovered and must be replaced by generating new ones in Security.
+            cannot be recovered. Generate replacements on the Security page.
           </DialogDescription>
         </DialogHeader>
 

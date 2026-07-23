@@ -106,7 +106,7 @@ export function ScriptDetailPanel({
                   ["Created", metadata.created_at],
                   ["Updated", metadata.updated_at],
                   ["Version", metadata.version],
-                  ["Update URL", metadata.update_url || "Not configured"],
+                  ["Repository URL", metadata.repository_url || "Not configured"],
                   ["Minimum runner", metadata.minimum_runner_version],
                 ]}
               />
@@ -168,7 +168,8 @@ export function ScriptDetailPanel({
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Checking only discovers published packages. BaudBound never installs or approves a script update automatically.
+                This check only discovers published packages. BaudBound never installs or approves
+                a script update automatically.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -179,7 +180,7 @@ export function ScriptDetailPanel({
               ) : null}
               <Button
                 disabled={
-                  !metadata?.update_url.trim() ||
+                  !metadata?.repository_url.trim() ||
                   busyActions.has(`check-script-update:${script.installed.id}`)
                 }
                 onClick={() =>
@@ -198,12 +199,12 @@ export function ScriptDetailPanel({
             </div>
           </div>
 
-          {metadata?.update_url.trim() ? (
+          {metadata?.repository_url.trim() ? (
             <div className="grid gap-2 text-sm">
               <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3">
-                <span className="text-muted-foreground">Update URL</span>
-                <ExternalLink href={metadata.update_url}>
-                  {metadata.update_url}
+                <span className="text-muted-foreground">Repository URL</span>
+                <ExternalLink href={metadata.repository_url}>
+                  {metadata.repository_url}
                 </ExternalLink>
               </div>
               <MetadataRows
@@ -229,7 +230,7 @@ export function ScriptDetailPanel({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              This script does not provide an update URL.
+              This script does not provide a repository URL.
             </p>
           )}
 
@@ -237,13 +238,13 @@ export function ScriptDetailPanel({
             <div>
               <div className="text-sm font-medium">Automatic update checks</div>
               <p className="text-xs text-muted-foreground">
-                Contact this script publisher on the configured schedule to discover new versions.
+                Periodically contact this script publisher to discover new versions.
               </p>
             </div>
             <Switch
               checked={updateState.automatic_checks_enabled}
               disabled={
-                !metadata?.update_url.trim() ||
+                !metadata?.repository_url.trim() ||
                 busyActions.has(`automatic-script-updates:${script.installed.id}`)
               }
               onCheckedChange={(enabled) => {
@@ -259,7 +260,7 @@ export function ScriptDetailPanel({
           </div>
           <ConfirmDialog
             confirmLabel="Enable checks"
-            description="BaudBound will periodically contact the update server selected by this script publisher. The server can observe your IP address and the time of each check. Updates will only be discovered. They will not be downloaded, installed, enabled, or approved automatically."
+            description="BaudBound will periodically contact the repository selected by this script publisher. The server can observe your IP address and the time of each check. Updates will only be discovered. They will not be downloaded, installed, enabled, or approved automatically."
             disabled={busyActions.has(`automatic-script-updates:${script.installed.id}`)}
             onConfirm={async () => {
               await runAction(`automatic-script-updates:${script.installed.id}`, () =>

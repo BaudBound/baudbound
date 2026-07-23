@@ -79,7 +79,7 @@ export function ScriptsView({
       <ScriptPackageToolbar
         busyActions={busyActions}
         canCheckUpdates={dashboard.runner.scripts.some((script) =>
-          Boolean(script.metadata?.update_url.trim()),
+          Boolean(script.metadata?.repository_url.trim()),
         )}
         onCheckUpdates={() => setCheckUpdatesOpen(true)}
         runAction={runAction}

@@ -18,7 +18,9 @@ export function NativePackageUpdateInstructions({
       <div className="grid gap-1 text-sm">
         <h3 className="font-medium">Update the {installationTypeLabel(installationType)}</h3>
         <p className="text-muted-foreground">
-          Stop active runs and the background runner, then fully quit BaudBound, including the tray application. Run this command in a terminal and approve the APT or DNF operation. Open BaudBound again after it finishes.
+          Stop active runs and the background runner, then fully quit BaudBound, including the
+          tray application. Run this command in a terminal and approve any prompt from APT or DNF.
+          Open BaudBound again after the command finishes.
         </p>
       </div>
       <div className="flex min-w-0 items-stretch gap-2">

@@ -2,6 +2,7 @@ import type { ActionPayload } from "@/lib/runner-api";
 
 export type TabId =
   | "dashboard"
+  | "browse"
   | "scripts"
   | "security"
   | "tools"

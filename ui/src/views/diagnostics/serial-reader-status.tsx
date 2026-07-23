@@ -1,6 +1,7 @@
 import { Cable, CircleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { formatCount } from "@/lib/count-format";
 import type {
   DashboardPayload,
   SerialReaderStatus,
@@ -111,7 +112,7 @@ function SerialReaderRow({
           />
           <Fact
             label="Message framing"
-            value={`${readModeLabel(reader.read_mode)}, ${reader.buffered_bytes} bytes buffered`}
+            value={`${readModeLabel(reader.read_mode)}, ${formatCount(reader.buffered_bytes, "byte")} buffered`}
           />
           <Fact
             label="Last event"

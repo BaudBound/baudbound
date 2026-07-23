@@ -216,7 +216,7 @@ function manualRunUnavailableReason(script: ScriptStatus) {
     return "Approve this script before running it";
   }
   if (!script.triggers.some((trigger) => trigger.action_type === "trigger.manual")) {
-    return "This script has no Manual trigger";
+    return "This script does not have a Manual trigger";
   }
   return null;
 }

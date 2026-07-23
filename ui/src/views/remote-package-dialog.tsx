@@ -15,13 +15,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { DashboardAction } from "@/lib/app-types";
 import {
   cancelRemoteScriptPackagePreparation,
@@ -33,7 +26,6 @@ import {
   remotePackageProgressEvent,
   type RemotePackageOperation,
   type RemotePackageReview,
-  type RemotePackageSource,
   type RemotePreparationProgress,
   selectPackageFile,
   updateScriptPackage,
@@ -59,7 +51,6 @@ export function RemotePackageDialog({
   preparedReview?: RemotePackageReview;
 }) {
   const [mode, setMode] = useState<"choice" | "remote">("choice");
-  const [source, setSource] = useState<RemotePackageSource>("package");
   const [url, setUrl] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [review, setReview] = useState<RemotePackageReview | null>(preparedReview ?? null);
@@ -129,7 +120,6 @@ export function RemotePackageDialog({
       void discardRemotePackageReview(pendingReview.review_id);
     }
     setMode("choice");
-    setSource("package");
     setUrl("");
     setReview(null);
     reviewRef.current = null;
@@ -191,7 +181,7 @@ export function RemotePackageDialog({
     preparationRequest.current = requestId;
     try {
       storeReview(
-        await prepareRemoteScriptPackage(operation, requestId, source, url.trim()),
+        await prepareRemoteScriptPackage(operation, requestId, "package", url.trim()),
       );
     } catch (error) {
       const message = String(error);
@@ -283,7 +273,7 @@ export function RemotePackageDialog({
                   ["New version", review.version],
                   ["Target", review.target_runtime],
                   ["Size", formatBytes(review.size)],
-                  ["SHA256", review.sha256],
+                  ["SHA-256", review.sha256],
                 ]}
               />
             </div>
@@ -297,34 +287,13 @@ export function RemotePackageDialog({
           </div>
         ) : (
           <div className="grid gap-4">
-            {operation === "import" ? (
-              <div className="grid gap-1.5 text-sm">
-                Source type
-                <Select
-                  onValueChange={(value) => setSource(value as RemotePackageSource)}
-                  value={source}
-                >
-                  <SelectTrigger aria-label="Source type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="package">Direct .bbs package</SelectItem>
-                    <SelectItem value="descriptor">update.json descriptor</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
             <label className="grid gap-1.5 text-sm" htmlFor="remote-package-url">
               HTTPS URL
               <Input
                 autoComplete="off"
                 id="remote-package-url"
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder={
-                  source === "descriptor"
-                    ? "https://example.com/update.json"
-                    : "https://example.com/releases/script.bbs"
-                }
+                placeholder="https://example.com/releases/script.bbs"
                 spellCheck={false}
                 value={url}
               />
@@ -415,8 +384,8 @@ function PreparationProgress({ progress }: { progress: RemotePreparationProgress
 }
 
 function preparationStageLabel(stage: RemotePreparationProgress["stage"]) {
-  if (stage === "downloading_descriptor") return "Downloading update information";
   if (stage === "downloading_package") return "Downloading script package";
+  if (stage === "downloading_repository") return "Downloading script repository";
   if (stage === "verifying_hash") return "Verifying package hash";
   if (stage === "validating_package") return "Validating package contents";
   return "Preparing package review";

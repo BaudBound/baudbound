@@ -57,6 +57,23 @@ pub(crate) struct RemotePreparationGuard {
 }
 
 impl RemotePreparationGuard {
+    pub(crate) fn cancellation_token(&self) -> RemoteCancellationToken {
+        RemoteCancellationToken {
+            cancelled: Arc::clone(&self.cancelled),
+        }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RemoteCancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl RemoteCancellationToken {
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }

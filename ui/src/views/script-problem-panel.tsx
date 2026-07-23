@@ -4,6 +4,7 @@ import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCount } from "@/lib/count-format";
 import type { ScriptStatus } from "@/lib/runner-api";
 import { hasApprovalProblem, scriptProblems } from "@/lib/script-problems";
 import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
@@ -41,8 +42,12 @@ export function ScriptProblemPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {errorCount > 0 ? <Badge variant="destructive">{errorCount} errors</Badge> : null}
-          {warningCount > 0 ? <Badge variant="medium">{warningCount} warnings</Badge> : null}
+          {errorCount > 0 ? (
+            <Badge variant="destructive">{formatCount(errorCount, "error")}</Badge>
+          ) : null}
+          {warningCount > 0 ? (
+            <Badge variant="medium">{formatCount(warningCount, "warning")}</Badge>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent className="grid gap-3">

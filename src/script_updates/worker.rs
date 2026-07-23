@@ -9,7 +9,7 @@ use baudbound_core::RunnerConfig;
 use baudbound_storage::SqliteRunnerStore;
 use tauri::Emitter;
 
-use super::check_script_update;
+use super::check_script_updates;
 
 pub(crate) const SCRIPT_UPDATE_EVENT: &str = "runner-script-update-state-changed";
 const MAX_POLL_INTERVAL: Duration = Duration::from_secs(60);
@@ -115,24 +115,22 @@ fn check_due_scripts<R: tauri::Runtime>(
     };
     let now = unix_timestamp();
     let interval = config.updates.check_interval_hours.saturating_mul(60 * 60);
-    for state in states {
-        if !state.automatic_checks_enabled {
-            continue;
+    let due = states
+        .into_iter()
+        .filter(|state| state.automatic_checks_enabled)
+        .filter(|state| {
+            state
+                .last_checked_at_unix
+                .is_none_or(|checked| now.saturating_sub(checked) >= interval)
+        })
+        .map(|state| state.script_id)
+        .collect::<Vec<_>>();
+    let results = check_script_updates(store, config.limits.max_file_download_bytes, &due);
+    for script_id in due {
+        if let Some(Err(error)) = results.get(&script_id) {
+            tracing::debug!(%script_id, %error, "automatic script update check failed");
         }
-        if state
-            .last_checked_at_unix
-            .is_some_and(|checked| now.saturating_sub(checked) < interval)
-        {
-            continue;
-        }
-        if let Err(error) = check_script_update(
-            store,
-            config.limits.max_file_download_bytes,
-            &state.script_id,
-        ) {
-            tracing::debug!(script_id = %state.script_id, %error, "automatic script update check failed");
-        }
-        if let Err(error) = app.emit(SCRIPT_UPDATE_EVENT, &state.script_id) {
+        if let Err(error) = app.emit(SCRIPT_UPDATE_EVENT, &script_id) {
             tracing::debug!(%error, "failed to publish script update state event");
         }
     }

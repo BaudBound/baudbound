@@ -698,6 +698,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
             "script_language_version": 1,
             "id": "cli-lifecycle",
             "name": "{script_name}",
+            "version": "1.0.0",
             "created_with": "BaudBound CLI Test",
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "0.1.0"
@@ -801,6 +802,7 @@ fn create_schedule_package() -> Vec<u8> {
                 "script_language_version": 1,
                 "id": "scheduled-log",
                 "name": "Scheduled Log",
+                "version": "1.0.0",
                 "created_with": "BaudBound CLI Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
                 "minimum_runner_version": "0.1.0"

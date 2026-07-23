@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -32,6 +33,7 @@ mod desktop_config;
 mod history;
 mod lifecycle;
 mod manual_runs;
+mod repositories;
 mod secret_vault;
 mod tools;
 
@@ -44,9 +46,11 @@ macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
+            repositories::add_script_repository,
             clear_run_history,
             clear_run_logs,
             check_script_update,
+            check_script_updates,
             cancel_remote_script_package_preparation,
             prepare_sensitive_operation,
             dashboard_state,
@@ -63,8 +67,17 @@ macro_rules! desktop_command_handler {
             discard_remote_package_review,
             prepare_remote_script_package,
             prepare_discovered_script_update,
+            repositories::prepare_repository_script,
+            repositories::preview_script_repository,
             prepare_for_update,
             remove_script,
+            repositories::remove_script_repository,
+            repositories::repository_sources,
+            repositories::repository_script_filter_options,
+            repositories::repository_script_details,
+            repositories::query_repository_scripts,
+            repositories::refresh_all_script_repositories,
+            repositories::refresh_script_repository,
             revoke_script_approval,
             reload_background_runner,
             retry_secret_vault,
@@ -84,6 +97,7 @@ macro_rules! desktop_command_handler {
             select_package_file,
             set_script_enabled,
             set_script_automatic_update_checks,
+            repositories::set_script_repository_enabled,
             set_network_trigger_auth_enabled,
             start_background_runner,
             coordinate_picker::start_coordinate_picker,
@@ -107,6 +121,9 @@ pub fn run_desktop_ui(
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     launched_from_autostart: bool,
 ) -> Result<()> {
+    if let Err(error) = crate::script_repositories::ensure_official_repository(&store) {
+        tracing::warn!(%error, "failed to register the official script repository");
+    }
     let active_runs = Arc::new(ActiveRunRegistry::default());
     let trigger_monitor = TriggerMonitor::default();
     let core = core.with_run_observer(Arc::clone(&active_runs));
@@ -148,6 +165,7 @@ pub fn run_desktop_ui(
             login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
             core: Arc::new(Mutex::new(core)),
+            repository_refresh_worker: repositories::RepositoryRefreshWorker::default(),
             secret_vault: secret_vault.clone(),
             script_update_worker: crate::script_updates::ScriptUpdateWorker::default(),
             store,
@@ -183,6 +201,11 @@ pub fn run_desktop_ui(
                 state.config_path.clone(),
                 state.store.clone(),
             );
+            state.repository_refresh_worker.start(
+                app.handle().clone(),
+                state.config_path.clone(),
+                state.store.clone(),
+            );
             desktop_config::start_configured_background_runner(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 window
@@ -204,6 +227,7 @@ pub(super) struct DesktopUiState {
     login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
     core: Arc<Mutex<RunnerCore>>,
+    repository_refresh_worker: repositories::RepositoryRefreshWorker,
     secret_vault: secret_vault::SecretVaultController,
     script_update_worker: crate::script_updates::ScriptUpdateWorker,
     store: SqliteRunnerStore,
@@ -343,6 +367,47 @@ async fn check_script_update<R: tauri::Runtime>(
     Ok(ActionPayload {
         dashboard,
         message: format!("Checked {reference} for updates."),
+    })
+}
+
+#[derive(Serialize)]
+struct ScriptUpdateBatchPayload {
+    dashboard: DashboardPayload,
+    errors: BTreeMap<String, String>,
+}
+
+#[tauri::command]
+async fn check_script_updates<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    references: Vec<String>,
+    state: State<'_, DesktopUiState>,
+) -> Result<ScriptUpdateBatchPayload, String> {
+    if references.is_empty() || references.len() > 1_000 {
+        return Err("select between 1 and 1,000 scripts to check".to_owned());
+    }
+    let store = state.store.clone();
+    let package_limit = current_runner_config(&state)
+        .map_err(|error| error.to_string())?
+        .limits
+        .max_file_download_bytes as u64;
+    let references_for_check = references.clone();
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        crate::script_updates::check_script_updates(&store, package_limit, &references_for_check)
+    })
+    .await
+    .map_err(|error| format!("update check task failed: {error}"))?;
+    for reference in &references {
+        if let Err(error) = app.emit(crate::script_updates::SCRIPT_UPDATE_EVENT, reference) {
+            tracing::debug!(%error, "failed to publish batch script update state event");
+        }
+    }
+    let errors = results
+        .into_iter()
+        .filter_map(|(script_id, result)| result.err().map(|error| (script_id, error)))
+        .collect();
+    Ok(ScriptUpdateBatchPayload {
+        dashboard: build_dashboard_payload(&state).map_err(|error| error.to_string())?,
+        errors,
     })
 }
 
@@ -491,10 +556,10 @@ fn update_script_package<R: tauri::Runtime>(
         &window,
     )?;
     let path = PathBuf::from(package_path);
-    let has_update_url = !baudbound_script::load_script_package(&path)
+    let has_repository_url = !baudbound_script::load_script_package(&path)
         .map_err(|error| error.to_string())?
         .manifest
-        .update_url
+        .repository_url
         .trim()
         .is_empty();
     let script = run_locked_value(&state, || {
@@ -502,7 +567,7 @@ fn update_script_package<R: tauri::Runtime>(
         crate::script_updates::reconcile_script_update_state_after_install(
             &state.store,
             &script.id,
-            has_update_url,
+            has_repository_url,
         )?;
         Ok(script)
     })?;
@@ -651,16 +716,24 @@ fn discard_remote_package_review(
     reviews.discard(&review_id)
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallRemoteScriptPackageRequest {
+    review_id: String,
+    sha256: String,
+}
+
 #[tauri::command]
 fn install_remote_script_package<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     confirmation_id: String,
     guard: State<'_, SensitiveOperationGuard>,
-    review_id: String,
+    request: InstallRemoteScriptPackageRequest,
     reviews: State<'_, crate::script_updates::RemotePackageReviews>,
-    sha256: String,
     state: State<'_, DesktopUiState>,
     window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    let InstallRemoteScriptPackageRequest { review_id, sha256 } = request;
     consume_sensitive_operation(
         &confirmation_id,
         &SensitiveOperation::InstallRemoteScriptPackage {
@@ -679,7 +752,7 @@ fn install_remote_script_package<R: tauri::Runtime>(
     let operation = prepared.review.operation;
     let script_id = prepared.review.script_id.clone();
     let script_name = prepared.review.script_name.clone();
-    let has_update_url = !prepared.review.update_url.trim().is_empty();
+    let has_repository_url = !prepared.review.repository_url.trim().is_empty();
     run_locked_value(&state, || {
         let directory = tempfile::Builder::new()
             .prefix("baudbound-reviewed-package-")
@@ -695,13 +768,16 @@ fn install_remote_script_package<R: tauri::Runtime>(
                 crate::script_updates::reconcile_script_update_state_after_install(
                     &state.store,
                     &script_id,
-                    has_update_url,
+                    has_repository_url,
                 )?;
             }
         }
         Ok(())
     })?;
     let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    if let Err(error) = app.emit(repositories::REPOSITORY_CHANGED_EVENT, &script_id) {
+        tracing::warn!(%error, "failed to publish repository script change event");
+    }
     Ok(ActionPayload {
         dashboard,
         message: format!(
@@ -862,8 +938,8 @@ fn set_script_automatic_update_checks<R: tauri::Runtime>(
         if enabled {
             let installed = state.store.verify_script_package_hash(&reference)?;
             let package = baudbound_script::load_script_package(&installed.package_path)?;
-            if package.manifest.update_url.trim().is_empty() {
-                return Err(anyhow!("this script does not provide an update URL"));
+            if package.manifest.repository_url.trim().is_empty() {
+                return Err(anyhow!("this script does not provide a repository URL"));
             }
         }
         state
@@ -1314,11 +1390,11 @@ fn script_update_status(
     let Some(metadata) = script.metadata.as_ref() else {
         return "unavailable";
     };
-    let update_url = metadata.update_url.trim();
-    if update_url.is_empty() {
+    let repository_url = metadata.repository_url.trim();
+    if repository_url.is_empty() {
         return "unconfigured";
     }
-    if state.checked_update_url.as_deref() != Some(update_url) {
+    if state.checked_repository_url.as_deref() != Some(repository_url) {
         return "not_checked";
     }
     if state.last_error.is_some() {
@@ -1527,6 +1603,9 @@ fn save_valid_runner_config(
             rollback_result(runner_rollback)
         ));
     }
+
+    state.repository_refresh_worker.wake();
+    state.script_update_worker.wake();
 
     if restart_runtime {
         if let Err(error) = start_background_runner_message(state) {

@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 10;
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -225,6 +225,124 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                     last_error TEXT
                 );
                 PRAGMA user_version = 10;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 11 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE script_update_state
+                    RENAME COLUMN checked_update_url TO checked_repository_url;
+                PRAGMA user_version = 11;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 12 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                CREATE TABLE repository_sources (
+                    url TEXT PRIMARY KEY,
+                    name TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    homepage TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                    official INTEGER NOT NULL DEFAULT 0 CHECK (official IN (0, 1)),
+                    script_count INTEGER NOT NULL DEFAULT 0,
+                    last_refresh_at_unix INTEGER,
+                    last_success_at_unix INTEGER,
+                    last_error TEXT,
+                    revision INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE repository_entries (
+                    repository_url TEXT NOT NULL REFERENCES repository_sources(url) ON DELETE CASCADE,
+                    script_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    target_runtime TEXT NOT NULL,
+                    risk_level TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    published_at TEXT NOT NULL,
+                    entry_json TEXT NOT NULL,
+                    PRIMARY KEY (repository_url, script_id)
+                );
+                CREATE INDEX repository_entries_name_index
+                    ON repository_entries(name COLLATE NOCASE, script_id);
+                CREATE INDEX repository_entries_repository_index
+                    ON repository_entries(repository_url, name COLLATE NOCASE);
+                PRAGMA user_version = 12;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 13 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE repository_sources ADD COLUMN etag TEXT;
+                ALTER TABLE repository_sources ADD COLUMN last_modified TEXT;
+                PRAGMA user_version = 13;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 14 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE repository_sources
+                    ADD COLUMN information_mismatch_count INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE repository_entries ADD COLUMN information_mismatch TEXT;
+                PRAGMA user_version = 14;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 15 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE repository_entries
+                    ADD COLUMN information_mismatch_refresh_required INTEGER NOT NULL DEFAULT 0
+                    CHECK (information_mismatch_refresh_required IN (0, 1));
+                UPDATE repository_entries
+                SET information_mismatch_refresh_required = 1
+                WHERE information_mismatch IS NOT NULL;
+                PRAGMA user_version = 15;
                 COMMIT;
                 "#,
             )

@@ -14,7 +14,7 @@ impl SqliteRunnerStore {
         connection
             .query_row(
                 r#"
-                SELECT script_id, automatic_checks_enabled, checked_update_url,
+                SELECT script_id, automatic_checks_enabled, checked_repository_url,
                     last_checked_at_unix, last_success_at_unix, latest_version,
                     package_url, package_sha256, package_size, published_at,
                     release_notes, last_error
@@ -39,7 +39,7 @@ impl SqliteRunnerStore {
                 r#"
                 SELECT scripts.id,
                     COALESCE(script_update_state.automatic_checks_enabled, 0),
-                    script_update_state.checked_update_url,
+                    script_update_state.checked_repository_url,
                     script_update_state.last_checked_at_unix,
                     script_update_state.last_success_at_unix,
                     script_update_state.latest_version,
@@ -117,13 +117,13 @@ impl SqliteRunnerStore {
             .execute(
                 r#"
                 INSERT INTO script_update_state (
-                    script_id, automatic_checks_enabled, checked_update_url,
+                    script_id, automatic_checks_enabled, checked_repository_url,
                     last_checked_at_unix, last_success_at_unix, latest_version,
                     package_url, package_sha256, package_size, published_at,
                     release_notes, last_error
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL)
                 ON CONFLICT(script_id) DO UPDATE SET
-                    checked_update_url = excluded.checked_update_url,
+                    checked_repository_url = excluded.checked_repository_url,
                     last_checked_at_unix = excluded.last_checked_at_unix,
                     last_success_at_unix = excluded.last_success_at_unix,
                     latest_version = excluded.latest_version,
@@ -137,7 +137,7 @@ impl SqliteRunnerStore {
                 params![
                     state.script_id,
                     i64::from(state.automatic_checks_enabled),
-                    state.checked_update_url,
+                    state.checked_repository_url,
                     checked_at,
                     success_at,
                     state.latest_version,
@@ -158,7 +158,7 @@ impl SqliteRunnerStore {
     pub fn record_script_update_failure(
         &self,
         script_reference: &str,
-        update_url: &str,
+        repository_url: &str,
         checked_at_unix: u64,
         error: &str,
     ) -> Result<(), StorageError> {
@@ -169,10 +169,10 @@ impl SqliteRunnerStore {
             .execute(
                 r#"
                 INSERT INTO script_update_state (
-                    script_id, checked_update_url, last_checked_at_unix, last_error
+                    script_id, checked_repository_url, last_checked_at_unix, last_error
                 ) VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT(script_id) DO UPDATE SET
-                    checked_update_url = excluded.checked_update_url,
+                    checked_repository_url = excluded.checked_repository_url,
                     last_checked_at_unix = excluded.last_checked_at_unix,
                     latest_version = NULL,
                     package_url = NULL,
@@ -182,7 +182,7 @@ impl SqliteRunnerStore {
                     release_notes = NULL,
                     last_error = excluded.last_error
                 "#,
-                params![script.id, update_url, checked_at_unix, error],
+                params![script.id, repository_url, checked_at_unix, error],
             )
             .map_err(|source| StorageError::Sqlite {
                 path: self.path.clone(),
@@ -201,7 +201,7 @@ impl SqliteRunnerStore {
             .execute(
                 r#"
                 UPDATE script_update_state SET
-                    checked_update_url = NULL,
+                    checked_repository_url = NULL,
                     last_checked_at_unix = NULL,
                     last_success_at_unix = NULL,
                     latest_version = NULL,
@@ -227,7 +227,7 @@ fn row_to_script_update_state(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scrip
     Ok(ScriptUpdateState {
         script_id: row.get(0)?,
         automatic_checks_enabled: row_i64_to_bool(1, row.get(1)?)?,
-        checked_update_url: row.get(2)?,
+        checked_repository_url: row.get(2)?,
         last_checked_at_unix: optional_unsigned(3, row.get(3)?)?,
         last_success_at_unix: optional_unsigned(4, row.get(4)?)?,
         latest_version: row.get(5)?,

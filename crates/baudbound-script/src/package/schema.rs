@@ -344,6 +344,7 @@ mod tests {
             "script_language_version": 1,
             "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
             "name": "schema-test",
+            "version": "1.0.0",
             "created_with": "BaudBound Test",
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "2.0.0"

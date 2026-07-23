@@ -202,7 +202,8 @@ export function SecretManagementPanel({
           <DialogHeader>
             <DialogTitle>Configure {selection?.secret.name}</DialogTitle>
             <DialogDescription>
-              {selection?.scriptName}. The value is encrypted before it is written to runner storage and is never returned to this UI.
+              {selection?.scriptName}. The value is encrypted before it is written to local runner
+              storage and is never returned to this interface.
             </DialogDescription>
           </DialogHeader>
           <label className="grid gap-1.5 text-sm">
