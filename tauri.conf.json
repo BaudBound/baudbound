@@ -39,9 +39,9 @@
     "createUpdaterArtifacts": true,
     "homepage": "https://baudbound.app",
     "resources": {
-      "../../CONTENT-LICENSE.md": "CONTENT-LICENSE.md",
-      "../../LICENSE.md": "LICENSE.md",
-      "../../TRADEMARKS.md": "TRADEMARKS.md"
+      "CONTENT-LICENSE.md": "CONTENT-LICENSE.md",
+      "LICENSE.md": "LICENSE.md",
+      "TRADEMARKS.md": "TRADEMARKS.md"
     },
     "icon": [
       "icons/32x32.png",
@@ -50,7 +50,7 @@
       "icons/icon.ico"
     ],
     "license": "PolyForm-Noncommercial-1.0.0",
-    "licenseFile": "../../LICENSE.md",
+    "licenseFile": "LICENSE.md",
     "longDescription": "BaudBound is a local-first visual automation platform. Build workflows in the browser-based editor and run them natively on Windows or Linux.",
     "publisher": "NATroutter",
     "shortDescription": "Local-first visual automation runner"

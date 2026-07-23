@@ -13,7 +13,8 @@ use crate::{
 };
 
 const CAPABILITY_CONTRACT_VERSION: u32 = 1;
-const CAPABILITY_CONTRACT_JSON: &str = include_str!("../contracts/node-capabilities.json");
+const CAPABILITY_CONTRACT_JSON: &str =
+    include_str!("../../../contracts/runner/node-capabilities.json");
 
 #[derive(Debug, Deserialize)]
 struct NodeCapabilityContract {

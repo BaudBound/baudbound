@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use super::PackageLoadError;
 
-const NUMERIC_CONTRACT_JSON: &str = include_str!("../../contracts/node-numeric-fields.json");
+const NUMERIC_CONTRACT_JSON: &str =
+    include_str!("../../../../contracts/runner/node-numeric-fields.json");
 
 #[derive(Debug, Deserialize)]
 struct NumericContract {

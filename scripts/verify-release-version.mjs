@@ -3,8 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryRoot = resolve(appRoot, "../..");
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tag = process.argv[2];
 
 if (!tag || !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) {
@@ -19,8 +18,8 @@ const metadata = JSON.parse(
   }),
 );
 const runnerPackage = metadata.packages.find((candidate) => candidate.name === "baudbound");
-const tauriConfig = readJson(resolve(appRoot, "tauri.conf.json"));
-const uiPackage = readJson(resolve(appRoot, "ui/package.json"));
+const tauriConfig = readJson(resolve(repositoryRoot, "tauri.conf.json"));
+const uiPackage = readJson(resolve(repositoryRoot, "ui/package.json"));
 
 const versions = [
   ["Cargo package", runnerPackage?.version],

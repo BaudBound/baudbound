@@ -96,7 +96,7 @@ fn keyboard_catalog() -> Result<&'static KeyboardCatalog, String> {
 
 fn build_keyboard_catalog() -> Result<KeyboardCatalog, String> {
     let contract: WindowsKeyboardContract = serde_json::from_str(include_str!(
-        "../../../../../crates/baudbound-script/contracts/windows-keyboard-keys.json"
+        "../../../contracts/runner/windows-keyboard-keys.json"
     ))
     .map_err(|error| format!("Windows keyboard contract is invalid: {error}"))?;
     if contract.version != 1 {

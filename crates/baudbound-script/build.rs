@@ -6,7 +6,12 @@ use std::{
 fn main() {
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
-    let schemas_dir = manifest_dir.join("../../schemas");
+    let schemas_dir = manifest_dir.join("../../contracts");
+    if !schemas_dir.join("contract.json").is_file() {
+        panic!(
+            "contracts submodule is not initialized; run `git submodule update --init --recursive`"
+        );
+    }
     let manifest_schema = schemas_dir.join("manifest.schema.json");
     let program_schema = schemas_dir.join("program.schema.json");
     let script_update_schema = schemas_dir.join("script-update.schema.json");

@@ -14,7 +14,7 @@ struct ConditionEqualityCase {
 fn condition_equality_follows_the_shared_editor_parity_matrix() {
     let cases: Vec<ConditionEqualityCase> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../baudbound-script/contracts/condition-equality-cases.json"
+        "/../../contracts/runner/condition-equality-cases.json"
     )))
     .expect("condition equality contract should be valid JSON");
 

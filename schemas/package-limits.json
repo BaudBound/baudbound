@@ -1,9 +1,0 @@
-{
-	"version": 1,
-	"max_entry_count": 1024,
-	"max_metadata_bytes": 8388608,
-	"max_asset_bytes": 268435456,
-	"max_total_uncompressed_bytes": 536870912,
-	"max_expansion_ratio": 200,
-	"expansion_ratio_minimum_bytes": 1048576
-}

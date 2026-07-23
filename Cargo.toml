@@ -1,6 +1,6 @@
 [workspace]
 members = [
-	"apps/baudbound",
+	".",
 	"crates/baudbound-actions",
 	"crates/baudbound-core",
 	"crates/baudbound-runtime",
@@ -56,3 +56,87 @@ url = "2.5.8"
 urlencoding = "2.1.3"
 zip = "8.6.0"
 zeroize = { version = "1.9.0", features = ["derive"] }
+
+[package]
+name = "baudbound"
+description = "BaudBound runner."
+edition.workspace = true
+version.workspace = true
+authors = ["NATroutter"]
+homepage = "https://baudbound.app"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "baudbound"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+arboard = "3.6.1"
+base64.workspace = true
+baudbound-actions = { path = "crates/baudbound-actions" }
+baudbound-core = { path = "crates/baudbound-core" }
+baudbound-runtime = { path = "crates/baudbound-runtime" }
+baudbound-script = { path = "crates/baudbound-script" }
+baudbound-storage = { path = "crates/baudbound-storage" }
+baudbound-triggers = { path = "crates/baudbound-triggers" }
+chrono.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+getrandom.workspace = true
+keyring.workspace = true
+notify-rust = "4.11.7"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+rpassword.workspace = true
+reqwest.workspace = true
+rodio = { version = "0.22.2", default-features = false, features = [
+	"flac",
+	"mp3",
+	"mp4",
+	"playback",
+	"tracing",
+	"vorbis",
+	"wav",
+] }
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+sha2.workspace = true
+serialport.workspace = true
+tauri = { version = "2.11.5", features = ["image-ico", "tray-icon"] }
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-opener = "2.5.3"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
+tempfile.workspace = true
+thiserror.workspace = true
+tiny_http.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+windows-sys = { version = "0.61.2", features = [
+	"Win32_Foundation",
+	"Win32_Graphics_Dwm",
+	"Win32_Graphics_Gdi",
+	"Win32_System_Console",
+	"Win32_System_Threading",
+	"Win32_UI_HiDpi",
+	"Win32_UI_WindowsAndMessaging",
+] }
+zip.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.11.5", features = ["test"] }
+tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+enigo = "0.6.1"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }

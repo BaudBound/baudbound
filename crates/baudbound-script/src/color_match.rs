@@ -230,9 +230,10 @@ mod tests {
             tolerance_percent: f64,
         }
 
-        let cases: Vec<Case> =
-            serde_json::from_str(include_str!("../contracts/color-match-cases.json"))
-                .expect("color match cases should be valid JSON");
+        let cases: Vec<Case> = serde_json::from_str(include_str!(
+            "../../../contracts/runner/color-match-cases.json"
+        ))
+        .expect("color match cases should be valid JSON");
         for case in cases {
             let mode =
                 ColorComparisonMode::parse(&case.mode).expect("fixture mode should be valid");

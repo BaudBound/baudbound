@@ -102,7 +102,8 @@ pub enum PermissionValidationError {
 }
 
 const PERMISSION_CONTRACT_VERSION: u32 = 1;
-const PERMISSION_CONTRACT_JSON: &str = include_str!("../contracts/node-permissions.json");
+const PERMISSION_CONTRACT_JSON: &str =
+    include_str!("../../../contracts/runner/node-permissions.json");
 
 #[derive(Debug, Deserialize)]
 struct NodePermissionContract {

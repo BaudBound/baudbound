@@ -7,12 +7,19 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - "apps/baudbound/**"
+      - "src/**"
+      - "ui/**"
+      - "scripts/**"
+      - "linux/**"
+      - "icons/**"
+      - "capabilities/**"
+      - "tests/**"
+      - "build.rs"
+      - "tauri*.json"
       - "crates/**"
-      - "schemas/**"
+      - "contracts"
+      - ".gitmodules"
       - "deny.toml"
-      - "tools/runner-release.ps1"
-      - "tools/lib/**"
       - ".github/dependabot.yml"
       - ".github/workflows/runner-ci.yml"
       - ".github/workflows/runner-release.yml"
@@ -22,12 +29,19 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - "apps/baudbound/**"
+      - "src/**"
+      - "ui/**"
+      - "scripts/**"
+      - "linux/**"
+      - "icons/**"
+      - "capabilities/**"
+      - "tests/**"
+      - "build.rs"
+      - "tauri*.json"
       - "crates/**"
-      - "schemas/**"
+      - "contracts"
+      - ".gitmodules"
       - "deny.toml"
-      - "tools/runner-release.ps1"
-      - "tools/lib/**"
       - ".github/dependabot.yml"
       - ".github/workflows/runner-ci.yml"
       - ".github/workflows/runner-release.yml"
@@ -49,6 +63,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install shell verifier
         run: |
@@ -56,7 +72,7 @@ jobs:
           sudo apt-get install -y shellcheck
 
       - name: Check Linux package test script
-        run: shellcheck apps/baudbound/scripts/test-linux-package-install.sh
+        run: shellcheck scripts/test-linux-package-install.sh
 
   dependency-security:
     name: Rust dependency advisories (${{ matrix.target }})
@@ -71,6 +87,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Check RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
@@ -92,6 +110,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
@@ -121,13 +141,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Install desktop UI dependencies
-        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+        run: pnpm --dir ui install --frozen-lockfile
 
       - name: Build desktop UI
-        run: pnpm --dir apps/baudbound/ui build
+        run: pnpm --dir ui build
 
       - name: Check Rust formatting
         if: runner.os == 'Linux'
@@ -150,6 +170,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
@@ -162,19 +184,19 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Install desktop UI dependencies
-        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+        run: pnpm --dir ui install --frozen-lockfile
 
       - name: Typecheck desktop UI
-        run: pnpm --dir apps/baudbound/ui typecheck
+        run: pnpm --dir ui typecheck
 
       - name: Test desktop UI contracts
-        run: pnpm --dir apps/baudbound/ui test
+        run: pnpm --dir ui test
 
       - name: Build desktop UI
-        run: pnpm --dir apps/baudbound/ui build
+        run: pnpm --dir ui build
 
       - name: Test release artifact contracts
-        run: node --test apps/baudbound/scripts/*.test.mjs
+        run: node --test scripts/*.test.mjs

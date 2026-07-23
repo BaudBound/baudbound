@@ -271,7 +271,7 @@ fn hotkey_catalog() -> Result<&'static HotkeyCatalog, String> {
 
 fn build_hotkey_catalog() -> Result<HotkeyCatalog, String> {
     let contract: HotkeyContract = serde_json::from_str(include_str!(
-        "../../../baudbound-script/contracts/windows-keyboard-keys.json"
+        "../../../../contracts/runner/windows-keyboard-keys.json"
     ))
     .map_err(|error| format!("Windows hotkey key contract is invalid: {error}"))?;
     if contract.version != 1 {

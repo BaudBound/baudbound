@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install Linux desktop build dependencies
         run: |
@@ -56,19 +58,19 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Install desktop UI dependencies
-        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+        run: pnpm --dir ui install --frozen-lockfile
 
       - name: Verify release version
-        run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
+        run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
       - name: Test release artifact contracts
-        run: node --test apps/baudbound/scripts/*.test.mjs
+        run: node --test scripts/*.test.mjs
 
       - name: Check Linux package test script
-        run: shellcheck apps/baudbound/scripts/test-linux-package-install.sh
+        run: shellcheck scripts/test-linux-package-install.sh
 
       - name: Check Linux RustSec advisories
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
@@ -92,10 +94,10 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Test desktop UI contracts
-        run: pnpm --dir apps/baudbound/ui test
+        run: pnpm --dir ui test
 
       - name: Build desktop UI
-        run: pnpm --dir apps/baudbound/ui build
+        run: pnpm --dir ui build
 
   package:
     name: Package ${{ matrix.label }}
@@ -115,6 +117,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'
@@ -147,13 +151,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/baudbound/ui/pnpm-lock.yaml
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Install desktop UI dependencies
-        run: pnpm --dir apps/baudbound/ui install --frozen-lockfile
+        run: pnpm --dir ui install --frozen-lockfile
 
       - name: Verify release version
-        run: node apps/baudbound/scripts/verify-release-version.mjs "${{ github.ref_name }}"
+        run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
       - name: Build and upload signed desktop package
         uses: tauri-apps/tauri-action@v1
@@ -162,7 +166,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: apps/baudbound
+          projectPath: .
           args: --bundles ${{ matrix.bundles }}
           tagName: ${{ github.ref_name }}
           releaseName: BaudBound ${{ github.ref_name }}
@@ -181,6 +185,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install native package inspection tools
         run: |
@@ -212,12 +218,12 @@ jobs:
 
       - name: Generate release checksums
         run: >-
-          node apps/baudbound/scripts/generate-release-checksums.mjs
+          node scripts/generate-release-checksums.mjs
           "$RUNNER_TEMP/baudbound-release"
 
       - name: Verify Linux native packages
         run: >-
-          node apps/baudbound/scripts/verify-linux-packages-cli.mjs
+          node scripts/verify-linux-packages-cli.mjs
           "$RUNNER_TEMP/baudbound-release"
           "$GITHUB_REF_NAME"
 
@@ -227,7 +233,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE:/workspace:ro" \
             --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
             debian:13-slim \
-            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            bash /workspace/scripts/test-linux-package-install.sh \
             deb /packages "${GITHUB_REF_NAME#v}"
 
       - name: Test Ubuntu package installation and removal
@@ -236,7 +242,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE:/workspace:ro" \
             --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
             ubuntu:24.04 \
-            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            bash /workspace/scripts/test-linux-package-install.sh \
             deb /packages "${GITHUB_REF_NAME#v}"
 
       - name: Test RPM package installation and removal
@@ -245,12 +251,12 @@ jobs:
             --volume "$GITHUB_WORKSPACE:/workspace:ro" \
             --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
             fedora:43 \
-            bash /workspace/apps/baudbound/scripts/test-linux-package-install.sh \
+            bash /workspace/scripts/test-linux-package-install.sh \
             rpm /packages "${GITHUB_REF_NAME#v}"
 
       - name: Verify updater manifest and artifacts
         run: >-
-          node apps/baudbound/scripts/verify-release-assets.mjs
+          node scripts/verify-release-assets.mjs
           "$RUNNER_TEMP/baudbound-release"
           "$GITHUB_REF_NAME"
           "BaudBound/baudbound"

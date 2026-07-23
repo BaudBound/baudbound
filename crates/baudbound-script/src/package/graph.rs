@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::PackageLoadError;
 
-const PORT_CONTRACT_JSON: &str = include_str!("../../contracts/node-ports.json");
+const PORT_CONTRACT_JSON: &str = include_str!("../../../../contracts/runner/node-ports.json");
 const PORT_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]

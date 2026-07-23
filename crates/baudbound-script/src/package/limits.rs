@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-const PACKAGE_LIMITS_JSON: &str = include_str!("../../../../schemas/package-limits.json");
+const PACKAGE_LIMITS_JSON: &str = include_str!("../../../../contracts/package-limits.json");
 const PACKAGE_LIMITS_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]

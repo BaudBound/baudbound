@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="BaudBound" width="320" />
+  <img src="https://raw.githubusercontent.com/BaudBound/.github/master/assets/logo.svg" alt="BaudBound" width="320" />
   <br /><br />
   <p><strong>Native execution for BaudBound visual automation scripts.</strong></p>
 
@@ -26,28 +26,36 @@ the [documentation repository](https://github.com/BaudBound/documentation).
 ## Repository layout
 
 ```text
-apps/baudbound/          CLI, Tauri host, desktop UI, and release scripts
+src/                     CLI, Tauri host, and desktop integration
+ui/                      Desktop interface
+scripts/                 Release and package verification scripts
+contracts/               Pinned BaudBound contracts submodule
 crates/                  Runtime, storage, security, actions, and triggers
-schemas/                 Pinned package contract snapshots consumed by Rust
-tools/                   Runner development and release helpers
-docs/runner-release.md   Maintainer release runbook
 ```
 
-Shared public contracts are published from
-[BaudBound/contracts](https://github.com/BaudBound/contracts). The snapshots in
-this repository are pinned so builds remain reproducible and do not download
-moving contracts from the network.
+The `contracts/` submodule points to one reviewed commit from
+[BaudBound/contracts](https://github.com/BaudBound/contracts). Initialize it
+when cloning so builds use the exact contracts selected by this repository.
 
 ## Development
 
 Requirements include Rust 1.95 or newer, Node.js 24, pnpm, and the platform
 dependencies required by Tauri 2.
 
-Use the interactive Windows development helper:
+Clone with submodules, or initialize them in an existing clone:
+
+```text
+git submodule update --init --recursive
+```
+
+Clone [BaudBound/tooling](https://github.com/BaudBound/tooling) beside this repository to use the interactive development helper:
 
 ```powershell
-./tools/development.ps1
+cd ../tooling
+./development.ps1 -Action Runner
 ```
+
+The same tooling repository contains guarded runner release operations and tasks that coordinate multiple BaudBound repositories.
 
 Run the main quality gates from the repository root:
 
@@ -55,9 +63,9 @@ Run the main quality gates from the repository root:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
-pnpm --dir apps/baudbound/ui typecheck
-pnpm --dir apps/baudbound/ui test
-pnpm --dir apps/baudbound/ui build
+pnpm --dir ui typecheck
+pnpm --dir ui test
+pnpm --dir ui build
 ```
 
 ## Related repositories
