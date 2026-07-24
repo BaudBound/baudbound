@@ -458,7 +458,7 @@ fn branches_with_if_else_conditions() {
 }
 
 #[test]
-fn executes_fixed_count_loop_body_and_done_branch() {
+fn executes_fixed_count_repeat_body_and_done_branch() {
     let report = execute_manual_program(
         &json!({
             "entry": {
@@ -468,9 +468,9 @@ fn executes_fixed_count_loop_body_and_done_branch() {
                     "steps": [
                         variable_node("n-counter", "counter", "set", "number", 0),
                         {
-                            "id": "n-loop",
-                            "action_type": "control.loop",
-                            "type": "loop",
+                            "id": "n-repeat",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
                             "config": { "count": "3" },
                             "runtime_outputs": []
                         },
@@ -479,23 +479,23 @@ fn executes_fixed_count_loop_body_and_done_branch() {
                     ],
                     "edges": [
                         edge("n-trigger", "out", "n-counter"),
-                        edge("n-counter", "out", "n-loop"),
-                        edge("n-loop", "loop", "n-inc"),
-                        edge("n-loop", "done", "n-done")
+                        edge("n-counter", "out", "n-repeat"),
+                        edge("n-repeat", "repeat", "n-inc"),
+                        edge("n-repeat", "done", "n-done")
                     ]
                 }
             }
         }),
         "script-1",
     )
-    .expect("loop should execute");
+    .expect("repeat should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
     assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
 #[test]
-fn rejects_fractional_loop_count_resolved_from_a_variable() {
+fn rejects_fractional_repeat_count_resolved_from_a_variable() {
     let error = execute_manual_program(
         &json!({
             "entry": {
@@ -505,9 +505,9 @@ fn rejects_fractional_loop_count_resolved_from_a_variable() {
                     "steps": [
                         variable_node("n-count", "count", "set", "number", 1.5),
                         {
-                            "id": "n-loop",
-                            "action_type": "control.loop",
-                            "type": "loop",
+                            "id": "n-repeat",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
                             "config": { "count": "{{count}}" },
                             "runtime_outputs": []
                         },
@@ -515,17 +515,211 @@ fn rejects_fractional_loop_count_resolved_from_a_variable() {
                     ],
                     "edges": [
                         edge("n-trigger", "out", "n-count"),
-                        edge("n-count", "out", "n-loop"),
-                        edge("n-loop", "loop", "n-body")
+                        edge("n-count", "out", "n-repeat"),
+                        edge("n-repeat", "repeat", "n-body")
                     ]
                 }
             }
         }),
         "script-1",
     )
-    .expect_err("fractional loop count must not be truncated");
+    .expect_err("fractional repeat count must not be truncated");
 
     assert!(error.to_string().contains("whole non-negative integer"));
+}
+
+#[test]
+fn continue_loop_skips_the_remaining_repeat_body() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-counter", "counter", "set", "number", 0),
+                        {
+                            "id": "n-repeat",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
+                            "config": { "count": "3" },
+                            "runtime_outputs": []
+                        },
+                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        loop_control_node("n-continue", "control.continue_loop", "continue_loop"),
+                        log_node("n-skipped", "must not execute"),
+                        log_node("n-done", "counter={{counter}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-counter"),
+                        edge("n-counter", "out", "n-repeat"),
+                        edge("n-repeat", "repeat", "n-inc"),
+                        ordered_edge("n-inc", "out", "n-continue", 0),
+                        ordered_edge("n-inc", "out", "n-skipped", 1),
+                        edge("n-repeat", "done", "n-done")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect("continue loop should advance the repeat");
+
+    assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
+    assert!(
+        report
+            .logs
+            .iter()
+            .all(|log| log.message != "must not execute")
+    );
+    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
+}
+
+#[test]
+fn break_loop_exits_repeat_and_follows_done() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-counter", "counter", "set", "number", 0),
+                        {
+                            "id": "n-repeat",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
+                            "config": { "count": "10" },
+                            "runtime_outputs": []
+                        },
+                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        {
+                            "id": "n-if",
+                            "action_type": "control.if",
+                            "type": "if",
+                            "config": {
+                                "conditions": [{
+                                    "id": "c-1",
+                                    "left": "{{counter}}",
+                                    "operator": "==",
+                                    "right": "2"
+                                }]
+                            },
+                            "runtime_outputs": []
+                        },
+                        loop_control_node("n-break", "control.break_loop", "break_loop"),
+                        log_node("n-done", "counter={{counter}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-counter"),
+                        edge("n-counter", "out", "n-repeat"),
+                        edge("n-repeat", "repeat", "n-inc"),
+                        edge("n-inc", "out", "n-if"),
+                        edge("n-if", "true", "n-break"),
+                        edge("n-repeat", "done", "n-done")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect("break loop should exit the repeat");
+
+    assert_eq!(report.variables.get("counter"), Some(&json!(2.0)));
+    assert!(report.logs.iter().any(|log| log.message == "counter=2"));
+}
+
+#[test]
+fn break_loop_only_exits_the_innermost_loop() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-outer-count", "outer_count", "set", "number", 0),
+                        variable_node("n-inner-count", "inner_count", "set", "number", 0),
+                        {
+                            "id": "n-outer",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
+                            "config": { "count": "2" },
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-inner",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
+                            "config": { "count": "3" },
+                            "runtime_outputs": []
+                        },
+                        variable_node("n-inner-inc", "inner_count", "increment", "number", 1),
+                        loop_control_node("n-break", "control.break_loop", "break_loop"),
+                        variable_node("n-outer-inc", "outer_count", "increment", "number", 1),
+                        log_node(
+                            "n-done",
+                            "outer={{outer_count}}, inner={{inner_count}}"
+                        )
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-outer-count"),
+                        edge("n-outer-count", "out", "n-inner-count"),
+                        edge("n-inner-count", "out", "n-outer"),
+                        edge("n-outer", "repeat", "n-inner"),
+                        edge("n-inner", "repeat", "n-inner-inc"),
+                        edge("n-inner-inc", "out", "n-break"),
+                        edge("n-inner", "done", "n-outer-inc"),
+                        edge("n-outer", "done", "n-done")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect("nested break loop should execute");
+
+    assert_eq!(report.variables.get("outer_count"), Some(&json!(2.0)));
+    assert_eq!(report.variables.get("inner_count"), Some(&json!(2.0)));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "outer=2, inner=2")
+    );
+}
+
+#[test]
+fn rejects_loop_control_outside_an_active_loop() {
+    for (action_type, node_type) in [
+        ("control.break_loop", "break_loop"),
+        ("control.continue_loop", "continue_loop"),
+    ] {
+        let error = execute_manual_program(
+            &json!({
+                "entry": {
+                    "trigger": manual_trigger(),
+                    "triggers": [],
+                    "program": {
+                        "steps": [
+                            loop_control_node("n-control", action_type, node_type)
+                        ],
+                        "edges": [
+                            edge("n-trigger", "out", "n-control")
+                        ]
+                    }
+                }
+            }),
+            "script-1",
+        )
+        .expect_err("loop control outside a loop must fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("must run inside a Repeat, While, or For Each loop")
+        );
+    }
 }
 
 #[test]
@@ -1184,8 +1378,12 @@ fn manual_trigger() -> Value {
 }
 
 fn edge(source: &str, source_handle: &str, target: &str) -> Value {
+    ordered_edge(source, source_handle, target, 0)
+}
+
+fn ordered_edge(source: &str, source_handle: &str, target: &str, execution_order: u32) -> Value {
     json!({
-        "execution_order": 0,
+        "execution_order": execution_order,
         "source": source,
         "source_handle": source_handle,
         "target": target,
@@ -1203,6 +1401,16 @@ fn log_node(id: &str, message: &str) -> Value {
             "level": "info",
             "message": message
         },
+        "runtime_outputs": []
+    })
+}
+
+fn loop_control_node(id: &str, action_type: &str, node_type: &str) -> Value {
+    json!({
+        "id": id,
+        "action_type": action_type,
+        "type": node_type,
+        "config": {},
         "runtime_outputs": []
     })
 }

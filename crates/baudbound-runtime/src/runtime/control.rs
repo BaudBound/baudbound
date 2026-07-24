@@ -33,7 +33,7 @@ pub(crate) enum RuntimeFrame {
         index: usize,
         items: Vec<Value>,
     },
-    Loop {
+    Repeat {
         node_id: String,
         index: u64,
         count: u64,

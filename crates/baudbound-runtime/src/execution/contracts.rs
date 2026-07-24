@@ -14,9 +14,11 @@ use thiserror::Error;
 
 pub const SUPPORTED_CONTROL_ACTION_TYPES: &[&str] = &[
     "control.color_match",
+    "control.break_loop",
+    "control.continue_loop",
     "control.for_each",
     "control.if",
-    "control.loop",
+    "control.repeat",
     "control.switch",
     "control.while",
 ];

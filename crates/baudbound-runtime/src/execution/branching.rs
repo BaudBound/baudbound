@@ -183,7 +183,7 @@ impl RuntimeExecutor<'_> {
         Ok(None)
     }
 
-    pub(super) fn loop_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
+    pub(super) fn repeat_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
         let config = resolve_config_map(&node.config, &self.context.variables);
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::ControlFlow {
@@ -198,7 +198,7 @@ impl RuntimeExecutor<'_> {
         }
         .ok_or_else(|| RuntimeError::ControlFlow {
             node_id: node.id.clone(),
-            message: "loop count must be an exact unsigned 64-bit integer".to_owned(),
+            message: "repeat count must be an exact unsigned 64-bit integer".to_owned(),
         })
     }
 

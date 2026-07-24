@@ -1,7 +1,7 @@
 use crate::runtime::{RuntimeFrame, required_config_string, validate_variable_name};
 use serde_json::{Number, Value};
 
-use super::{RunVariableScope, RuntimeError, RuntimeExecutor};
+use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
 
 impl RuntimeExecutor<'_> {
     pub(super) fn process_frame(
@@ -20,11 +20,11 @@ impl RuntimeExecutor<'_> {
                 index,
                 items,
             } => self.process_for_each_frame(frames, &node_id, index, items),
-            RuntimeFrame::Loop {
+            RuntimeFrame::Repeat {
                 node_id,
                 index,
                 count,
-            } => self.process_loop_frame(frames, &node_id, index, count),
+            } => self.process_repeat_frame(frames, &node_id, index, count),
             RuntimeFrame::Node {
                 node_id,
                 stop_at_node_id,
@@ -125,14 +125,16 @@ impl RuntimeExecutor<'_> {
                     stop_at_node_id: None,
                 });
             }
-            "control.loop" => {
-                let count = self.loop_count(&node)?;
-                frames.push(RuntimeFrame::Loop {
+            "control.repeat" => {
+                let count = self.repeat_count(&node)?;
+                frames.push(RuntimeFrame::Repeat {
                     node_id: node.id,
                     index: 0,
                     count,
                 });
             }
+            "control.break_loop" => self.process_loop_control(frames, &node, true)?,
+            "control.continue_loop" => self.process_loop_control(frames, &node, false)?,
             "control.while" => frames.push(RuntimeFrame::While {
                 node_id: node.id,
                 index: 0,
@@ -165,7 +167,7 @@ impl RuntimeExecutor<'_> {
         Ok(())
     }
 
-    fn process_loop_frame(
+    fn process_repeat_frame(
         &mut self,
         frames: &mut Vec<RuntimeFrame>,
         node_id: &str,
@@ -184,19 +186,67 @@ impl RuntimeExecutor<'_> {
 
         self.push_runtime_log(
             "info",
-            format!("Loop {node_id} iteration {} of {count}.", index + 1),
+            format!("Repeat {node_id} iteration {} of {count}.", index + 1),
             Some(node_id.to_owned()),
         );
-        frames.push(RuntimeFrame::Loop {
+        frames.push(RuntimeFrame::Repeat {
             node_id: node_id.to_owned(),
             index: index + 1,
             count,
         });
         frames.push(RuntimeFrame::Follow {
             source_node_id: node_id.to_owned(),
-            handle: "loop".to_owned(),
+            handle: "repeat".to_owned(),
             stop_at_node_id: Some(node_id.to_owned()),
         });
+        Ok(())
+    }
+
+    fn process_loop_control(
+        &mut self,
+        frames: &mut Vec<RuntimeFrame>,
+        node: &RuntimeNode,
+        break_loop: bool,
+    ) -> Result<(), RuntimeError> {
+        let Some(loop_frame_index) = frames.iter().rposition(is_loop_iteration_frame) else {
+            return Err(RuntimeError::ControlFlow {
+                node_id: node.id.clone(),
+                message: format!(
+                    "{} must run inside a Repeat, While, or For Each loop",
+                    if break_loop {
+                        "Break Loop"
+                    } else {
+                        "Continue Loop"
+                    }
+                ),
+            });
+        };
+        let loop_node_id = loop_frame_node_id(&frames[loop_frame_index]).to_owned();
+
+        if break_loop {
+            frames.truncate(loop_frame_index);
+            frames.push(RuntimeFrame::Follow {
+                source_node_id: loop_node_id.clone(),
+                handle: "done".to_owned(),
+                stop_at_node_id: None,
+            });
+            self.push_runtime_log(
+                "info",
+                format!("Break Loop {} exited loop {loop_node_id}.", node.id),
+                Some(node.id.clone()),
+            );
+        } else {
+            frames.truncate(loop_frame_index + 1);
+            self.push_runtime_log(
+                "info",
+                format!(
+                    "Continue Loop {} advanced loop {loop_node_id} to its next iteration.",
+                    node.id
+                ),
+                Some(node.id.clone()),
+            );
+        }
+
         Ok(())
     }
 
@@ -288,5 +338,23 @@ impl RuntimeExecutor<'_> {
             stop_at_node_id: Some(node_id.to_owned()),
         });
         Ok(())
+    }
+}
+
+fn is_loop_iteration_frame(frame: &RuntimeFrame) -> bool {
+    matches!(
+        frame,
+        RuntimeFrame::Repeat { .. } | RuntimeFrame::While { .. } | RuntimeFrame::ForEach { .. }
+    )
+}
+
+fn loop_frame_node_id(frame: &RuntimeFrame) -> &str {
+    match frame {
+        RuntimeFrame::Repeat { node_id, .. }
+        | RuntimeFrame::While { node_id, .. }
+        | RuntimeFrame::ForEach { node_id, .. } => node_id,
+        RuntimeFrame::Follow { .. } | RuntimeFrame::Node { .. } => {
+            unreachable!("loop frame lookup returned a non-loop frame")
+        }
     }
 }
