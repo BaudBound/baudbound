@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Details } from "@/components/details";
+import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -281,6 +282,12 @@ export function RemotePackageDialog({
               <ReviewList label="Permissions" values={review.permissions} />
               <ReviewList label="Capabilities" values={review.capabilities} />
             </div>
+            {review.release_notes ? (
+              <section className="rounded-md border border-border p-3">
+                <h3 className="mb-2 text-sm font-medium">Release notes</h3>
+                <LazyMarkdownContent source={review.release_notes} />
+              </section>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Installation does not approve or run this package. Review its declared access again after installation.
             </p>

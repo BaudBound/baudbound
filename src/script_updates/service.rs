@@ -51,6 +51,7 @@ pub(crate) struct RemotePackageReview {
     pub(crate) current_version: Option<String>,
     pub(crate) operation: RemotePackageOperation,
     pub(crate) permissions: Vec<String>,
+    pub(crate) release_notes: Option<String>,
     pub(crate) risk_level: String,
     pub(crate) script_id: String,
     pub(crate) script_name: String,
@@ -387,6 +388,9 @@ fn prepare_downloaded_package(
         current_version,
         operation,
         permissions: package.permissions.declared_permissions,
+        release_notes: repository_script
+            .map(|script| script.latest.release_notes.trim().to_owned())
+            .filter(|notes| !notes.is_empty()),
         risk_level: risk_level_name(&package.permissions.risk_level).to_owned(),
         script_id: package.manifest.id,
         script_name: package.manifest.name,

@@ -153,6 +153,7 @@ export type RemotePackageReview = {
   current_version: string | null;
   operation: RemotePackageOperation;
   permissions: string[];
+  release_notes: string | null;
   review_id: string;
   risk_level: string;
   script_id: string;
