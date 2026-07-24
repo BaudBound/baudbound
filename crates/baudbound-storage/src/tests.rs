@@ -1353,6 +1353,139 @@ fn persists_repository_sources_and_replaces_cached_entries() {
 }
 
 #[test]
+fn migrates_repository_source_url_without_leaving_duplicate_sources() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let old_url = "https://example.com/main/repository.json";
+    let new_url = "https://example.com/master/repository.json";
+    let script_id = "00000000-0000-4000-8000-000000000001";
+    store
+        .ensure_repository_source(old_url, true)
+        .expect("old repository source should be stored");
+    store
+        .set_repository_enabled(old_url, false)
+        .expect("old repository source should be disabled");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            description: "Test scripts".to_owned(),
+            etag: Some("\"old\"".to_owned()),
+            entries: vec![test_repository_entry(script_id, "Alpha Script", "low")],
+            homepage: "https://example.com".to_owned(),
+            last_modified: None,
+            name: "Test Repository".to_owned(),
+            refreshed_at_unix: 100,
+            url: old_url.to_owned(),
+        })
+        .expect("old repository cache should be stored");
+
+    assert!(
+        store
+            .migrate_repository_source_url(old_url, new_url, true)
+            .expect("repository source URL should migrate")
+    );
+    assert!(
+        store
+            .repository_source(old_url)
+            .expect("old source lookup should succeed")
+            .is_none()
+    );
+    let migrated = store
+        .repository_source(new_url)
+        .expect("new source lookup should succeed")
+        .expect("new source should exist");
+    assert!(migrated.official);
+    assert!(!migrated.enabled);
+    assert_eq!(migrated.name, "Test Repository");
+    assert_eq!(migrated.script_count, 1);
+    assert!(
+        store
+            .repository_script(new_url, script_id)
+            .expect("migrated repository script should load")
+            .is_some()
+    );
+    assert_eq!(
+        store
+            .list_repository_sources()
+            .expect("repository sources should list")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn merges_repository_source_urls_and_preserves_disabled_state() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let old_url = "https://example.com/main/repository.json";
+    let new_url = "https://example.com/master/repository.json";
+    let old_script_id = "00000000-0000-4000-8000-000000000001";
+    let new_script_id = "00000000-0000-4000-8000-000000000002";
+    store
+        .ensure_repository_source(old_url, true)
+        .expect("old repository source should be stored");
+    store
+        .set_repository_enabled(old_url, false)
+        .expect("old repository source should be disabled");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            description: "Old scripts".to_owned(),
+            etag: None,
+            entries: vec![test_repository_entry(old_script_id, "Old Script", "low")],
+            homepage: "https://example.com/old".to_owned(),
+            last_modified: None,
+            name: "Old Repository".to_owned(),
+            refreshed_at_unix: 100,
+            url: old_url.to_owned(),
+        })
+        .expect("old repository cache should be stored");
+    store
+        .ensure_repository_source(new_url, true)
+        .expect("new repository source should be stored");
+    store
+        .replace_repository_cache(&RepositoryCacheReplacement {
+            description: "Current scripts".to_owned(),
+            etag: None,
+            entries: vec![test_repository_entry(
+                new_script_id,
+                "Current Script",
+                "low",
+            )],
+            homepage: "https://example.com/current".to_owned(),
+            last_modified: None,
+            name: "Current Repository".to_owned(),
+            refreshed_at_unix: 200,
+            url: new_url.to_owned(),
+        })
+        .expect("current repository cache should be stored");
+
+    assert!(
+        store
+            .migrate_repository_source_url(old_url, new_url, true)
+            .expect("repository sources should merge")
+    );
+    let sources = store
+        .list_repository_sources()
+        .expect("repository sources should list");
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].url, new_url);
+    assert!(sources[0].official);
+    assert!(!sources[0].enabled);
+    assert_eq!(sources[0].name, "Current Repository");
+    assert!(
+        store
+            .repository_script(new_url, old_script_id)
+            .expect("old cached script lookup should succeed")
+            .is_none()
+    );
+    assert!(
+        store
+            .repository_script(new_url, new_script_id)
+            .expect("current cached script lookup should succeed")
+            .is_some()
+    );
+}
+
+#[test]
 fn repository_mismatch_requires_refresh_and_explicit_verification_to_clear() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);

@@ -59,6 +59,152 @@ impl SqliteRunnerStore {
             })
     }
 
+    pub fn migrate_repository_source_url(
+        &self,
+        old_url: &str,
+        new_url: &str,
+        official: bool,
+    ) -> Result<bool, StorageError> {
+        if old_url == new_url {
+            return Ok(false);
+        }
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        let load_source = |url: &str| {
+            transaction
+                .query_row(
+                    r#"
+                    SELECT url, name, description, homepage, enabled, official, script_count,
+                        last_refresh_at_unix, last_success_at_unix, last_error, revision,
+                        etag, last_modified, information_mismatch_count
+                    FROM repository_sources
+                    WHERE url = ?1
+                    "#,
+                    params![url],
+                    row_to_repository_source,
+                )
+                .optional()
+        };
+        let old_source = load_source(old_url).map_err(|source| StorageError::Sqlite {
+            path: self.path.clone(),
+            source,
+        })?;
+        let Some(old_source) = old_source else {
+            return Ok(false);
+        };
+        let new_source = load_source(new_url).map_err(|source| StorageError::Sqlite {
+            path: self.path.clone(),
+            source,
+        })?;
+        let keep_old_cache = new_source.as_ref().is_none_or(|new_source| {
+            old_source.last_success_at_unix > new_source.last_success_at_unix
+        });
+        let merged_enabled = old_source.enabled
+            && new_source
+                .as_ref()
+                .is_none_or(|new_source| new_source.enabled);
+
+        if keep_old_cache && new_source.is_some() {
+            transaction
+                .execute(
+                    "DELETE FROM repository_sources WHERE url = ?1",
+                    params![new_url],
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        }
+        if keep_old_cache {
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO repository_sources (
+                        url, name, description, homepage, enabled, official, script_count,
+                        last_refresh_at_unix, last_success_at_unix, last_error, revision,
+                        etag, last_modified, information_mismatch_count
+                    )
+                    SELECT ?2, name, description, homepage, ?4,
+                        CASE WHEN ?3 = 1 THEN 1 ELSE official END,
+                        script_count, last_refresh_at_unix, last_success_at_unix, last_error,
+                        revision, etag, last_modified, information_mismatch_count
+                    FROM repository_sources
+                    WHERE url = ?1
+                    "#,
+                    params![
+                        old_url,
+                        new_url,
+                        i64::from(official),
+                        i64::from(merged_enabled)
+                    ],
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO repository_entries (
+                        repository_url, script_id, name, summary, author, target_runtime,
+                        risk_level, version, published_at, entry_json, information_mismatch,
+                        information_mismatch_refresh_required
+                    )
+                    SELECT ?2, script_id, name, summary, author, target_runtime, risk_level,
+                        version, published_at, entry_json, information_mismatch,
+                        information_mismatch_refresh_required
+                    FROM repository_entries
+                    WHERE repository_url = ?1
+                    "#,
+                    params![old_url, new_url],
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        } else if let Some(new_source) = new_source {
+            transaction
+                .execute(
+                    r#"
+                    UPDATE repository_sources
+                    SET enabled = ?2, official = ?3, revision = revision + 1
+                    WHERE url = ?1
+                    "#,
+                    params![
+                        new_url,
+                        i64::from(merged_enabled),
+                        i64::from(official || old_source.official || new_source.official),
+                    ],
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM repository_sources WHERE url = ?1",
+                params![old_url],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        Ok(true)
+    }
+
     pub fn list_repository_sources(&self) -> Result<Vec<RepositorySource>, StorageError> {
         let connection = self.connection()?;
         let mut statement = connection

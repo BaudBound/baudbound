@@ -123,6 +123,33 @@ mod tests {
     }
 
     #[test]
+    fn accepts_typed_default_variables_exported_by_the_editor() {
+        let cases = [
+            ("string", json!("value")),
+            ("number", json!(42)),
+            ("boolean", json!(false)),
+            ("object", json!({ "key": "value" })),
+            ("list", json!(["value"])),
+            ("file_path", json!("/tmp/value")),
+        ];
+
+        for (variable_type, value) in cases {
+            let mut manifest = minimal_manifest();
+            manifest["variables"] = json!([{
+                "name": "example",
+                "scope": "persistent",
+                "type": variable_type,
+                "description": "",
+                "value": value
+            }]);
+
+            validate_manifest_schema(&manifest).unwrap_or_else(|error| {
+                panic!("{variable_type} default variable should match schema: {error}")
+            });
+        }
+    }
+
+    #[test]
     fn rejects_unknown_node_config_and_action_types() {
         let mut unknown_config = minimal_program();
         unknown_config["entry"]["trigger"]["config"]["unexpected"] = json!(true);

@@ -20,6 +20,8 @@ use crate::script_updates::{
 
 pub(crate) const OFFICIAL_REPOSITORY_URL: &str =
     "https://raw.githubusercontent.com/BaudBound/repository/master/repository.json";
+const LEGACY_OFFICIAL_REPOSITORY_URL: &str =
+    "https://raw.githubusercontent.com/BaudBound/repository/main/repository.json";
 static REPOSITORY_CACHE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Error)]
@@ -67,6 +69,13 @@ pub(crate) struct RepositoryPreview {
 pub(crate) fn ensure_official_repository(
     store: &SqliteRunnerStore,
 ) -> Result<RepositorySource, ScriptRepositoryServiceError> {
+    store
+        .migrate_repository_source_url(
+            LEGACY_OFFICIAL_REPOSITORY_URL,
+            OFFICIAL_REPOSITORY_URL,
+            true,
+        )
+        .map_err(storage_error)?;
     store
         .ensure_repository_source(OFFICIAL_REPOSITORY_URL, true)
         .map_err(storage_error)
@@ -404,4 +413,41 @@ fn storage_error(error: impl ToString) -> ScriptRepositoryServiceError {
 
 fn current_unix_timestamp() -> u64 {
     Utc::now().timestamp().max(0) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        LEGACY_OFFICIAL_REPOSITORY_URL, OFFICIAL_REPOSITORY_URL, ensure_official_repository,
+    };
+    use baudbound_storage::SqliteRunnerStore;
+
+    #[test]
+    fn ensuring_official_repository_migrates_legacy_branch_url() {
+        let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+        let store = SqliteRunnerStore::open(temporary_directory.path().join("runner.sqlite3"))
+            .expect("runner store should open");
+        store
+            .ensure_repository_source(LEGACY_OFFICIAL_REPOSITORY_URL, true)
+            .expect("legacy official repository should be stored");
+
+        let repository =
+            ensure_official_repository(&store).expect("official repository should be ensured");
+
+        assert_eq!(repository.url, OFFICIAL_REPOSITORY_URL);
+        assert!(repository.official);
+        assert!(
+            store
+                .repository_source(LEGACY_OFFICIAL_REPOSITORY_URL)
+                .expect("legacy repository lookup should succeed")
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .list_repository_sources()
+                .expect("repository sources should list")
+                .len(),
+            1
+        );
+    }
 }

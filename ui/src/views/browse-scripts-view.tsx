@@ -1241,10 +1241,7 @@ function RepositoryStateBadge({
   if (state === "installed_elsewhere") {
     return <Badge className={className} variant="muted">Installed from another repository</Badge>;
   }
-  if (state === "installed") {
-    return <Badge className={className} variant="good">Installed</Badge>;
-  }
-  return <Badge className={className} variant="muted">Not installed</Badge>;
+  return null;
 }
 
 function RiskBadge({ risk }: { risk: string }) {
