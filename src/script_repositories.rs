@@ -19,7 +19,7 @@ use crate::script_updates::{
 };
 
 pub(crate) const OFFICIAL_REPOSITORY_URL: &str =
-    "https://raw.githubusercontent.com/BaudBound/repository/main/repository.json";
+    "https://raw.githubusercontent.com/BaudBound/repository/master/repository.json";
 static REPOSITORY_CACHE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Error)]
