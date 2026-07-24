@@ -85,7 +85,7 @@ pub enum RiskLevel {
 pub struct Capabilities {
     #[serde(default)]
     pub required_capabilities: Vec<String>,
-    pub target_runtime: String,
+    pub target_runtimes: Vec<String>,
 }
 
 pub type Program = Value;

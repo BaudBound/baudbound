@@ -97,7 +97,7 @@ export function ScriptApprovalDialog({
                 variant={approvalVariant(script.approval_status)}
               />
               <ReviewBadge
-                label="Target"
+                label="Target runtimes"
                 value={script.installed.target_runtime}
                 variant="muted"
               />

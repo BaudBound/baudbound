@@ -90,7 +90,7 @@ export type RepositoryScriptEntry = {
   source: string;
   summary: string;
   tags: string[];
-  target_runtime: string;
+  target_runtimes: string[];
   website: string;
 };
 
@@ -108,7 +108,7 @@ export type RepositoryScriptRecord = {
   risk_level: string;
   script_id: string;
   summary: string;
-  target_runtime: string;
+  target_runtimes: string[];
   version: string;
 };
 

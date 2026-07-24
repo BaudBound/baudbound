@@ -89,7 +89,7 @@ export function ScriptProblemPanel({
                 rows={[
                   ["Approval", approvalLabel(script.approval_status)],
                   ["Hash", packageHashLabel(script.package_hash_status)],
-                  ["Target", script.installed.target_runtime],
+                  ["Target runtimes", script.installed.target_runtime],
                   ["Triggers", script.triggers.length.toString()],
                 ]}
               />

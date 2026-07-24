@@ -356,7 +356,7 @@ fn replace_repository(
                 risk_level: entry.risk_level.clone(),
                 script_id: entry.script_id.clone(),
                 summary: entry.summary.clone(),
-                target_runtime: entry.target_runtime.clone(),
+                target_runtime: entry.target_runtimes.join(", "),
                 version: entry.latest.version.clone(),
             })
         })

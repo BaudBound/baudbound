@@ -295,7 +295,7 @@ export function ScriptDetailPanel({
                 ["ID", script.installed.id],
                 ["Package", script.installed.package_file_name],
                 ["Path", script.installed.package_path],
-                ["Target runtime", script.installed.target_runtime],
+                ["Target runtimes", script.installed.target_runtime],
                 ["Risk", script.installed.risk_level],
                 ["Assets", script.installed.asset_count.toString()],
                 ["Package version", script.installed.package_format_version.toString()],

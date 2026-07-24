@@ -2,7 +2,7 @@ use std::{io::IsTerminal, process::ExitCode, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use baudbound_actions::DesktopActionHandler;
-use baudbound_core::{RunnerConfig, RunnerCore};
+use baudbound_core::{RunnerConfig, RunnerCore, RunnerExecutionMode};
 use baudbound_storage::{RunRetentionPolicy, SqliteRunnerStore};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use clap::Parser;
@@ -25,7 +25,7 @@ mod trigger_monitor;
 mod updates;
 mod windows_console;
 
-use cli::{Cli, Command, LaunchMode};
+use cli::{Cli, Command, LaunchMode, ScriptCommand};
 
 fn main() -> ExitCode {
     let mut cli = Cli::parse();
@@ -64,7 +64,9 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
     let runner_config = RunnerConfig::load_or_init(&config_path)
         .with_context(|| format!("failed to load runner config {}", config_path.display()))?;
     let websocket_registry = Arc::new(WebSocketConnectionRegistry::new());
+    let execution_mode = execution_mode_for_launch(&launch_mode);
     let core = RunnerCore::from_config(&runner_config)
+        .with_execution_mode(execution_mode)
         .with_websocket_sink(Arc::clone(&websocket_registry));
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
@@ -108,6 +110,21 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
             &core,
             &store,
         ),
+    }
+}
+
+fn execution_mode_for_launch(launch_mode: &LaunchMode) -> RunnerExecutionMode {
+    match launch_mode {
+        LaunchMode::Desktop { .. } => RunnerExecutionMode::Desktop,
+        LaunchMode::Command(Command::Hotkey { .. }) => RunnerExecutionMode::Desktop,
+        LaunchMode::Command(Command::Serve {
+            hotkey_stdin: true, ..
+        }) => RunnerExecutionMode::Desktop,
+        LaunchMode::Command(Command::Script {
+            command: ScriptCommand::Run { .. } | ScriptCommand::DispatchTrigger { .. },
+        })
+        | LaunchMode::Command(Command::Serve { .. }) => RunnerExecutionMode::Headless,
+        LaunchMode::Command(_) => RunnerExecutionMode::PackageManagement,
     }
 }
 

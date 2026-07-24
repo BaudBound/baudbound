@@ -82,7 +82,7 @@ function scriptStatus(
       package_path: "scripts/script-one.bbs",
       risk_level: "high",
       script_language_version: 1,
-      target_runtime: "Generic Desktop",
+      target_runtime: "Windows Desktop",
     },
     metadata: null,
     package_error: null,

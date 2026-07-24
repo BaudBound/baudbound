@@ -39,7 +39,7 @@ pub(crate) fn import_request_from_package(
         package_source: path.to_path_buf(),
         package_format_version: summary.package_format_version,
         script_language_version: summary.script_language_version,
-        target_runtime: summary.target_runtime,
+        target_runtime: summary.target_runtimes.join(", "),
         asset_count: summary.asset_count,
         risk_level: risk_level_name(&package.permissions.risk_level).to_owned(),
     }

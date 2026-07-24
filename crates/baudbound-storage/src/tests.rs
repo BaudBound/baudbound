@@ -24,7 +24,7 @@ fn import_test_script(
             package_source: package_path,
             package_format_version: 1,
             script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
+            target_runtime: "Linux Desktop".to_owned(),
             asset_count: 0,
             risk_level: "medium".to_owned(),
         })
@@ -311,7 +311,7 @@ fn update_replaces_package_and_invalidates_approval() {
             package_source: updated_package_path,
             package_format_version: 1,
             script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
+            target_runtime: "Linux Desktop".to_owned(),
             asset_count: 1,
             risk_level: "high".to_owned(),
         })
@@ -346,7 +346,7 @@ fn network_trigger_auth_is_hash_only_rotatable_and_reconciled_on_update() {
             package_source: package_path,
             package_format_version: 1,
             script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
+            target_runtime: "Linux Desktop".to_owned(),
             asset_count: 0,
             risk_level: "high".to_owned(),
         })
@@ -470,7 +470,7 @@ fn network_trigger_auth_is_hash_only_rotatable_and_reconciled_on_update() {
             package_source: updated_package_path,
             package_format_version: 1,
             script_language_version: 1,
-            target_runtime: "Generic Desktop".to_owned(),
+            target_runtime: "Linux Desktop".to_owned(),
             asset_count: 0,
             risk_level: "high".to_owned(),
         })
@@ -1538,7 +1538,7 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
             risk_levels: vec!["high".to_owned()],
             search: String::new(),
             sort: RepositoryScriptSort::Name,
-            target_runtimes: vec!["Generic Desktop".to_owned()],
+            target_runtimes: vec!["Linux Desktop".to_owned()],
         })
         .expect("repository filters should be applied");
     assert_eq!(high_risk.total, 1);
@@ -1556,7 +1556,7 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
             risk_levels: vec!["low".to_owned(), "high".to_owned()],
             search: String::new(),
             sort: RepositoryScriptSort::Name,
-            target_runtimes: vec!["Generic Desktop".to_owned()],
+            target_runtimes: vec!["Linux Desktop".to_owned()],
         })
         .expect("multiple values in one category should be combined");
     assert_eq!(multiple_risks.total, 2);
@@ -1572,7 +1572,7 @@ fn test_repository_entry(script_id: &str, name: &str, risk_level: &str) -> Repos
         "website": "",
         "source": "",
         "license": "",
-        "target_runtime": "Generic Desktop",
+        "target_runtimes": ["Linux Desktop"],
         "minimum_runner_version": "2.0.0",
         "risk_level": risk_level,
         "tags": ["test"],
@@ -1595,7 +1595,7 @@ fn test_repository_entry(script_id: &str, name: &str, risk_level: &str) -> Repos
         risk_level: risk_level.to_owned(),
         script_id: script_id.to_owned(),
         summary: format!("{name} summary"),
-        target_runtime: "Generic Desktop".to_owned(),
+        target_runtime: "Linux Desktop".to_owned(),
         version: "1.0.0".to_owned(),
     }
 }

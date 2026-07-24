@@ -52,7 +52,7 @@ pub struct ScriptRepositoryEntry {
     pub source: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub license: String,
-    pub target_runtime: String,
+    pub target_runtimes: Vec<String>,
     pub minimum_runner_version: String,
     pub risk_level: String,
     pub tags: Vec<String>,
@@ -392,7 +392,7 @@ mod tests {
                 website: String::new(),
                 source: String::new(),
                 license: String::new(),
-                target_runtime: "Generic Desktop".to_owned(),
+                target_runtimes: vec!["Linux Desktop".to_owned()],
                 minimum_runner_version: "2.0.0".to_owned(),
                 risk_level: "low".to_owned(),
                 tags: Vec::new(),

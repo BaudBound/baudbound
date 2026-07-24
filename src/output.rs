@@ -12,7 +12,7 @@ pub fn print_installed_script(script: &InstalledScript) {
     println!("ID: {}", script.id);
     println!("Enabled: {}", script.enabled);
     println!("Risk: {}", script.risk_level);
-    println!("Target runtime: {}", script.target_runtime);
+    println!("Target runtimes: {}", script.target_runtime);
     println!("Package hash: {}", script.package_hash);
     println!("Package file: {}", script.package_file_name);
     println!("Package path: {}", script.package_path.display());

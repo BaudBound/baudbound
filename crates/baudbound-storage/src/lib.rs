@@ -221,7 +221,7 @@ pub struct RepositoryScriptRecord {
     pub risk_level: String,
     pub script_id: String,
     pub summary: String,
-    pub target_runtime: String,
+    pub target_runtimes: Vec<String>,
     pub version: String,
 }
 
@@ -240,7 +240,7 @@ pub struct RepositoryScriptSummary {
     pub risk_level: String,
     pub script_id: String,
     pub summary: String,
-    pub target_runtime: String,
+    pub target_runtimes: Vec<String>,
     pub version: String,
 }
 

@@ -21,6 +21,26 @@ use super::*;
 #[path = "tests/sub_script.rs"]
 mod sub_script;
 
+#[cfg(windows)]
+fn test_headless_runtime() -> &'static str {
+    "Windows Headless"
+}
+
+#[cfg(unix)]
+fn test_headless_runtime() -> &'static str {
+    "Linux Headless"
+}
+
+#[cfg(windows)]
+fn test_desktop_runtime() -> &'static str {
+    "Windows Desktop"
+}
+
+#[cfg(unix)]
+fn test_desktop_runtime() -> &'static str {
+    "Linux Desktop"
+}
+
 fn test_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
     SqliteRunnerStore::open(
         temporary_directory
@@ -97,7 +117,7 @@ fn creates_failed_run_record_with_package_identity() {
     let package = ScriptPackage {
         capabilities: Capabilities {
             required_capabilities: Vec::new(),
-            target_runtime: "Generic Desktop".to_owned(),
+            target_runtimes: vec![test_headless_runtime().to_owned()],
         },
         editor: None,
         entries: Vec::new(),
@@ -473,7 +493,7 @@ fn import_rejects_desktop_actions_for_headless_target_runtime() {
         &package_path,
         create_target_runtime_test_package(
             "headless-notification",
-            "Generic Headless",
+            "Linux Headless",
             "action.notification",
         ),
     )
@@ -671,12 +691,16 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
     let package_path = temporary_directory.path().join("desktop-text.bbs");
     fs::write(
         &package_path,
-        create_target_runtime_test_package("desktop-text", "Generic Desktop", "action.text.format"),
+        create_target_runtime_test_package(
+            "desktop-text",
+            test_desktop_runtime(),
+            "action.text.format",
+        ),
     )
     .expect("test package should be written");
     let config = RunnerConfig {
         runner: RunnerSettings {
-            target_runtimes: vec!["Generic Headless".to_owned()],
+            target_runtimes: vec![test_headless_runtime().to_owned()],
             trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
             ..RunnerSettings::default()
         },
@@ -689,9 +713,10 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
         .expect_err("headless-only runner should reject desktop package target");
 
     assert!(
-        error
-            .to_string()
-            .contains("this runner supports only Generic Headless"),
+        error.to_string().contains(&format!(
+            "this runner is active as {}",
+            test_headless_runtime()
+        )),
         "{error}"
     );
 }
@@ -934,7 +959,7 @@ fn status_reports_script_health_and_approval_state() {
     assert!(
         status
             .supported_target_runtimes
-            .contains(&"Generic Desktop".to_owned())
+            .contains(&test_headless_runtime().to_owned())
     );
     assert_eq!(status.total_script_count, 1);
     assert_eq!(status.enabled_script_count, 1);
@@ -1084,7 +1109,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
                     }}
                 }}"#
     ));
-    let capabilities = capabilities_json(&program, "Generic Desktop");
+    let capabilities = capabilities_json(&program, test_headless_runtime());
 
     for (path, content) in [
         ("manifest.json", manifest.as_str()),
@@ -1168,7 +1193,7 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
                 }}
             }}"#
     );
-    let capabilities = capabilities_json(&program, "Generic Desktop");
+    let capabilities = capabilities_json(&program, test_headless_runtime());
 
     create_test_package([
         ("manifest.json", manifest.as_str()),
@@ -1216,7 +1241,7 @@ fn create_cancellable_test_package() -> Vec<u8> {
             }
         }
     }"#;
-    let capabilities = capabilities_json(program, "Generic Desktop");
+    let capabilities = capabilities_json(program, test_headless_runtime());
     create_test_package([
         (
             "manifest.json",
@@ -1289,11 +1314,11 @@ fn create_action_handler_test_package_with_capabilities(
                     }
                 }"#;
     let capabilities = capability_override.map_or_else(
-        || capabilities_json(program, "Generic Desktop"),
+        || capabilities_json(program, test_headless_runtime()),
         |capabilities| {
             serde_json::json!({
                 "required_capabilities": capabilities,
-                "target_runtime": "Generic Desktop"
+                "target_runtimes": [test_headless_runtime()]
             })
             .to_string()
         },
@@ -1444,7 +1469,7 @@ fn create_minimum_runner_version_test_package(script_id: &str, minimum_version: 
                         "program": {"type": "block", "steps": [], "edges": []}
                     }
                 }"#;
-    let capabilities = capabilities_json(program, "Generic Desktop");
+    let capabilities = capabilities_json(program, test_headless_runtime());
 
     create_test_package([
         ("manifest.json", manifest.as_str()),
@@ -1519,7 +1544,7 @@ fn capabilities_json(program: &str, target_runtime: &str) -> String {
         .collect::<Vec<_>>();
     serde_json::json!({
         "required_capabilities": required_capabilities,
-        "target_runtime": target_runtime
+        "target_runtimes": [target_runtime]
     })
     .to_string()
 }

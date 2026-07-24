@@ -55,7 +55,7 @@ pub struct PackageSummary {
     pub package_format_version: u32,
     pub script_language_version: u32,
     pub script_name: String,
-    pub target_runtime: String,
+    pub target_runtimes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +84,7 @@ impl ScriptPackage {
             package_format_version: self.manifest.format_version,
             script_language_version: self.manifest.script_language_version,
             script_name: self.manifest.name.clone(),
-            target_runtime: self.capabilities.target_runtime.clone(),
+            target_runtimes: self.capabilities.target_runtimes.clone(),
         }
     }
 }
@@ -796,7 +796,7 @@ mod tests {
             ),
             (
                 "capabilities.json",
-                r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#,
+                r#"{"required_capabilities": [], "target_runtimes": ["Linux Headless"]}"#,
             ),
         ] {
             writer
@@ -898,7 +898,8 @@ mod tests {
             ),
             (
                 "capabilities.json",
-                r#"{"required_capabilities": [], "target_runtime": "Generic Desktop"}"#.to_owned(),
+                r#"{"required_capabilities": [], "target_runtimes": ["Linux Headless"]}"#
+                    .to_owned(),
             ),
         ] {
             writer

@@ -271,7 +271,7 @@ export function RemotePackageDialog({
                   ["Script ID", review.script_id],
                   ["Current version", review.current_version ?? "Not installed"],
                   ["New version", review.version],
-                  ["Target", review.target_runtime],
+                  ["Target runtimes", review.target_runtime],
                   ["Size", formatBytes(review.size)],
                   ["SHA-256", review.sha256],
                 ]}

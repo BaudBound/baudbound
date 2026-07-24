@@ -394,10 +394,10 @@ impl SqliteRunnerStore {
             "repository_entries.risk_level",
             &query.risk_levels,
         );
-        add_text_filters(
+        add_json_array_filters(
             &mut conditions,
             &mut values,
-            "repository_entries.target_runtime",
+            "$.target_runtimes",
             &query.target_runtimes,
         );
         add_json_array_filters(
@@ -493,6 +493,33 @@ impl SqliteRunnerStore {
                         )
                     })?
                     .to_owned();
+                let target_runtimes = entry
+                    .get("target_runtimes")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            11,
+                            rusqlite::types::Type::Text,
+                            Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "repository entry is missing target_runtimes",
+                            )),
+                        )
+                    })?
+                    .iter()
+                    .map(|value| {
+                        value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                11,
+                                rusqlite::types::Type::Text,
+                                Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "repository entry contains an invalid target runtime",
+                                )),
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(RepositoryScriptSummary {
                     repository_url: row.get(0)?,
                     repository_name: row.get(1)?,
@@ -501,7 +528,7 @@ impl SqliteRunnerStore {
                     name: row.get(4)?,
                     summary: row.get(5)?,
                     author: row.get(6)?,
-                    target_runtime: row.get(7)?,
+                    target_runtimes,
                     risk_level: row.get(8)?,
                     version: row.get(9)?,
                     published_at: row.get(10)?,
@@ -701,9 +728,36 @@ fn row_to_repository_source(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reposit
 
 fn row_to_repository_script(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepositoryScriptRecord> {
     let entry_json = row.get::<_, String>(11)?;
-    let entry = serde_json::from_str(&entry_json).map_err(|error| {
+    let entry: serde_json::Value = serde_json::from_str(&entry_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, Box::new(error))
     })?;
+    let target_runtimes = entry
+        .get("target_runtimes")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                11,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "repository entry is missing target_runtimes",
+                )),
+            )
+        })?
+        .iter()
+        .map(|value| {
+            value.as_str().map(ToOwned::to_owned).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    11,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "repository entry contains an invalid target runtime",
+                    )),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(RepositoryScriptRecord {
         repository_url: row.get(0)?,
         repository_name: row.get(1)?,
@@ -712,7 +766,7 @@ fn row_to_repository_script(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reposit
         name: row.get(4)?,
         summary: row.get(5)?,
         author: row.get(6)?,
-        target_runtime: row.get(7)?,
+        target_runtimes,
         risk_level: row.get(8)?,
         version: row.get(9)?,
         published_at: row.get(10)?,

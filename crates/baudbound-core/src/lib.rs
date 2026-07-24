@@ -36,10 +36,7 @@ use baudbound_storage::{
 };
 use thiserror::Error;
 
-use compatibility::{
-    CompatibilityError, default_host_target_runtime_names, runner_target_runtime_names,
-    validate_package_for_runner,
-};
+use compatibility::{CompatibilityError, runner_target_runtime_names, validate_package_for_runner};
 use execution_queue::{AcquireError, ScriptExecutionQueue};
 use package::{
     import_request_from_package, network_trigger_definitions, validate_package_security,
@@ -51,7 +48,7 @@ use version::{VersionCompatibilityError, validate_minimum_runner_version};
 
 pub use baudbound_runtime::RunReport;
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
-pub use compatibility::{DESKTOP_ONLY_ACTIONS, WINDOWS_DESKTOP_ONLY_ACTIONS};
+pub use compatibility::{DESKTOP_ONLY_ACTIONS, RunnerExecutionMode, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
     DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
     DEFAULT_SERIAL_BAUD_RATE, DEFAULT_SERIAL_DTR_ON_OPEN, DEFAULT_SERIAL_MAX_MESSAGE_BYTES,
@@ -86,6 +83,7 @@ pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
+    configured_target_runtimes: Vec<String>,
     execution_queue: Arc<ScriptExecutionQueue>,
     run_observer: Option<Arc<dyn RuntimeRunObserver>>,
     serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
@@ -98,10 +96,14 @@ impl Default for RunnerCore {
         Self {
             action_handler: None,
             action_limits: ActionLimits::default(),
+            configured_target_runtimes: Vec::new(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
             run_observer: None,
             serial_connections: Arc::new(baudbound_actions::SerialConnectionRegistry::default()),
-            supported_target_runtimes: default_host_target_runtime_names(),
+            supported_target_runtimes: runner_target_runtime_names(
+                &[],
+                RunnerExecutionMode::Headless,
+            ),
             websocket_sink: None,
         }
     }
@@ -120,12 +122,23 @@ impl RunnerCore {
                 max_file_read_bytes: config.limits.max_file_read_bytes,
                 max_http_response_bytes: config.limits.max_http_response_bytes,
             },
+            configured_target_runtimes: config.runner.target_runtimes.clone(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
             run_observer: None,
             serial_connections,
-            supported_target_runtimes: runner_target_runtime_names(&config.runner.target_runtimes),
+            supported_target_runtimes: runner_target_runtime_names(
+                &config.runner.target_runtimes,
+                RunnerExecutionMode::Headless,
+            ),
             websocket_sink: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_execution_mode(mut self, execution_mode: RunnerExecutionMode) -> Self {
+        self.supported_target_runtimes =
+            runner_target_runtime_names(&self.configured_target_runtimes, execution_mode);
+        self
     }
 
     #[must_use]

@@ -461,7 +461,7 @@ export function BrowseScriptsView({
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <th className="px-4 py-2">Script</th>
                   <th className="px-3 py-2">Repository</th>
-                  <th className="px-3 py-2">Target</th>
+                  <th className="px-3 py-2">Target runtimes</th>
                   <th className="px-3 py-2">Risk</th>
                   <th className="px-3 py-2">Version</th>
                   <th className="px-4 py-2 text-right">Actions</th>
@@ -475,10 +475,9 @@ export function BrowseScriptsView({
                   const installedFromThisRepository =
                     !installedMetadata ||
                     installedMetadata.repository_url === script.repository_url;
-                  const targetCompatible =
-                    dashboard.runner.supported_target_runtimes.includes(
-                      script.target_runtime,
-                    );
+                  const targetCompatible = script.target_runtimes.some((runtime) =>
+                    dashboard.runner.supported_target_runtimes.includes(runtime),
+                  );
                   const versionCompatible = meetsMinimumRunnerVersion(
                     dashboard.runner.runner_version,
                     script.minimum_runner_version,
@@ -531,8 +530,8 @@ export function BrowseScriptsView({
                           {script.official ? <Badge variant="good">Official</Badge> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3" data-label="Target">
-                        {script.target_runtime}
+                      <td className="px-3 py-3" data-label="Target runtimes">
+                        {script.target_runtimes.join(", ")}
                       </td>
                       <td className="px-3 py-3" data-label="Risk">
                         <RiskBadge risk={script.risk_level} />
@@ -1089,7 +1088,7 @@ function RepositoryScriptDetails({
       <div className="grid gap-3 md:grid-cols-3">
         <InfoCard label="Repository" value={script.repository_name} />
         <InfoCard label="Version" value={entry.latest.version} />
-        <InfoCard label="Target runtime" value={entry.target_runtime} />
+        <InfoCard label="Target runtimes" value={entry.target_runtimes.join(", ")} />
         <InfoCard label="Minimum runner" value={entry.minimum_runner_version} />
         <InfoCard label="Risk" value={entry.risk_level} />
         <InfoCard label="Published" value={entry.latest.published_at} />

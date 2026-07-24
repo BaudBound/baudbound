@@ -393,7 +393,7 @@ fn prepare_downloaded_package(
         sha256: download.sha256.clone(),
         size: download.size,
         source,
-        target_runtime: package.capabilities.target_runtime,
+        target_runtime: package.capabilities.target_runtimes.join(", "),
         repository_url: package.manifest.repository_url,
         version: package.manifest.version,
     };
@@ -458,11 +458,13 @@ fn repository_package_mismatches(
             &package.manifest.version,
         ));
     }
-    if repository.target_runtime != package.capabilities.target_runtime {
+    if repository.target_runtimes != package.capabilities.target_runtimes {
+        let repository_targets = repository.target_runtimes.join(", ");
+        let package_targets = package.capabilities.target_runtimes.join(", ");
         mismatches.push(text_claim_mismatch(
-            "target runtime",
-            &repository.target_runtime,
-            &package.capabilities.target_runtime,
+            "target runtimes",
+            &repository_targets,
+            &package_targets,
         ));
     }
     if repository.minimum_runner_version != package.manifest.minimum_runner_version {

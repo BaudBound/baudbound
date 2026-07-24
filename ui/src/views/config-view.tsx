@@ -1152,10 +1152,8 @@ const triggerFields = [
 ] as const;
 
 const targetRuntimeOptions = [
-  "Generic Headless",
   "Windows Headless",
   "Linux Headless",
-  "Generic Desktop",
   "Windows Desktop",
   "Linux Desktop",
 ].map((value) => ({ label: value, value }));

@@ -1761,6 +1761,7 @@ fn build_runner_core(
     active_runs: Arc<ActiveRunRegistry>,
 ) -> RunnerCore {
     let core = RunnerCore::from_config(runner_config)
+        .with_execution_mode(baudbound_core::RunnerExecutionMode::Desktop)
         .with_websocket_sink(websocket_registry)
         .with_run_observer(active_runs);
     let action_handler = Arc::new(DesktopActionHandler::new(

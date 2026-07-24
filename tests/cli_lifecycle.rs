@@ -773,7 +773,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["action.log", "trigger.manual", "trigger.webhook"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["action.log", "trigger.manual", "trigger.webhook"], "target_runtimes": ["Windows Headless", "Linux Headless"]}"#,
         ),
     ] {
         writer
@@ -870,7 +870,7 @@ fn create_schedule_package() -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["action.log", "trigger.schedule"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["action.log", "trigger.schedule"], "target_runtimes": ["Windows Headless", "Linux Headless"]}"#,
         ),
     ] {
         writer

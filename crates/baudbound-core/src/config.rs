@@ -273,9 +273,9 @@ impl RunnerConfig {
 trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30
-# Empty or omitted target_runtimes means this runner supports this operating system's default headless and desktop targets.
-# For headless service deployments, set this explicitly, for example:
-# target_runtimes = ["Generic Headless", "Linux Headless"]
+# Empty or omitted target_runtimes allows the runner mode currently active on this operating system.
+# To restrict the allowed modes, list explicit operating system targets:
+# target_runtimes = ["Linux Headless", "Linux Desktop"]
 target_runtimes = []
 
 [display]
@@ -826,11 +826,9 @@ fn validate_bind_address(path: &Path, setting: &str, value: &str) -> Result<(), 
 }
 
 fn validate_target_runtimes(path: &Path, values: &[String]) -> Result<(), RunnerConfigError> {
-    const ALLOWED: [&str; 6] = [
-        "Generic Headless",
+    const ALLOWED: [&str; 4] = [
         "Linux Headless",
         "Windows Headless",
-        "Generic Desktop",
         "Windows Desktop",
         "Linux Desktop",
     ];
@@ -962,7 +960,7 @@ mod tests {
                 trigger_reload_seconds = 5
                 run_history_max_records = 2500
                 run_history_max_age_days = 14
-                target_runtimes = ["Generic Headless", "Linux Headless"]
+                target_runtimes = ["Windows Headless", "Linux Headless"]
 
                 [triggers]
                 schedules_enabled = false
@@ -1012,7 +1010,7 @@ mod tests {
         assert_eq!(config.runner.run_history_max_age_days, 14);
         assert_eq!(
             config.runner.target_runtimes,
-            ["Generic Headless", "Linux Headless"]
+            ["Windows Headless", "Linux Headless"]
         );
         assert!(!config.triggers.schedules_enabled);
         assert!(config.triggers.file_watch_enabled);
@@ -1075,7 +1073,7 @@ mod tests {
             "[webhooks]\nbind = \"::1\"",
             "[websockets]\nbind = \"127.0.0.1\\n\"",
             "[runner]\ntarget_runtimes = [\"Unknown Desktop\"]",
-            "[runner]\ntarget_runtimes = [\"Generic Desktop\", \"Generic Desktop\"]",
+            "[runner]\ntarget_runtimes = [\"Linux Desktop\", \"Linux Desktop\"]",
         ] {
             RunnerConfig::from_toml(contents, "runner.toml")
                 .expect_err("invalid bounded config text must be rejected");

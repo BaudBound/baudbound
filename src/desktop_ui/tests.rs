@@ -505,7 +505,7 @@ fn create_test_package() -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["action.log", "trigger.manual"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["action.log", "trigger.manual"], "target_runtimes": ["Windows Desktop", "Linux Desktop"]}"#,
         ),
     ] {
         writer

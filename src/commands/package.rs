@@ -12,7 +12,7 @@ pub fn validate_package(core: &RunnerCore, package: PathBuf) -> Result<()> {
         summary.script_name,
         summary.package_format_version,
         summary.script_language_version,
-        summary.target_runtime,
+        summary.target_runtimes.join(", "),
         summary.asset_count,
         if summary.asset_count == 1 { "" } else { "s" }
     );
@@ -33,7 +33,10 @@ pub fn inspect_package(core: &RunnerCore, target: String, json: bool) -> Result<
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         println!("Script: {}", inspection.summary.script_name);
-        println!("Target runtime: {}", inspection.summary.target_runtime);
+        println!(
+            "Target runtimes: {}",
+            inspection.summary.target_runtimes.join(", ")
+        );
         println!(
             "Package version: {}",
             inspection.summary.package_format_version

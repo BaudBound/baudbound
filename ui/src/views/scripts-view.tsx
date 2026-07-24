@@ -125,7 +125,7 @@ export function ScriptsView({
                     onSort={toggleSort}
                     sortState={sortState}
                   >
-                    Target
+                    Target runtimes
                   </SortableTableHeader>
                   <th className="px-3 py-2">Update</th>
                   <th className="px-3 py-2">

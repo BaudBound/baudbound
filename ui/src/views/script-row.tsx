@@ -84,7 +84,7 @@ export function ScriptRow({
       <td className="px-3 py-3" data-label="Triggers">
         {script.triggers.length}
       </td>
-      <td className="hidden px-3 py-3 xl:table-cell" data-label="Target">
+      <td className="hidden px-3 py-3 xl:table-cell" data-label="Target runtimes">
         {script.installed.target_runtime}
       </td>
       <td className="px-3 py-3" data-label="Update">

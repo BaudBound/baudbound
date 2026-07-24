@@ -6,30 +6,30 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetRuntime {
-    GenericHeadless,
     LinuxHeadless,
     WindowsHeadless,
-    GenericDesktop,
     WindowsDesktop,
     LinuxDesktop,
 }
 
 impl TargetRuntime {
     pub fn is_desktop(self) -> bool {
-        matches!(
-            self,
-            Self::GenericDesktop | Self::WindowsDesktop | Self::LinuxDesktop
-        )
+        matches!(self, Self::WindowsDesktop | Self::LinuxDesktop)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunnerExecutionMode {
+    Desktop,
+    Headless,
+    PackageManagement,
 }
 
 impl fmt::Display for TargetRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::GenericHeadless => "Generic Headless",
             Self::LinuxHeadless => "Linux Headless",
             Self::WindowsHeadless => "Windows Headless",
-            Self::GenericDesktop => "Generic Desktop",
             Self::WindowsDesktop => "Windows Desktop",
             Self::LinuxDesktop => "Linux Desktop",
         })
@@ -42,18 +42,18 @@ pub enum CompatibilityError {
     UnknownTargetRuntime(String),
     #[error("runner target runtime config contains unsupported target runtime {0:?}")]
     UnknownRunnerConfigTargetRuntime(String),
-    #[error("script targets {target_runtime}, but this runner supports only {supported}")]
-    RunnerTargetMismatch {
-        supported: String,
-        target_runtime: TargetRuntime,
-    },
+    #[error("script targets {declared}, but this runner is active as {supported}")]
+    RunnerTargetMismatch { declared: String, supported: String },
     #[error("target runtime compatibility failed: {0}")]
     NodeTargetMismatch(String),
 }
 
 pub fn validate_package_target_runtime(package: &ScriptPackage) -> Result<(), CompatibilityError> {
-    let target_runtime = parse_target_runtime(&package.capabilities.target_runtime)?;
-    let errors = compatibility_errors(&package.program, target_runtime);
+    let target_runtimes = parse_package_target_runtimes(&package.capabilities.target_runtimes)?;
+    let errors = target_runtimes
+        .iter()
+        .flat_map(|target_runtime| compatibility_errors(&package.program, *target_runtime))
+        .collect::<Vec<_>>();
     if errors.is_empty() {
         Ok(())
     } else {
@@ -66,37 +66,35 @@ pub fn validate_package_for_runner(
     supported_target_runtimes: &[String],
 ) -> Result<(), CompatibilityError> {
     validate_package_target_runtime(package)?;
-    let target_runtime = parse_target_runtime(&package.capabilities.target_runtime)?;
+    let target_runtimes = parse_package_target_runtimes(&package.capabilities.target_runtimes)?;
     let supported = parse_supported_target_runtimes(supported_target_runtimes)?;
-    if supported.contains(&target_runtime) {
+    if target_runtimes
+        .iter()
+        .any(|target| supported.contains(target))
+    {
         return Ok(());
     }
 
     Err(CompatibilityError::RunnerTargetMismatch {
+        declared: format_target_runtime_list(&target_runtimes),
         supported: format_target_runtime_list(&supported),
-        target_runtime,
     })
 }
 
 #[must_use]
-pub fn default_host_target_runtime_names() -> Vec<String> {
-    default_host_target_runtimes()
+pub fn runner_target_runtime_names(
+    configured: &[String],
+    execution_mode: RunnerExecutionMode,
+) -> Vec<String> {
+    active_host_target_runtimes(execution_mode)
         .into_iter()
-        .map(|target_runtime| target_runtime.to_string())
-        .collect()
-}
-
-#[must_use]
-pub fn runner_target_runtime_names(configured: &[String]) -> Vec<String> {
-    if configured.is_empty() {
-        return default_host_target_runtime_names();
-    }
-
-    configured
-        .iter()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
+        .filter(|active| {
+            configured.is_empty()
+                || configured
+                    .iter()
+                    .any(|value| value.trim() == active.to_string())
+        })
+        .map(|active| active.to_string())
         .collect()
 }
 
@@ -256,11 +254,6 @@ fn push_program_node<'a>(
 fn parse_supported_target_runtimes(
     values: &[String],
 ) -> Result<BTreeSet<TargetRuntime>, CompatibilityError> {
-    let values = if values.is_empty() {
-        return Ok(default_host_target_runtimes().into_iter().collect());
-    } else {
-        values
-    };
     values
         .iter()
         .map(|value| {
@@ -270,34 +263,11 @@ fn parse_supported_target_runtimes(
         .collect()
 }
 
-fn default_host_target_runtimes() -> Vec<TargetRuntime> {
-    #[cfg(windows)]
-    {
-        vec![
-            TargetRuntime::GenericHeadless,
-            TargetRuntime::WindowsHeadless,
-            TargetRuntime::GenericDesktop,
-            TargetRuntime::WindowsDesktop,
-        ]
-    }
-
-    #[cfg(unix)]
-    {
-        vec![
-            TargetRuntime::GenericHeadless,
-            TargetRuntime::LinuxHeadless,
-            TargetRuntime::GenericDesktop,
-            TargetRuntime::LinuxDesktop,
-        ]
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    {
-        vec![TargetRuntime::GenericHeadless]
-    }
-}
-
 fn format_target_runtime_list(target_runtimes: &BTreeSet<TargetRuntime>) -> String {
+    if target_runtimes.is_empty() {
+        return "no enabled runtime".to_owned();
+    }
+
     target_runtimes
         .iter()
         .map(ToString::to_string)
@@ -307,13 +277,59 @@ fn format_target_runtime_list(target_runtimes: &BTreeSet<TargetRuntime>) -> Stri
 
 fn parse_target_runtime(value: &str) -> Result<TargetRuntime, CompatibilityError> {
     match value.trim() {
-        "Generic Headless" => Ok(TargetRuntime::GenericHeadless),
         "Linux Headless" => Ok(TargetRuntime::LinuxHeadless),
         "Windows Headless" => Ok(TargetRuntime::WindowsHeadless),
-        "Generic Desktop" => Ok(TargetRuntime::GenericDesktop),
         "Windows Desktop" => Ok(TargetRuntime::WindowsDesktop),
         "Linux Desktop" => Ok(TargetRuntime::LinuxDesktop),
         other => Err(CompatibilityError::UnknownTargetRuntime(other.to_owned())),
+    }
+}
+
+fn parse_package_target_runtimes(
+    values: &[String],
+) -> Result<BTreeSet<TargetRuntime>, CompatibilityError> {
+    if values.is_empty() {
+        return Err(CompatibilityError::UnknownTargetRuntime(
+            "package target list is empty".to_owned(),
+        ));
+    }
+
+    values
+        .iter()
+        .map(|value| parse_target_runtime(value))
+        .collect()
+}
+
+fn active_host_target_runtimes(execution_mode: RunnerExecutionMode) -> Vec<TargetRuntime> {
+    #[cfg(windows)]
+    {
+        match execution_mode {
+            RunnerExecutionMode::Desktop => vec![TargetRuntime::WindowsDesktop],
+            RunnerExecutionMode::Headless => vec![TargetRuntime::WindowsHeadless],
+            RunnerExecutionMode::PackageManagement => {
+                vec![
+                    TargetRuntime::WindowsDesktop,
+                    TargetRuntime::WindowsHeadless,
+                ]
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        match execution_mode {
+            RunnerExecutionMode::Desktop => vec![TargetRuntime::LinuxDesktop],
+            RunnerExecutionMode::Headless => vec![TargetRuntime::LinuxHeadless],
+            RunnerExecutionMode::PackageManagement => {
+                vec![TargetRuntime::LinuxDesktop, TargetRuntime::LinuxHeadless]
+            }
+        }
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = execution_mode;
+        panic!("BaudBound does not define a runtime target for this platform");
     }
 }
 
@@ -335,7 +351,7 @@ mod tests {
     #[test]
     fn rejects_desktop_actions_on_headless_targets() {
         for action_type in ["action.beep", "action.notification"] {
-            let package = package_with_target_and_step("Generic Headless", action_type);
+            let package = package_with_target_and_step("Linux Headless", action_type);
 
             let error = validate_package_target_runtime(&package)
                 .expect_err("headless target should reject desktop action");
@@ -388,15 +404,15 @@ mod tests {
     #[test]
     fn process_window_title_matching_requires_windows_desktop() {
         for action_type in ["action.process.status", "action.process.kill"] {
-            let mut package = package_with_target_and_step("Generic Desktop", action_type);
+            let mut package = package_with_target_and_step("Linux Desktop", action_type);
             package.program["entry"]["program"]["steps"][0]["config"] =
                 json!({"matchMode": "window_title", "target": "BaudBound"});
 
             let error = validate_package_target_runtime(&package)
-                .expect_err("generic desktop must not claim native Windows window matching");
+                .expect_err("Linux Desktop must not claim native Windows window matching");
             assert!(error.to_string().contains("requires Windows Desktop"));
 
-            package.capabilities.target_runtime = "Windows Desktop".to_owned();
+            package.capabilities.target_runtimes = vec!["Windows Desktop".to_owned()];
             validate_package_target_runtime(&package)
                 .expect("Windows Desktop should support native window-title matching");
         }
@@ -417,7 +433,7 @@ mod tests {
             .expect_err("Linux Desktop must reject Windows-native window matching");
         assert!(error.to_string().contains("requires Windows Desktop"));
 
-        package.capabilities.target_runtime = "Windows Desktop".to_owned();
+        package.capabilities.target_runtimes = vec!["Windows Desktop".to_owned()];
         validate_package_target_runtime(&package)
             .expect("Windows Desktop should accept process-started window matching");
     }
@@ -444,14 +460,14 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("this runner supports only Linux Headless"),
+                .contains("this runner is active as Linux Headless"),
             "{error}"
         );
     }
 
     #[test]
     fn rejects_invalid_runner_target_runtime_config_values() {
-        let package = package_with_target_and_step("Generic Headless", "action.text.format");
+        let package = package_with_target_and_step("Linux Headless", "action.text.format");
 
         let error = validate_package_for_runner(&package, &["Toaster".to_owned()])
             .expect_err("invalid runner target runtime config should fail");
@@ -463,7 +479,7 @@ mod tests {
         ScriptPackage {
             capabilities: Capabilities {
                 required_capabilities: Vec::new(),
-                target_runtime: target_runtime.to_owned(),
+                target_runtimes: vec![target_runtime.to_owned()],
             },
             editor: None,
             entries: Vec::new(),

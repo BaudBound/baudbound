@@ -13,6 +13,16 @@ use serde_json::Value;
 use serde_json::json;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+#[cfg(windows)]
+fn expected_desktop_runtime() -> &'static str {
+    "Windows Desktop"
+}
+
+#[cfg(unix)]
+fn expected_desktop_runtime() -> &'static str {
+    "Linux Desktop"
+}
+
 #[test]
 fn desktop_cli_initializes_runner_config_template() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -87,14 +97,14 @@ fn desktop_cli_manages_script_storage_against_isolated_home() {
             .as_array()
             .expect("supported target runtimes should be an array")
             .iter()
-            .any(|target_runtime| target_runtime.as_str() == Some("Generic Desktop"))
+            .any(|target_runtime| target_runtime.as_str() == Some(expected_desktop_runtime()))
     );
     assert!(
         status["runner"]["supported_target_runtimes"]
             .as_array()
             .expect("runner supported target runtimes should be an array")
             .iter()
-            .any(|target_runtime| target_runtime.as_str() == Some("Generic Desktop"))
+            .any(|target_runtime| target_runtime.as_str() == Some(expected_desktop_runtime()))
     );
 
     let doctor = command_json(run_desktop(&runner_home, ["doctor", "--json"]));
@@ -687,7 +697,7 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["trigger.manual"], "target_runtime": "Generic Desktop"}"#,
+            r#"{"required_capabilities": ["trigger.manual"], "target_runtimes": ["Windows Desktop", "Windows Headless", "Linux Desktop", "Linux Headless"]}"#,
         ),
     ] {
         writer
@@ -773,7 +783,7 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
         ),
         (
             "capabilities.json",
-            r#"{"required_capabilities": ["trigger.hotkey", "trigger.manual"], "target_runtime": "Windows Desktop"}"#,
+            r#"{"required_capabilities": ["trigger.hotkey", "trigger.manual"], "target_runtimes": ["Windows Desktop"]}"#,
         ),
     ] {
         writer
