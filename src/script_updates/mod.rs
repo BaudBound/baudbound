@@ -6,7 +6,8 @@ mod worker;
 
 pub(crate) use preparation::RemotePreparationRegistry;
 pub(crate) use remote::{
-    RemoteDownload, RemoteFetchError, RemoteFetchService, RepositoryFetchResult,
+    RemoteDownload, RemoteFetchError, RemoteFetchService, RepositoryFetchModified,
+    RepositoryFetchResult,
 };
 pub(crate) use review::RemotePackageReviews;
 pub(crate) use service::check_script_update;

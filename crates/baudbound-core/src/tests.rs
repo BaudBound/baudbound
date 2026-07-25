@@ -9,7 +9,7 @@ use std::{
 use baudbound_runtime::{
     RunIdentity, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
     RuntimeActionResult, RuntimeCancellationToken, RuntimeContext, RuntimeLogEntry,
-    RuntimeRunObserver,
+    RuntimeOutputLimits, RuntimeRunObserver,
 };
 use baudbound_script::{Capabilities, Manifest, Permissions, RiskLevel};
 use baudbound_storage::SqliteRunnerStore;
@@ -163,7 +163,12 @@ fn creates_failed_run_record_with_package_identity() {
         }),
     };
 
-    let record = run_records::failed_run_record(&package, None, "permission denied".to_owned());
+    let record = run_records::failed_run_record(
+        &package,
+        None,
+        "permission denied".to_owned(),
+        RuntimeOutputLimits::default(),
+    );
 
     assert_eq!(record.script_id, "script-1");
     assert_eq!(record.trigger_node_id, "n-trigger");
@@ -246,6 +251,125 @@ fn current_script_approval_allows_policy_blocked_permissions() {
         .run_installed(&store, "network-trigger")
         .expect("approved package should run");
     assert_eq!(report.identity.script_id, "network-trigger");
+}
+
+#[test]
+fn configured_policy_blocks_approved_public_network_triggers() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("network-trigger.bbs");
+    fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let permissive_core = RunnerCore::default();
+    permissive_core
+        .import_package(&store, &package_path)
+        .expect("package should import before policy is restricted");
+    permissive_core
+        .approve_installed(&store, "network-trigger")
+        .expect("package should be approved before policy is restricted");
+
+    let restricted_core = core_with_policy(true, true, false);
+    let error = restricted_core
+        .list_trigger_registrations(&store, None)
+        .expect_err("blocked network trigger must not register");
+    assert!(
+        error
+            .to_string()
+            .contains("security.policy.allow_public_network_listeners"),
+        "{error}"
+    );
+    let error = restricted_core
+        .run_installed(&store, "network-trigger")
+        .expect_err("approved package must remain blocked by runner policy");
+    assert!(
+        error
+            .to_string()
+            .contains("security.policy.allow_public_network_listeners"),
+        "{error}"
+    );
+    let status = restricted_core.status(&store).expect("status should build");
+    assert!(
+        status.scripts[0]
+            .package_error
+            .as_deref()
+            .is_some_and(|message| {
+                message.contains("security.policy.allow_public_network_listeners")
+            }),
+        "{status:?}"
+    );
+}
+
+#[test]
+fn configured_policy_blocks_approved_dangerous_permissions() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("dangerous-process.bbs");
+    fs::write(
+        &package_path,
+        create_action_policy_test_package(
+            "dangerous-process",
+            "action.process.run",
+            "run_process",
+            r#"{"arguments":"","executable":"unused","workingDirectory":""}"#,
+            "run_process",
+            "dangerous",
+        ),
+    )
+    .expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let permissive_core = RunnerCore::default();
+    permissive_core
+        .import_package(&store, &package_path)
+        .expect("package should import before policy is restricted");
+    permissive_core
+        .approve_installed(&store, "dangerous-process")
+        .expect("package should be approved before policy is restricted");
+
+    let restricted_core = core_with_policy(true, false, true);
+    let error = restricted_core
+        .run_installed(&store, "dangerous-process")
+        .expect_err("Dangerous permission must be blocked");
+    assert!(
+        error
+            .to_string()
+            .contains("security.policy.allow_dangerous_permissions"),
+        "{error}"
+    );
+}
+
+#[test]
+fn configured_policy_blocks_approved_shell_commands_independently() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("shell-command.bbs");
+    fs::write(
+        &package_path,
+        create_action_policy_test_package(
+            "shell-command",
+            "action.shell",
+            "run_shell_command",
+            r#"{"command":"unused"}"#,
+            "run_shell_command",
+            "dangerous",
+        ),
+    )
+    .expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let permissive_core = RunnerCore::default();
+    permissive_core
+        .import_package(&store, &package_path)
+        .expect("package should import before policy is restricted");
+    permissive_core
+        .approve_installed(&store, "shell-command")
+        .expect("package should be approved before policy is restricted");
+
+    let restricted_core = core_with_policy(false, true, true);
+    let error = restricted_core
+        .run_installed(&store, "shell-command")
+        .expect_err("shell command must be blocked independently");
+    assert!(
+        error
+            .to_string()
+            .contains("security.policy.allow_shell_commands"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1061,6 +1185,83 @@ fn dispatches_trigger_event_through_core_dispatcher() {
 
 fn create_policy_test_package() -> Vec<u8> {
     create_policy_test_package_with_webhook("network-trigger", "hook")
+}
+
+fn core_with_policy(
+    allow_shell_commands: bool,
+    allow_dangerous_permissions: bool,
+    allow_public_network_listeners: bool,
+) -> RunnerCore {
+    let mut config = RunnerConfig::default();
+    config.security.policy = SecurityPolicySettings {
+        allow_dangerous_permissions,
+        allow_public_network_listeners,
+        allow_shell_commands,
+    };
+    RunnerCore::from_config(&config)
+}
+
+fn create_action_policy_test_package(
+    script_id: &str,
+    action_type: &str,
+    action: &str,
+    action_config: &str,
+    permission: &str,
+    risk: &str,
+) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "{script_id}",
+            "name": "{script_id}",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "version": "1.0.0"
+        }}"#
+    );
+    let program = format!(
+        r#"{{
+            "entry": {{
+                "trigger": {{
+                    "id": "n-manual",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {{}},
+                    "runtime_outputs": []
+                }},
+                "triggers": [{{
+                    "id": "n-manual",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {{}},
+                    "runtime_outputs": []
+                }}],
+                "program": {{
+                    "type": "block",
+                    "steps": [{{
+                        "id": "n-action",
+                        "action_type": "{action_type}",
+                        "type": "action",
+                        "action": "{action}",
+                        "config": {action_config},
+                        "runtime_outputs": []
+                    }}],
+                    "edges": []
+                }}
+            }}
+        }}"#
+    );
+    let capabilities = capabilities_json(&program, test_headless_runtime());
+    let permissions =
+        format!(r#"{{"declared_permissions":["{permission}"],"risk_level":"{risk}"}}"#);
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program.as_str()),
+        ("permissions.json", permissions.as_str()),
+        ("capabilities.json", capabilities.as_str()),
+    ])
 }
 
 fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -> Vec<u8> {

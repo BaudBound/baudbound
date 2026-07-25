@@ -173,7 +173,11 @@ impl SqliteRunnerStore {
                 .execute(
                     r#"
                     UPDATE repository_sources
-                    SET enabled = ?2, official = ?3, revision = revision + 1
+                    SET enabled = ?2, official = ?3,
+                        revision = CASE
+                            WHEN revision < 9223372036854775807 THEN revision + 1
+                            ELSE revision
+                        END
                     WHERE url = ?1
                     "#,
                     params![
@@ -242,7 +246,7 @@ impl SqliteRunnerStore {
         let connection = self.connection()?;
         let changed = connection
             .execute(
-                "UPDATE repository_sources SET enabled = ?2, revision = revision + 1 WHERE url = ?1",
+                "UPDATE repository_sources SET enabled = ?2, revision = CASE WHEN revision < 9223372036854775807 THEN revision + 1 ELSE revision END WHERE url = ?1",
                 params![url, i64::from(enabled)],
             )
             .map_err(|source| StorageError::Sqlite {
@@ -340,7 +344,10 @@ impl SqliteRunnerStore {
                     last_error = NULL,
                     etag = ?7,
                     last_modified = ?8,
-                    revision = revision + 1
+                    revision = CASE
+                        WHEN revision < 9223372036854775807 THEN revision + 1
+                        ELSE revision
+                    END
                 WHERE url = ?1
                 "#,
                 params![
@@ -437,7 +444,10 @@ impl SqliteRunnerStore {
                 UPDATE repository_sources SET
                     last_refresh_at_unix = ?2,
                     last_error = ?3,
-                    revision = revision + 1
+                    revision = CASE
+                        WHEN revision < 9223372036854775807 THEN revision + 1
+                        ELSE revision
+                    END
                 WHERE url = ?1
                 "#,
                 params![url, u64_to_sqlite(refreshed_at_unix)?, error],
@@ -470,7 +480,10 @@ impl SqliteRunnerStore {
                     last_refresh_at_unix = ?2,
                     last_success_at_unix = ?2,
                     last_error = NULL,
-                    revision = revision + 1
+                    revision = CASE
+                        WHEN revision < 9223372036854775807 THEN revision + 1
+                        ELSE revision
+                    END
                 WHERE url = ?1
                 "#,
                 params![url, u64_to_sqlite(refreshed_at_unix)?],
@@ -533,6 +546,24 @@ impl SqliteRunnerStore {
             &mut values,
             "repository_entries.repository_url",
             &query.repository_urls,
+        );
+        add_text_exclusions(
+            &mut conditions,
+            &mut values,
+            "repository_entries.repository_url",
+            &query.excluded_repository_urls,
+        );
+        add_text_exclusions(
+            &mut conditions,
+            &mut values,
+            "repository_entries.script_id",
+            &query.excluded_script_ids,
+        );
+        add_text_exclusions(
+            &mut conditions,
+            &mut values,
+            "json_extract(repository_entries.entry_json, '$.latest.sha256')",
+            &query.excluded_package_hashes,
         );
         add_text_filters(
             &mut conditions,
@@ -666,12 +697,28 @@ impl SqliteRunnerStore {
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let package_hash = entry
+                    .get("latest")
+                    .and_then(|latest| latest.get("sha256"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            11,
+                            rusqlite::types::Type::Text,
+                            Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "repository entry is missing latest.sha256",
+                            )),
+                        )
+                    })?
+                    .to_owned();
                 Ok(RepositoryScriptSummary {
                     repository_url: row.get(0)?,
                     repository_name: row.get(1)?,
                     official: row_i64_to_bool(2, row.get(2)?)?,
                     script_id: row.get(3)?,
                     name: row.get(4)?,
+                    package_hash,
                     summary: row.get(5)?,
                     author: row.get(6)?,
                     target_runtimes,
@@ -772,7 +819,10 @@ impl SqliteRunnerStore {
                     SELECT COUNT(*) FROM repository_entries
                     WHERE repository_url = ?1 AND information_mismatch IS NOT NULL
                 ),
-                revision = revision + 1
+                revision = CASE
+                    WHEN revision < 9223372036854775807 THEN revision + 1
+                    ELSE revision
+                END
                 WHERE url = ?1
                 "#,
                 params![repository_url],
@@ -826,7 +876,10 @@ impl SqliteRunnerStore {
                     SELECT COUNT(*) FROM repository_entries
                     WHERE repository_url = ?1 AND information_mismatch IS NOT NULL
                 ),
-                revision = revision + 1
+                revision = CASE
+                    WHEN revision < 9223372036854775807 THEN revision + 1
+                    ELSE revision
+                END
                 WHERE url = ?1
                 "#,
                 params![repository_url],
@@ -943,6 +996,31 @@ fn add_text_filters(
     conditions.push(format!("{column} IN ({placeholders})"));
     values.extend(
         selected
+            .into_iter()
+            .map(|value| Value::Text(value.to_owned())),
+    );
+}
+
+fn add_text_exclusions(
+    conditions: &mut Vec<String>,
+    values: &mut Vec<Value>,
+    column: &str,
+    excluded: &[String],
+) {
+    let excluded = excluded
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if excluded.is_empty() {
+        return;
+    }
+    let placeholders = std::iter::repeat_n("?", excluded.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    conditions.push(format!("{column} NOT IN ({placeholders})"));
+    values.extend(
+        excluded
             .into_iter()
             .map(|value| Value::Text(value.to_owned())),
     );

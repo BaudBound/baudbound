@@ -281,13 +281,7 @@ pub fn serve_triggers_with_control(
         }
 
         if let Some(host) = &mut services.webhook_host {
-            match host.server.recv_timeout(wait_duration) {
-                Ok(Some(request)) => {
-                    host.accept_request(request, options.max_webhook_body_bytes);
-                }
-                Ok(None) => {}
-                Err(error) => return Err(anyhow!("webhook listener failed: {error}")),
-            }
+            host.accept_next(wait_duration)?;
         } else if !services.file_watch_service.is_empty()
             || !services.process_started_service.is_empty()
             || !services.serial_input_service.is_empty()

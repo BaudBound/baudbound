@@ -2,8 +2,58 @@ use std::fs;
 
 use serde_json::json;
 
-use super::{TestHttpServer, execute, execute_with_handler};
+use super::{TestHttpServer, execute, execute_with_handler, execute_with_package_path};
 use crate::{ActionLimits, HeadlessActionHandler};
+
+#[test]
+fn limited_relative_paths_use_the_script_workspace() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let package_path = directory.path().join("scripts").join("script-1.bbs");
+
+    execute_with_package_path(
+        "action.file.write",
+        json!({"path": "output/result.txt", "content": "workspace"}),
+        package_path,
+    )
+    .expect("limited write should succeed");
+
+    assert_eq!(
+        fs::read_to_string(
+            directory
+                .path()
+                .join("workspaces")
+                .join("script-1")
+                .join("output")
+                .join("result.txt")
+        )
+        .expect("workspace output should exist"),
+        "workspace"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn limited_paths_reject_symbolic_link_workspace_escapes() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let package_path = directory.path().join("scripts").join("script-1.bbs");
+    let workspace = directory.path().join("workspaces").join("script-1");
+    let outside = directory.path().join("outside");
+    fs::create_dir_all(&workspace).expect("workspace should be created");
+    fs::create_dir_all(&outside).expect("outside directory should be created");
+    symlink(&outside, workspace.join("escape")).expect("symlink should be created");
+
+    let error = execute_with_package_path(
+        "action.file.write",
+        json!({"path": "escape/result.txt", "content": "blocked"}),
+        package_path,
+    )
+    .expect_err("workspace symlink escape must fail");
+
+    assert!(error.to_string().contains("escapes the script workspace"));
+    assert!(!outside.join("result.txt").exists());
+}
 
 #[test]
 fn read_file_rejects_invalid_encoding_and_invalid_utf8() {

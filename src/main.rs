@@ -8,6 +8,8 @@ use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use clap::Parser;
 use desktop_actions::SystemDesktopActionAdapter;
 
+mod backend_api;
+mod blacklist;
 mod cli;
 mod commands;
 mod console;
@@ -63,10 +65,18 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
 
     let runner_config = RunnerConfig::load_or_init(&config_path)
         .with_context(|| format!("failed to load runner config {}", config_path.display()))?;
+    let backend_api =
+        Arc::new(backend_api::BackendApiClient::production().context("failed to open API client")?);
+    let blacklist =
+        blacklist::BlacklistService::open(paths::default_blacklist_path(&runner_home), backend_api)
+            .context("failed to open blacklist state")?;
+    blacklist::install_global(Arc::clone(&blacklist));
     let websocket_registry = Arc::new(WebSocketConnectionRegistry::new());
     let execution_mode = execution_mode_for_launch(&launch_mode);
     let core = RunnerCore::from_config(&runner_config)
         .with_execution_mode(execution_mode)
+        .with_blacklist_policy(Arc::clone(&blacklist))
+        .with_run_observer(Arc::clone(&blacklist))
         .with_websocket_sink(Arc::clone(&websocket_registry));
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
@@ -84,11 +94,16 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
         .set_run_retention_policy(RunRetentionPolicy::new(
             runner_config.runner.run_history_max_records,
             runner_config.runner.run_history_max_age_days,
+            runner_config.runner.run_history_max_bytes,
         ))
         .context("failed to apply run-history retention")?;
     if let Some(secret_cipher) = secret_cipher {
         store = store.with_secret_cipher(secret_cipher);
     }
+    blacklist
+        .enforce_cached(&store)
+        .context("failed to enforce the cached blacklist")?;
+    blacklist.start_background_refresh(store.clone());
     if let LaunchMode::Command(command) = &launch_mode {
         check_for_automatic_cli_update(command, &runner_config, &store);
     }
@@ -100,6 +115,7 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
             store,
             runner_config,
             websocket_registry,
+            blacklist,
             autostart,
         ),
         LaunchMode::Command(command) => dispatch_command(

@@ -11,19 +11,22 @@ use super::conversions::{bool_to_sqlite, u64_to_sqlite, usize_to_sqlite};
 
 pub const DEFAULT_MAX_RUN_RECORDS: usize = 10_000;
 pub const DEFAULT_MAX_RUN_AGE_DAYS: u64 = 30;
+pub const DEFAULT_MAX_RUN_BYTES: u64 = 1024 * 1024 * 1024;
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunRetentionPolicy {
     pub max_age_days: u64,
+    pub max_bytes: u64,
     pub max_records: usize,
 }
 
 impl RunRetentionPolicy {
     #[must_use]
-    pub const fn new(max_records: usize, max_age_days: u64) -> Self {
+    pub const fn new(max_records: usize, max_age_days: u64, max_bytes: u64) -> Self {
         Self {
             max_age_days,
+            max_bytes,
             max_records,
         }
     }
@@ -39,7 +42,13 @@ impl RunRetentionPolicy {
                 "run retention max_age_days must be greater than zero".to_owned(),
             ));
         }
+        if self.max_bytes == 0 {
+            return Err(StorageError::Operation(
+                "run retention max_bytes must be greater than zero".to_owned(),
+            ));
+        }
         usize_to_sqlite(self.max_records)?;
+        u64_to_sqlite(self.max_bytes)?;
         self.max_age_days
             .checked_mul(SECONDS_PER_DAY)
             .ok_or_else(|| {
@@ -51,7 +60,11 @@ impl RunRetentionPolicy {
 
 impl Default for RunRetentionPolicy {
     fn default() -> Self {
-        Self::new(DEFAULT_MAX_RUN_RECORDS, DEFAULT_MAX_RUN_AGE_DAYS)
+        Self::new(
+            DEFAULT_MAX_RUN_RECORDS,
+            DEFAULT_MAX_RUN_AGE_DAYS,
+            DEFAULT_MAX_RUN_BYTES,
+        )
     }
 }
 
@@ -145,7 +158,38 @@ fn prune_transaction(
             params![usize_to_sqlite(policy.max_records)?],
         )
         .map_err(|source| sqlite_error(database_path, source))?;
-    Ok(expired.saturating_add(excess))
+    let oversized = transaction
+        .execute(
+            r#"
+            DELETE FROM run_records
+            WHERE rowid IN (
+                SELECT rowid
+                FROM (
+                    SELECT
+                        rowid,
+                        SUM(
+                            LENGTH(CAST(run_id AS BLOB))
+                            + LENGTH(CAST(script_id AS BLOB))
+                            + LENGTH(CAST(status AS BLOB))
+                            + LENGTH(CAST(trigger_node_id AS BLOB))
+                            + 8
+                            + LENGTH(CAST(logs_json AS BLOB))
+                            + LENGTH(CAST(variables_json AS BLOB))
+                            + COALESCE(LENGTH(CAST(variable_scopes_json AS BLOB)), 0)
+                            + 1
+                        ) OVER (
+                            ORDER BY completed_at_unix DESC, rowid DESC
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                        ) AS retained_bytes
+                    FROM run_records
+                )
+                WHERE retained_bytes > ?1
+            )
+            "#,
+            params![u64_to_sqlite(policy.max_bytes)?],
+        )
+        .map_err(|source| sqlite_error(database_path, source))?;
+    Ok(expired.saturating_add(excess).saturating_add(oversized))
 }
 
 fn current_unix_timestamp() -> u64 {

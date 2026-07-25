@@ -9,14 +9,15 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-baudbound-actions = { path = "../baudbound-actions" }
-baudbound-runtime = { path = "../baudbound-runtime" }
-baudbound-script = { path = "../baudbound-script" }
-baudbound-security = { path = "../baudbound-security" }
-baudbound-storage = { path = "../baudbound-storage" }
-baudbound-triggers = { path = "../baudbound-triggers" }
+baudbound-actions = { path = "../baudbound-actions", version = "2.0.0" }
+baudbound-runtime = { path = "../baudbound-runtime", version = "2.0.0" }
+baudbound-script = { path = "../baudbound-script", version = "2.0.0" }
+baudbound-security = { path = "../baudbound-security", version = "2.0.0" }
+baudbound-storage = { path = "../baudbound-storage", version = "2.0.0" }
+baudbound-triggers = { path = "../baudbound-triggers", version = "2.0.0" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 toml.workspace = true

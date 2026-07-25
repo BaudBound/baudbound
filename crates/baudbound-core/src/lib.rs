@@ -15,25 +15,29 @@ mod version;
 
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use baudbound_actions::{ActionLimits, HeadlessActionHandler, WebSocketMessageSink};
 use baudbound_runtime::{
-    RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
-    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeRunObserver,
-    RuntimeSecretDeclaration, execute_manual_program_with_state,
+    RunIdentity, RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
+    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeOutputLimits,
+    RuntimeRunObserver, RuntimeSecretDeclaration, execute_manual_program_with_state,
     execute_trigger_program_with_state,
 };
 use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
-use baudbound_security::{RunnerPolicy, SecurityValidationError};
+use baudbound_security::{
+    BlacklistDecision, BlacklistMatchSubject, BlacklistPolicy, BlacklistSeverity,
+    PermissiveBlacklistPolicy, RunnerPolicy, SecurityValidationError,
+};
 use baudbound_storage::{
     ApproveScriptRequest, GeneratedTriggerToken, InstalledScript, NetworkTriggerType,
     ScriptApproval, ScriptApprovalResult, ScriptStore, StorageError, TriggerAuthStatus,
     TriggerAuthentication,
 };
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use compatibility::{CompatibilityError, runner_target_runtime_names, validate_package_for_runner};
@@ -57,8 +61,9 @@ pub use config::{
     DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
     DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
     LimitSettings, MAX_RUNNER_CONFIG_BYTES, MAX_SERIAL_MESSAGE_BYTES, MAX_SERIAL_MESSAGE_GAP_MS,
-    RunnerConfig, RunnerConfigError, RunnerSettings, SerialDeviceSettings, SerialSettings,
-    TimeFormat, TriggerSettings, UpdateSettings, WebSocketSettings, WebhookSettings,
+    RunnerConfig, RunnerConfigError, RunnerSettings, SecurityPolicySettings, SecuritySettings,
+    SerialDeviceSettings, SerialSettings, TimeFormat, TriggerSettings, UpdateSettings,
+    WebSocketSettings, WebhookSettings,
 };
 pub use package::PackageInspection;
 pub use secrets::{InstalledSecretStatus, MAX_SECRET_INPUT_BYTES};
@@ -79,13 +84,46 @@ pub const SUPPORTED_CORE_ACTION_TYPES: &[&str] = &["action.script.run"];
 
 pub const SUPPORTED_CORE_TRIGGER_ACTION_TYPES: &[&str] = &["trigger.manual"];
 
+struct CompositeRunObserver {
+    observers: Vec<Arc<dyn RuntimeRunObserver>>,
+}
+
+impl RuntimeRunObserver for CompositeRunObserver {
+    fn run_started(&self, identity: &RunIdentity, cancellation: RuntimeCancellationToken) {
+        for observer in &self.observers {
+            observer.run_started(identity, cancellation.clone());
+        }
+    }
+
+    fn log_emitted(&self, identity: &RunIdentity, entry: &RuntimeLogEntry) {
+        for observer in &self.observers {
+            observer.log_emitted(identity, entry);
+        }
+    }
+
+    fn run_finished(&self, identity: &RunIdentity) {
+        for observer in &self.observers {
+            observer.run_finished(identity);
+        }
+    }
+
+    fn run_recorded(&self) {
+        for observer in &self.observers {
+            observer.run_recorded();
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
+    blacklist_policy: Arc<dyn BlacklistPolicy>,
     configured_target_runtimes: Vec<String>,
     execution_queue: Arc<ScriptExecutionQueue>,
-    run_observer: Option<Arc<dyn RuntimeRunObserver>>,
+    output_limits: RuntimeOutputLimits,
+    policy: RunnerPolicy,
+    run_observers: Vec<Arc<dyn RuntimeRunObserver>>,
     serial_connections: Arc<baudbound_actions::SerialConnectionRegistry>,
     supported_target_runtimes: Vec<String>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
@@ -96,9 +134,12 @@ impl Default for RunnerCore {
         Self {
             action_handler: None,
             action_limits: ActionLimits::default(),
+            blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: Vec::new(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
-            run_observer: None,
+            output_limits: RuntimeOutputLimits::default(),
+            policy: RunnerPolicy::permissive(),
+            run_observers: Vec::new(),
             serial_connections: Arc::new(baudbound_actions::SerialConnectionRegistry::default()),
             supported_target_runtimes: runner_target_runtime_names(
                 &[],
@@ -122,9 +163,22 @@ impl RunnerCore {
                 max_file_read_bytes: config.limits.max_file_read_bytes,
                 max_http_response_bytes: config.limits.max_http_response_bytes,
             },
+            blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: config.runner.target_runtimes.clone(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
-            run_observer: None,
+            output_limits: RuntimeOutputLimits {
+                max_log_entry_bytes: config.limits.max_log_entry_bytes,
+                max_runtime_variable_bytes: config.limits.max_runtime_variable_bytes,
+                max_retained_variable_bytes: config.limits.max_retained_variable_bytes,
+                max_run_log_bytes: config.limits.max_run_log_bytes,
+                max_run_record_bytes: config.limits.max_run_record_bytes,
+            },
+            policy: RunnerPolicy {
+                allow_dangerous_actions: config.security.policy.allow_dangerous_permissions,
+                allow_network_servers: config.security.policy.allow_public_network_listeners,
+                allow_shell_commands: config.security.policy.allow_shell_commands,
+            },
+            run_observers: Vec::new(),
             serial_connections,
             supported_target_runtimes: runner_target_runtime_names(
                 &config.runner.target_runtimes,
@@ -142,6 +196,15 @@ impl RunnerCore {
     }
 
     #[must_use]
+    pub fn with_blacklist_policy<T>(mut self, policy: Arc<T>) -> Self
+    where
+        T: BlacklistPolicy + 'static,
+    {
+        self.blacklist_policy = policy;
+        self
+    }
+
+    #[must_use]
     pub fn with_action_handler<T>(mut self, handler: Arc<T>) -> Self
     where
         T: RuntimeActionHandler + 'static,
@@ -155,7 +218,7 @@ impl RunnerCore {
     where
         T: RuntimeRunObserver + 'static,
     {
-        self.run_observer = Some(observer);
+        self.run_observers.push(observer);
         self
     }
 
@@ -186,13 +249,13 @@ impl RunnerCore {
 
     pub fn inspect_package(&self, path: impl AsRef<Path>) -> Result<PackageInspection, CoreError> {
         let package = load_script_package(path)?;
-        self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
+        self.validate_loaded_package(&package)?;
         Ok(PackageInspection::from_package(package))
     }
 
     pub fn validate_package(&self, path: impl AsRef<Path>) -> Result<PackageSummary, CoreError> {
         let package = load_script_package(path)?;
-        self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
+        self.validate_loaded_package(&package)?;
         Ok(package.summary())
     }
 
@@ -203,7 +266,8 @@ impl RunnerCore {
     ) -> Result<InstalledScript, CoreError> {
         let staged = StagedPackage::copy_from(path.as_ref())?;
         let package = load_script_package(&staged.path)?;
-        self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
+        self.validate_loaded_package(&package)?;
+        self.ensure_package_distribution_allowed(&package, &staged.path, "import")?;
         store
             .import_script(import_request_from_package(&staged.path, package))
             .map_err(CoreError::Storage)
@@ -216,7 +280,8 @@ impl RunnerCore {
     ) -> Result<InstalledScript, CoreError> {
         let staged = StagedPackage::copy_from(path.as_ref())?;
         let package = load_script_package(&staged.path)?;
-        self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
+        self.validate_loaded_package(&package)?;
+        self.ensure_package_distribution_allowed(&package, &staged.path, "update")?;
         let declared_secret_names = package
             .manifest
             .secrets
@@ -309,6 +374,10 @@ impl RunnerCore {
         reference: &str,
         enabled: bool,
     ) -> Result<InstalledScript, CoreError> {
+        if enabled {
+            let installed = store.verify_script_package_hash(reference)?;
+            self.ensure_installed_execution_allowed(&installed, "enable")?;
+        }
         store
             .set_script_enabled(reference, enabled)
             .map_err(CoreError::Storage)
@@ -345,8 +414,15 @@ impl RunnerCore {
 
         let mut registrations = Vec::new();
         for script in scripts {
+            if !include_inactive
+                && self
+                    .blacklist_decision_for_installed(&script)
+                    .blocks_execution()
+            {
+                continue;
+            }
             let package = load_script_package(&script.package_path)?;
-            self.validate_package_compatibility(&package)?;
+            self.validate_loaded_package(&package)?;
             if !include_inactive && !has_current_approval(store, &script, &package)? {
                 continue;
             }
@@ -397,7 +473,8 @@ impl RunnerCore {
     ) -> Result<ScriptApprovalResult, CoreError> {
         let installed = store.verify_script_package_hash(reference)?;
         let package = load_script_package(&installed.package_path)?;
-        self.validate_loaded_package(&package, &RunnerPolicy::permissive())?;
+        self.validate_loaded_package(&package)?;
+        self.ensure_installed_distribution_allowed(&installed, "approve")?;
         store
             .approve_script(ApproveScriptRequest {
                 approved_permissions: package.permissions.declared_permissions.clone(),
@@ -500,6 +577,7 @@ impl RunnerCore {
         if !installed.enabled {
             return Err(CoreError::ScriptDisabled(installed.id));
         }
+        self.ensure_installed_execution_allowed(&installed, "run")?;
         if call_stack
             .iter()
             .any(|script_id| script_id == &installed.id)
@@ -510,19 +588,29 @@ impl RunnerCore {
         }
         let _execution_permit = if call_stack.is_empty() {
             self.execution_queue
-                .acquire(&installed.id, &cancellation)
+                .acquire(&installed.id, &cancellation, || {
+                    self.blacklist_decision_for_installed(&installed)
+                        .blocks_execution()
+                })
                 .map_err(|error| match error {
                     AcquireError::Cancelled => {
                         CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
                     }
                     AcquireError::Busy => unreachable!("blocking acquisition cannot be busy"),
+                    AcquireError::Full => CoreError::ScriptQueueFull(installed.id.clone()),
+                    AcquireError::Rejected => self
+                        .ensure_installed_execution_allowed(&installed, "run")
+                        .expect_err("the queue only rejects newly restricted scripts"),
                 })?
         } else {
             let owner_script_id = call_stack
                 .last()
                 .expect("non-empty sub-script call stack should have an owner");
             self.execution_queue
-                .acquire_nested(owner_script_id, &installed.id, &cancellation)
+                .acquire_nested(owner_script_id, &installed.id, &cancellation, || {
+                    self.blacklist_decision_for_installed(&installed)
+                        .blocks_execution()
+                })
                 .map_err(|error| match error {
                     AcquireError::Busy => CoreError::SubScriptDeadlock {
                         owner: owner_script_id.clone(),
@@ -531,25 +619,47 @@ impl RunnerCore {
                     AcquireError::Cancelled => {
                         CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
                     }
+                    AcquireError::Full => CoreError::ScriptQueueFull(installed.id.clone()),
+                    AcquireError::Rejected => self
+                        .ensure_installed_execution_allowed(&installed, "run")
+                        .expect_err("the queue only rejects newly restricted scripts"),
                 })?
         };
+        self.ensure_installed_execution_allowed(&installed, "run")?;
         call_stack.push(installed.id.clone());
 
         let package = load_script_package(&installed.package_path)?;
         if let Err(source) = self.validate_package_compatibility(&package) {
-            append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            append_failed_run_record(
+                store,
+                &package,
+                trigger_node_id,
+                source.to_string(),
+                self.output_limits,
+            )?;
             self.notify_run_recorded();
             return Err(source);
         }
         if !has_current_approval(store, &installed, &package)? {
             let source = CoreError::ApprovalRequired(installed.id.clone());
-            append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+            append_failed_run_record(
+                store,
+                &package,
+                trigger_node_id,
+                source.to_string(),
+                self.output_limits,
+            )?;
             self.notify_run_recorded();
             return Err(source);
         }
-        let policy = RunnerPolicy::permissive();
-        if let Err(source) = validate_package_security(&package, &policy) {
-            append_failed_run_record(store, &package, trigger_node_id, source.to_string())?;
+        if let Err(source) = validate_package_security(&package, &self.policy) {
+            append_failed_run_record(
+                store,
+                &package,
+                trigger_node_id,
+                source.to_string(),
+                self.output_limits,
+            )?;
             self.notify_run_recorded();
             return Err(CoreError::Security(source));
         }
@@ -600,11 +710,14 @@ impl RunnerCore {
                 .with_package_path(installed.package_path.clone())
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
-                .with_default_variables(&default_variables);
-            if let Some(observer) = &self.run_observer {
-                resources.with_observer(Arc::clone(observer))
-            } else {
-                resources
+                .with_default_variables(&default_variables)
+                .with_output_limits(self.output_limits);
+            match self.run_observers.as_slice() {
+                [] => resources,
+                [observer] => resources.with_observer(Arc::clone(observer)),
+                observers => resources.with_observer(Arc::new(CompositeRunObserver {
+                    observers: observers.to_vec(),
+                })),
             }
         };
         let report = match trigger_node_id {
@@ -624,9 +737,15 @@ impl RunnerCore {
         .map_err(|source| {
             let persistence_result = if matches!(source, baudbound_runtime::RuntimeError::Cancelled)
             {
-                append_cancelled_run_record(store, &package, trigger_node_id)
+                append_cancelled_run_record(store, &package, trigger_node_id, self.output_limits)
             } else {
-                append_failed_run_record(store, &package, trigger_node_id, source.to_string())
+                append_failed_run_record(
+                    store,
+                    &package,
+                    trigger_node_id,
+                    source.to_string(),
+                    self.output_limits,
+                )
             };
             if let Err(error) = persistence_result {
                 tracing::warn!("failed to persist failed run record: {error}");
@@ -635,13 +754,13 @@ impl RunnerCore {
             }
             CoreError::Runtime(source)
         })?;
-        store.append_run_record(stored_run_record_from_report(&report))?;
+        store.append_run_record(stored_run_record_from_report(&report, self.output_limits))?;
         self.notify_run_recorded();
         Ok(report)
     }
 
     fn notify_run_recorded(&self) {
-        if let Some(observer) = &self.run_observer {
+        for observer in &self.run_observers {
             observer.run_recorded();
         }
     }
@@ -679,7 +798,7 @@ impl RunnerCore {
                 Ok(package) => {
                     package_loaded = true;
                     declared_permissions = package.permissions.declared_permissions.clone();
-                    if let Err(error) = self.validate_package_compatibility(&package) {
+                    if let Err(error) = self.validate_loaded_package(&package) {
                         package_error = Some(error.to_string());
                     } else {
                         match trigger_registrations_from_package(&script, &package) {
@@ -721,6 +840,7 @@ impl RunnerCore {
 
         ScriptStatus {
             approval_status,
+            blacklist: self.blacklist_decision_for_installed(&script),
             declared_permissions,
             installed: script,
             metadata,
@@ -746,13 +866,76 @@ impl RunnerCore {
         Ok(())
     }
 
-    fn validate_loaded_package(
+    fn validate_loaded_package(&self, package: &ScriptPackage) -> Result<(), CoreError> {
+        self.validate_package_compatibility(package)?;
+        validate_package_security(package, &self.policy)?;
+        Ok(())
+    }
+
+    fn blacklist_decision_for_installed(&self, installed: &InstalledScript) -> BlacklistDecision {
+        self.blacklist_policy
+            .decide(&BlacklistMatchSubject::installed(
+                &installed.id,
+                &installed.package_hash,
+            ))
+    }
+
+    fn ensure_installed_distribution_allowed(
+        &self,
+        installed: &InstalledScript,
+        operation: &'static str,
+    ) -> Result<(), CoreError> {
+        let decision = self.blacklist_decision_for_installed(installed);
+        if decision.blocks_distribution() {
+            return Err(CoreError::Blacklisted {
+                operation,
+                severity: decision
+                    .severity
+                    .expect("a blocking blacklist decision has a severity"),
+                titles: blacklist_titles(&decision),
+            });
+        }
+        Ok(())
+    }
+
+    fn ensure_installed_execution_allowed(
+        &self,
+        installed: &InstalledScript,
+        operation: &'static str,
+    ) -> Result<(), CoreError> {
+        let decision = self.blacklist_decision_for_installed(installed);
+        if decision.blocks_execution() {
+            return Err(CoreError::Blacklisted {
+                operation,
+                severity: decision
+                    .severity
+                    .expect("a blocking blacklist decision has a severity"),
+                titles: blacklist_titles(&decision),
+            });
+        }
+        Ok(())
+    }
+
+    fn ensure_package_distribution_allowed(
         &self,
         package: &ScriptPackage,
-        policy: &RunnerPolicy,
+        path: &Path,
+        operation: &'static str,
     ) -> Result<(), CoreError> {
-        self.validate_package_compatibility(package)?;
-        validate_package_security(package, policy)?;
+        let decision = self.blacklist_policy.decide(&BlacklistMatchSubject {
+            package_hash: Some(sha256_file(path)?),
+            script_id: Some(package.manifest.id.clone()),
+            trusted_urls: Vec::new(),
+        });
+        if decision.blocks_distribution() {
+            return Err(CoreError::Blacklisted {
+                operation,
+                severity: decision
+                    .severity
+                    .expect("a blocking blacklist decision has a severity"),
+                titles: blacklist_titles(&decision),
+            });
+        }
         Ok(())
     }
 }
@@ -761,6 +944,14 @@ impl RunnerCore {
 pub enum CoreError {
     #[error("script {0} is not approved for its current package")]
     ApprovalRequired(String),
+    #[error(
+        "cannot {operation} because the package is {severity:?} on the Official blacklist: {titles}"
+    )]
+    Blacklisted {
+        operation: &'static str,
+        severity: BlacklistSeverity,
+        titles: String,
+    },
     #[error(transparent)]
     Compatibility(#[from] CompatibilityError),
     #[error("program trigger registration failed: {0}")]
@@ -775,6 +966,8 @@ pub enum CoreError {
     Storage(#[from] StorageError),
     #[error("script {0} is disabled")]
     ScriptDisabled(String),
+    #[error("script {0} already has too many queued runs")]
+    ScriptQueueFull(String),
     #[error("failed to stage package {path}: {source}")]
     PackageStage {
         path: PathBuf,
@@ -789,6 +982,41 @@ pub enum CoreError {
     InvalidSecret(String),
     #[error(transparent)]
     Version(#[from] VersionCompatibilityError),
+}
+
+fn blacklist_titles(decision: &BlacklistDecision) -> String {
+    decision
+        .entries
+        .iter()
+        .map(|entry| entry.title.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn sha256_file(path: &Path) -> Result<String, CoreError> {
+    let mut file = File::open(path).map_err(|source| CoreError::PackageStage {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|source| CoreError::PackageStage {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 struct StagedPackage {

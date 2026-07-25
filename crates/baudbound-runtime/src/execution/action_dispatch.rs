@@ -82,7 +82,7 @@ impl RuntimeExecutor<'_> {
                 format!("{}.{}", node.id, key),
                 value,
                 RunVariableScope::NodeOutput,
-            );
+            )?;
         }
 
         self.push_runtime_log(
@@ -140,7 +140,7 @@ impl RuntimeExecutor<'_> {
             format!("{}.result", node.id),
             value.clone(),
             RunVariableScope::NodeOutput,
-        );
+        )?;
         self.push_runtime_log(
             "info",
             format!(

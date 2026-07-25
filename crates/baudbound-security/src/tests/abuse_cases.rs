@@ -159,6 +159,26 @@ fn runtime_write_paths_require_unbounded_write_permission() {
 }
 
 #[test]
+fn parent_traversal_paths_require_unbounded_permissions() {
+    for path in [
+        "../outside.txt",
+        "nested/../../outside.txt",
+        r"..\outside.txt",
+    ] {
+        let mut program = program_with_steps(&["action.file.write"]);
+        program["entry"]["program"]["steps"][0]["config"] = json!({"path": path});
+
+        let report = calculate_program_permissions(&program)
+            .expect("parent traversal should produce a permission report");
+
+        assert!(report.required_permissions.iter().any(|permission| {
+            permission.name == "write_any_file" && permission.risk == RiskLevel::Dangerous
+        }));
+        assert_eq!(report.calculated_risk, RiskLevel::Dangerous);
+    }
+}
+
+#[test]
 fn repeated_file_actions_evaluate_every_node_configuration() {
     let mut program = program_with_steps(&["action.file.read", "action.file.read"]);
     program["entry"]["program"]["steps"][0]["config"] = json!({"path": "./input.txt"});

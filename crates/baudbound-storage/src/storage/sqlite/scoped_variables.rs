@@ -59,6 +59,11 @@ impl SqliteRunnerStore {
             source,
         })?;
         let updated_at_unix = unix_timestamp_for_sqlite()?;
+        if expected_version == Some(i64::MAX as u64) {
+            return Err(StorageError::Operation(
+                "variable version reached the maximum supported SQLite value".to_owned(),
+            ));
+        }
         let expected_version = expected_version
             .map(i64::try_from)
             .transpose()

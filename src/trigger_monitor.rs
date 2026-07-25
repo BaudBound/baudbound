@@ -174,7 +174,7 @@ impl TriggerMonitor {
             return;
         }
         let session_id = self.inner.session_id.load(Ordering::Acquire);
-        let sequence = self.inner.sequence.fetch_add(1, Ordering::AcqRel) + 1;
+        let sequence = saturating_increment_u64(&self.inner.sequence);
         let (payload_json, payload_bytes, payload_truncated) = payload_document(&event.payload);
         let monitor_event = TriggerMonitorEvent {
             action_type: event.action_type.clone(),
@@ -199,20 +199,35 @@ impl TriggerMonitor {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let Some(sender) = sender else {
-            self.inner.omitted_events.fetch_add(1, Ordering::Relaxed);
+            saturating_increment_usize(&self.inner.omitted_events);
             return;
         };
         match sender.try_send(monitor_event) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
-                self.inner.omitted_events.fetch_add(1, Ordering::Relaxed);
+                saturating_increment_usize(&self.inner.omitted_events);
             }
         }
     }
 
     fn next_session(&self) -> u64 {
-        self.inner.session_id.fetch_add(1, Ordering::AcqRel) + 1
+        saturating_increment_u64(&self.inner.session_id)
     }
+}
+
+fn saturating_increment_u64(value: &AtomicU64) -> u64 {
+    value
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            Some(current.saturating_add(1))
+        })
+        .unwrap_or(u64::MAX)
+        .saturating_add(1)
+}
+
+fn saturating_increment_usize(value: &AtomicUsize) {
+    let _ = value.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        Some(current.saturating_add(1))
+    });
 }
 
 fn payload_document(payload: &Value) -> (String, usize, bool) {

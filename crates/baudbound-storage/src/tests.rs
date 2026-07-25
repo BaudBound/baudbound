@@ -1103,7 +1103,7 @@ fn run_retention_prunes_count_and_age_without_touching_live_variables() {
         )
         .expect("persistent variable should write");
     store
-        .set_run_retention_policy(RunRetentionPolicy::new(2, 30))
+        .set_run_retention_policy(RunRetentionPolicy::new(2, 30, i64::MAX as u64))
         .expect("retention policy should apply");
 
     let now = current_test_timestamp();
@@ -1123,7 +1123,7 @@ fn run_retention_prunes_count_and_age_without_touching_live_variables() {
     );
 
     let deleted = store
-        .set_run_retention_policy(RunRetentionPolicy::new(1, 30))
+        .set_run_retention_policy(RunRetentionPolicy::new(1, 30, i64::MAX as u64))
         .expect("reduced retention policy should prune immediately");
     assert_eq!(deleted, 1);
     assert_eq!(
@@ -1145,7 +1145,7 @@ fn run_retention_prunes_count_and_age_without_touching_live_variables() {
     );
 
     store
-        .set_run_retention_policy(RunRetentionPolicy::new(100, 1))
+        .set_run_retention_policy(RunRetentionPolicy::new(100, 1, i64::MAX as u64))
         .expect("age policy should apply");
     store
         .append_run_record(test_run_record(
@@ -1161,6 +1161,24 @@ fn run_retention_prunes_count_and_age_without_touching_live_variables() {
             .iter()
             .all(|record| record.run_id != "expired-run")
     );
+
+    store
+        .set_run_retention_policy(RunRetentionPolicy::new(100, 30, 1))
+        .expect("byte policy should prune immediately");
+    assert!(
+        store
+            .list_run_records(None, None)
+            .expect("runs should list")
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .load_variable(StoredVariableScope::Persistent, "script-1", "counter")
+            .expect("persistent variable should load")
+            .expect("persistent variable should remain after byte pruning")
+            .value,
+        serde_json::json!(7)
+    );
 }
 
 #[test]
@@ -1169,8 +1187,9 @@ fn run_retention_rejects_unbounded_zero_limits() {
     let store = open_store(&temporary_directory);
 
     for policy in [
-        RunRetentionPolicy::new(0, 30),
-        RunRetentionPolicy::new(100, 0),
+        RunRetentionPolicy::new(0, 30, 1024),
+        RunRetentionPolicy::new(100, 0, 1024),
+        RunRetentionPolicy::new(100, 30, 0),
     ] {
         assert!(store.set_run_retention_policy(policy).is_err());
     }
@@ -1628,6 +1647,9 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
         .query_repository_scripts(&RepositoryScriptQuery {
             capabilities: vec!["action.log".to_owned()],
             direction: SortDirection::Ascending,
+            excluded_package_hashes: Vec::new(),
+            excluded_repository_urls: Vec::new(),
+            excluded_script_ids: Vec::new(),
             installed: Vec::new(),
             limit: 1,
             offset: 0,
@@ -1646,6 +1668,9 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
         .query_repository_scripts(&RepositoryScriptQuery {
             capabilities: vec!["action.log".to_owned()],
             direction: SortDirection::Ascending,
+            excluded_package_hashes: Vec::new(),
+            excluded_repository_urls: Vec::new(),
+            excluded_script_ids: Vec::new(),
             installed: Vec::new(),
             limit: 50,
             offset: 0,
@@ -1663,6 +1688,9 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
         .query_repository_scripts(&RepositoryScriptQuery {
             capabilities: Vec::new(),
             direction: SortDirection::Ascending,
+            excluded_package_hashes: Vec::new(),
+            excluded_repository_urls: Vec::new(),
+            excluded_script_ids: Vec::new(),
             installed: vec![false],
             limit: 50,
             offset: 0,
@@ -1681,6 +1709,9 @@ fn queries_repository_scripts_with_search_filters_and_pagination() {
         .query_repository_scripts(&RepositoryScriptQuery {
             capabilities: Vec::new(),
             direction: SortDirection::Ascending,
+            excluded_package_hashes: Vec::new(),
+            excluded_repository_urls: Vec::new(),
+            excluded_script_ids: Vec::new(),
             installed: vec![true, false],
             limit: 50,
             offset: 0,

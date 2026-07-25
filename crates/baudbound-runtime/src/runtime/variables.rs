@@ -6,6 +6,7 @@ use crate::{RuntimeError, RuntimeNode};
 
 pub(crate) const DERIVED_VARIABLE_METADATA_SUFFIXES: [&str; 4] =
     [".$length", ".$count", ".$type", ".$is_empty"];
+const MAX_AUTO_EXPANDED_LIST_ITEMS: usize = 100_000;
 
 pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(), RuntimeError> {
     if name.starts_with("system_")
@@ -123,6 +124,12 @@ fn parse_object_path(path: &str) -> Result<Vec<ObjectPathSegment>, String> {
             let array_index = path[number_start..index]
                 .parse::<usize>()
                 .map_err(|_| format!("invalid object field path {path:?}"))?;
+            if array_index >= MAX_AUTO_EXPANDED_LIST_ITEMS {
+                return Err(format!(
+                    "object field path index {array_index} exceeds the maximum supported index {}",
+                    MAX_AUTO_EXPANDED_LIST_ITEMS - 1
+                ));
+            }
             segments.push(ObjectPathSegment::Index(array_index));
             index += 1;
         }

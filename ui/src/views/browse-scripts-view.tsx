@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import {
   CircleAlert,
+  Ban,
   Database,
   Eye,
   ListFilter,
@@ -66,6 +67,7 @@ import {
   repositoryChangedEvent,
   repositoryProgressEvent,
   setScriptRepositoryEnabled,
+  setPersonalRepositoryBlock,
   type DashboardPayload,
   type RemotePackageReview,
   type RepositoryRefreshProgress,
@@ -77,6 +79,12 @@ import {
   type RepositorySource,
 } from "@/lib/runner-api";
 import { RemotePackageDialog } from "@/views/remote-package-dialog";
+import {
+  blacklistEntriesForRepositoryScript,
+  blacklistEntriesForUrl,
+  blacklistLabel,
+  blacklistVariant,
+} from "@/lib/blacklist";
 
 const pageSize = 50;
 
@@ -390,6 +398,10 @@ export function BrowseScriptsView({
   const progressRepository = progress
     ? repositories.find((source) => source.url === progress.repository_url)
     : undefined;
+  const orphanPersonalBlocks =
+    dashboard.blacklist.personal_repository_blocks.filter(
+      (blockedUrl) => !repositories.some((source) => source.url === blockedUrl),
+    );
 
   return (
     <div className="grid gap-4">
@@ -494,8 +506,20 @@ export function BrowseScriptsView({
                   const mismatchNeedsRefresh =
                     Boolean(script.information_mismatch) &&
                     script.information_mismatch_refresh_required;
+                  const scriptBlacklistEntries =
+                    blacklistEntriesForRepositoryScript(
+                      dashboard.blacklist.entries,
+                      script,
+                    );
+                  const scriptBlacklistSeverity =
+                    highestBlacklistSeverity(scriptBlacklistEntries);
+                  const scriptRestricted =
+                    scriptBlacklistSeverity === "medium" ||
+                    scriptBlacklistSeverity === "high" ||
+                    scriptBlacklistSeverity === "critical";
                   const canReview =
                     !mismatchNeedsRefresh &&
+                    !scriptRestricted &&
                     compatible &&
                     (!installed ||
                       updateAvailable ||
@@ -519,10 +543,27 @@ export function BrowseScriptsView({
                       key={`${script.repository_url}:${script.script_id}`}
                     >
                       <td className="px-4 py-3" data-label="Script">
-                        <div className="font-medium">{script.name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{script.name}</span>
+                          {scriptBlacklistSeverity ? (
+                            <Badge
+                              variant={blacklistVariant(scriptBlacklistSeverity)}
+                            >
+                              {blacklistLabel(scriptBlacklistSeverity)}
+                            </Badge>
+                          ) : null}
+                        </div>
                         <div className="mt-1 max-w-xl text-xs text-muted-foreground">
                           {script.summary}
                         </div>
+                        {scriptBlacklistEntries.map((entry) => (
+                          <div
+                            className="mt-1 max-w-xl text-xs text-baud-amber"
+                            key={entry.id}
+                          >
+                            {entry.title}: {entry.reason}
+                          </div>
+                        ))}
                       </td>
                       <td className="px-3 py-3" data-label="Repository">
                         <div className="flex flex-wrap items-center gap-2">
@@ -566,6 +607,8 @@ export function BrowseScriptsView({
                                   ? "This script does not support a target runtime available on this runner."
                                   : !versionCompatible
                                     ? `This script requires BaudBound ${script.minimum_runner_version} or newer.`
+                                  : scriptRestricted
+                                    ? "This script is restricted by the Official blacklist."
                                   : !canReview && installed
                                     ? "This version is already installed or belongs to another repository."
                                     : undefined
@@ -630,6 +673,26 @@ export function BrowseScriptsView({
             ) : (
               repositories.map((source) => {
                 const displayName = repositoryDisplayName(source);
+                const officialEntries = blacklistEntriesForUrl(
+                  dashboard.blacklist.entries,
+                  source.url,
+                );
+                const officialSeverity =
+                  officialEntries
+                    .map((entry) => entry.severity)
+                    .sort(
+                      (left, right) =>
+                        ["low", "medium", "high", "critical"].indexOf(right) -
+                        ["low", "medium", "high", "critical"].indexOf(left),
+                    )[0] ?? null;
+                const personallyBlocked =
+                  dashboard.blacklist.personal_repository_blocks.includes(
+                    source.url,
+                  );
+                const restricted =
+                  officialSeverity === "medium" ||
+                  officialSeverity === "high" ||
+                  officialSeverity === "critical";
                 return (
                   <div
                     className="grid items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)_auto]"
@@ -638,7 +701,11 @@ export function BrowseScriptsView({
                     <Switch
                       aria-label={`Enable ${displayName}`}
                       checked={source.enabled}
-                      disabled={repositoryBusy.has(source.url)}
+                      disabled={
+                        repositoryBusy.has(source.url) ||
+                        personallyBlocked ||
+                        restricted
+                      }
                       onCheckedChange={(enabled) =>
                         void runRepositoryAction(
                           source.url,
@@ -655,6 +722,14 @@ export function BrowseScriptsView({
                         <span className="truncate font-medium">{displayName}</span>
                         {source.official ? (
                           <Badge variant="good">Official</Badge>
+                        ) : null}
+                        {officialSeverity ? (
+                          <Badge variant={blacklistVariant(officialSeverity)}>
+                            {blacklistLabel(officialSeverity)}
+                          </Badge>
+                        ) : null}
+                        {personallyBlocked ? (
+                          <Badge variant="muted">Blocked by you</Badge>
                         ) : null}
                         <Badge variant="muted">
                           {source.script_count} scripts
@@ -686,12 +761,50 @@ export function BrowseScriptsView({
                           Refresh failed. Cached data is still available. {source.last_error}
                         </p>
                       ) : null}
+                      {officialEntries.map((entry) => (
+                        <div
+                          className="mt-2 grid gap-1 rounded-md border border-baud-amber/35 bg-baud-amber/5 p-2 text-xs"
+                          key={entry.id}
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium">{entry.title}</span>
+                            <Badge variant={blacklistVariant(entry.severity)}>
+                              {blacklistLabel(entry.severity)}
+                            </Badge>
+                          </div>
+                          <p className="select-text text-muted-foreground">
+                            {entry.reason}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                            <span>
+                              Published {entry.published_at}
+                            </span>
+                            {entry.scope === "domain" ? (
+                              <span>
+                                {entry.subdomains
+                                  ? "Includes subdomains"
+                                  : "Exact domain only"}
+                              </span>
+                            ) : null}
+                            {entry.scope === "publisher" ? (
+                              <span>{entry.target}</span>
+                            ) : null}
+                            <ExternalLink href={entry.advisory_url}>
+                              Read advisory
+                            </ExternalLink>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                     <div className="flex items-center justify-end gap-2">
                       <Button
                         aria-label={`Refresh ${displayName}`}
                         className="size-8 p-0"
-                        disabled={repositoryBusy.has(source.url)}
+                        disabled={
+                          repositoryBusy.has(source.url) ||
+                          personallyBlocked ||
+                          restricted
+                        }
                         onClick={() =>
                           void runRepositoryAction(
                             source.url,
@@ -710,7 +823,30 @@ export function BrowseScriptsView({
                           }
                         />
                       </Button>
-                      {!source.official ? (
+                      <Button
+                        aria-label={`${personallyBlocked ? "Unblock" : "Block"} ${displayName}`}
+                        className="size-8 p-0"
+                        disabled={repositoryBusy.has(source.url)}
+                        onClick={() => {
+                          const action = `block-repository:${source.url}`;
+                          void runAction(action, () =>
+                            setPersonalRepositoryBlock(
+                              source.url,
+                              !personallyBlocked,
+                            ),
+                          ).then(() => void loadRepositories());
+                        }}
+                        size="sm"
+                        title={
+                          personallyBlocked
+                            ? "Remove from your block list"
+                            : "Add to your block list"
+                        }
+                        variant="outline"
+                      >
+                        <Ban />
+                      </Button>
+                      {!source.official || restricted ? (
                         <Button
                           aria-label={`Remove ${displayName}`}
                           className="size-8 p-0 text-destructive"
@@ -727,6 +863,37 @@ export function BrowseScriptsView({
                 );
               })
             )}
+            {orphanPersonalBlocks.map((blockedUrl) => (
+              <div
+                className="grid items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
+                key={blockedUrl}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">Blocked repository</span>
+                    <Badge variant="muted">Blocked by you</Badge>
+                  </div>
+                  <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                    {repositoryUrlForDisplay(blockedUrl)}
+                  </div>
+                </div>
+                <Button
+                  aria-label={`Unblock ${blockedUrl}`}
+                  className="size-8 p-0"
+                  disabled={busyActions.has(`block-repository:${blockedUrl}`)}
+                  onClick={() =>
+                    void runAction(`block-repository:${blockedUrl}`, () =>
+                      setPersonalRepositoryBlock(blockedUrl, false),
+                    ).then(() => void loadRepositories())
+                  }
+                  size="sm"
+                  title="Remove from your block list"
+                  variant="outline"
+                >
+                  <Ban />
+                </Button>
+              </div>
+            ))}
             {progress ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
                 <span>
@@ -1058,7 +1225,15 @@ export function BrowseScriptsView({
         open={detailScript !== null}
         title={detailScript?.name ?? "Script details"}
       >
-        {detailScript ? <RepositoryScriptDetails script={detailScript} /> : null}
+        {detailScript ? (
+          <RepositoryScriptDetails
+            blacklistEntries={blacklistEntriesForRepositoryScript(
+              dashboard.blacklist.entries,
+              detailScript,
+            )}
+            script={detailScript}
+          />
+        ) : null}
       </DetailDialog>
 
       <RemotePackageDialog
@@ -1078,13 +1253,39 @@ export function BrowseScriptsView({
 }
 
 function RepositoryScriptDetails({
+  blacklistEntries,
   script,
 }: {
+  blacklistEntries: DashboardPayload["blacklist"]["entries"];
   script: RepositoryScriptRecord;
 }) {
   const entry = script.entry;
   return (
     <div className="grid gap-4">
+      {blacklistEntries.map((blacklistEntry) => (
+        <Card key={blacklistEntry.id}>
+          <CardHeader>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>{blacklistEntry.title}</CardTitle>
+              <Badge variant={blacklistVariant(blacklistEntry.severity)}>
+                {blacklistLabel(blacklistEntry.severity)}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-2 text-sm">
+            <p className="select-text text-muted-foreground">
+              {blacklistEntry.reason}
+            </p>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span>Scope {blacklistEntry.scope}</span>
+              <span>Published {blacklistEntry.published_at}</span>
+              <ExternalLink href={blacklistEntry.advisory_url}>
+                Read advisory
+              </ExternalLink>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
       <div className="grid gap-3 md:grid-cols-3">
         <InfoCard label="Repository" value={script.repository_name} />
         <InfoCard label="Version" value={entry.latest.version} />
@@ -1259,4 +1460,13 @@ function refreshStageLabel(stage: RepositoryRefreshProgress["stage"]) {
   if (stage === "validating") return "Validating";
   if (stage === "replacing_cache") return "Updating cache for";
   return "Refreshed";
+}
+
+function highestBlacklistSeverity(
+  entries: DashboardPayload["blacklist"]["entries"],
+) {
+  const order = ["low", "medium", "high", "critical"] as const;
+  return entries
+    .map((entry) => entry.severity)
+    .sort((left, right) => order.indexOf(right) - order.indexOf(left))[0] ?? null;
 }

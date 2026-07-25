@@ -1,11 +1,19 @@
-import { ShieldCheck, ShieldAlert } from "lucide-react";
+import { ExternalLink, RefreshCw, ShieldCheck, ShieldAlert } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { StatusSummaryCard } from "@/components/status-summary-card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
-import type { DashboardPayload, ScriptStatus } from "@/lib/runner-api";
+import {
+  checkOfficialBlacklist,
+  type BlacklistSeverity,
+  type DashboardPayload,
+  type ScriptStatus,
+} from "@/lib/runner-api";
+import { openExternalUrl } from "@/lib/external-url";
+import { useDesktopTime } from "@/lib/time-format";
 import type { DashboardAction } from "@/lib/app-types";
 import {
   approvalIssueDescription,
@@ -49,6 +57,7 @@ export function SecurityView({
   runAction: DashboardAction;
 }) {
   const scripts = dashboard.runner.scripts;
+  const { formatUnixSeconds } = useDesktopTime();
   const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
     scripts,
     securitySortSelectors,
@@ -58,6 +67,13 @@ export function SecurityView({
   );
   const networkAuth = Object.values(dashboard.trigger_auth_statuses).flat();
   const unprotectedNetworkTriggers = networkAuth.filter((auth) => !auth.auth_enabled).length;
+  const blacklist = dashboard.blacklist;
+  const incidentEntries = blacklist.incidents
+    .map((incident) => ({
+      entry: blacklist.entries.find((entry) => entry.id === incident.entry_id),
+      incident,
+    }))
+    .filter((value) => value.entry);
 
   return (
     <div className="grid gap-4">
@@ -172,6 +188,123 @@ export function SecurityView({
         </Card>
       )}
 
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>Official blacklist</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {blacklist.fetched_at_unix
+                ? `Last checked ${formatUnixSeconds(blacklist.fetched_at_unix)}`
+                : "No blacklist has been downloaded yet."}
+            </p>
+          </div>
+          <Button
+            disabled={busyActions.has("check-blacklist")}
+            onClick={() =>
+              void runAction("check-blacklist", checkOfficialBlacklist)
+            }
+            size="sm"
+            variant="outline"
+          >
+            <RefreshCw
+              className={
+                busyActions.has("check-blacklist") ? "animate-spin" : ""
+              }
+            />
+            Check now
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={blacklist.api_available ? "good" : "medium"}>
+              {blacklist.api_available ? "API available" : "Using cached data"}
+            </Badge>
+            <Badge variant={blacklist.stale ? "medium" : "muted"}>
+              {blacklist.stale ? "Cache stale" : "Cache current"}
+            </Badge>
+            <Badge variant="muted">
+              {blacklist.active_entry_count} active entries
+            </Badge>
+          </div>
+          {blacklist.last_error ? (
+            <p className="text-sm text-baud-amber">{blacklist.last_error}</p>
+          ) : null}
+          {incidentEntries.length === 0 ? (
+            <EmptyState>
+              No installed scripts are affected by the Official blacklist.
+            </EmptyState>
+          ) : (
+            <div className="grid gap-2">
+              {incidentEntries.map(({ entry, incident }) => (
+                <div
+                  className="grid gap-2 rounded-md border border-border px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
+                  key={`${incident.entry_id}-${incident.script_id ?? incident.repository_url ?? "repository"}`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">
+                        {entry?.title ?? incident.title}
+                      </span>
+                      <Badge variant={blacklistVariant(incident.severity)}>
+                        {blacklistLabel(incident.severity)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-muted-foreground">
+                      {entry?.reason ?? incident.reason}
+                    </p>
+                    {entry ? (
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Scope {entry.scope}</span>
+                        <span>Published {entry.published_at}</span>
+                        {entry.scope === "domain" ? (
+                          <span>
+                            {entry.subdomains
+                              ? "Includes subdomains"
+                              : "Exact domain only"}
+                          </span>
+                        ) : null}
+                        {entry.scope === "publisher" ? (
+                          <span>{entry.target}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {incident.script_id ? (
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                        Script {incident.script_id}
+                      </p>
+                    ) : null}
+                    {incident.repository_url ? (
+                      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                        Repository {incident.repository_url}
+                      </p>
+                    ) : null}
+                  </div>
+                  {entry?.advisory_url || incident.advisory_url ? (
+                    <Button
+                      onClick={() =>
+                        void openExternalUrl(
+                          entry?.advisory_url ?? incident.advisory_url,
+                        )
+                      }
+                      size="sm"
+                      variant="outline"
+                    >
+                      <ExternalLink />
+                      Advisory
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Low entries are advisories. Medium entries block distribution. High
+            entries quarantine installed scripts. Critical entries also request
+            cancellation of active runs.
+          </p>
+        </CardContent>
+      </Card>
+
       <NetworkTriggerSecurityPanel
         busyActions={busyActions}
         dashboard={dashboard}
@@ -186,6 +319,19 @@ export function SecurityView({
       />
     </div>
   );
+}
+
+function blacklistLabel(severity: BlacklistSeverity) {
+  if (severity === "critical") return "Critical quarantine";
+  if (severity === "high") return "Quarantined";
+  if (severity === "medium") return "Restricted";
+  return "Advisory";
+}
+
+function blacklistVariant(severity: BlacklistSeverity) {
+  if (severity === "critical" || severity === "high") return "destructive";
+  if (severity === "medium") return "medium";
+  return "muted";
 }
 
 function scriptNeedsAttention(script: ScriptStatus) {

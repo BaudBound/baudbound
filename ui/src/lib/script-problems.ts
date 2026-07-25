@@ -19,6 +19,26 @@ export type ScriptProblem = {
 export function scriptProblems(script: ScriptStatus): ScriptProblem[] {
   const problems: ScriptProblem[] = [];
 
+  if (script.blacklist.entries.length > 0) {
+    const severity = script.blacklist.severity;
+    problems.push({
+      detail: script.blacklist.entries
+        .map((entry) => `${entry.title}: ${entry.reason}`)
+        .join(" "),
+      id: `blacklist-${severity ?? "advisory"}`,
+      severity:
+        severity === "medium" || severity === "high" || severity === "critical"
+          ? "error"
+          : "warning",
+      title:
+        severity === "high" || severity === "critical"
+          ? "Script is quarantined"
+          : severity === "medium"
+            ? "Distribution is restricted"
+            : "Security advisory",
+    });
+  }
+
   if (script.package_error) {
     problems.push({
       detail: script.package_error,

@@ -11,6 +11,24 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 use super::*;
 
 #[test]
+fn utility_windows_cannot_invoke_runner_management_commands() {
+    assert!(desktop_command_is_allowed("main", "remove_script"));
+    assert!(desktop_command_is_allowed(
+        "coordinate-picker-session-1",
+        "select_coordinate_picker"
+    ));
+    assert!(desktop_command_is_allowed(
+        "coordinate-picker-session-1",
+        "cancel_coordinate_picker"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "coordinate-picker-session-1",
+        "remove_script"
+    ));
+    assert!(!desktop_command_is_allowed("unexpected", "dashboard_state"));
+}
+
+#[test]
 fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner");
@@ -22,13 +40,25 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let store = SqliteRunnerStore::open(runner_home.join("runner.sqlite3"))
         .expect("SQLite runner store should open");
     let active_runs = Arc::new(ActiveRunRegistry::default());
+    let backend_api = Arc::new(
+        crate::backend_api::BackendApiClient::production().expect("backend API client should open"),
+    );
+    let blacklist = crate::blacklist::BlacklistService::open(
+        runner_home.join("blacklist-state.json"),
+        backend_api,
+    )
+    .expect("blacklist state should open");
+    // Keep the blocking HTTP client alive until the mock app drops on this test thread.
+    let _blacklist_lifetime_guard = Arc::clone(&blacklist);
     let core = build_runner_core(
         &runner_config,
         Arc::clone(&websocket_registry),
         Arc::clone(&active_runs),
+        Arc::clone(&blacklist),
     );
     let state = DesktopUiState {
         active_runs: Arc::clone(&active_runs),
+        blacklist,
         background_options: Mutex::new(desktop_background_options(
             &runner_config,
             Arc::clone(&websocket_registry),
@@ -356,12 +386,18 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let started = invoke(&webview, "start_background_runner", json!({}));
     assert_eq!(started["dashboard"]["desktop_background"]["running"], true);
     invoke(&webview, "stop_background_runner", json!({}));
-    let stopped = invoke(&webview, "prepare_for_update", json!({}));
+    let stopped = invoke_sensitive(
+        &webview,
+        "prepare_for_update",
+        json!({"kind": "prepare_for_update"}),
+        json!({}),
+    );
     assert_eq!(stopped["dashboard"]["desktop_background"]["running"], false);
 
-    let removed = invoke(
+    let removed = invoke_sensitive(
         &webview,
         "remove_script",
+        json!({"kind": "remove_script", "reference": "desktop-workflow"}),
         json!({"reference": "desktop-workflow"}),
     );
     assert_eq!(removed["dashboard"]["runner"]["total_script_count"], 0);

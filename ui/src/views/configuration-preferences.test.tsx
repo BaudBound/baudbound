@@ -19,12 +19,25 @@ const config: RunnerConfig = {
     max_file_download_bytes: 104_857_600,
     max_file_read_bytes: 10_485_760,
     max_http_response_bytes: 10_485_760,
+    max_log_entry_bytes: 16_384,
+    max_runtime_variable_bytes: 16_777_216,
+    max_retained_variable_bytes: 262_144,
+    max_run_log_bytes: 2_097_152,
+    max_run_record_bytes: 8_388_608,
   },
   runner: {
     run_history_max_age_days: 30,
+    run_history_max_bytes: 1_073_741_824,
     run_history_max_records: 10_000,
     target_runtimes: [],
     trigger_reload_seconds: 2,
+  },
+  security: {
+    policy: {
+      allow_dangerous_permissions: true,
+      allow_public_network_listeners: true,
+      allow_shell_commands: true,
+    },
   },
   serial: { devices: {} },
   triggers: {
@@ -43,6 +56,7 @@ const config: RunnerConfig = {
     allow_unauthenticated_public_bind: false,
     bind: "127.0.0.1",
     max_body_bytes: 1_048_576,
+    max_connections: 128,
     port: 43_891,
   },
   websockets: {

@@ -26,6 +26,7 @@ pub(crate) fn http_request_action(
     let user_agent = config_string(&request.config, "userAgent");
     let body = config_string(&request.config, "body").unwrap_or_default();
     validate_json_request_body(request, &headers, &body)?;
+    let safe_url = safe_http_destination(&url);
 
     let client = Client::builder()
         .timeout(timeout)
@@ -48,7 +49,10 @@ pub(crate) fn http_request_action(
         .send()
         .map_err(|source| RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
-            message: format!("HTTP request {method} {url} failed: {source}"),
+            message: format!(
+                "HTTP request {method} {safe_url} failed: {}",
+                sanitized_http_error(&source, &url, &safe_url)
+            ),
         })?;
     let duration_ms = elapsed_millis(started_at);
     let status = response.status();
@@ -94,6 +98,45 @@ pub(crate) fn http_request_action(
     }
 
     Ok(RuntimeActionResult { output_data })
+}
+
+fn safe_http_destination(value: &str) -> String {
+    let Ok(url) = url::Url::parse(value) else {
+        return "[INVALID URL]".to_owned();
+    };
+    let mut destination = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
+    if let Some(port) = url.port() {
+        destination.push(':');
+        destination.push_str(&port.to_string());
+    }
+    destination.push_str(url.path());
+    let query_names = url
+        .query_pairs()
+        .map(|(name, _)| format!("{name}=[REDACTED]"))
+        .collect::<Vec<_>>();
+    if !query_names.is_empty() {
+        destination.push('?');
+        destination.push_str(&query_names.join("&"));
+    }
+    destination
+}
+
+fn sanitized_http_error(error: &reqwest::Error, original_url: &str, safe_url: &str) -> String {
+    let mut message = error.to_string().replace(original_url, safe_url);
+    if let Ok(url) = url::Url::parse(original_url) {
+        for (_, value) in url.query_pairs() {
+            if !value.is_empty() {
+                message = message.replace(value.as_ref(), "[REDACTED]");
+            }
+        }
+        if !url.username().is_empty() {
+            message = message.replace(url.username(), "[REDACTED]");
+        }
+        if let Some(password) = url.password().filter(|password| !password.is_empty()) {
+            message = message.replace(password, "[REDACTED]");
+        }
+    }
+    message
 }
 
 pub(crate) fn webhook_response_action(

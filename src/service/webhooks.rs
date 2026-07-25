@@ -12,7 +12,6 @@ use baudbound_triggers::{
     NetworkTriggerAuthenticationError, NetworkTriggerAuthenticator, NetworkTriggerKind,
     WebhookDispatch, WebhookResponse, WebhookService,
 };
-use tiny_http::{Request, Server};
 
 use crate::console;
 
@@ -24,8 +23,10 @@ use super::{
 };
 
 mod http;
+mod listener;
 
-use http::{preflight_response, request_from_http, respond_safely, with_cors_origin};
+use http::{preflight_response, with_cors_origin};
+use listener::{IncomingWebhook, WebhookListener, WebhookResponseSender};
 
 const COMPLETION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -33,8 +34,8 @@ pub(super) struct WebhookHost {
     allow_browser_origins: BTreeSet<String>,
     authenticator: Arc<dyn NetworkTriggerAuthenticator>,
     executor: TriggerExecutor,
+    listener: WebhookListener,
     pending: BTreeMap<u64, PendingWebhookResponse>,
-    pub(super) server: Server,
     pub(super) service: WebhookService,
 }
 
@@ -42,7 +43,7 @@ struct PendingWebhookResponse {
     cors_origin: Option<String>,
     deadline: Instant,
     dispatch: WebhookDispatch,
-    request: Request,
+    response: WebhookResponseSender,
 }
 
 impl WebhookHost {
@@ -50,29 +51,34 @@ impl WebhookHost {
         self.executor.has_pending()
     }
 
-    pub(super) fn accept_request(&mut self, mut request: Request, max_body_bytes: usize) {
-        if let Some(response) = preflight_response(&request, &self.allow_browser_origins) {
-            respond_safely(request, response);
+    pub(super) fn accept_next(&mut self, wait_duration: Duration) -> Result<()> {
+        let Some(incoming) = self
+            .listener
+            .recv_timeout(wait_duration)
+            .map_err(|_| anyhow!("webhook listener channel disconnected"))?
+        else {
+            return Ok(());
+        };
+        self.accept_request(incoming);
+        Ok(())
+    }
+
+    fn accept_request(&mut self, incoming: IncomingWebhook) {
+        let IncomingWebhook { parsed, response } = incoming;
+        if let Some(preflight) = preflight_response(&parsed, &self.allow_browser_origins) {
+            response.send(preflight);
             return;
         }
-
-        let parsed = match request_from_http(&mut request, max_body_bytes) {
-            Ok(request) => request,
-            Err(response) => {
-                respond_safely(request, response);
-                return;
-            }
-        };
 
         if let Some(origin) = parsed.origin.as_deref()
             && !self.allow_browser_origins.contains(origin)
         {
-            respond_safely(request, browser_origin_denied_response());
+            response.send(browser_origin_denied_response());
             return;
         }
 
         let Some(dispatch) = self.service.dispatch_for_request(&parsed.request) else {
-            respond_safely(request, route_not_found_response());
+            response.send(route_not_found_response());
             return;
         };
 
@@ -82,13 +88,10 @@ impl WebhookHost {
             NetworkTriggerKind::Webhook,
             parsed.token.as_deref(),
         ) {
-            respond_safely(
-                request,
-                with_cors_origin(
-                    authentication_error_response(error),
-                    parsed.origin.as_deref(),
-                ),
-            );
+            response.send(with_cors_origin(
+                authentication_error_response(error),
+                parsed.origin.as_deref(),
+            ));
             return;
         }
 
@@ -99,11 +102,11 @@ impl WebhookHost {
         let job_id = match self.executor.submit_from(dispatch.event.clone(), "webhook") {
             Ok(job_id) => job_id,
             Err(TriggerSubmitError::Full) => {
-                respond_safely(request, overloaded_response());
+                response.send(overloaded_response());
                 return;
             }
             Err(TriggerSubmitError::Stopped) => {
-                respond_safely(request, unavailable_response());
+                response.send(unavailable_response());
                 return;
             }
         };
@@ -115,14 +118,14 @@ impl WebhookHost {
                     cors_origin: parsed.origin,
                     deadline: Instant::now() + dispatch.response_timeout,
                     dispatch,
-                    request,
+                    response,
                 },
             );
         } else {
-            respond_safely(
-                request,
-                with_cors_origin(dispatch.fallback_response, parsed.origin.as_deref()),
-            );
+            response.send(with_cors_origin(
+                dispatch.fallback_response,
+                parsed.origin.as_deref(),
+            ));
         }
     }
 
@@ -160,22 +163,18 @@ impl WebhookHost {
                 status.record_report("webhook", &report);
                 if let Some(pending) = self.pending.remove(&completion.job_id) {
                     let response = self.service.response_for_report(&pending.dispatch, &report);
-                    respond_safely(
-                        pending.request,
-                        with_cors_origin(response, pending.cors_origin.as_deref()),
-                    );
+                    pending
+                        .response
+                        .send(with_cors_origin(response, pending.cors_origin.as_deref()));
                 }
             }
             Err(error) => {
                 status.record_event_failure("webhook", &completion.event, error.clone());
                 if let Some(pending) = self.pending.remove(&completion.job_id) {
-                    respond_safely(
-                        pending.request,
-                        with_cors_origin(
-                            dispatch_failed_response(&error),
-                            pending.cors_origin.as_deref(),
-                        ),
-                    );
+                    pending.response.send(with_cors_origin(
+                        dispatch_failed_response(&error),
+                        pending.cors_origin.as_deref(),
+                    ));
                 }
             }
         }
@@ -190,13 +189,10 @@ impl WebhookHost {
             .collect::<Vec<_>>();
         for job_id in expired {
             if let Some(pending) = self.pending.remove(&job_id) {
-                respond_safely(
-                    pending.request,
-                    with_cors_origin(
-                        pending.dispatch.fallback_response,
-                        pending.cors_origin.as_deref(),
-                    ),
-                );
+                pending.response.send(with_cors_origin(
+                    pending.dispatch.fallback_response,
+                    pending.cors_origin.as_deref(),
+                ));
             }
         }
     }
@@ -205,7 +201,7 @@ impl WebhookHost {
 impl Drop for WebhookHost {
     fn drop(&mut self) {
         for (_, pending) in std::mem::take(&mut self.pending) {
-            respond_safely(pending.request, unavailable_response());
+            pending.response.send(unavailable_response());
         }
     }
 }
@@ -246,13 +242,18 @@ pub(super) fn build_webhook_host(
     }
 
     let address = format!("{}:{}", options.webhook_bind, options.webhook_port);
-    let server = Server::http(&address)
-        .map_err(|error| anyhow!("failed to bind webhook listener on {address}: {error}"))?;
+    let listener = WebhookListener::bind(
+        &address,
+        options.max_webhook_connections,
+        options.max_webhook_body_bytes,
+    )
+    .map_err(|error| anyhow!("failed to bind webhook listener on {address}: {error}"))?;
+    let listening_address = listener.local_addr();
     console::info(format_args!(
         "Serving {} webhook trigger{} on http://{}.",
         service.len(),
         if service.len() == 1 { "" } else { "s" },
-        address
+        listening_address
     ));
     Ok(Some(WebhookHost {
         allow_browser_origins: options.webhook_allow_browser_origins.clone(),
@@ -265,8 +266,8 @@ pub(super) fn build_webhook_host(
             options.trigger_monitor.clone(),
         )
         .map_err(|error| anyhow!("failed to start webhook executor: {error}"))?,
+        listener,
         pending: BTreeMap::new(),
-        server,
         service,
     }))
 }

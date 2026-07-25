@@ -397,6 +397,18 @@ function SimpleConfigEditor({
             }
             value={config.runner.run_history_max_age_days}
           />
+          <NumberField
+            label="Maximum run history bytes"
+            max={68_719_476_736}
+            min={1_048_576}
+            onChange={(run_history_max_bytes) =>
+              onChange({
+                ...config,
+                runner: { ...config.runner, run_history_max_bytes },
+              })
+            }
+            value={config.runner.run_history_max_bytes}
+          />
           <TargetRuntimeField
             className="md:col-span-2"
             onChange={(target_runtimes) =>
@@ -406,6 +418,124 @@ function SimpleConfigEditor({
               })
             }
             value={config.runner.target_runtimes}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Runner security policy</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <BooleanField
+            checked={config.security.policy.allow_shell_commands}
+            description="Allow approved scripts to start shell commands."
+            label="Allow shell commands"
+            onChange={(allow_shell_commands) =>
+              onChange({
+                ...config,
+                security: {
+                  policy: { ...config.security.policy, allow_shell_commands },
+                },
+              })
+            }
+          />
+          <BooleanField
+            checked={config.security.policy.allow_dangerous_permissions}
+            description="Allow approved scripts that require a Dangerous permission."
+            label="Allow Dangerous permissions"
+            onChange={(allow_dangerous_permissions) =>
+              onChange({
+                ...config,
+                security: {
+                  policy: { ...config.security.policy, allow_dangerous_permissions },
+                },
+              })
+            }
+          />
+          <BooleanField
+            checked={config.security.policy.allow_public_network_listeners}
+            description="Allow approved scripts to expose Webhook or WebSocket listeners beyond this computer."
+            label="Allow public network listeners"
+            onChange={(allow_public_network_listeners) =>
+              onChange({
+                ...config,
+                security: {
+                  policy: {
+                    ...config.security.policy,
+                    allow_public_network_listeners,
+                  },
+                },
+              })
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Retained diagnostic limits</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <NumberField
+            label="Maximum log entry bytes"
+            max={1_048_576}
+            min={256}
+            onChange={(max_log_entry_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_log_entry_bytes },
+              })
+            }
+            value={config.limits.max_log_entry_bytes}
+          />
+          <NumberField
+            label="Maximum retained variable bytes"
+            max={16_777_216}
+            min={1_024}
+            onChange={(max_retained_variable_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_retained_variable_bytes },
+              })
+            }
+            value={config.limits.max_retained_variable_bytes}
+          />
+          <NumberField
+            label="Maximum active variable bytes"
+            max={268_435_456}
+            min={4_096}
+            onChange={(max_runtime_variable_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_runtime_variable_bytes },
+              })
+            }
+            value={config.limits.max_runtime_variable_bytes}
+          />
+          <NumberField
+            label="Maximum retained log bytes per run"
+            max={67_108_864}
+            min={4_096}
+            onChange={(max_run_log_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_run_log_bytes },
+              })
+            }
+            value={config.limits.max_run_log_bytes}
+          />
+          <NumberField
+            label="Maximum stored run record bytes"
+            max={134_217_728}
+            min={16_384}
+            onChange={(max_run_record_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_run_record_bytes },
+              })
+            }
+            value={config.limits.max_run_record_bytes}
           />
         </CardContent>
       </Card>
@@ -486,6 +616,7 @@ function SimpleConfigEditor({
               config.webhooks.allow_unauthenticated_public_bind
             }
             bind={config.webhooks.bind}
+            maxConnections={config.webhooks.max_connections}
             maxBytes={config.webhooks.max_body_bytes}
             maxBytesLabel="Max body bytes"
             onBindChange={(bind) =>
@@ -507,6 +638,12 @@ function SimpleConfigEditor({
               onChange({
                 ...config,
                 webhooks: { ...config.webhooks, max_body_bytes },
+              })
+            }
+            onMaxConnectionsChange={(max_connections) =>
+              onChange({
+                ...config,
+                webhooks: { ...config.webhooks, max_connections },
               })
             }
             onPortChange={(port) =>
@@ -1112,11 +1249,13 @@ function TargetRuntimeField({
 
 function BooleanField({
   checked,
+  description,
   disabled = false,
   label,
   onChange,
 }: {
   checked: boolean;
+  description?: string;
   disabled?: boolean;
   label: string;
   onChange: (checked: boolean) => void;
@@ -1128,7 +1267,12 @@ function BooleanField({
         disabled && "opacity-60",
       )}
     >
-      <span>{label}</span>
+      <span className="grid gap-0.5">
+        <span>{label}</span>
+        {description ? (
+          <span className="text-xs text-muted-foreground">{description}</span>
+        ) : null}
+      </span>
       <Switch
         aria-label={label}
         checked={checked}

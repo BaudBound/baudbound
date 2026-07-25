@@ -49,7 +49,7 @@ impl RuntimeExecutor<'_> {
                 &value_type,
                 current,
             )?;
-            self.set_variable(name.clone(), value, RunVariableScope::Runtime);
+            self.set_variable(name.clone(), value, RunVariableScope::Runtime)?;
         }
 
         self.push_runtime_log(
@@ -87,7 +87,9 @@ impl RuntimeExecutor<'_> {
             let expected_version = stored.as_ref().map(|variable| variable.version);
             let current = stored.map(|variable| variable.value);
             match &current {
-                Some(value) => self.set_variable(name.to_owned(), value.clone(), run_scope),
+                Some(value) => {
+                    self.set_variable(name.to_owned(), value.clone(), run_scope)?;
+                }
                 None => self.remove_variable(name),
             }
             let next = self
@@ -102,7 +104,7 @@ impl RuntimeExecutor<'_> {
                 )
                 .map_err(RuntimeError::State)?
             {
-                self.set_variable(name.to_owned(), next, run_scope);
+                self.set_variable(name.to_owned(), next, run_scope)?;
                 return Ok(());
             }
         }

@@ -48,19 +48,27 @@ impl RemoteResourceKind {
 #[derive(Debug)]
 pub(crate) struct RemoteDownload {
     pub(crate) file: NamedTempFile,
+    pub(crate) final_url: Url,
+    pub(crate) original_url: Url,
+    pub(crate) redirect_urls: Vec<Url>,
     pub(crate) sha256: String,
     pub(crate) size: u64,
 }
 
 #[derive(Debug)]
 pub(crate) enum RepositoryFetchResult {
-    Modified {
-        bytes: Vec<u8>,
-        etag: Option<String>,
-        final_url: Url,
-        last_modified: Option<String>,
-    },
+    Modified(Box<RepositoryFetchModified>),
     NotModified,
+}
+
+#[derive(Debug)]
+pub(crate) struct RepositoryFetchModified {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) etag: Option<String>,
+    pub(crate) final_url: Url,
+    pub(crate) last_modified: Option<String>,
+    pub(crate) original_url: Url,
+    pub(crate) redirect_urls: Vec<Url>,
 }
 
 #[derive(Debug, Error)]
@@ -89,6 +97,8 @@ pub(crate) enum RemoteFetchError {
     Truncated,
     #[error("the remote package download was cancelled")]
     Cancelled,
+    #[error("{0}")]
+    Blacklisted(String),
     #[error("failed to create or write the protected temporary download: {0}")]
     TemporaryFile(String),
 }
@@ -105,9 +115,7 @@ impl RemoteFetchService {
 
     pub(crate) fn fetch_repository(&self, value: &str) -> Result<(Vec<u8>, Url), RemoteFetchError> {
         match self.fetch_repository_with_progress(value, &mut |_, _| true)? {
-            RepositoryFetchResult::Modified {
-                bytes, final_url, ..
-            } => Ok((bytes, final_url)),
+            RepositoryFetchResult::Modified(result) => Ok((result.bytes, result.final_url)),
             RepositoryFetchResult::NotModified => Err(RemoteFetchError::Request),
         }
     }
@@ -128,7 +136,7 @@ impl RemoteFetchService {
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<RepositoryFetchResult, RemoteFetchError> {
         let url = validate_url(value, RemoteResourceKind::Repository)?;
-        let (mut response, final_url) = self.send(url, etag, last_modified)?;
+        let (mut response, provenance) = self.send(url, etag, last_modified)?;
         if response.status() == StatusCode::NOT_MODIFIED {
             ensure_continues(progress, 0, Some(0))?;
             return Ok(RepositoryFetchResult::NotModified);
@@ -142,12 +150,16 @@ impl RemoteFetchService {
             MAX_REPOSITORY_BYTES,
             progress,
         )?;
-        Ok(RepositoryFetchResult::Modified {
-            bytes,
-            etag: response_etag,
-            final_url,
-            last_modified: response_last_modified,
-        })
+        Ok(RepositoryFetchResult::Modified(Box::new(
+            RepositoryFetchModified {
+                bytes,
+                etag: response_etag,
+                final_url: provenance.final_url,
+                last_modified: response_last_modified,
+                original_url: provenance.original_url,
+                redirect_urls: provenance.redirect_urls,
+            },
+        )))
     }
 
     pub(crate) fn fetch_package_with_progress(
@@ -156,7 +168,7 @@ impl RemoteFetchService {
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<RemoteDownload, RemoteFetchError> {
         let url = validate_url(value, RemoteResourceKind::Package)?;
-        let (mut response, _) = self.send(url, None, None)?;
+        let (mut response, provenance) = self.send(url, None, None)?;
         let expected_length = response.content_length();
         if expected_length.is_some_and(|length| length > self.package_limit) {
             return Err(RemoteFetchError::TooLarge {
@@ -202,7 +214,14 @@ impl RemoteFetchService {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        Ok(RemoteDownload { file, sha256, size })
+        Ok(RemoteDownload {
+            file,
+            final_url: provenance.final_url,
+            original_url: provenance.original_url,
+            redirect_urls: provenance.redirect_urls,
+            sha256,
+            size,
+        })
     }
 
     fn send(
@@ -210,8 +229,15 @@ impl RemoteFetchService {
         mut url: Url,
         etag: Option<&str>,
         last_modified: Option<&str>,
-    ) -> Result<(Response, Url), RemoteFetchError> {
+    ) -> Result<(Response, RemoteProvenance), RemoteFetchError> {
+        let original_url = url.clone();
+        let mut redirect_urls = Vec::new();
         for redirect_count in 0..=MAX_REDIRECTS {
+            if let Some(blacklist) = crate::blacklist::global() {
+                blacklist
+                    .ensure_url_distribution_allowed(&url)
+                    .map_err(|error| RemoteFetchError::Blacklisted(error.to_string()))?;
+            }
             let addresses = resolve_public_addresses(&url)?;
             let host = url.host_str().ok_or(RemoteFetchError::InvalidUrl)?;
             let client = pinned_client(host, &addresses)?;
@@ -238,15 +264,29 @@ impl RemoteFetchService {
                     .join(location)
                     .map_err(|_| RemoteFetchError::InvalidRedirect)?;
                 validate_transport_url(&url)?;
+                redirect_urls.push(url.clone());
                 continue;
             }
             if !response.status().is_success() && response.status() != StatusCode::NOT_MODIFIED {
                 return Err(RemoteFetchError::HttpStatus(response.status()));
             }
-            return Ok((response, url));
+            return Ok((
+                response,
+                RemoteProvenance {
+                    final_url: url,
+                    original_url,
+                    redirect_urls,
+                },
+            ));
         }
         Err(RemoteFetchError::TooManyRedirects)
     }
+}
+
+struct RemoteProvenance {
+    final_url: Url,
+    original_url: Url,
+    redirect_urls: Vec<Url>,
 }
 
 fn header_value(response: &Response, name: reqwest::header::HeaderName) -> Option<String> {

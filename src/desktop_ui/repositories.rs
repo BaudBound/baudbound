@@ -435,9 +435,29 @@ pub(super) fn set_script_repository_enabled<R: tauri::Runtime>(
 #[tauri::command]
 pub(super) fn remove_script_repository<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
+    confirmation_id: String,
+    guard: State<'_, super::command_guard::SensitiveOperationGuard>,
     state: State<'_, DesktopUiState>,
     url: String,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<bool, String> {
+    super::consume_sensitive_operation(
+        &confirmation_id,
+        &super::command_guard::SensitiveOperation::RemoveScriptRepository { url: url.clone() },
+        &guard,
+        &state,
+        &window,
+    )?;
+    if state
+        .blacklist
+        .repository_decision(&url)
+        .blocks_distribution()
+    {
+        state
+            .blacklist
+            .set_personal_repository_block(&url, true)
+            .map_err(|error| error.to_string())?;
+    }
     let removed = state
         .store
         .remove_repository_source(&url)

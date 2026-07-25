@@ -59,6 +59,7 @@ function scriptWithNetworkTrigger(
 ): ScriptStatus {
   return {
     approval_status: approvalStatus,
+    blacklist: { entries: [], severity: null },
     declared_permissions: ["webhook_public_bind"],
     installed: {
       asset_count: 0,

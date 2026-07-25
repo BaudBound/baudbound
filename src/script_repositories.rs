@@ -68,7 +68,14 @@ pub(crate) struct RepositoryPreview {
 
 pub(crate) fn ensure_official_repository(
     store: &SqliteRunnerStore,
-) -> Result<RepositorySource, ScriptRepositoryServiceError> {
+) -> Result<Option<RepositorySource>, ScriptRepositoryServiceError> {
+    if crate::blacklist::global()
+        .is_some_and(|blacklist| blacklist.is_personally_blocked(OFFICIAL_REPOSITORY_URL))
+    {
+        return store
+            .repository_source(OFFICIAL_REPOSITORY_URL)
+            .map_err(storage_error);
+    }
     store
         .migrate_repository_source_url(
             LEGACY_OFFICIAL_REPOSITORY_URL,
@@ -78,6 +85,7 @@ pub(crate) fn ensure_official_repository(
         .map_err(storage_error)?;
     store
         .ensure_repository_source(OFFICIAL_REPOSITORY_URL, true)
+        .map(Some)
         .map_err(storage_error)
 }
 
@@ -88,6 +96,7 @@ pub(crate) fn add_repository(
     progress: &mut dyn FnMut(RepositoryRefreshProgress) -> bool,
 ) -> Result<RepositorySource, ScriptRepositoryServiceError> {
     let normalized = normalize_repository_url(url)?;
+    ensure_repository_distribution_allowed(&normalized)?;
     let _mutation_guard = REPOSITORY_CACHE_MUTATION_LOCK
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -136,6 +145,7 @@ pub(crate) fn preview_repository(
     progress: &mut dyn FnMut(RepositoryRefreshProgress) -> bool,
 ) -> Result<RepositoryPreview, ScriptRepositoryServiceError> {
     let normalized = normalize_repository_url(url)?;
+    ensure_repository_distribution_allowed(&normalized)?;
     let repository = download_repository(package_limit, &normalized, None, None, progress)?;
     let DownloadedRepository::Modified { repository, .. } = repository else {
         return Err(ScriptRepositoryServiceError::Download(
@@ -158,6 +168,7 @@ pub(crate) fn refresh_repository(
     progress: &mut dyn FnMut(RepositoryRefreshProgress) -> bool,
 ) -> Result<RepositorySource, ScriptRepositoryServiceError> {
     let normalized = normalize_repository_url(url)?;
+    ensure_repository_distribution_allowed(&normalized)?;
     let _mutation_guard = REPOSITORY_CACHE_MUTATION_LOCK
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -210,6 +221,7 @@ pub(crate) fn prepare_repository_script_with_progress(
     script_id: &str,
     progress: &mut dyn FnMut(RemotePreparationProgress) -> bool,
 ) -> Result<PreparedRemotePackage, ScriptRepositoryServiceError> {
+    ensure_repository_distribution_allowed(repository_url)?;
     let record = store
         .repository_script(repository_url, script_id)
         .map_err(storage_error)?
@@ -261,7 +273,18 @@ pub(crate) fn query_scripts(
     store: &SqliteRunnerStore,
     query: &RepositoryScriptQuery,
 ) -> Result<PaginatedRecords<RepositoryScriptSummary>, ScriptRepositoryServiceError> {
-    store.query_repository_scripts(query).map_err(storage_error)
+    let mut query = query.clone();
+    if let Some(blacklist) = crate::blacklist::global() {
+        let repositories = store.list_repository_sources().map_err(storage_error)?;
+        let exclusions =
+            blacklist.catalog_exclusions(repositories.into_iter().map(|source| source.url));
+        query.excluded_repository_urls = exclusions.repository_urls;
+        query.excluded_script_ids = exclusions.script_ids;
+        query.excluded_package_hashes = exclusions.package_hashes;
+    }
+    store
+        .query_repository_scripts(&query)
+        .map_err(storage_error)
 }
 
 pub(crate) fn script_filter_options() -> RepositoryScriptFilterOptions {
@@ -282,10 +305,52 @@ pub(crate) fn script_details(
     repository_url: &str,
     script_id: &str,
 ) -> Result<RepositoryScriptRecord, ScriptRepositoryServiceError> {
-    store
+    ensure_repository_distribution_allowed(repository_url)?;
+    let record = store
         .repository_script(repository_url, script_id)
         .map_err(storage_error)?
-        .ok_or(ScriptRepositoryServiceError::ScriptNotFound)
+        .ok_or(ScriptRepositoryServiceError::ScriptNotFound)?;
+    if let Some(blacklist) = crate::blacklist::global() {
+        let package_hash = record
+            .entry
+            .pointer("/latest/sha256")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let mut subject =
+            baudbound_security::BlacklistMatchSubject::installed(script_id, package_hash);
+        subject.trusted_urls.push(repository_url.to_owned());
+        let decision = baudbound_security::BlacklistPolicy::decide(blacklist.as_ref(), &subject);
+        if decision.blocks_distribution() {
+            return Err(ScriptRepositoryServiceError::ScriptNotFound);
+        }
+    }
+    Ok(record)
+}
+
+fn ensure_repository_distribution_allowed(
+    repository_url: &str,
+) -> Result<(), ScriptRepositoryServiceError> {
+    let Some(blacklist) = crate::blacklist::global() else {
+        return Ok(());
+    };
+    if blacklist.is_personally_blocked(repository_url) {
+        return Err(ScriptRepositoryServiceError::Download(
+            "this repository is on the Personal block list".to_owned(),
+        ));
+    }
+    let decision = blacklist.repository_decision(repository_url);
+    if decision.blocks_distribution() {
+        return Err(ScriptRepositoryServiceError::Download(format!(
+            "this repository is restricted by the Official blacklist: {}",
+            decision
+                .entries
+                .iter()
+                .map(|entry| entry.title.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    Ok(())
 }
 
 fn download_repository(
@@ -306,15 +371,17 @@ fn download_repository(
             })
         })
         .map_err(|error| ScriptRepositoryServiceError::Download(error.to_string()))?;
-    let RepositoryFetchResult::Modified {
-        bytes,
-        etag,
-        last_modified,
-        ..
-    } = result
-    else {
+    let RepositoryFetchResult::Modified(result) = result else {
         return Ok(DownloadedRepository::NotModified);
     };
+    let crate::script_updates::RepositoryFetchModified {
+        bytes,
+        etag,
+        final_url,
+        last_modified,
+        original_url,
+        redirect_urls,
+    } = *result;
     if !progress(RepositoryRefreshProgress {
         repository_url: url.to_owned(),
         stage: RepositoryRefreshStage::Validating,
@@ -327,6 +394,17 @@ fn download_repository(
     }
     let repository = parse_script_repository(&bytes)
         .map_err(|error| ScriptRepositoryServiceError::Repository(error.to_string()))?;
+    if let Some(blacklist) = crate::blacklist::global() {
+        blacklist
+            .record_repository_provenance(
+                url,
+                std::iter::once(original_url.to_string())
+                    .chain(redirect_urls.iter().map(ToString::to_string))
+                    .chain(std::iter::once(final_url.to_string()))
+                    .collect(),
+            )
+            .map_err(|error| ScriptRepositoryServiceError::Storage(error.to_string()))?;
+    }
     Ok(DownloadedRepository::Modified {
         etag,
         last_modified,
@@ -431,8 +509,9 @@ mod tests {
             .ensure_repository_source(LEGACY_OFFICIAL_REPOSITORY_URL, true)
             .expect("legacy official repository should be stored");
 
-        let repository =
-            ensure_official_repository(&store).expect("official repository should be ensured");
+        let repository = ensure_official_repository(&store)
+            .expect("official repository should be ensured")
+            .expect("official repository should be present");
 
         assert_eq!(repository.url, OFFICIAL_REPOSITORY_URL);
         assert!(repository.official);

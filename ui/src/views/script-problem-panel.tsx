@@ -17,8 +17,15 @@ export function ScriptProblemPanel({
   scripts: ScriptStatus[];
 }) {
   const scriptsWithProblems = scripts
-    .filter((script) => script.installed.enabled)
-    .map((script) => ({ problems: scriptProblems(script), script }))
+    .map((script) => {
+      const problems = scriptProblems(script);
+      return {
+        problems: script.installed.enabled
+          ? problems
+          : problems.filter((problem) => problem.id.startsWith("approval-")),
+        script,
+      };
+    })
     .filter(({ problems }) => problems.length > 0);
 
   if (scriptsWithProblems.length === 0) return null;

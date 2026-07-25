@@ -21,6 +21,11 @@ import {
   riskVariant,
 } from "@/lib/status-format";
 import { scriptRunControl } from "@/lib/script-run-control";
+import {
+  blacklistBlocksExecution,
+  blacklistLabel,
+  blacklistVariant,
+} from "@/lib/blacklist";
 
 export function ScriptRow({
   activeRuns,
@@ -47,6 +52,17 @@ export function ScriptRow({
   const runScriptAction = `run:${reference}`;
   const stopScriptAction = `stop-script:${reference}`;
   const toggleAction = `toggle:${reference}`;
+  const approvalCurrent = isApprovalCurrent(script.approval_status);
+  const executionBlocked = blacklistBlocksExecution(script);
+  const canToggleEnabled =
+    script.installed.enabled || (approvalCurrent && !executionBlocked);
+  const toggleTitle = script.installed.enabled
+    ? "Disable"
+    : executionBlocked
+      ? "This script is quarantined by the Official blacklist"
+    : approvalCurrent
+      ? "Enable"
+      : "Approve this script before enabling it";
   const runUnavailableReason = manualRunUnavailableReason(script);
   const canRun = runUnavailableReason === null;
   const runTitle = runUnavailableReason ?? "Run";
@@ -68,7 +84,14 @@ export function ScriptRow({
         ) : null}
       </td>
       <td className="px-3 py-3" data-label="State">
-        {script.installed.enabled ? "enabled" : "disabled"}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span>{script.installed.enabled ? "enabled" : "disabled"}</span>
+          {script.blacklist.severity ? (
+            <Badge variant={blacklistVariant(script.blacklist.severity)}>
+              {blacklistLabel(script.blacklist.severity)}
+            </Badge>
+          ) : null}
+        </div>
       </td>
       <td className="px-3 py-3" data-label="Risk">
         <Badge variant={riskVariant(script.installed.risk_level)}>
@@ -148,21 +171,23 @@ export function ScriptRow({
           >
             <ShieldCheck />
           </Button>
-          <Button
-            aria-label={`${script.installed.enabled ? "Disable" : "Enable"} ${script.installed.name}`}
-            className="size-8 p-0"
-            disabled={busyActions.has(toggleAction)}
-            onClick={() =>
-              runAction(toggleAction, () =>
-                setScriptEnabled(reference, !script.installed.enabled),
-              )
-            }
-            size="sm"
-            title={script.installed.enabled ? "Disable" : "Enable"}
-            variant="outline"
-          >
-            <Power />
-          </Button>
+          <span title={toggleTitle}>
+            <Button
+              aria-label={`${toggleTitle} ${script.installed.name}`}
+              className="size-8 p-0"
+              disabled={busyActions.has(toggleAction) || !canToggleEnabled}
+              onClick={() =>
+                runAction(toggleAction, () =>
+                  setScriptEnabled(reference, !script.installed.enabled),
+                )
+              }
+              size="sm"
+              title={toggleTitle}
+              variant="outline"
+            >
+              <Power />
+            </Button>
+          </span>
           <Button
             aria-label={`Remove ${script.installed.name}`}
             className="size-8 p-0"
@@ -211,6 +236,9 @@ function updateStatusVariant(status: ScriptUpdateState["status"]) {
 }
 
 function manualRunUnavailableReason(script: ScriptStatus) {
+  if (blacklistBlocksExecution(script)) {
+    return "This script is quarantined by the Official blacklist";
+  }
   if (!script.installed.enabled) return "Enable this script before running it";
   if (!isApprovalCurrent(script.approval_status)) {
     return "Approve this script before running it";

@@ -41,7 +41,7 @@ struct ActiveRunEntry {
 impl ActiveRunEntry {
     fn snapshot(&self) -> ActiveRunSnapshot {
         ActiveRunSnapshot {
-            cancellation_requested: self.cancellation_requested,
+            cancellation_requested: self.cancellation_requested || self.cancellation.is_cancelled(),
             discarded_log_count: self.discarded_log_count,
             logs: self.logs.iter().cloned().collect(),
             run_id: self.run_id.clone(),

@@ -34,10 +34,13 @@ impl CoordinatePickerState {
             return Err("A screen coordinate picker is already open.".to_owned());
         }
 
-        let session_id = format!(
-            "{:016x}",
-            self.next_session_id.fetch_add(1, Ordering::Relaxed)
-        );
+        let session_id = self
+            .next_session_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .map(|current| format!("{current:016x}"))
+            .map_err(|_| "coordinate picker session identifiers are exhausted".to_owned())?;
         *active = Some(PickerSession {
             id: session_id.clone(),
             window_labels: Vec::new(),

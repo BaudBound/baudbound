@@ -69,6 +69,7 @@ function scriptStatus(
 ): ScriptStatus {
   return {
     approval_status,
+    blacklist: { entries: [], severity: null },
     declared_permissions: ["run_process"],
     installed: {
       asset_count: 0,

@@ -1,4 +1,8 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 use baudbound_script::ScriptPackage;
 use baudbound_storage::{InstalledScript, ScriptStore};
@@ -72,10 +76,13 @@ pub(crate) fn trigger_registrations_from_package(
             .and_then(Value::as_str)
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| action_type.trim_start_matches("trigger.").to_owned());
-        let config = trigger
+        let mut config = trigger
             .get("config")
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
+        if action_type == "trigger.file_watch" {
+            resolve_limited_file_watch_path(installed, &mut config)?;
+        }
 
         registrations.push(TriggerRegistration {
             action_type: action_type.to_owned(),
@@ -88,4 +95,78 @@ pub(crate) fn trigger_registrations_from_package(
     }
 
     Ok(registrations)
+}
+
+fn resolve_limited_file_watch_path(
+    installed: &InstalledScript,
+    config: &mut Value,
+) -> Result<(), CoreError> {
+    let Some(path) = config
+        .get("path")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+    else {
+        return Ok(());
+    };
+    let configured = Path::new(&path);
+    if configured.is_absolute()
+        || configured
+            .components()
+            .any(|component| component == Component::ParentDir)
+        || path
+            .replace('\\', "/")
+            .split('/')
+            .any(|component| component == "..")
+    {
+        return Ok(());
+    }
+    let scripts_directory = installed.package_path.parent().ok_or_else(|| {
+        CoreError::InvalidTriggerRegistration(
+            "installed package has no scripts directory".to_owned(),
+        )
+    })?;
+    let runner_home = scripts_directory.parent().ok_or_else(|| {
+        CoreError::InvalidTriggerRegistration(
+            "installed package has no runner directory".to_owned(),
+        )
+    })?;
+    let workspace = runner_home.join("workspaces").join(&installed.id);
+    fs::create_dir_all(&workspace).map_err(|source| {
+        CoreError::InvalidTriggerRegistration(format!(
+            "failed to create script workspace {}: {source}",
+            workspace.display()
+        ))
+    })?;
+    let canonical_workspace = workspace.canonicalize().map_err(|source| {
+        CoreError::InvalidTriggerRegistration(format!(
+            "failed to resolve script workspace {}: {source}",
+            workspace.display()
+        ))
+    })?;
+    let resolved = canonical_workspace.join(configured);
+    let existing_ancestor = nearest_existing_ancestor(&resolved);
+    let canonical_ancestor = existing_ancestor.canonicalize().map_err(|source| {
+        CoreError::InvalidTriggerRegistration(format!(
+            "failed to resolve file watch path {}: {source}",
+            resolved.display()
+        ))
+    })?;
+    if !canonical_ancestor.starts_with(&canonical_workspace) {
+        return Err(CoreError::InvalidTriggerRegistration(format!(
+            "limited file watch path {path} escapes the script workspace"
+        )));
+    }
+    config["path"] = Value::String(resolved.to_string_lossy().into_owned());
+    Ok(())
+}
+
+fn nearest_existing_ancestor(path: &Path) -> PathBuf {
+    let mut current = path;
+    while !current.exists() {
+        let Some(parent) = current.parent() else {
+            return path.to_path_buf();
+        };
+        current = parent;
+    }
+    current.to_path_buf()
 }

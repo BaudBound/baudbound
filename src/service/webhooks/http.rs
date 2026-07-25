@@ -1,7 +1,6 @@
-use std::{collections::BTreeMap, io::Read};
+use std::collections::{BTreeMap, BTreeSet};
 
 use baudbound_triggers::{WebhookRequest, WebhookResponse};
-use tiny_http::{Header, Request, Response, StatusCode};
 
 const TOKEN_HEADER: &str = "x-baudbound-token";
 
@@ -11,62 +10,20 @@ pub(super) struct ParsedWebhookRequest {
     pub(super) token: Option<String>,
 }
 
-pub(super) fn request_from_http(
-    request: &mut Request,
-    max_body_bytes: usize,
-) -> Result<ParsedWebhookRequest, WebhookResponse> {
-    let mut body = Vec::new();
-    request
-        .as_reader()
-        .take(max_body_bytes.saturating_add(1) as u64)
-        .read_to_end(&mut body)
-        .map_err(|source| text_response(400, format!("Failed to read request body: {source}")))?;
-    if body.len() > max_body_bytes {
-        return Err(text_response(
-            413,
-            format!("Request body exceeds {max_body_bytes} bytes."),
-        ));
-    }
-
-    let token = header_value(request, TOKEN_HEADER);
-    let origin = header_value(request, "origin");
-    let request = WebhookRequest {
-        body: String::from_utf8_lossy(&body).into_owned(),
-        headers: request
-            .headers()
-            .iter()
-            .filter(|header| !header.field.equiv(TOKEN_HEADER))
-            .map(|header| {
-                (
-                    header.field.as_str().to_ascii_lowercase().to_string(),
-                    header.value.as_str().to_owned(),
-                )
-            })
-            .collect(),
-        method: request.method().to_string(),
-        path_and_query: request.url().to_owned(),
-    };
-    Ok(ParsedWebhookRequest {
-        origin,
-        request,
-        token,
-    })
-}
-
 pub(super) fn preflight_response(
-    request: &Request,
-    allowed_origins: &std::collections::BTreeSet<String>,
+    parsed: &ParsedWebhookRequest,
+    allowed_origins: &BTreeSet<String>,
 ) -> Option<WebhookResponse> {
-    if !request.method().as_str().eq_ignore_ascii_case("OPTIONS") {
+    if !parsed.request.method.eq_ignore_ascii_case("OPTIONS") {
         return None;
     }
-    let origin = header_value(request, "origin")?;
-    let requested_method = header_value(request, "access-control-request-method")?;
-    if !allowed_origins.contains(&origin) {
+    let origin = parsed.origin.as_ref()?;
+    let requested_method = request_header(parsed, "access-control-request-method")?;
+    if !allowed_origins.contains(origin.as_str()) {
         return Some(text_response(403, "Browser origin is not allowed."));
     }
-    let requested_headers =
-        header_value(request, "access-control-request-headers").unwrap_or_default();
+    let requested_headers = request_header(parsed, "access-control-request-headers")
+        .map_or_else(String::new, ToOwned::to_owned);
     if requested_headers.split(',').map(str::trim).any(|header| {
         !header.is_empty()
             && !header.eq_ignore_ascii_case("content-type")
@@ -86,7 +43,7 @@ pub(super) fn preflight_response(
     };
     response
         .headers
-        .insert("Access-Control-Allow-Origin".to_owned(), origin);
+        .insert("Access-Control-Allow-Origin".to_owned(), origin.to_owned());
     response.headers.insert(
         "Access-Control-Allow-Methods".to_owned(),
         requested_method.to_ascii_uppercase(),
@@ -116,33 +73,14 @@ pub(super) fn with_cors_origin(
     response
 }
 
-fn header_value(request: &Request, name: &str) -> Option<String> {
+fn request_header<'a>(request: &'a ParsedWebhookRequest, name: &str) -> Option<&'a str> {
     request
-        .headers()
+        .request
+        .headers
         .iter()
-        .find(|header| header.field.as_str().as_str().eq_ignore_ascii_case(name))
-        .map(|header| header.value.as_str().trim().to_owned())
+        .find(|(header, _)| header.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim())
         .filter(|value| !value.is_empty())
-}
-
-pub(super) fn respond_safely(request: Request, webhook_response: WebhookResponse) {
-    if let Err(error) = respond(request, webhook_response) {
-        tracing::warn!("failed to write webhook response: {error}");
-    }
-}
-
-fn respond(request: Request, webhook_response: WebhookResponse) -> std::io::Result<()> {
-    let mut response = Response::from_string(webhook_response.body)
-        .with_status_code(StatusCode(webhook_response.status_code));
-    if let Ok(header) = Header::from_bytes("Content-Type", webhook_response.content_type) {
-        response.add_header(header);
-    }
-    for (name, value) in webhook_response.headers {
-        if let Ok(header) = Header::from_bytes(name, value) {
-            response.add_header(header);
-        }
-    }
-    request.respond(response)
 }
 
 fn text_response(status_code: u16, body: impl Into<String>) -> WebhookResponse {

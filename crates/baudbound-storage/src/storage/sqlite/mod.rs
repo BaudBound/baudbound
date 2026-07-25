@@ -655,13 +655,26 @@ impl ScriptStore for SqliteRunnerStore {
 
     fn update_script(&self, request: ImportScriptRequest) -> Result<InstalledScript, StorageError> {
         let connection = self.connection()?;
-        let existing = resolve_script(&connection, &self.path, &request.id)?;
-        let installed = self.install_package(&connection, request, Some(existing))?;
-        connection
+        let transaction =
+            connection
+                .unchecked_transaction()
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+        let existing = resolve_script(&transaction, &self.path, &request.id)?;
+        let installed = self.install_package(&transaction, request, Some(existing))?;
+        transaction
             .execute(
                 "DELETE FROM approvals WHERE script_id = ?1",
                 params![installed.id],
             )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        transaction
+            .commit()
             .map_err(|source| StorageError::Sqlite {
                 path: self.path.clone(),
                 source,

@@ -1,4 +1,4 @@
-import { Eye, RefreshCw } from "lucide-react";
+import { AlertTriangle, Eye, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -28,6 +28,11 @@ import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from 
 import { useDesktopTime } from "@/lib/time-format";
 import { useSortableRows } from "@/lib/table-sorting";
 import { RemotePackageDialog } from "@/views/remote-package-dialog";
+import {
+  blacklistBlocksUpdateSource,
+  blacklistLabel,
+  blacklistVariant,
+} from "@/lib/blacklist";
 
 type TriggerSortColumn = "action" | "node" | "runnerType";
 type RecentRunSortColumn = "completed" | "runId" | "status" | "trigger";
@@ -86,6 +91,44 @@ export function ScriptDetailPanel({
 
   return (
     <div className="grid gap-4">
+      {script.blacklist.entries.length > 0 ? (
+        <Card className="border-baud-amber/45">
+          <CardHeader>
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              <AlertTriangle className="size-4 text-baud-amber" />
+              Official blacklist
+              <Badge variant={blacklistVariant(script.blacklist.severity)}>
+                {blacklistLabel(script.blacklist.severity)}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {script.blacklist.entries.map((entry) => (
+              <section
+                className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm"
+                key={entry.id}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{entry.title}</span>
+                  <Badge variant={blacklistVariant(entry.severity)}>
+                    {blacklistLabel(entry.severity)}
+                  </Badge>
+                  <Badge variant="muted">{entry.scope}</Badge>
+                </div>
+                <p className="select-text leading-6 text-muted-foreground">
+                  {entry.reason}
+                </p>
+                <div>
+                  <ExternalLink href={entry.advisory_url}>
+                    Read the security advisory
+                  </ExternalLink>
+                </div>
+              </section>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>About this script</CardTitle>
@@ -181,6 +224,7 @@ export function ScriptDetailPanel({
               <Button
                 disabled={
                   !metadata?.repository_url.trim() ||
+                  blacklistBlocksUpdateSource(script) ||
                   busyActions.has(`check-script-update:${script.installed.id}`)
                 }
                 onClick={() =>
@@ -245,6 +289,7 @@ export function ScriptDetailPanel({
               checked={updateState.automatic_checks_enabled}
               disabled={
                 !metadata?.repository_url.trim() ||
+                blacklistBlocksUpdateSource(script) ||
                 busyActions.has(`automatic-script-updates:${script.installed.id}`)
               }
               onCheckedChange={(enabled) => {

@@ -4,7 +4,7 @@ use crate::runtime::{
 };
 use crate::{RuntimeCancellationToken, RuntimeStateStore};
 use serde_json::Value;
-use std::sync::Arc;
+use std::{io::Write, sync::Arc};
 
 mod action_dispatch;
 mod api;
@@ -25,7 +25,10 @@ struct RuntimeExecutor<'a> {
     graph: RuntimeGraph,
     context: RuntimeContext,
     logs: Vec<RuntimeLogEntry>,
+    logs_truncated: bool,
     observer: Option<Arc<dyn RuntimeRunObserver>>,
+    output_limits: RuntimeOutputLimits,
+    retained_log_bytes: usize,
     action_handler: &'a dyn RuntimeActionHandler,
     cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
@@ -48,6 +51,13 @@ impl<'a> RuntimeExecutor<'a> {
             resources.default_variables,
             resources.secrets,
         )?;
+        for (name, value) in &initial_state.variables {
+            ensure_value_within_limit(
+                name,
+                value,
+                resources.output_limits.max_runtime_variable_bytes,
+            )?;
+        }
         Ok(Self {
             graph,
             context: RuntimeContext {
@@ -58,7 +68,10 @@ impl<'a> RuntimeExecutor<'a> {
                 variables: initial_state.variables,
             },
             logs: Vec::new(),
+            logs_truncated: false,
             observer: resources.observer,
+            output_limits: resources.output_limits,
+            retained_log_bytes: 0,
             action_handler: resources.action_handler,
             cancellation: resources.cancellation,
             state_store: resources.state_store,
@@ -76,7 +89,7 @@ impl<'a> RuntimeExecutor<'a> {
             format!("Trigger {} started.", trigger_node_id),
             Some(trigger_node_id.clone()),
         );
-        self.seed_trigger_payload_outputs(&trigger_node_id);
+        self.seed_trigger_payload_outputs(&trigger_node_id)?;
 
         let mut frames = vec![RuntimeFrame::Follow {
             source_node_id: trigger_node_id,
@@ -98,7 +111,7 @@ impl<'a> RuntimeExecutor<'a> {
         })
     }
 
-    fn seed_trigger_payload_outputs(&mut self, trigger_node_id: &str) {
+    fn seed_trigger_payload_outputs(&mut self, trigger_node_id: &str) -> Result<(), RuntimeError> {
         match self.context.trigger_payload.clone() {
             Value::Object(payload) => {
                 for (key, value) in payload {
@@ -106,7 +119,7 @@ impl<'a> RuntimeExecutor<'a> {
                         format!("{trigger_node_id}.{key}"),
                         value,
                         RunVariableScope::NodeOutput,
-                    );
+                    )?;
                 }
             }
             Value::Null => {}
@@ -115,9 +128,10 @@ impl<'a> RuntimeExecutor<'a> {
                     format!("{trigger_node_id}.payload"),
                     value,
                     RunVariableScope::NodeOutput,
-                );
+                )?;
             }
         }
+        Ok(())
     }
 
     fn ensure_not_cancelled(&self) -> Result<(), RuntimeError> {
@@ -128,7 +142,13 @@ impl<'a> RuntimeExecutor<'a> {
         }
     }
 
-    fn set_variable(&mut self, name: String, value: Value, scope: RunVariableScope) {
+    fn set_variable(
+        &mut self,
+        name: String,
+        value: Value,
+        scope: RunVariableScope,
+    ) -> Result<(), RuntimeError> {
+        ensure_value_within_limit(&name, &value, self.output_limits.max_runtime_variable_bytes)?;
         self.context.variables.insert(name.clone(), value);
         self.variable_scopes.insert(name.clone(), scope);
         refresh_derived_variable_metadata(&mut self.context.variables, &name);
@@ -136,6 +156,7 @@ impl<'a> RuntimeExecutor<'a> {
             self.variable_scopes
                 .insert(format!("{name}{suffix}"), RunVariableScope::Metadata);
         }
+        Ok(())
     }
 
     fn remove_variable(&mut self, name: &str) {
@@ -159,10 +180,15 @@ impl<'a> RuntimeExecutor<'a> {
                 .ok()
                 .map(|node| node.action_type.clone())
         });
+        let message = truncate_utf8(
+            &message.into(),
+            self.output_limits.max_log_entry_bytes,
+            "log entry",
+        );
         let entry = RuntimeLogEntry {
             action_type,
             level: level.to_owned(),
-            message: message.into(),
+            message,
             node_id,
             timestamp_unix_ms: contracts::unix_timestamp_millis_now(),
         };
@@ -171,6 +197,126 @@ impl<'a> RuntimeExecutor<'a> {
             public_entry.message = self.redact_text(&public_entry.message);
             observer.log_emitted(&self.context.identity, &public_entry);
         }
-        self.logs.push(entry);
+        let entry_bytes = retained_log_entry_bytes(&entry);
+        if self.retained_log_bytes.saturating_add(entry_bytes)
+            <= self.output_limits.max_run_log_bytes
+        {
+            self.retained_log_bytes = self.retained_log_bytes.saturating_add(entry_bytes);
+            self.logs.push(entry);
+        } else {
+            self.retain_log_truncation_marker();
+        }
     }
+
+    fn retain_log_truncation_marker(&mut self) {
+        if self.logs_truncated {
+            return;
+        }
+        self.logs_truncated = true;
+        let marker = RuntimeLogEntry {
+            action_type: None,
+            level: "warning".to_owned(),
+            message: truncate_utf8(
+                &format!(
+                    "Additional runtime logs were not retained after the configured {} byte per-run limit was reached.",
+                    self.output_limits.max_run_log_bytes
+                ),
+                self.output_limits.max_log_entry_bytes,
+                "log entry",
+            ),
+            node_id: None,
+            timestamp_unix_ms: contracts::unix_timestamp_millis_now(),
+        };
+        let marker_bytes = retained_log_entry_bytes(&marker);
+        while self.retained_log_bytes.saturating_add(marker_bytes)
+            > self.output_limits.max_run_log_bytes
+        {
+            let Some(removed) = self.logs.pop() else {
+                break;
+            };
+            self.retained_log_bytes = self
+                .retained_log_bytes
+                .saturating_sub(retained_log_entry_bytes(&removed));
+        }
+        if marker_bytes <= self.output_limits.max_run_log_bytes {
+            self.retained_log_bytes = self.retained_log_bytes.saturating_add(marker_bytes);
+            if let Some(observer) = &self.observer {
+                observer.log_emitted(&self.context.identity, &marker);
+            }
+            self.logs.push(marker);
+        }
+    }
+}
+
+fn ensure_value_within_limit(
+    name: &str,
+    value: &Value,
+    max_bytes: usize,
+) -> Result<(), RuntimeError> {
+    let mut writer = BoundedSizeWriter::new(max_bytes);
+    match serde_json::to_writer(&mut writer, value) {
+        Ok(()) => Ok(()),
+        Err(_) if writer.exceeded => Err(RuntimeError::State(format!(
+            "variable {name:?} exceeds the configured {max_bytes} byte active value limit"
+        ))),
+        Err(source) => Err(RuntimeError::State(format!(
+            "variable {name:?} could not be measured safely: {source}"
+        ))),
+    }
+}
+
+struct BoundedSizeWriter {
+    bytes: usize,
+    exceeded: bool,
+    max_bytes: usize,
+}
+
+impl BoundedSizeWriter {
+    const fn new(max_bytes: usize) -> Self {
+        Self {
+            bytes: 0,
+            exceeded: false,
+            max_bytes,
+        }
+    }
+}
+
+impl Write for BoundedSizeWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self.bytes.saturating_add(buffer.len());
+        if self.bytes > self.max_bytes {
+            self.exceeded = true;
+            return Err(std::io::Error::other("active value limit exceeded"));
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn retained_log_entry_bytes(entry: &RuntimeLogEntry) -> usize {
+    entry
+        .message
+        .len()
+        .saturating_add(entry.level.len())
+        .saturating_add(entry.action_type.as_ref().map_or(0, String::len))
+        .saturating_add(entry.node_id.as_ref().map_or(0, String::len))
+        .saturating_add(std::mem::size_of::<u64>())
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize, label: &str) -> String {
+    if value.len() <= max_bytes {
+        return value.to_owned();
+    }
+    let marker = format!(" [TRUNCATED: {label} exceeded {max_bytes} bytes]");
+    if marker.len() >= max_bytes {
+        return marker.chars().take(max_bytes).collect();
+    }
+    let mut end = max_bytes - marker.len();
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{}", &value[..end], marker)
 }

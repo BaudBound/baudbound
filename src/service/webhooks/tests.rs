@@ -60,13 +60,7 @@ fn immediate_webhook_response_does_not_wait_for_execution() {
     };
     let mut host = test_host(webhook_service(false, 1.0), runner);
     let response = send_request(&host, "POST", "/events/test", "{}");
-    let request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("request should arrive");
-
-    host.accept_request(request, 1024);
+    accept_next(&mut host);
 
     let response = response
         .recv_timeout(Duration::from_secs(1))
@@ -110,12 +104,7 @@ fn waiting_webhook_returns_response_node_result_before_deadline() {
     }) as Arc<TriggerRunner>;
     let mut host = test_host(webhook_service(true, 1.0), runner);
     let response = send_request(&host, "POST", "/events/test", "{}");
-    let request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("request should arrive");
-    host.accept_request(request, 1024);
+    accept_next(&mut host);
 
     let mut status = status_tracker();
     wait_for_host_completion(&mut host, &mut status);
@@ -144,12 +133,7 @@ fn waiting_webhook_uses_fallback_at_deadline_while_execution_continues() {
     };
     let mut host = test_host(webhook_service(true, 0.05), runner);
     let response = send_request(&host, "POST", "/events/test", "{}");
-    let request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("request should arrive");
-    host.accept_request(request, 1024);
+    accept_next(&mut host);
 
     thread::sleep(Duration::from_millis(70));
     host.expire_pending();
@@ -179,21 +163,11 @@ fn route_reload_preserves_in_flight_execution_and_accepts_new_routes() {
     let mut host = test_host(webhook_service_for("old", "n-old", true, 1.0), runner);
 
     let old_response = send_request(&host, "POST", "/events/old", "{}");
-    let old_request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("old route request should arrive");
-    host.accept_request(old_request, 1024);
+    accept_next(&mut host);
 
     host.service = webhook_service_for("new", "n-new", false, 1.0);
     let new_response = send_request(&host, "POST", "/events/new", "{}");
-    let new_request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("new route request should arrive");
-    host.accept_request(new_request, 1024);
+    accept_next(&mut host);
 
     let new_response = new_response
         .recv_timeout(Duration::from_secs(1))
@@ -214,15 +188,9 @@ fn http_bridge_rejects_oversized_bodies_and_wrong_methods_before_dispatch() {
     let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
         panic!("rejected request unexpectedly dispatched event {event:?}")
     }) as Arc<TriggerRunner>;
-    let mut host = test_host(webhook_service(false, 1.0), runner);
+    let mut host = test_host_with_limits(webhook_service(false, 1.0), runner, 8, 4);
 
     let oversized_response = send_request(&host, "POST", "/events/test", "12345");
-    let oversized_request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("oversized request should arrive");
-    host.accept_request(oversized_request, 4);
     let oversized_response = oversized_response
         .recv_timeout(Duration::from_secs(1))
         .expect("oversized request should receive a response");
@@ -232,12 +200,7 @@ fn http_bridge_rejects_oversized_bodies_and_wrong_methods_before_dispatch() {
     );
 
     let wrong_method_response = send_request(&host, "GET", "/events/test", "");
-    let wrong_method_request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("wrong-method request should arrive");
-    host.accept_request(wrong_method_request, 4);
+    accept_next(&mut host);
     let wrong_method_response = wrong_method_response
         .recv_timeout(Duration::from_secs(1))
         .expect("wrong-method request should receive a response");
@@ -305,7 +268,9 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
         .expect("preflight response should arrive");
     assert!(preflight.starts_with("HTTP/1.1 204"), "{preflight}");
     assert!(
-        preflight.contains("Access-Control-Allow-Origin: https://allowed.example"),
+        preflight
+            .to_ascii_lowercase()
+            .contains("access-control-allow-origin: https://allowed.example"),
         "{preflight}"
     );
 
@@ -325,7 +290,9 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
         .expect("authenticated response should arrive");
     assert!(accepted.starts_with("HTTP/1.1 202"), "{accepted}");
     assert!(
-        accepted.contains("Access-Control-Allow-Origin: https://allowed.example"),
+        accepted
+            .to_ascii_lowercase()
+            .contains("access-control-allow-origin: https://allowed.example"),
         "{accepted}"
     );
     let event = event_receiver
@@ -335,14 +302,132 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
     assert!(event_receiver.try_recv().is_err());
 }
 
+#[test]
+fn incomplete_webhook_headers_are_disconnected_after_the_header_timeout() {
+    let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
+        panic!("incomplete request unexpectedly dispatched event {event:?}")
+    }) as Arc<TriggerRunner>;
+    let host = test_host(webhook_service(false, 1.0), runner);
+    let mut stream = TcpStream::connect(host.listener.local_addr())
+        .expect("partial-header client should connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("test client read timeout should configure");
+    stream
+        .write_all(b"POST /events/test HTTP/1.1\r\nHost: localhost")
+        .expect("partial headers should write");
+
+    let mut response = Vec::new();
+    let result = stream.read_to_end(&mut response);
+
+    assert!(
+        result.is_ok() || !response.is_empty(),
+        "listener should close or answer the incomplete request"
+    );
+}
+
+#[test]
+fn incomplete_webhook_bodies_receive_a_request_timeout() {
+    let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
+        panic!("incomplete request unexpectedly dispatched event {event:?}")
+    }) as Arc<TriggerRunner>;
+    let host = test_host(webhook_service(false, 1.0), runner);
+    let mut stream =
+        TcpStream::connect(host.listener.local_addr()).expect("partial-body client should connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("test client read timeout should configure");
+    stream
+        .write_all(
+            b"POST /events/test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{}",
+        )
+        .expect("partial body should write");
+
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("timeout response should read");
+
+    assert!(response.starts_with("HTTP/1.1 408"), "{response}");
+}
+
+#[test]
+fn webhook_connection_limit_rejects_excess_clients_and_recovers() {
+    let runner = Arc::new(|event: TriggerEvent| Ok(report(&event, Default::default())))
+        as Arc<TriggerRunner>;
+    let mut host = test_host_with_limits(webhook_service(false, 1.0), runner, 1, 1024);
+    let mut occupying_client = TcpStream::connect(host.listener.local_addr())
+        .expect("capacity-occupying client should connect");
+    occupying_client
+        .write_all(b"POST /events/test HTTP/1.1\r\nHost: localhost")
+        .expect("partial headers should write");
+    thread::sleep(Duration::from_millis(50));
+
+    let mut rejected_client = TcpStream::connect(host.listener.local_addr())
+        .expect("excess client should reach the listening socket");
+    rejected_client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("test client read timeout should configure");
+    rejected_client
+        .write_all(
+            b"POST /events/test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        )
+        .expect("excess request should write before the socket is closed");
+    let mut rejected_response = Vec::new();
+    let rejected_result = rejected_client.read_to_end(&mut rejected_response);
+    assert!(
+        rejected_result.is_err() || rejected_response.is_empty(),
+        "excess connection should be dropped without dispatch"
+    );
+
+    drop(occupying_client);
+    thread::sleep(Duration::from_millis(300));
+    let recovered = send_request(&host, "POST", "/events/test", "{}");
+    accept_next(&mut host);
+    let recovered = recovered
+        .recv_timeout(Duration::from_secs(1))
+        .expect("listener should accept requests after capacity is released");
+    assert!(recovered.starts_with("HTTP/1.1 202"), "{recovered}");
+}
+
+#[test]
+fn webhook_listener_stops_promptly_while_a_client_is_stalled() {
+    let listener =
+        WebhookListener::bind("127.0.0.1:0", 1, 1024).expect("webhook listener should bind");
+    let mut stalled_client =
+        TcpStream::connect(listener.local_addr()).expect("stalled client should connect");
+    stalled_client
+        .write_all(b"POST /events/test HTTP/1.1\r\nHost: localhost")
+        .expect("partial headers should write");
+    thread::sleep(Duration::from_millis(50));
+
+    let started = Instant::now();
+    drop(listener);
+
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "listener shutdown should not wait for the header timeout"
+    );
+}
+
 fn test_host(service: WebhookService, runner: Arc<TriggerRunner>) -> WebhookHost {
+    test_host_with_limits(service, runner, 8, 1024)
+}
+
+fn test_host_with_limits(
+    service: WebhookService,
+    runner: Arc<TriggerRunner>,
+    max_connections: usize,
+    max_body_bytes: usize,
+) -> WebhookHost {
     WebhookHost {
         allow_browser_origins: BTreeSet::new(),
         authenticator: Arc::new(AllowAllAuthenticator),
         executor: TriggerExecutor::with_runner(2, 4, "webhook-test", runner)
             .expect("test webhook executor should start"),
+        listener: WebhookListener::bind("127.0.0.1:0", max_connections, max_body_bytes)
+            .expect("test webhook listener should bind"),
         pending: BTreeMap::new(),
-        server: Server::http("127.0.0.1:0").expect("test webhook server should bind"),
         service,
     }
 }
@@ -387,11 +472,7 @@ fn send_request_with_headers(
     body: &str,
     headers: &[(&str, &str)],
 ) -> Receiver<String> {
-    let address = host
-        .server
-        .server_addr()
-        .to_ip()
-        .expect("test server should have an IP address");
+    let address = host.listener.local_addr();
     let (sender, receiver) = mpsc::channel();
     let method = method.to_owned();
     let path = path.to_owned();
@@ -438,12 +519,8 @@ fn http_request(
 }
 
 fn accept_next(host: &mut WebhookHost) {
-    let request = host
-        .server
-        .recv_timeout(Duration::from_secs(1))
-        .expect("server receive should succeed")
-        .expect("request should arrive");
-    host.accept_request(request, 1024);
+    host.accept_next(Duration::from_secs(1))
+        .expect("webhook request should arrive");
 }
 
 fn wait_for_host_completion(host: &mut WebhookHost, status: &mut ServeStatusTracker) {

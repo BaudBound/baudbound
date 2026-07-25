@@ -70,6 +70,7 @@ const serviceStatusEventChannel = "runner-service-status";
 const desktopRunnerEventChannel = "runner-desktop-background";
 const secretVaultEventChannel = "runner-secret-vault";
 const scriptUpdateEventChannel = "runner-script-update-state-changed";
+const blacklistChangedEventChannel = "runner-blacklist-changed";
 
 export function App() {
   const triggerMonitor = useTriggerMonitor();
@@ -269,6 +270,35 @@ export function App() {
             message: `Could not initialize live runner events: ${String(error)}`,
           });
           void refresh();
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [pushNotice, refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+
+    void listen(blacklistChangedEventChannel, () => {
+      void refresh({ silent: true });
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        removeListener = unlisten;
+      })
+      .catch((error) => {
+        if (!disposed) {
+          pushNotice({
+            kind: "error",
+            message: `Could not initialize blacklist events: ${String(error)}`,
+          });
         }
       });
 

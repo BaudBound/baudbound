@@ -184,10 +184,10 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
-        self.push_runtime_log(
-            "info",
+        self.log_loop_iteration(
+            node_id,
+            index,
             format!("Repeat {node_id} iteration {} of {count}.", index + 1),
-            Some(node_id.to_owned()),
         );
         frames.push(RuntimeFrame::Repeat {
             node_id: node_id.to_owned(),
@@ -274,14 +274,15 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
-        self.push_runtime_log(
-            "info",
-            format!("While {node_id} iteration {}; condition passed.", index + 1),
-            Some(node_id.to_owned()),
+        let next_index = index.saturating_add(1);
+        self.log_loop_iteration(
+            node_id,
+            index,
+            format!("While {node_id} iteration {next_index}; condition passed."),
         );
         frames.push(RuntimeFrame::While {
             node_id: node_id.to_owned(),
-            index: index + 1,
+            index: next_index,
         });
         frames.push(RuntimeFrame::Follow {
             source_node_id: node_id.to_owned(),
@@ -316,16 +317,16 @@ impl RuntimeExecutor<'_> {
             item_variable,
             items[index].clone(),
             RunVariableScope::Runtime,
-        );
+        )?;
         self.set_variable(
             index_variable,
             Value::Number(Number::from(u64::try_from(index).unwrap_or(u64::MAX))),
             RunVariableScope::Runtime,
-        );
-        self.push_runtime_log(
-            "info",
+        )?;
+        self.log_loop_iteration(
+            node_id,
+            u64::try_from(index).unwrap_or(u64::MAX),
             format!("For Each {node_id} item {} of {}.", index + 1, items.len()),
-            Some(node_id.to_owned()),
         );
         frames.push(RuntimeFrame::ForEach {
             node_id: node_id.to_owned(),
@@ -338,6 +339,27 @@ impl RuntimeExecutor<'_> {
             stop_at_node_id: Some(node_id.to_owned()),
         });
         Ok(())
+    }
+
+    fn log_loop_iteration(&mut self, node_id: &str, zero_based_index: u64, message: String) {
+        const INITIAL_ITERATIONS: u64 = 100;
+        const SAMPLE_INTERVAL: u64 = 1_000;
+
+        if zero_based_index < INITIAL_ITERATIONS
+            || zero_based_index
+                .saturating_add(1)
+                .is_multiple_of(SAMPLE_INTERVAL)
+        {
+            self.push_runtime_log("info", message, Some(node_id.to_owned()));
+        } else if zero_based_index == INITIAL_ITERATIONS {
+            self.push_runtime_log(
+                "info",
+                format!(
+                    "Loop {node_id} continues. Further iteration diagnostics are sampled every {SAMPLE_INTERVAL} iterations."
+                ),
+                Some(node_id.to_owned()),
+            );
+        }
     }
 }
 

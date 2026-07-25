@@ -1,5 +1,6 @@
 //! Security and policy primitives shared by BaudBound runner apps.
 
+mod blacklist;
 mod capabilities;
 
 use std::{
@@ -11,6 +12,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub use blacklist::{
+    BlacklistDecision, BlacklistEntry, BlacklistMatchSubject, BlacklistPolicy, BlacklistScope,
+    BlacklistSeverity, PermissiveBlacklistPolicy, github_publisher_for_url, matching_entries,
+    normalize_blacklist_entry, normalize_repository_url,
+};
 pub use capabilities::{
     CapabilityValidationError, ProgramCapabilityReport, calculate_program_capabilities,
     calculate_program_capabilities_with_declarations, calculate_program_capabilities_with_secrets,
@@ -440,6 +446,7 @@ fn is_unbounded_path(path: &str) -> bool {
         normalized = normalized.replace("//", "/");
     }
     let bytes = normalized.as_bytes();
+    let contains_parent_traversal = normalized.split('/').any(|component| component == "..");
     let absolute = normalized.starts_with('/')
         || normalized.starts_with("~/")
         || (bytes.len() >= 3
@@ -447,6 +454,7 @@ fn is_unbounded_path(path: &str) -> bool {
             && bytes[1] == b':'
             && bytes[2] == b'/');
     absolute
+        || contains_parent_traversal
         || [
             "/.aws/",
             "/.azure/",
@@ -525,13 +533,13 @@ fn enforce_runner_policy(
         if permission.risk == RiskLevel::Dangerous && !policy.allow_dangerous_actions {
             return Err(PermissionValidationError::PolicyBlocked {
                 permission: permission.name.clone(),
-                reason: "dangerous actions are disabled".to_owned(),
+                reason: "dangerous actions are disabled because security.policy.allow_dangerous_permissions is false".to_owned(),
             });
         }
         if permission.name == "run_shell_command" && !policy.allow_shell_commands {
             return Err(PermissionValidationError::PolicyBlocked {
                 permission: permission.name.clone(),
-                reason: "shell commands are disabled".to_owned(),
+                reason: "shell commands are disabled because security.policy.allow_shell_commands is false".to_owned(),
             });
         }
         if matches!(
@@ -541,7 +549,7 @@ fn enforce_runner_policy(
         {
             return Err(PermissionValidationError::PolicyBlocked {
                 permission: permission.name.clone(),
-                reason: "network server triggers are disabled".to_owned(),
+                reason: "public network listeners are disabled because security.policy.allow_public_network_listeners is false".to_owned(),
             });
         }
     }

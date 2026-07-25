@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
 
@@ -42,19 +42,19 @@ jobs:
             xdg-utils
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.95"
           components: clippy,rustfmt
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           version: 11.10.0
           run_install: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -62,6 +62,9 @@ jobs:
 
       - name: Install desktop UI dependencies
         run: pnpm --dir ui install --frozen-lockfile
+
+      - name: Audit production UI dependencies
+        run: pnpm --dir ui audit --prod
 
       - name: Verify release version
         run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
@@ -72,16 +75,16 @@ jobs:
       - name: Check Linux package test script
         run: shellcheck scripts/test-linux-package-install.sh
 
-      - name: Check Linux RustSec advisories
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+      - name: Check Linux Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
-          command: check advisories
+          command: check
           arguments: --all-features --locked --target x86_64-unknown-linux-gnu
 
-      - name: Check Windows RustSec advisories
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+      - name: Check Windows Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
-          command: check advisories
+          command: check
           arguments: --all-features --locked --target x86_64-pc-windows-msvc
 
       - name: Check Rust formatting
@@ -103,6 +106,9 @@ jobs:
     name: Package ${{ matrix.label }}
     needs: quality
     runs-on: ${{ matrix.os }}
+    environment: runner-release
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -116,7 +122,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
 
@@ -136,18 +142,18 @@ jobs:
             xdg-utils
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.95"
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           version: 11.10.0
           run_install: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -160,7 +166,7 @@ jobs:
         run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
       - name: Build and upload signed desktop package
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -181,10 +187,12 @@ jobs:
     name: Verify draft release
     needs: package
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
 
@@ -194,7 +202,7 @@ jobs:
           sudo apt-get install -y rpm
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
 
@@ -261,6 +269,37 @@ jobs:
           "$GITHUB_REF_NAME"
           "BaudBound/baudbound"
           "$RUNNER_TEMP/baudbound-release-assets.json"
+
+  publish-checksums:
+    name: Publish verified checksums
+    needs: verify-release
+    runs-on: ubuntu-22.04
+    environment: runner-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+
+      - name: Download verified draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/baudbound-release"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/baudbound-release"
+
+      - name: Generate release checksums
+        run: >-
+          node scripts/generate-release-checksums.mjs
+          "$RUNNER_TEMP/baudbound-release"
 
       - name: Upload release checksums
         env:

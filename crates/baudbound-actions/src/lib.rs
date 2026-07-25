@@ -387,14 +387,16 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.beep" => desktop_only_action(request, "audio tone playback"),
             "action.clipboard.get" => desktop_only_action(request, "clipboard reads"),
             "action.clipboard.set" => desktop_only_action(request, "clipboard writes"),
-            "action.file.copy" => copy_file_action(request),
-            "action.file.delete" => delete_file_action(request),
+            "action.file.copy" => copy_file_action(request, context),
+            "action.file.delete" => delete_file_action(request, context),
             "action.file.download" => {
-                download_file_action(request, self.limits.max_file_download_bytes)
+                download_file_action(request, context, self.limits.max_file_download_bytes)
             }
-            "action.file.move" => move_file_action(request),
-            "action.file.read" => read_file_action(request, self.limits.max_file_read_bytes),
-            "action.file.write" => write_file_action(request),
+            "action.file.move" => move_file_action(request, context),
+            "action.file.read" => {
+                read_file_action(request, context, self.limits.max_file_read_bytes)
+            }
+            "action.file.write" => write_file_action(request, context),
             "action.http" => http_request_action(request, self.limits.max_http_response_bytes),
             "action.message_box" => desktop_only_action(request, "message boxes"),
             "action.notification" => desktop_only_action(request, "desktop notifications"),

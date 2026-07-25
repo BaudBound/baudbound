@@ -13,6 +13,7 @@ use url::Url;
 pub const DEFAULT_WEBHOOK_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBHOOK_PORT: u16 = 43891;
 pub const DEFAULT_WEBHOOK_MAX_BODY_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_WEBHOOK_MAX_CONNECTIONS: usize = 128;
 pub const DEFAULT_WEBSOCKET_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBSOCKET_PORT: u16 = 43892;
 pub const DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
@@ -20,6 +21,12 @@ pub const DEFAULT_WEBSOCKET_MAX_CONNECTIONS: usize = 128;
 pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
 pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
+pub const DEFAULT_RUN_HISTORY_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+pub const DEFAULT_MAX_LOG_ENTRY_BYTES: usize = 16 * 1024;
+pub const DEFAULT_MAX_RUNTIME_VARIABLE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_MAX_RETAINED_VARIABLE_BYTES: usize = 256 * 1024;
+pub const DEFAULT_MAX_RUN_LOG_BYTES: usize = 2 * 1024 * 1024;
+pub const DEFAULT_MAX_RUN_RECORD_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
 pub const DEFAULT_SERIAL_BAUD_RATE: u32 = 9_600;
 pub const DEFAULT_SERIAL_DTR_ON_OPEN: &str = "deasserted";
@@ -39,6 +46,18 @@ pub const MAX_SERIAL_PORT_LENGTH: usize = 1024;
 pub const MAX_SERIAL_METADATA_LENGTH: usize = 512;
 const MAX_RUN_HISTORY_RECORDS: usize = 10_000_000;
 const MAX_RUN_HISTORY_AGE_DAYS: u64 = 36_500;
+const MIN_RUN_HISTORY_BYTES: u64 = 1024 * 1024;
+const MAX_RUN_HISTORY_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+const MIN_LOG_ENTRY_BYTES: usize = 256;
+const MAX_LOG_ENTRY_BYTES: usize = 1024 * 1024;
+const MIN_RUNTIME_VARIABLE_BYTES: usize = 4 * 1024;
+const MAX_RUNTIME_VARIABLE_BYTES: usize = 256 * 1024 * 1024;
+const MIN_RETAINED_VARIABLE_BYTES: usize = 1024;
+const MAX_RETAINED_VARIABLE_BYTES: usize = 16 * 1024 * 1024;
+const MIN_RUN_LOG_BYTES: usize = 4 * 1024;
+const MAX_RUN_LOG_BYTES: usize = 64 * 1024 * 1024;
+const MIN_RUN_RECORD_BYTES: usize = 16 * 1024;
+const MAX_RUN_RECORD_BYTES: usize = 128 * 1024 * 1024;
 const MAX_TRIGGER_RELOAD_SECONDS: u64 = 86_400;
 const MAX_UPDATE_CHECK_INTERVAL_HOURS: u64 = 8_760;
 const MAX_NETWORK_CONNECTIONS: usize = 10_000;
@@ -54,6 +73,7 @@ pub struct RunnerConfig {
     pub display: DisplaySettings,
     pub limits: LimitSettings,
     pub runner: RunnerSettings,
+    pub security: SecuritySettings,
     pub serial: SerialSettings,
     pub triggers: TriggerSettings,
     pub updates: UpdateSettings,
@@ -130,6 +150,16 @@ impl RunnerConfig {
                 ),
             });
         }
+        if !(MIN_RUN_HISTORY_BYTES..=MAX_RUN_HISTORY_BYTES)
+            .contains(&self.runner.run_history_max_bytes)
+        {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "runner.run_history_max_bytes must be between {MIN_RUN_HISTORY_BYTES} and {MAX_RUN_HISTORY_BYTES}"
+                ),
+            });
+        }
         if !(1..=MAX_TRIGGER_RELOAD_SECONDS).contains(&self.runner.trigger_reload_seconds) {
             return Err(RunnerConfigError::Validate {
                 path: path.to_path_buf(),
@@ -168,6 +198,69 @@ impl RunnerConfig {
                 });
             }
         }
+        for (setting, value, minimum, maximum) in [
+            (
+                "limits.max_log_entry_bytes",
+                self.limits.max_log_entry_bytes,
+                MIN_LOG_ENTRY_BYTES,
+                MAX_LOG_ENTRY_BYTES,
+            ),
+            (
+                "limits.max_runtime_variable_bytes",
+                self.limits.max_runtime_variable_bytes,
+                MIN_RUNTIME_VARIABLE_BYTES,
+                MAX_RUNTIME_VARIABLE_BYTES,
+            ),
+            (
+                "limits.max_retained_variable_bytes",
+                self.limits.max_retained_variable_bytes,
+                MIN_RETAINED_VARIABLE_BYTES,
+                MAX_RETAINED_VARIABLE_BYTES,
+            ),
+            (
+                "limits.max_run_log_bytes",
+                self.limits.max_run_log_bytes,
+                MIN_RUN_LOG_BYTES,
+                MAX_RUN_LOG_BYTES,
+            ),
+            (
+                "limits.max_run_record_bytes",
+                self.limits.max_run_record_bytes,
+                MIN_RUN_RECORD_BYTES,
+                MAX_RUN_RECORD_BYTES,
+            ),
+        ] {
+            if value < minimum || value > maximum {
+                return Err(RunnerConfigError::Validate {
+                    path: path.to_path_buf(),
+                    message: format!("{setting} must be between {minimum} and {maximum}"),
+                });
+            }
+        }
+        if self.limits.max_log_entry_bytes > self.limits.max_run_log_bytes {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "limits.max_log_entry_bytes cannot exceed limits.max_run_log_bytes"
+                    .to_owned(),
+            });
+        }
+        if self.limits.max_run_log_bytes > self.limits.max_run_record_bytes
+            || self.limits.max_retained_variable_bytes > self.limits.max_run_record_bytes
+        {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message:
+                    "retained log and variable limits cannot exceed limits.max_run_record_bytes"
+                        .to_owned(),
+            });
+        }
+        if self.limits.max_run_record_bytes as u64 > self.runner.run_history_max_bytes {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: "limits.max_run_record_bytes cannot exceed runner.run_history_max_bytes"
+                    .to_owned(),
+            });
+        }
         validate_bind_address(path, "webhooks.bind", &self.webhooks.bind)?;
         if self.webhooks.max_body_bytes == 0
             || u64::try_from(self.webhooks.max_body_bytes)
@@ -177,6 +270,14 @@ impl RunnerConfig {
                 path: path.to_path_buf(),
                 message: format!(
                     "webhooks.max_body_bytes must be between 1 and {MAX_EXTERNAL_DATA_BYTES}"
+                ),
+            });
+        }
+        if !(1..=MAX_NETWORK_CONNECTIONS).contains(&self.webhooks.max_connections) {
+            return Err(RunnerConfigError::Validate {
+                path: path.to_path_buf(),
+                message: format!(
+                    "webhooks.max_connections must be between 1 and {MAX_NETWORK_CONNECTIONS}"
                 ),
             });
         }
@@ -273,6 +374,7 @@ impl RunnerConfig {
 trigger_reload_seconds = 2
 run_history_max_records = 10000
 run_history_max_age_days = 30
+run_history_max_bytes = 1073741824
 # Empty or omitted target_runtimes allows the runner mode currently active on this operating system.
 # To restrict the allowed modes, list explicit operating system targets:
 # target_runtimes = ["Linux Headless", "Linux Desktop"]
@@ -285,6 +387,18 @@ time_format = "24-hour"
 max_http_response_bytes = 10485760
 max_file_download_bytes = 104857600
 max_file_read_bytes = 10485760
+max_log_entry_bytes = 16384
+max_runtime_variable_bytes = 16777216
+max_run_log_bytes = 2097152
+max_retained_variable_bytes = 262144
+max_run_record_bytes = 8388608
+
+[security.policy]
+# Approval decides whether a specific package is trusted.
+# These settings independently restrict which trusted packages may run.
+allow_shell_commands = true
+allow_dangerous_permissions = true
+allow_public_network_listeners = true
 
 [updates]
 automatic_checks = true
@@ -334,6 +448,7 @@ websockets_enabled = false
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
+max_connections = 128
 allow_browser_origins = []
 allow_unauthenticated_public_bind = false
 
@@ -387,6 +502,11 @@ pub struct LimitSettings {
     pub max_file_download_bytes: u64,
     pub max_file_read_bytes: u64,
     pub max_http_response_bytes: u64,
+    pub max_log_entry_bytes: usize,
+    pub max_runtime_variable_bytes: usize,
+    pub max_retained_variable_bytes: usize,
+    pub max_run_log_bytes: usize,
+    pub max_run_record_bytes: usize,
 }
 
 impl Default for LimitSettings {
@@ -395,6 +515,35 @@ impl Default for LimitSettings {
             max_file_download_bytes: DEFAULT_MAX_FILE_DOWNLOAD_BYTES,
             max_file_read_bytes: DEFAULT_MAX_FILE_READ_BYTES,
             max_http_response_bytes: DEFAULT_MAX_HTTP_RESPONSE_BYTES,
+            max_log_entry_bytes: DEFAULT_MAX_LOG_ENTRY_BYTES,
+            max_runtime_variable_bytes: DEFAULT_MAX_RUNTIME_VARIABLE_BYTES,
+            max_retained_variable_bytes: DEFAULT_MAX_RETAINED_VARIABLE_BYTES,
+            max_run_log_bytes: DEFAULT_MAX_RUN_LOG_BYTES,
+            max_run_record_bytes: DEFAULT_MAX_RUN_RECORD_BYTES,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SecuritySettings {
+    pub policy: SecurityPolicySettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SecurityPolicySettings {
+    pub allow_dangerous_permissions: bool,
+    pub allow_public_network_listeners: bool,
+    pub allow_shell_commands: bool,
+}
+
+impl Default for SecurityPolicySettings {
+    fn default() -> Self {
+        Self {
+            allow_dangerous_permissions: true,
+            allow_public_network_listeners: true,
+            allow_shell_commands: true,
         }
     }
 }
@@ -495,6 +644,7 @@ impl Default for SerialDeviceSettings {
 #[serde(default)]
 pub struct RunnerSettings {
     pub run_history_max_age_days: u64,
+    pub run_history_max_bytes: u64,
     pub run_history_max_records: usize,
     pub target_runtimes: Vec<String>,
     pub trigger_reload_seconds: u64,
@@ -504,6 +654,7 @@ impl Default for RunnerSettings {
     fn default() -> Self {
         Self {
             run_history_max_age_days: DEFAULT_RUN_HISTORY_MAX_AGE_DAYS,
+            run_history_max_bytes: DEFAULT_RUN_HISTORY_MAX_BYTES,
             run_history_max_records: DEFAULT_RUN_HISTORY_MAX_RECORDS,
             target_runtimes: Vec::new(),
             trigger_reload_seconds: DEFAULT_TRIGGER_RELOAD_SECONDS,
@@ -546,6 +697,7 @@ pub struct WebhookSettings {
     pub allow_unauthenticated_public_bind: bool,
     pub bind: String,
     pub max_body_bytes: usize,
+    pub max_connections: usize,
     pub port: u16,
 }
 
@@ -556,6 +708,7 @@ impl Default for WebhookSettings {
             allow_unauthenticated_public_bind: false,
             bind: DEFAULT_WEBHOOK_BIND.to_owned(),
             max_body_bytes: DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+            max_connections: DEFAULT_WEBHOOK_MAX_CONNECTIONS,
             port: DEFAULT_WEBHOOK_PORT,
         }
     }
@@ -924,6 +1077,10 @@ mod tests {
         assert_eq!(config.webhooks.bind, DEFAULT_WEBHOOK_BIND);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
         assert_eq!(
+            config.webhooks.max_connections,
+            DEFAULT_WEBHOOK_MAX_CONNECTIONS
+        );
+        assert_eq!(
             config.limits.max_http_response_bytes,
             DEFAULT_MAX_HTTP_RESPONSE_BYTES
         );
@@ -950,6 +1107,26 @@ mod tests {
         let contents = fs::read_to_string(config_path).expect("config should be readable");
         assert!(contents.contains("[triggers]"));
         assert!(contents.contains("hotkeys_enabled = true"));
+        assert!(contents.contains("[security.policy]"));
+        assert!(contents.contains("allow_shell_commands = true"));
+    }
+
+    #[test]
+    fn parses_independent_runner_security_policy_controls() {
+        let config = RunnerConfig::from_toml(
+            r#"
+                [security.policy]
+                allow_shell_commands = false
+                allow_dangerous_permissions = true
+                allow_public_network_listeners = false
+            "#,
+            "runner.toml",
+        )
+        .expect("security policy should parse");
+
+        assert!(!config.security.policy.allow_shell_commands);
+        assert!(config.security.policy.allow_dangerous_permissions);
+        assert!(!config.security.policy.allow_public_network_listeners);
     }
 
     #[test]
@@ -1324,6 +1501,18 @@ mod tests {
             let error = RunnerConfig::from_toml(config, "runner.toml")
                 .expect_err("zero WebSocket resource limit should fail");
             assert!(error.to_string().contains(field), "{error}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_webhook_connection_limits() {
+        for max_connections in [0, MAX_NETWORK_CONNECTIONS + 1] {
+            let error = RunnerConfig::from_toml(
+                &format!("[webhooks]\nmax_connections = {max_connections}"),
+                "runner.toml",
+            )
+            .expect_err("invalid webhook connection limit should fail");
+            assert!(error.to_string().contains("webhooks.max_connections"));
         }
     }
 

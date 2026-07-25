@@ -174,7 +174,29 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) state_store: Option<&'a dyn RuntimeStateStore>,
     pub(super) default_variables: &'a [RuntimeDefaultVariable],
     pub(super) observer: Option<Arc<dyn RuntimeRunObserver>>,
+    pub(super) output_limits: RuntimeOutputLimits,
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeOutputLimits {
+    pub max_log_entry_bytes: usize,
+    pub max_runtime_variable_bytes: usize,
+    pub max_retained_variable_bytes: usize,
+    pub max_run_log_bytes: usize,
+    pub max_run_record_bytes: usize,
+}
+
+impl Default for RuntimeOutputLimits {
+    fn default() -> Self {
+        Self {
+            max_log_entry_bytes: 16 * 1024,
+            max_runtime_variable_bytes: 16 * 1024 * 1024,
+            max_retained_variable_bytes: 256 * 1024,
+            max_run_log_bytes: 2 * 1024 * 1024,
+            max_run_record_bytes: 8 * 1024 * 1024,
+        }
+    }
 }
 
 impl<'a> RuntimeExecutionResources<'a> {
@@ -187,6 +209,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             state_store: None,
             default_variables: &[],
             observer: None,
+            output_limits: RuntimeOutputLimits::default(),
             secrets: &[],
         }
     }
@@ -226,6 +249,12 @@ impl<'a> RuntimeExecutionResources<'a> {
     #[must_use]
     pub fn with_observer(mut self, observer: Arc<dyn RuntimeRunObserver>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    #[must_use]
+    pub fn with_output_limits(mut self, output_limits: RuntimeOutputLimits) -> Self {
+        self.output_limits = output_limits;
         self
     }
 }

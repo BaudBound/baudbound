@@ -114,6 +114,35 @@ fn executes_manual_log_and_variable_operation() {
 }
 
 #[test]
+fn rejects_active_variable_values_over_the_configured_limit() {
+    let program = json!({
+        "entry": {
+            "trigger": manual_trigger(),
+            "triggers": [],
+            "program": {
+                "steps": [
+                    variable_node("n-var", "large", "set", "string", "x".repeat(128))
+                ],
+                "edges": [
+                    edge("n-trigger", "out", "n-var")
+                ]
+            }
+        }
+    });
+    let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler).with_output_limits(
+        RuntimeOutputLimits {
+            max_runtime_variable_bytes: 32,
+            ..RuntimeOutputLimits::default()
+        },
+    );
+
+    let error = execute_manual_program_with_state(&program, "script-value-limit", resources)
+        .expect_err("oversized active value should fail");
+
+    assert!(error.to_string().contains("32 byte active value limit"));
+}
+
+#[test]
 fn executes_fan_out_branches_sequentially_in_explicit_order() {
     let report = execute_manual_program(
         &json!({
@@ -1040,9 +1069,10 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
     assert!(
         report.logs.iter().any(|log| {
             log.level == "debug"
+                && log.message.contains("HTTP request body: 26 bytes, sha256 ")
                 && log
                     .message
-                    .contains("HTTP request body (26 bytes): {\"data\":\"scanner value\\r\"}")
+                    .contains("preview: {\"data\":\"scanner value\\r\"}")
         }),
         "logs were {:#?}",
         report.logs
@@ -1051,12 +1081,13 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
         log.message
             .contains("returned 422 Unprocessable Entity in 15 ms")
     }));
-    assert!(
-        report
-            .logs
-            .iter()
-            .any(|log| { log.level == "debug" && log.message.ends_with("response\r\nbody") })
-    );
+    assert!(report.logs.iter().any(|log| {
+        log.level == "debug"
+            && log
+                .message
+                .contains("HTTP response body: 14 bytes, sha256 ")
+            && log.message.ends_with("preview: response\\r\\nbody")
+    }));
 }
 
 #[test]

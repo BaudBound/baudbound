@@ -121,7 +121,7 @@ fn execute_graph_from_trigger(
 ) -> Result<RunReport, RuntimeError> {
     let trigger = graph.trigger(trigger_node_id)?;
     let identity = RunIdentity {
-        run_id: create_run_id(script_id, &trigger.id),
+        run_id: create_run_id(script_id, &trigger.id)?,
         script_id: script_id.to_owned(),
         trigger_node_id: trigger.id.clone(),
     };
@@ -147,11 +147,17 @@ fn execute_graph_from_trigger(
     }
 }
 
-fn create_run_id(script_id: &str, trigger_node_id: &str) -> String {
+fn create_run_id(script_id: &str, trigger_node_id: &str) -> Result<String, RuntimeError> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    let sequence = RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    format!("{script_id}:{trigger_node_id}:{timestamp}:{sequence}")
+    let sequence = RUN_SEQUENCE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |sequence| {
+            sequence.checked_add(1)
+        })
+        .map_err(|_| RuntimeError::State("run identifier sequence was exhausted".to_owned()))?;
+    Ok(format!(
+        "{script_id}:{trigger_node_id}:{timestamp}:{sequence}"
+    ))
 }

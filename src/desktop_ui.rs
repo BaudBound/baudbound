@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{Emitter, Manager, State};
 
+const BLACKLIST_CHANGED_EVENT: &str = "runner-blacklist-changed";
+
 use crate::commands::{
     doctor::{DoctorCheck, desktop_doctor_checks},
     service_health::service_health_document,
@@ -46,6 +48,7 @@ macro_rules! desktop_command_handler {
     () => {
         tauri::generate_handler![
             approve_script,
+            check_official_blacklist,
             repositories::add_script_repository,
             clear_run_history,
             clear_run_logs,
@@ -98,6 +101,7 @@ macro_rules! desktop_command_handler {
             set_script_enabled,
             set_script_automatic_update_checks,
             repositories::set_script_repository_enabled,
+            set_personal_repository_block,
             set_network_trigger_auth_enabled,
             start_background_runner,
             coordinate_picker::start_coordinate_picker,
@@ -113,12 +117,40 @@ macro_rules! desktop_command_handler {
     };
 }
 
+fn secured_desktop_command_handler()
+-> Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> {
+    let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> =
+        Box::new(desktop_command_handler!());
+    Box::new(move |invoke| {
+        let command = invoke.message.command();
+        let window_label = invoke.message.webview_ref().label();
+        if !desktop_command_is_allowed(window_label, command) {
+            invoke
+                .resolver
+                .reject("this window is not authorized to invoke runner management commands");
+            true
+        } else {
+            handler(invoke)
+        }
+    })
+}
+
+fn desktop_command_is_allowed(window_label: &str, command: &str) -> bool {
+    window_label == "main"
+        || (window_label.starts_with("coordinate-picker-")
+            && matches!(
+                command,
+                "select_coordinate_picker" | "cancel_coordinate_picker"
+            ))
+}
+
 pub fn run_desktop_ui(
     config_path: PathBuf,
     core: RunnerCore,
     store: SqliteRunnerStore,
     runner_config: RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
+    blacklist: Arc<crate::blacklist::BlacklistService>,
     launched_from_autostart: bool,
 ) -> Result<()> {
     if let Err(error) = crate::script_repositories::ensure_official_repository(&store) {
@@ -161,6 +193,7 @@ pub fn run_desktop_ui(
             background_options: Mutex::new(background_options),
             active_runs,
             background_runner: background_runner.clone(),
+            blacklist,
             config_path,
             login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
@@ -184,6 +217,14 @@ pub fn run_desktop_ui(
                 .trigger_monitor
                 .connect_event_sink(app.handle().clone())
                 .map_err(|error| anyhow!(error))?;
+            let blacklist_event_app = app.handle().clone();
+            app.state::<DesktopUiState>()
+                .blacklist
+                .set_change_callback(Arc::new(move || {
+                    if let Err(error) = blacklist_event_app.emit(BLACKLIST_CHANGED_EVENT, ()) {
+                        tracing::warn!(%error, "failed to publish blacklist change event");
+                    }
+                }));
             desktop_config::reconcile_autostart_registration(app.handle());
             lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
             let state = app.state::<DesktopUiState>();
@@ -214,7 +255,7 @@ pub fn run_desktop_ui(
             }
             Ok(())
         })
-        .invoke_handler(desktop_command_handler!())
+        .invoke_handler(secured_desktop_command_handler())
         .run(tauri::generate_context!())
         .map_err(|source| anyhow!("desktop UI failed: {source}"))
 }
@@ -223,6 +264,7 @@ pub(super) struct DesktopUiState {
     active_runs: Arc<ActiveRunRegistry>,
     background_options: Mutex<ServeOptions>,
     background_runner: DesktopRunnerSupervisor,
+    blacklist: Arc<crate::blacklist::BlacklistService>,
     config_path: PathBuf,
     login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
@@ -493,10 +535,22 @@ fn approve_script<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-fn revoke_script_approval(
+fn revoke_script_approval<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::RevokeScriptApproval {
+            reference: reference.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         let revoked = current_core(&state)?.revoke_approval(&state.store, &reference)?;
         Ok(if revoked.is_some() {
@@ -774,6 +828,34 @@ fn install_remote_script_package<R: tauri::Runtime>(
         }
         Ok(())
     })?;
+    let package_urls = std::iter::once(prepared.download.original_url.to_string())
+        .chain(
+            prepared
+                .download
+                .redirect_urls
+                .iter()
+                .map(ToString::to_string),
+        )
+        .collect::<Vec<_>>();
+    let publishers = package_urls
+        .iter()
+        .filter_map(|value| url::Url::parse(value).ok())
+        .filter_map(|url| baudbound_security::github_publisher_for_url(&url))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    state
+        .blacklist
+        .record_provenance(
+            &script_id,
+            crate::blacklist::TrustedProvenance {
+                final_package_url: Some(prepared.download.final_url.to_string()),
+                package_urls,
+                publishers,
+                repository_url: prepared.trusted_repository_url,
+            },
+        )
+        .map_err(|error| error.to_string())?;
     let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
     if let Err(error) = app.emit(repositories::REPOSITORY_CHANGED_EVENT, &script_id) {
         tracing::warn!(%error, "failed to publish repository script change event");
@@ -827,7 +909,19 @@ fn stop_background_runner(state: State<'_, DesktopUiState>) -> Result<ActionPayl
 }
 
 #[tauri::command]
-fn prepare_for_update(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
+fn prepare_for_update<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::PrepareForUpdate,
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         let message = state
             .background_runner
@@ -842,12 +936,25 @@ fn prepare_for_update(state: State<'_, DesktopUiState>) -> Result<ActionPayload,
 }
 
 #[tauri::command]
-fn remove_script(
+fn remove_script<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
     reference: String,
     state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::RemoveScript {
+            reference: reference.clone(),
+        },
+        &guard,
+        &state,
+        &window,
+    )?;
     run_locked_action(&state, || {
         let script = current_core(&state)?.remove_installed(&state.store, &reference)?;
+        state.blacklist.remove_script_state(&script.id)?;
         Ok(format!("Removed {} ({}).", script.name, script.id))
     })
 }
@@ -937,6 +1044,14 @@ fn set_script_automatic_update_checks<R: tauri::Runtime>(
     run_locked_action(&state, || {
         if enabled {
             let installed = state.store.verify_script_package_hash(&reference)?;
+            let decision = state
+                .blacklist
+                .script_decision(&installed.id, &installed.package_hash);
+            if decision.blocks_update_source() {
+                return Err(anyhow!(
+                    "automatic update checks cannot be enabled because this script is restricted by the Official blacklist"
+                ));
+            }
             let package = baudbound_script::load_script_package(&installed.package_path)?;
             if package.manifest.repository_url.trim().is_empty() {
                 return Err(anyhow!("this script does not provide a repository URL"));
@@ -1152,7 +1267,7 @@ fn save_runner_config_model<R: tauri::Runtime>(
     consume_sensitive_operation(
         &confirmation_id,
         &SensitiveOperation::SaveRunnerConfigModel {
-            config: config.clone(),
+            config: Box::new(config.clone()),
             restart_background,
         },
         &guard,
@@ -1293,6 +1408,7 @@ fn build_dashboard_payload(state: &DesktopUiState) -> Result<DashboardPayload> {
     Ok(DashboardPayload {
         active_runs: active_runs.runs,
         active_runs_revision: active_runs.revision,
+        blacklist: state.blacklist.status(),
         desktop_background,
         desktop_background_start_blocker,
         desktop_platform: desktop_platform(),
@@ -1334,6 +1450,7 @@ struct DashboardPayload {
     active_runs: Vec<ActiveRunSnapshot>,
     active_runs_revision: u64,
     automatic_update_checks: bool,
+    blacklist: crate::blacklist::BlacklistStatus,
     config_path: String,
     desktop_background: DesktopRunnerSnapshot,
     desktop_background_start_blocker: Option<String>,
@@ -1353,6 +1470,43 @@ struct DashboardPayload {
     storage_root: String,
     time_format: TimeFormat,
     trigger_auth_statuses: std::collections::BTreeMap<String, Vec<TriggerAuthStatus>>,
+}
+
+#[tauri::command]
+fn check_official_blacklist(state: State<'_, DesktopUiState>) -> Result<ActionPayload, String> {
+    run_locked_value(&state, || {
+        state.blacklist.refresh_now(Some(&state.store))?;
+        let dashboard = build_dashboard_payload(&state)?;
+        Ok(ActionPayload {
+            dashboard,
+            message: "Official blacklist checked.".to_owned(),
+        })
+    })
+}
+
+#[tauri::command]
+fn set_personal_repository_block(
+    blocked: bool,
+    state: State<'_, DesktopUiState>,
+    url: String,
+) -> Result<ActionPayload, String> {
+    run_locked_action(&state, || {
+        state
+            .blacklist
+            .set_personal_repository_block(&url, blocked)?;
+        if blocked {
+            state
+                .store
+                .set_repository_enabled(&url, false)
+                .map_err(anyhow::Error::from)?;
+        }
+        state.repository_refresh_worker.wake();
+        Ok(if blocked {
+            "Repository added to your block list.".to_owned()
+        } else {
+            "Repository removed from your block list.".to_owned()
+        })
+    })
 }
 
 #[derive(Serialize)]
@@ -1655,12 +1809,14 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
         .set_run_retention_policy(baudbound_storage::RunRetentionPolicy::new(
             runner_config.runner.run_history_max_records,
             runner_config.runner.run_history_max_age_days,
+            runner_config.runner.run_history_max_bytes,
         ))?;
     let existing_core = current_core(state)?;
     let next_core = build_runner_core(
         &runner_config,
         Arc::clone(&state.websocket_registry),
         Arc::clone(&state.active_runs),
+        Arc::clone(&state.blacklist),
     )
     .with_execution_queue_from(&existing_core);
     let serial_connections = next_core.serial_connections();
@@ -1759,10 +1915,13 @@ fn build_runner_core(
     runner_config: &RunnerConfig,
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     active_runs: Arc<ActiveRunRegistry>,
+    blacklist: Arc<crate::blacklist::BlacklistService>,
 ) -> RunnerCore {
     let core = RunnerCore::from_config(runner_config)
         .with_execution_mode(baudbound_core::RunnerExecutionMode::Desktop)
+        .with_blacklist_policy(Arc::clone(&blacklist))
         .with_websocket_sink(websocket_registry)
+        .with_run_observer(blacklist)
         .with_run_observer(active_runs);
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),

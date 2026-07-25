@@ -1,10 +1,12 @@
 use std::{
     fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
+use baudbound_runtime::{
+    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+};
 use reqwest::blocking::Client;
 use serde_json::{Map, Number, Value};
 
@@ -17,6 +19,7 @@ use move_file::move_file;
 
 pub(crate) fn read_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
     max_read_bytes: u64,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
@@ -25,8 +28,8 @@ pub(crate) fn read_file_action(
         return failed(request, format!("unsupported file encoding {encoding}"));
     }
 
-    let path_ref = Path::new(&path);
-    let metadata = fs::metadata(path_ref).map_err(|source| RuntimeActionError::Failed {
+    let path_ref = resolve_action_path(request, context, &path, PathIntent::Existing)?;
+    let metadata = fs::metadata(&path_ref).map_err(|source| RuntimeActionError::Failed {
         action_type: request.action_type.clone(),
         message: format!("failed to inspect {path}: {source}"),
     })?;
@@ -39,7 +42,7 @@ pub(crate) fn read_file_action(
             format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
         );
     }
-    let mut file = fs::File::open(path_ref).map_err(|source| RuntimeActionError::Failed {
+    let mut file = fs::File::open(&path_ref).map_err(|source| RuntimeActionError::Failed {
         action_type: request.action_type.clone(),
         message: format!("failed to read {path}: {source}"),
     })?;
@@ -65,12 +68,14 @@ pub(crate) fn read_file_action(
 }
 pub(crate) fn download_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
     max_download_bytes: u64,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let url = required_string(request, "url")?;
     let destination_path = required_string(request, "destinationPath")?;
     let overwrite = config_bool(&request.config, "overwrite", false);
-    let destination = PathBuf::from(&destination_path);
+    let destination =
+        resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
 
@@ -145,11 +150,12 @@ pub(crate) fn download_file_action(
 
 pub(crate) fn write_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let content = config_string(&request.config, "content").unwrap_or_default();
     let mode = config_string(&request.config, "mode").unwrap_or_else(|| "overwrite".to_owned());
-    let path_buf = PathBuf::from(&path);
+    let path_buf = resolve_action_path(request, context, &path, PathIntent::Destination)?;
 
     if let Some(parent) = path_buf
         .parent()
@@ -199,12 +205,14 @@ pub(crate) fn write_file_action(
 
 pub(crate) fn copy_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
     let overwrite = config_bool(&request.config, "overwrite", false);
-    let source = PathBuf::from(&source_path);
-    let destination = PathBuf::from(&destination_path);
+    let source = resolve_action_path(request, context, &source_path, PathIntent::Existing)?;
+    let destination =
+        resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
     ensure_distinct_paths(request, &source, &destination)?;
@@ -230,12 +238,14 @@ pub(crate) fn copy_file_action(
 
 pub(crate) fn move_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
     let overwrite = config_bool(&request.config, "overwrite", false);
-    let source = PathBuf::from(&source_path);
-    let destination = PathBuf::from(&destination_path);
+    let source = resolve_action_path(request, context, &source_path, PathIntent::Existing)?;
+    let destination =
+        resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
     ensure_distinct_paths(request, &source, &destination)?;
@@ -259,9 +269,10 @@ pub(crate) fn move_file_action(
 
 pub(crate) fn delete_file_action(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
-    let path_buf = PathBuf::from(&path);
+    let path_buf = resolve_action_path(request, context, &path, PathIntent::Existing)?;
     let metadata = fs::metadata(&path_buf).map_err(|source| RuntimeActionError::Failed {
         action_type: request.action_type.clone(),
         message: format!("failed to inspect {path}: {source}"),
@@ -278,6 +289,101 @@ pub(crate) fn delete_file_action(
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([("path".to_owned(), Value::String(path))]),
     })
+}
+
+#[derive(Clone, Copy)]
+enum PathIntent {
+    Destination,
+    Existing,
+}
+
+fn resolve_action_path(
+    request: &RuntimeActionRequest,
+    context: &RuntimeContext,
+    configured_path: &str,
+    intent: PathIntent,
+) -> Result<PathBuf, RuntimeActionError> {
+    let path = Path::new(configured_path);
+    if path.is_absolute() || contains_parent_component(path) {
+        return Ok(path.to_path_buf());
+    }
+    let Some(workspace) = script_workspace(context) else {
+        return Ok(path.to_path_buf());
+    };
+    fs::create_dir_all(&workspace).map_err(|source| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!(
+            "failed to create script workspace {}: {source}",
+            workspace.display()
+        ),
+    })?;
+    let canonical_workspace =
+        workspace
+            .canonicalize()
+            .map_err(|source| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!(
+                    "failed to resolve script workspace {}: {source}",
+                    workspace.display()
+                ),
+            })?;
+    let candidate = canonical_workspace.join(path);
+    let boundary_target = match intent {
+        PathIntent::Existing => candidate.clone(),
+        PathIntent::Destination => nearest_existing_ancestor(&candidate),
+    };
+    let resolved_boundary =
+        boundary_target
+            .canonicalize()
+            .map_err(|source| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!(
+                    "failed to resolve limited file path {}: {source}",
+                    candidate.display()
+                ),
+            })?;
+    if !resolved_boundary.starts_with(&canonical_workspace) {
+        return failed(
+            request,
+            format!(
+                "limited file path {} escapes the script workspace",
+                configured_path
+            ),
+        );
+    }
+    Ok(candidate)
+}
+
+fn contains_parent_component(path: &Path) -> bool {
+    path.components()
+        .any(|component| component == Component::ParentDir)
+        || path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .split('/')
+            .any(|component| component == "..")
+}
+
+fn nearest_existing_ancestor(path: &Path) -> PathBuf {
+    let mut current = path;
+    while !current.exists() {
+        let Some(parent) = current.parent() else {
+            return path.to_path_buf();
+        };
+        current = parent;
+    }
+    current.to_path_buf()
+}
+
+fn script_workspace(context: &RuntimeContext) -> Option<PathBuf> {
+    let package_path = context.package_path.as_ref()?;
+    let scripts_directory = package_path.parent()?;
+    let runner_home = scripts_directory.parent()?;
+    Some(
+        runner_home
+            .join("workspaces")
+            .join(&context.identity.script_id),
+    )
 }
 
 fn ensure_destination_available(

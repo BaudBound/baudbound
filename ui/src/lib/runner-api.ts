@@ -114,6 +114,7 @@ export type RepositoryScriptRecord = {
 
 export type RepositoryScriptSummary = Omit<RepositoryScriptRecord, "entry"> & {
   minimum_runner_version: string;
+  package_hash: string;
 };
 
 export type RepositoryScriptSort =
@@ -246,6 +247,10 @@ export type TriggerMonitorState = {
 
 export type ScriptStatus = {
   approval_status: ApprovalStatus;
+  blacklist: {
+    entries: BlacklistEntry[];
+    severity: BlacklistSeverity | null;
+  };
   declared_permissions: string[];
   installed: InstalledScript;
   metadata: ScriptMetadata | null;
@@ -640,6 +645,7 @@ export type DashboardPayload = {
   active_runs: ActiveRun[];
   active_runs_revision: number;
   automatic_update_checks: boolean;
+  blacklist: BlacklistStatus;
   config_path: string;
   desktop_background: DesktopBackgroundRunnerState;
   desktop_background_start_blocker: string | null;
@@ -659,6 +665,52 @@ export type DashboardPayload = {
   storage_root: string;
   time_format: TimeFormat;
   trigger_auth_statuses: Record<string, TriggerAuthStatus[]>;
+};
+
+export type BlacklistScope =
+  | "repository"
+  | "publisher"
+  | "domain"
+  | "script"
+  | "package";
+
+export type BlacklistSeverity = "low" | "medium" | "high" | "critical";
+
+export type BlacklistEntry = {
+  advisory_url: string;
+  id: string;
+  published_at: string;
+  reason: string;
+  scope: BlacklistScope;
+  severity: BlacklistSeverity;
+  subdomains: boolean;
+  target: string;
+  title: string;
+  updated: string;
+};
+
+export type BlacklistIncident = {
+  advisory_url: string;
+  entry_id: string;
+  published_at: string;
+  reason: string;
+  recorded_at_unix: number;
+  scope: BlacklistScope;
+  repository_url: string | null;
+  script_id: string | null;
+  severity: BlacklistSeverity;
+  title: string;
+};
+
+export type BlacklistStatus = {
+  active_entry_count: number;
+  api_available: boolean;
+  entries: BlacklistEntry[];
+  fetched_at_unix: number | null;
+  incidents: BlacklistIncident[];
+  last_error: string | null;
+  personal_repository_blocks: string[];
+  stale: boolean;
 };
 
 export type SecretVaultSnapshot = {
@@ -718,6 +770,7 @@ export type RunnerConfig = {
   display: DisplaySettings;
   limits: LimitSettings;
   runner: RunnerSettings;
+  security: SecuritySettings;
   serial: SerialSettings;
   triggers: TriggerSettings;
   updates: UpdateSettings;
@@ -729,13 +782,29 @@ export type LimitSettings = {
   max_file_download_bytes: number;
   max_file_read_bytes: number;
   max_http_response_bytes: number;
+  max_log_entry_bytes: number;
+  max_runtime_variable_bytes: number;
+  max_retained_variable_bytes: number;
+  max_run_log_bytes: number;
+  max_run_record_bytes: number;
 };
 
 export type RunnerSettings = {
   run_history_max_age_days: number;
+  run_history_max_bytes: number;
   run_history_max_records: number;
   target_runtimes: string[];
   trigger_reload_seconds: number;
+};
+
+export type SecuritySettings = {
+  policy: SecurityPolicySettings;
+};
+
+export type SecurityPolicySettings = {
+  allow_dangerous_permissions: boolean;
+  allow_public_network_listeners: boolean;
+  allow_shell_commands: boolean;
 };
 
 export type TriggerSettings = {
@@ -780,6 +849,7 @@ export type WebhookSettings = {
   allow_unauthenticated_public_bind: boolean;
   bind: string;
   max_body_bytes: number;
+  max_connections: number;
   port: number;
 };
 
@@ -956,7 +1026,11 @@ export function approveScript(reference: string) {
 }
 
 export function revokeScriptApproval(reference: string) {
-  return invoke<ActionPayload>("revoke_script_approval", { reference });
+  return invokeSensitive<ActionPayload>(
+    "revoke_script_approval",
+    { kind: "revoke_script_approval", reference },
+    { reference },
+  );
 }
 
 export function importScriptPackage(selection: PackageFileSelection) {
@@ -986,6 +1060,10 @@ export function prepareRemoteScriptPackage(
 
 export function getRepositorySources() {
   return invoke<RepositorySource[]>("repository_sources");
+}
+
+export function checkOfficialBlacklist() {
+  return invoke<ActionPayload>("check_official_blacklist");
 }
 
 export function queryRepositoryScripts(query: RepositoryScriptQuery) {
@@ -1047,8 +1125,19 @@ export function setScriptRepositoryEnabled(url: string, enabled: boolean) {
   });
 }
 
+export function setPersonalRepositoryBlock(url: string, blocked: boolean) {
+  return invoke<ActionPayload>("set_personal_repository_block", {
+    blocked,
+    url,
+  });
+}
+
 export function removeScriptRepository(url: string) {
-  return invoke<boolean>("remove_script_repository", { url });
+  return invokeSensitive<boolean>(
+    "remove_script_repository",
+    { kind: "remove_script_repository", url },
+    { url },
+  );
 }
 
 export function prepareRepositoryScript(
@@ -1124,11 +1213,19 @@ export function stopBackgroundRunner() {
 }
 
 export function prepareForUpdate() {
-  return invoke<ActionPayload>("prepare_for_update");
+  return invokeSensitive<ActionPayload>(
+    "prepare_for_update",
+    { kind: "prepare_for_update" },
+    {},
+  );
 }
 
 export function removeScript(reference: string) {
-  return invoke<ActionPayload>("remove_script", { reference });
+  return invokeSensitive<ActionPayload>(
+    "remove_script",
+    { kind: "remove_script", reference },
+    { reference },
+  );
 }
 
 export function clearRunHistory() {

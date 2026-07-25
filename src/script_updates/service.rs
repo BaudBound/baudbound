@@ -67,6 +67,7 @@ pub(crate) struct RemotePackageReview {
 pub(crate) struct PreparedRemotePackage {
     pub(crate) download: super::RemoteDownload,
     pub(crate) review: RemotePackageReview,
+    pub(crate) trusted_repository_url: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -115,7 +116,18 @@ pub(crate) fn prepare_remote_package_with_progress(
         })
     })?;
 
-    prepare_downloaded_package(core, store, operation, source, download, None, progress)
+    prepare_downloaded_package(
+        core,
+        store,
+        download,
+        DownloadedPackageContext {
+            operation,
+            source,
+            repository_script: None,
+            trusted_repository_url: None,
+        },
+        progress,
+    )
 }
 
 pub(crate) fn prepare_discovered_update_with_progress(
@@ -174,7 +186,27 @@ pub(crate) fn prepare_discovered_update_with_progress(
             })
         },
     )? {
-        super::RepositoryFetchResult::Modified { bytes, .. } => bytes,
+        super::RepositoryFetchResult::Modified(result) => {
+            let super::RepositoryFetchModified {
+                bytes,
+                final_url,
+                original_url,
+                redirect_urls,
+                ..
+            } = *result;
+            if let Some(blacklist) = crate::blacklist::global() {
+                blacklist
+                    .record_repository_provenance(
+                        checked_repository_url,
+                        std::iter::once(original_url.to_string())
+                            .chain(redirect_urls.iter().map(ToString::to_string))
+                            .chain(std::iter::once(final_url.to_string()))
+                            .collect(),
+                    )
+                    .map_err(|error| RemotePackagePrepareError::Repository(error.to_string()))?;
+            }
+            bytes
+        }
         super::RepositoryFetchResult::NotModified => {
             return Err(RemotePackagePrepareError::Repository(
                 "the repository returned an unexpected unchanged response".to_owned(),
@@ -228,10 +260,13 @@ pub(crate) fn prepare_discovered_update_with_progress(
     let prepared = prepare_downloaded_package(
         core,
         store,
-        RemotePackageOperation::Update,
-        RemotePackageSource::Repository,
         download,
-        Some(&repository_script),
+        DownloadedPackageContext {
+            operation: RemotePackageOperation::Update,
+            source: RemotePackageSource::Repository,
+            repository_script: Some(&repository_script),
+            trusted_repository_url: Some(checked_repository_url),
+        },
         progress,
     )?;
     if prepared.review.script_id != installed.id || prepared.review.version != expected_version {
@@ -303,10 +338,13 @@ pub(crate) fn prepare_repository_package_with_progress(
     let prepared = prepare_downloaded_package(
         core,
         store,
-        operation,
-        RemotePackageSource::Repository,
         download,
-        Some(repository_script),
+        DownloadedPackageContext {
+            operation,
+            source: RemotePackageSource::Repository,
+            repository_script: Some(repository_script),
+            trusted_repository_url: Some(repository_url),
+        },
         progress,
     )?;
     if prepared.review.repository_url != repository_url {
@@ -317,15 +355,26 @@ pub(crate) fn prepare_repository_package_with_progress(
     Ok(prepared)
 }
 
+struct DownloadedPackageContext<'a> {
+    operation: RemotePackageOperation,
+    source: RemotePackageSource,
+    repository_script: Option<&'a ScriptRepositoryEntry>,
+    trusted_repository_url: Option<&'a str>,
+}
+
 fn prepare_downloaded_package(
     core: &RunnerCore,
     store: &SqliteRunnerStore,
-    operation: RemotePackageOperation,
-    source: RemotePackageSource,
     download: super::RemoteDownload,
-    repository_script: Option<&ScriptRepositoryEntry>,
+    context: DownloadedPackageContext<'_>,
     progress: &mut dyn FnMut(RemotePreparationProgress) -> bool,
 ) -> Result<PreparedRemotePackage, RemotePackagePrepareError> {
+    let DownloadedPackageContext {
+        operation,
+        source,
+        repository_script,
+        trusted_repository_url,
+    } = context;
     report_progress(
         progress,
         RemotePreparationStage::ValidatingPackage,
@@ -407,7 +456,11 @@ fn prepare_downloaded_package(
         download.size,
         Some(download.size),
     )?;
-    Ok(PreparedRemotePackage { download, review })
+    Ok(PreparedRemotePackage {
+        download,
+        review,
+        trusted_repository_url: trusted_repository_url.map(ToOwned::to_owned),
+    })
 }
 
 fn report_progress(

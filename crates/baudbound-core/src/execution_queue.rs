@@ -6,6 +6,8 @@ use std::{
 
 use baudbound_runtime::RuntimeCancellationToken;
 
+const MAX_WAITING_RUNS_PER_SCRIPT: usize = 64;
+
 #[derive(Default)]
 pub(crate) struct ScriptExecutionQueue {
     changed: Condvar,
@@ -31,6 +33,8 @@ pub(crate) struct ScriptExecutionPermit<'a> {
 pub(crate) enum AcquireError {
     Cancelled,
     Busy,
+    Full,
+    Rejected,
 }
 
 impl ScriptExecutionQueue {
@@ -38,8 +42,9 @@ impl ScriptExecutionQueue {
         &self,
         script_id: &str,
         cancellation: &RuntimeCancellationToken,
+        is_rejected: impl Fn() -> bool,
     ) -> Result<ScriptExecutionPermit<'_>, AcquireError> {
-        self.acquire_internal(script_id, None, cancellation)
+        self.acquire_internal(script_id, None, cancellation, is_rejected)
     }
 
     pub(crate) fn acquire_nested(
@@ -47,8 +52,9 @@ impl ScriptExecutionQueue {
         owner_script_id: &str,
         script_id: &str,
         cancellation: &RuntimeCancellationToken,
+        is_rejected: impl Fn() -> bool,
     ) -> Result<ScriptExecutionPermit<'_>, AcquireError> {
-        self.acquire_internal(script_id, Some(owner_script_id), cancellation)
+        self.acquire_internal(script_id, Some(owner_script_id), cancellation, is_rejected)
     }
 
     fn acquire_internal(
@@ -56,6 +62,7 @@ impl ScriptExecutionQueue {
         script_id: &str,
         owner_script_id: Option<&str>,
         cancellation: &RuntimeCancellationToken,
+        is_rejected: impl Fn() -> bool,
     ) -> Result<ScriptExecutionPermit<'_>, AcquireError> {
         const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -71,6 +78,14 @@ impl ScriptExecutionQueue {
                 .dependencies
                 .insert(owner_script_id.to_owned(), script_id.to_owned());
         }
+        if state
+            .waiting
+            .get(script_id)
+            .is_some_and(|waiting| waiting.len() >= MAX_WAITING_RUNS_PER_SCRIPT)
+        {
+            remove_dependency(&mut state, owner_script_id, script_id);
+            return Err(AcquireError::Full);
+        }
         state
             .waiting
             .entry(script_id.to_owned())
@@ -78,6 +93,12 @@ impl ScriptExecutionQueue {
             .push_back(Arc::clone(&waiter));
 
         loop {
+            if is_rejected() {
+                remove_waiter(&mut state, script_id, &waiter);
+                remove_dependency(&mut state, owner_script_id, script_id);
+                self.changed.notify_all();
+                return Err(AcquireError::Rejected);
+            }
             if cancellation.is_cancelled() {
                 remove_waiter(&mut state, script_id, &waiter);
                 remove_dependency(&mut state, owner_script_id, script_id);
@@ -186,13 +207,13 @@ mod tests {
     fn queues_the_same_script_until_the_active_run_finishes() {
         let queue = Arc::new(ScriptExecutionQueue::default());
         let first = queue
-            .acquire("script-1", &RuntimeCancellationToken::new())
+            .acquire("script-1", &RuntimeCancellationToken::new(), || false)
             .expect("first run should acquire its script");
         let (acquired_sender, acquired_receiver) = mpsc::channel();
         let thread_queue = Arc::clone(&queue);
         let waiter = thread::spawn(move || {
             let _permit = thread_queue
-                .acquire("script-1", &RuntimeCancellationToken::new())
+                .acquire("script-1", &RuntimeCancellationToken::new(), || false)
                 .expect("queued run should eventually acquire its script");
             acquired_sender
                 .send(())
@@ -215,25 +236,46 @@ mod tests {
     fn permits_different_scripts_at_the_same_time() {
         let queue = ScriptExecutionQueue::default();
         let _first = queue
-            .acquire("script-1", &RuntimeCancellationToken::new())
+            .acquire("script-1", &RuntimeCancellationToken::new(), || false)
             .expect("first script should acquire");
         let _second = queue
-            .acquire("script-2", &RuntimeCancellationToken::new())
+            .acquire("script-2", &RuntimeCancellationToken::new(), || false)
             .expect("different script should acquire concurrently");
+    }
+
+    #[test]
+    fn bounds_the_waiting_queue_for_one_script() {
+        let queue = ScriptExecutionQueue::default();
+        queue
+            .state
+            .lock()
+            .expect("queue state should lock")
+            .waiting
+            .insert(
+                "script-1".to_owned(),
+                (0..MAX_WAITING_RUNS_PER_SCRIPT)
+                    .map(|_| Arc::new(Waiter))
+                    .collect(),
+            );
+
+        assert!(matches!(
+            queue.acquire("script-1", &RuntimeCancellationToken::new(), || false),
+            Err(AcquireError::Full)
+        ));
     }
 
     #[test]
     fn cancellation_removes_a_queued_run() {
         let queue = Arc::new(ScriptExecutionQueue::default());
         let _first = queue
-            .acquire("script-1", &RuntimeCancellationToken::new())
+            .acquire("script-1", &RuntimeCancellationToken::new(), || false)
             .expect("first run should acquire its script");
         let cancellation = RuntimeCancellationToken::new();
         let thread_cancellation = cancellation.clone();
         let thread_queue = Arc::clone(&queue);
         let waiter = thread::spawn(move || {
             thread_queue
-                .acquire("script-1", &thread_cancellation)
+                .acquire("script-1", &thread_cancellation, || false)
                 .map(|_permit| ())
         });
 
@@ -242,20 +284,43 @@ mod tests {
     }
 
     #[test]
+    fn policy_rejection_removes_a_queued_run() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let queue = Arc::new(ScriptExecutionQueue::default());
+        let _first = queue
+            .acquire("script-1", &RuntimeCancellationToken::new(), || false)
+            .expect("first run should acquire its script");
+        let rejected = Arc::new(AtomicBool::new(false));
+        let thread_rejected = Arc::clone(&rejected);
+        let thread_queue = Arc::clone(&queue);
+        let waiter = thread::spawn(move || {
+            thread_queue
+                .acquire("script-1", &RuntimeCancellationToken::new(), || {
+                    thread_rejected.load(Ordering::Relaxed)
+                })
+                .map(|_permit| ())
+        });
+
+        rejected.store(true, Ordering::Relaxed);
+        assert!(matches!(waiter.join(), Ok(Err(AcquireError::Rejected))));
+    }
+
+    #[test]
     fn rejects_a_nested_wait_that_would_create_a_deadlock() {
         let queue = Arc::new(ScriptExecutionQueue::default());
         let _script_a = queue
-            .acquire("script-a", &RuntimeCancellationToken::new())
+            .acquire("script-a", &RuntimeCancellationToken::new(), || false)
             .expect("script A should acquire");
         let script_b = queue
-            .acquire("script-b", &RuntimeCancellationToken::new())
+            .acquire("script-b", &RuntimeCancellationToken::new(), || false)
             .expect("script B should acquire");
         let cancellation = RuntimeCancellationToken::new();
         let thread_cancellation = cancellation.clone();
         let thread_queue = Arc::clone(&queue);
         let waiter = thread::spawn(move || {
             thread_queue
-                .acquire_nested("script-a", "script-b", &thread_cancellation)
+                .acquire_nested("script-a", "script-b", &thread_cancellation, || false)
                 .map(|_permit| ())
         });
 
@@ -272,7 +337,12 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert!(matches!(
-            queue.acquire_nested("script-b", "script-a", &RuntimeCancellationToken::new()),
+            queue.acquire_nested(
+                "script-b",
+                "script-a",
+                &RuntimeCancellationToken::new(),
+                || false,
+            ),
             Err(AcquireError::Busy)
         ));
 

@@ -154,12 +154,14 @@ fn rejects_invalid_http_configuration_and_connection_failures() {
         "action.http",
         json!({
             "method": "GET",
-            "url": format!("http://{address}/closed"),
+            "url": format!("http://{address}/closed?token=private-value"),
             "timeoutSeconds": 1
         }),
     )
     .expect_err("connection failure must be surfaced");
     assert!(error.to_string().contains("HTTP request GET"));
+    assert!(!error.to_string().contains("private-value"));
+    assert!(error.to_string().contains("token=[REDACTED]"));
 }
 
 #[test]

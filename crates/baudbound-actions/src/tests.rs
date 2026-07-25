@@ -950,6 +950,32 @@ fn execute_with_trigger_payload(
     execute_with_handler(&handler, action_type, config, trigger_payload)
 }
 
+fn execute_with_package_path(
+    action_type: &str,
+    config: Value,
+    package_path: std::path::PathBuf,
+) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+    let handler = HeadlessActionHandler::default();
+    let context = RuntimeContext {
+        cancellation: Default::default(),
+        identity: RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "trigger-1".to_owned(),
+        },
+        package_path: Some(package_path),
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: action_type.to_owned(),
+        config: config.as_object().cloned().unwrap_or_default(),
+        node_id: "node-1".to_owned(),
+    };
+    handler.execute_action(&request, &context)
+}
+
 fn execute_with_cancellation(
     action_type: &str,
     config: Value,

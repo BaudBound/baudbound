@@ -21,6 +21,7 @@ pub struct ServeOptions {
     pub(crate) hotkeys_enabled: bool,
     pub(crate) hotkey_stdin_enabled: bool,
     pub max_webhook_body_bytes: usize,
+    pub max_webhook_connections: usize,
     pub max_websocket_connections: usize,
     pub max_websocket_message_bytes: usize,
     pub(crate) once: bool,
@@ -79,6 +80,7 @@ impl ServeOptions {
                 .max_webhook_body_bytes
                 .unwrap_or(config.webhooks.max_body_bytes)
                 .max(1),
+            max_webhook_connections: config.webhooks.max_connections,
             max_websocket_connections: overrides
                 .max_websocket_connections
                 .unwrap_or(config.websockets.max_connections),

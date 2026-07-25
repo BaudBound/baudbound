@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use baudbound_script::{Manifest, ScriptPackage};
+use baudbound_security::BlacklistDecision;
 use baudbound_storage::{InstalledScript, ScriptApproval, ScriptStore};
 use baudbound_triggers::TriggerRegistration;
 use serde::Serialize;
@@ -54,6 +55,7 @@ impl RunnerStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct ScriptStatus {
     pub approval_status: ApprovalStatus,
+    pub blacklist: BlacklistDecision,
     pub declared_permissions: Vec<String>,
     pub installed: InstalledScript,
     pub metadata: Option<ScriptMetadata>,
@@ -98,7 +100,8 @@ impl From<&Manifest> for ScriptMetadata {
 impl ScriptStatus {
     #[must_use]
     pub fn has_problem(&self) -> bool {
-        self.package_error.is_some()
+        self.blacklist.blocks_execution()
+            || self.package_error.is_some()
             || !matches!(self.package_hash_status, PackageHashStatus::Valid)
             || matches!(
                 self.approval_status,

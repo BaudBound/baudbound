@@ -234,6 +234,7 @@ pub struct RepositoryScriptSummary {
     pub minimum_runner_version: String,
     pub name: String,
     pub official: bool,
+    pub package_hash: String,
     pub published_at: String,
     pub repository_name: String,
     pub repository_url: String,
@@ -261,6 +262,12 @@ pub struct RepositoryScriptQuery {
     #[serde(default)]
     pub capabilities: Vec<String>,
     pub direction: SortDirection,
+    #[serde(default)]
+    pub excluded_package_hashes: Vec<String>,
+    #[serde(default)]
+    pub excluded_repository_urls: Vec<String>,
+    #[serde(default)]
+    pub excluded_script_ids: Vec<String>,
     #[serde(default)]
     pub installed: Vec<bool>,
     pub limit: usize,

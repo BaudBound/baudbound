@@ -21,6 +21,7 @@ version = "2.0.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+bytes = "1.12.0"
 command-group = "5.0.1"
 base64 = "0.22.1"
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
@@ -28,6 +29,9 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.5.50", features = ["derive"] }
 ctrlc = "3.5.1"
 getrandom = "0.4.3"
+http-body-util = "0.1.3"
+hyper = { version = "1.10.1", features = ["http1", "server"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
 keyring = "4.1.4"
 jsonschema = { version = "0.48.1", default-features = false }
 notify = "8.2.0"
@@ -45,10 +49,9 @@ sha2 = "0.11.0"
 sysinfo = "0.39.6"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
-tiny_http = "0.12.0"
 toml = "1.1.2"
 toml_edit = "0.25.12"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.48.0", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
 tungstenite = "0.30.0"
@@ -76,16 +79,21 @@ path = "src/main.rs"
 anyhow.workspace = true
 arboard = "3.6.1"
 base64.workspace = true
-baudbound-actions = { path = "crates/baudbound-actions" }
-baudbound-core = { path = "crates/baudbound-core" }
-baudbound-runtime = { path = "crates/baudbound-runtime" }
-baudbound-script = { path = "crates/baudbound-script" }
-baudbound-storage = { path = "crates/baudbound-storage" }
-baudbound-triggers = { path = "crates/baudbound-triggers" }
+baudbound-actions = { path = "crates/baudbound-actions", version = "2.0.0" }
+baudbound-core = { path = "crates/baudbound-core", version = "2.0.0" }
+baudbound-runtime = { path = "crates/baudbound-runtime", version = "2.0.0" }
+baudbound-script = { path = "crates/baudbound-script", version = "2.0.0" }
+baudbound-security = { path = "crates/baudbound-security", version = "2.0.0" }
+baudbound-storage = { path = "crates/baudbound-storage", version = "2.0.0" }
+baudbound-triggers = { path = "crates/baudbound-triggers", version = "2.0.0" }
+bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 getrandom.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 keyring.workspace = true
 notify-rust = "4.11.7"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
@@ -112,9 +120,9 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-updater = "2.10.1"
 tempfile.workspace = true
 thiserror.workspace = true
-tiny_http.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true

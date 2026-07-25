@@ -29,6 +29,16 @@ pub(super) enum SensitiveOperation {
     ApproveScript {
         reference: String,
     },
+    RevokeScriptApproval {
+        reference: String,
+    },
+    RemoveScript {
+        reference: String,
+    },
+    RemoveScriptRepository {
+        url: String,
+    },
+    PrepareForUpdate,
     ImportScriptPackage {
         package_path: String,
     },
@@ -51,7 +61,7 @@ pub(super) enum SensitiveOperation {
         restart_background: bool,
     },
     SaveRunnerConfigModel {
-        config: RunnerConfig,
+        config: Box<RunnerConfig>,
         restart_background: bool,
     },
     ResetRunnerConfig {
@@ -85,6 +95,10 @@ impl SensitiveOperation {
     fn kind(&self) -> &'static str {
         match self {
             Self::ApproveScript { .. } => "approve_script",
+            Self::RevokeScriptApproval { .. } => "revoke_script_approval",
+            Self::RemoveScript { .. } => "remove_script",
+            Self::RemoveScriptRepository { .. } => "remove_script_repository",
+            Self::PrepareForUpdate => "prepare_for_update",
             Self::ImportScriptPackage { .. } => "import_script_package",
             Self::UpdateScriptPackage { .. } => "update_script_package",
             Self::SetScriptAutomaticUpdateChecks { .. } => "set_script_automatic_update_checks",
@@ -105,6 +119,12 @@ impl SensitiveOperation {
     fn summary(&self) -> String {
         match self {
             Self::ApproveScript { reference } => format!("Approve {reference}"),
+            Self::RevokeScriptApproval { reference } => {
+                format!("Revoke approval for {reference}")
+            }
+            Self::RemoveScript { reference } => format!("Remove {reference}"),
+            Self::RemoveScriptRepository { url } => format!("Remove repository {url}"),
+            Self::PrepareForUpdate => "Stop the runner and prepare to install an update".to_owned(),
             Self::ImportScriptPackage { package_path } => {
                 format!("Import package {package_path}")
             }
@@ -322,6 +342,8 @@ fn validate_operation(
 ) -> Result<(), String> {
     match operation {
         SensitiveOperation::ApproveScript { reference }
+        | SensitiveOperation::RevokeScriptApproval { reference }
+        | SensitiveOperation::RemoveScript { reference }
         | SensitiveOperation::RunScript { reference }
         | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
             validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)
@@ -338,6 +360,10 @@ fn validate_operation(
             }
             Ok(())
         }
+        SensitiveOperation::RemoveScriptRepository { url } => {
+            validate_text("repository URL", url, 4096, false)
+        }
+        SensitiveOperation::PrepareForUpdate => Ok(()),
         SensitiveOperation::SaveRunnerConfig { contents, .. } => {
             if contents.len() > MAX_RUNNER_CONFIG_BYTES {
                 return Err(format!(
@@ -443,6 +469,8 @@ fn operation_digest(
     hasher.update(operation_json);
     match operation {
         SensitiveOperation::ApproveScript { reference }
+        | SensitiveOperation::RevokeScriptApproval { reference }
+        | SensitiveOperation::RemoveScript { reference }
         | SensitiveOperation::RunScript { reference }
         | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
             let installed = state
