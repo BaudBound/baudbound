@@ -89,6 +89,24 @@ fn supports_every_exported_condition_operator() {
         (json!(9), "<", json!(10), true),
         (json!(10), "<=", json!(10), true),
         (json!("BaudBound"), "contains", json!("Bound"), true),
+        (
+            json!("BaudBound"),
+            "equals_ignore_case",
+            json!("baudbound"),
+            true,
+        ),
+        (
+            json!("BaudBound"),
+            "contains_ignore_case",
+            json!("BOUN"),
+            true,
+        ),
+        (
+            json!("BaudBound"),
+            "does_not_contain",
+            json!("Runner"),
+            true,
+        ),
         (json!("BaudBound"), "starts_with", json!("Baud"), true),
         (json!("BaudBound"), "ends_with", json!("Bound"), true),
         (
@@ -104,6 +122,19 @@ fn supports_every_exported_condition_operator() {
         (json!("true"), "is_true", Value::Null, false),
         (json!(0), "is_false", Value::Null, false),
         (Value::Null, "is_false", Value::Null, false),
+        (json!("42.5"), "is_numeric", Value::Null, true),
+        (json!("42px"), "is_numeric", Value::Null, false),
+        (json!("text"), "is_text", Value::Null, true),
+        (json!(true), "is_boolean", Value::Null, true),
+        (json!([1, 2]), "is_list", Value::Null, true),
+        (json!({"name": "BaudBound"}), "is_object", Value::Null, true),
+        (json!("value"), "is_not_empty", Value::Null, true),
+        (json!([]), "is_not_empty", Value::Null, false),
+        (json!({"name": "BaudBound"}), "has_key", json!("name"), true),
+        (json!([1, 2]), "contains_item", json!("2"), true),
+        (json!("åäö"), "length_equals", json!(3), true),
+        (json!([1, 2, 3]), "length_greater_than", json!(2), true),
+        (json!({"first": 1}), "length_less_than", json!(2), true),
     ];
 
     for (left, operator, right, expected) in cases {
@@ -124,6 +155,96 @@ fn rejects_invalid_numeric_and_regex_conditions() {
     let regex_error = compare_condition_values(&json!("value"), "regex_match", &json!("["))
         .expect_err("invalid regular expression must fail");
     assert!(regex_error.contains("invalid regex pattern"));
+
+    let length_error = compare_condition_values(&json!(42), "length_equals", &json!(2))
+        .expect_err("scalar length comparison must fail");
+    assert!(length_error.contains("string, list, or object"));
+
+    let target_error = compare_condition_values(&json!("value"), "length_equals", &json!(1.5))
+        .expect_err("fractional length target must fail");
+    assert!(target_error.contains("non-negative integer"));
+}
+
+#[test]
+fn presence_checks_distinguish_missing_values_from_existing_null_values() {
+    let defined_report = execute_manual_program(
+        &program(
+            vec![
+                variable_node(
+                    "n-payload",
+                    "payload",
+                    "set",
+                    "object",
+                    json!(r#"{"available":null}"#),
+                ),
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{payload.available}}",
+                            "operator": "is_defined",
+                            "right": "",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "existing null is defined"),
+                log_node("n-false", "existing null is missing"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-payload"),
+                edge("n-payload", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "defined-null-condition",
+    )
+    .expect("defined presence check should execute");
+
+    assert!(has_log(&defined_report.logs, "existing null is defined"));
+    assert!(!has_log(&defined_report.logs, "existing null is missing"));
+
+    let missing_report = execute_manual_program(
+        &program(
+            vec![
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{payload.missing}}",
+                            "operator": "is_missing",
+                            "right": "",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "missing value detected"),
+                log_node("n-false", "missing value was treated as defined"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "missing-condition",
+    )
+    .expect("missing presence check should execute");
+
+    assert!(has_log(&missing_report.logs, "missing value detected"));
+    assert!(!has_log(
+        &missing_report.logs,
+        "missing value was treated as defined"
+    ));
 }
 
 #[test]

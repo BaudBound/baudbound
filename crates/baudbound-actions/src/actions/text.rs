@@ -3,135 +3,42 @@ use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionR
 use regex::Regex;
 use serde_json::{Map, Value};
 
-use crate::{
-    config_string, config_usize, failed, optional_config_usize, value_kind, value_to_string,
-};
+use crate::{config_string, failed, value_kind, value_to_string};
 
 pub(crate) fn text_format_action(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
-    let operation =
-        config_string(&request.config, "operation").unwrap_or_else(|| "template".to_owned());
-    let input = config_string(&request.config, "input").unwrap_or_default();
-    let template = config_string(&request.config, "template").unwrap_or_default();
-    let search = config_string(&request.config, "search").unwrap_or_default();
-    let replacement = config_string(&request.config, "replacement").unwrap_or_default();
-    let delimiter = config_string(&request.config, "delimiter").unwrap_or_else(|| ",".to_owned());
-    let pad = config_string(&request.config, "pad").unwrap_or_else(|| " ".to_owned());
-
-    let (text, items) = match operation.as_str() {
-        "template" => (template, Vec::new()),
-        "trim" => (input.trim().to_owned(), Vec::new()),
-        "uppercase" => (input.to_uppercase(), Vec::new()),
-        "lowercase" => (input.to_lowercase(), Vec::new()),
-        "sentence_case" => (sentence_case(&input), Vec::new()),
-        "capitalize_words" => (capitalize_words(&input), Vec::new()),
-        "replace" => (input.replace(&search, &replacement), Vec::new()),
-        "regex_replace" => {
-            let regex = Regex::new(&search).map_err(|source| RuntimeActionError::Failed {
+    let mut current = request
+        .config
+        .get("input")
+        .cloned()
+        .unwrap_or(Value::String(String::new()));
+    let operations = request
+        .config
+        .get("operations")
+        .and_then(Value::as_array)
+        .ok_or_else(|| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: "text transform requires an operations list".to_owned(),
+        })?;
+    if operations.is_empty() {
+        return failed(request, "text transform requires at least one operation");
+    }
+    for (index, operation) in operations.iter().enumerate() {
+        let config = operation
+            .as_object()
+            .ok_or_else(|| RuntimeActionError::Failed {
                 action_type: request.action_type.clone(),
-                message: format!("invalid regex pattern: {source}"),
+                message: format!("text transform operation {} must be an object", index + 1),
             })?;
-            (
-                regex.replace_all(&input, replacement.as_str()).to_string(),
-                Vec::new(),
-            )
-        }
-        "split" => (
-            String::new(),
-            input
-                .split(&delimiter)
-                .map(|item| Value::String(item.to_owned()))
-                .collect(),
-        ),
-        "join" => {
-            let items = parse_items(request)?;
-            let text = items
-                .iter()
-                .map(value_to_string)
-                .collect::<Vec<_>>()
-                .join(&delimiter);
-            (text, items)
-        }
-        "substring" => {
-            let start = config_usize(&request.config, "start", 0);
-            let length = optional_config_usize(&request.config, "length");
-            (substring_by_chars(&input, start, length), Vec::new())
-        }
-        "pad_start" => (
-            pad_text(
-                &input,
-                config_usize(&request.config, "targetLength", input.chars().count()),
-                &pad,
-                true,
-            ),
-            Vec::new(),
-        ),
-        "pad_end" => (
-            pad_text(
-                &input,
-                config_usize(&request.config, "targetLength", input.chars().count()),
-                &pad,
-                false,
-            ),
-            Vec::new(),
-        ),
-        "url_encode" => (encode_uri_component(&input), Vec::new()),
-        "url_decode" => (
-            decode_uri_component(&input).map_err(|message| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message,
-            })?,
-            Vec::new(),
-        ),
-        "base64_encode" => (
-            general_purpose::STANDARD.encode(input.as_bytes()),
-            Vec::new(),
-        ),
-        "base64_decode" => {
-            let bytes = general_purpose::STANDARD
-                .decode(input.trim())
-                .map_err(|source| RuntimeActionError::Failed {
-                    action_type: request.action_type.clone(),
-                    message: format!("invalid base64 input: {source}"),
-                })?;
-            let text = String::from_utf8(bytes).map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!("decoded base64 is not valid UTF-8: {source}"),
-            })?;
-            (text, Vec::new())
-        }
-        "json_escape" => (
-            serde_json::to_string(&input).map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!("failed to JSON escape input: {source}"),
-            })?,
-            Vec::new(),
-        ),
-        "json_unescape" => {
-            let value = serde_json::from_str::<Value>(&input).map_err(|source| {
-                RuntimeActionError::Failed {
-                    action_type: request.action_type.clone(),
-                    message: format!("failed to JSON unescape input: {source}"),
-                }
-            })?;
-            let text = match value {
-                Value::String(value) => value,
-                value => {
-                    serde_json::to_string(&value).map_err(|source| RuntimeActionError::Failed {
-                        action_type: request.action_type.clone(),
-                        message: format!("failed to serialize JSON value: {source}"),
-                    })?
-                }
-            };
-            (text, Vec::new())
-        }
-        _ => {
-            return failed(
-                request,
-                format!("unsupported text transform operation {operation}"),
-            );
-        }
+        current = apply_operation(current, config).map_err(|error| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("text transform operation {} failed: {error}", index + 1),
+        })?;
+    }
+    let (text, items) = match current {
+        Value::Array(items) => (String::new(), items),
+        value => (value_to_string(&value), Vec::new()),
     };
 
     Ok(RuntimeActionResult {
@@ -142,27 +49,217 @@ pub(crate) fn text_format_action(
     })
 }
 
-fn parse_items(request: &RuntimeActionRequest) -> Result<Vec<Value>, RuntimeActionError> {
-    match request.config.get("items") {
-        Some(Value::Array(items)) => Ok(items.clone()),
-        Some(Value::String(items)) => {
-            let parsed = serde_json::from_str::<Value>(items).map_err(|source| {
-                RuntimeActionError::Failed {
-                    action_type: request.action_type.clone(),
-                    message: format!("join items must be a JSON array: {source}"),
-                }
-            })?;
-            match parsed {
-                Value::Array(items) => Ok(items),
-                _ => failed(request, "join items must be a JSON array"),
-            }
-        }
-        Some(other) => failed(
-            request,
-            format!("join items must be a list, found {}", value_kind(other)),
-        ),
-        None => Ok(Vec::new()),
+fn apply_operation(current: Value, config: &Map<String, Value>) -> Result<Value, String> {
+    let operation =
+        config_string(config, "operation").ok_or_else(|| "operation is required".to_owned())?;
+    if operation == "template" {
+        return Ok(config
+            .get("template")
+            .cloned()
+            .unwrap_or(Value::String(String::new())));
     }
+    if operation == "join" {
+        let Value::Array(items) = current else {
+            return Err(format!(
+                "join requires a list, found {}",
+                value_kind(&current)
+            ));
+        };
+        let delimiter = config_string(config, "delimiter").unwrap_or_default();
+        if delimiter.is_empty() {
+            return Err("join delimiter is required".to_owned());
+        }
+        return Ok(Value::String(
+            items
+                .iter()
+                .map(value_to_string)
+                .collect::<Vec<_>>()
+                .join(&delimiter),
+        ));
+    }
+    let Value::String(input) = current else {
+        return Err(format!(
+            "{operation} requires text, found {}",
+            value_kind(&current)
+        ));
+    };
+    let search = config_string(config, "search").unwrap_or_default();
+    let replacement = config_string(config, "replacement").unwrap_or_default();
+    let delimiter = config_string(config, "delimiter").unwrap_or_default();
+    let pad = config_string(config, "pad").unwrap_or_default();
+
+    match operation.as_str() {
+        "trim" => Ok(Value::String(input.trim().to_owned())),
+        "uppercase" => Ok(Value::String(input.to_uppercase())),
+        "lowercase" => Ok(Value::String(input.to_lowercase())),
+        "sentence_case" => Ok(Value::String(sentence_case(&input))),
+        "capitalize_words" => Ok(Value::String(capitalize_words(&input))),
+        "replace" => {
+            if search.is_empty() {
+                return Err("search text is required".to_owned());
+            }
+            Ok(Value::String(input.replace(&search, &replacement)))
+        }
+        "regex_replace" => {
+            if search.is_empty() {
+                return Err("search text is required".to_owned());
+            }
+            validate_portable_regex(&search, &replacement)?;
+            Regex::new(&search)
+                .map(|regex| {
+                    Value::String(regex.replace_all(&input, replacement.as_str()).to_string())
+                })
+                .map_err(|source| format!("invalid regex pattern: {source}"))
+        }
+        "split" => {
+            if delimiter.is_empty() {
+                return Err("split delimiter is required".to_owned());
+            }
+            Ok(Value::Array(
+                input
+                    .split(&delimiter)
+                    .map(|item| Value::String(item.to_owned()))
+                    .collect(),
+            ))
+        }
+        "substring" => Ok(Value::String(substring_by_chars(
+            &input,
+            required_usize(config, "start")?,
+            optional_usize(config, "length")?,
+        ))),
+        "pad_start" => {
+            if pad.is_empty() {
+                return Err("pad text is required".to_owned());
+            }
+            Ok(Value::String(pad_text(
+                &input,
+                required_usize(config, "targetLength")?,
+                &pad,
+                true,
+            )))
+        }
+        "pad_end" => {
+            if pad.is_empty() {
+                return Err("pad text is required".to_owned());
+            }
+            Ok(Value::String(pad_text(
+                &input,
+                required_usize(config, "targetLength")?,
+                &pad,
+                false,
+            )))
+        }
+        "url_encode" => Ok(Value::String(encode_uri_component(&input))),
+        "url_decode" => decode_uri_component(&input).map(Value::String),
+        "base64_encode" => Ok(Value::String(
+            general_purpose::STANDARD.encode(input.as_bytes()),
+        )),
+        "base64_decode" => {
+            let bytes = general_purpose::STANDARD
+                .decode(input.trim())
+                .map_err(|source| format!("invalid base64 input: {source}"))?;
+            String::from_utf8(bytes)
+                .map(Value::String)
+                .map_err(|source| format!("decoded base64 is not valid UTF-8: {source}"))
+        }
+        "json_escape" => serde_json::to_string(&input)
+            .map(Value::String)
+            .map_err(|source| format!("failed to JSON escape input: {source}")),
+        "json_unescape" => {
+            let value = serde_json::from_str::<Value>(&input)
+                .map_err(|source| format!("failed to JSON unescape input: {source}"))?;
+            Ok(Value::String(match value {
+                Value::String(value) => value,
+                value => serde_json::to_string(&value)
+                    .map_err(|source| format!("failed to serialize JSON value: {source}"))?,
+            }))
+        }
+        _ => Err(format!("unsupported text transform operation {operation}")),
+    }
+}
+
+fn required_usize(config: &Map<String, Value>, key: &str) -> Result<usize, String> {
+    let value = config
+        .get(key)
+        .ok_or_else(|| format!("{key} is required"))?;
+    parse_usize(value, key)
+}
+
+fn optional_usize(config: &Map<String, Value>, key: &str) -> Result<Option<usize>, String> {
+    match config.get(key) {
+        None => Ok(None),
+        Some(Value::String(value)) if value.trim().is_empty() => Ok(None),
+        Some(value) => parse_usize(value, key).map(Some),
+    }
+}
+
+fn parse_usize(value: &Value, key: &str) -> Result<usize, String> {
+    const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+    let parsed = match value {
+        Value::Number(value) => value
+            .as_u64()
+            .ok_or_else(|| format!("{key} must be a non-negative safe integer"))?,
+        Value::String(value) => value
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| format!("{key} must be a non-negative safe integer"))?,
+        _ => return Err(format!("{key} must be a non-negative safe integer")),
+    };
+    if parsed > MAX_SAFE_INTEGER {
+        return Err(format!(
+            "{key} must be a non-negative safe integer no greater than {MAX_SAFE_INTEGER}"
+        ));
+    }
+    usize::try_from(parsed).map_err(|_| format!("{key} is too large for this platform"))
+}
+
+fn validate_portable_regex(pattern: &str, replacement: &str) -> Result<(), String> {
+    if ["(?=", "(?!", "(?<=", "(?<!", "(?<", "(?P<"]
+        .iter()
+        .any(|marker| pattern.contains(marker))
+    {
+        return Err(
+            "regular expressions cannot use lookaround or named capture groups because they must work in both the editor and runner"
+                .to_owned(),
+        );
+    }
+    if pattern
+        .as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'\\' && pair[1].is_ascii_digit() && pair[1] != b'0')
+    {
+        return Err(
+            "regular expressions cannot use backreferences in the search pattern because they must work in both the editor and runner"
+                .to_owned(),
+        );
+    }
+    let bytes = replacement.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'$' {
+            index += 1;
+            continue;
+        }
+        let Some(next) = bytes.get(index + 1) else {
+            return Err("a literal $ in a regex replacement must be written as $$".to_owned());
+        };
+        if *next == b'$' {
+            index += 2;
+            continue;
+        }
+        if next.is_ascii_digit() && *next != b'0' {
+            index += 2;
+            while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+            continue;
+        }
+        return Err(
+            "regex replacements support numbered capture groups such as $1; other $ replacement forms are not portable"
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 fn substring_by_chars(input: &str, start: usize, length: Option<usize>) -> String {

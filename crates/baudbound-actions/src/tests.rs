@@ -24,6 +24,7 @@ mod process_actions;
 mod text_format;
 #[path = "tests/url_parse.rs"]
 mod url_parse;
+mod value_conversion;
 
 #[derive(Default)]
 struct FakeWebSocketSink {
@@ -664,8 +665,13 @@ fn desktop_action_handler_delegates_headless_actions() {
         &handler,
         "action.text.format",
         json!({
-            "operation": "uppercase",
-            "input": "baudbound"
+            "input": "baudbound",
+            "operations": [
+                {
+                    "id": "uppercase",
+                    "operation": "uppercase"
+                }
+            ]
         }),
         Value::Null,
     )
@@ -908,10 +914,15 @@ fn transforms_text_with_regex_replace() {
     let result = execute(
         "action.text.format",
         json!({
-            "operation": "regex_replace",
             "input": "server-123",
-            "search": "\\d+",
-            "replacement": "ok"
+            "operations": [
+                {
+                    "id": "regex-replace",
+                    "operation": "regex_replace",
+                    "search": "\\d+",
+                    "replacement": "ok"
+                }
+            ]
         }),
     )
     .expect("text transform should succeed");
@@ -924,9 +935,14 @@ fn joins_json_items() {
     let result = execute(
         "action.text.format",
         json!({
-            "operation": "join",
-            "items": ["one", "two", 3],
-            "delimiter": "|"
+            "input": ["one", "two", 3],
+            "operations": [
+                {
+                    "id": "join",
+                    "operation": "join",
+                    "delimiter": "|"
+                }
+            ]
         }),
     )
     .expect("join should succeed");

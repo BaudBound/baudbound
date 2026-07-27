@@ -13,10 +13,11 @@ use serde_json::{Map, Number, Value};
 
 pub use actions::{SerialConnectionRegistry, SerialDeviceConfig};
 use actions::{
-    copy_file_action, delete_file_action, desktop_only_action, download_file_action,
-    http_request_action, kill_process_action, move_file_action, open_application_action,
-    parse_url_action, process_status_action, read_file_action, run_process_action,
-    shell_command_action, text_format_action, webhook_response_action, write_file_action,
+    convert_value_action, copy_file_action, delete_file_action, desktop_only_action,
+    download_file_action, http_request_action, kill_process_action, move_file_action,
+    open_application_action, parse_url_action, process_status_action, read_file_action,
+    run_process_action, shell_command_action, text_format_action, webhook_response_action,
+    write_file_action,
 };
 pub use limits::{
     ActionLimits, DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES,
@@ -50,6 +51,7 @@ pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
     "action.sound.play",
     "action.text.format",
     "action.url.parse",
+    "action.value.convert",
     "action.webhook_response",
     "action.websocket.write",
     "action.window.active",
@@ -409,6 +411,7 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.sound.play" => desktop_only_action(request, "audio playback"),
             "action.text.format" => text_format_action(request),
             "action.url.parse" => parse_url_action(request),
+            "action.value.convert" => convert_value_action(request),
             "action.webhook_response" => webhook_response_action(request, context),
             "action.websocket.write" => self.websocket_write_action(request),
             action_type => Err(RuntimeActionError::Unsupported(action_type.to_owned())),
@@ -507,20 +510,6 @@ pub(crate) fn required_string(
 
 pub(crate) fn config_string(config: &Map<String, Value>, key: &str) -> Option<String> {
     config.get(key).map(value_to_string)
-}
-
-pub(crate) fn config_usize(config: &Map<String, Value>, key: &str, fallback: usize) -> usize {
-    optional_config_usize(config, key).unwrap_or(fallback)
-}
-
-pub(crate) fn optional_config_usize(config: &Map<String, Value>, key: &str) -> Option<usize> {
-    match config.get(key) {
-        Some(Value::Number(number)) => number
-            .as_u64()
-            .and_then(|value| usize::try_from(value).ok()),
-        Some(Value::String(value)) => value.trim().parse::<usize>().ok(),
-        _ => None,
-    }
 }
 
 pub(crate) fn config_bool(config: &Map<String, Value>, key: &str, fallback: bool) -> bool {

@@ -24,6 +24,7 @@ pub use state::{
 };
 pub(crate) use templates::{
     render_json_template, render_template, resolve_config_map, resolve_template_value,
+    template_value_is_defined,
 };
 pub(crate) use variables::{
     DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_type,

@@ -1,7 +1,7 @@
 use crate::runtime::{
     RuntimeConditionRow, RuntimeSwitchCaseRow, compare_condition_values, config_string,
-    required_config_string, resolve_config_map, resolve_template_value, value_kind,
-    values_equal_for_condition,
+    required_config_string, resolve_config_map, resolve_template_value, template_value_is_defined,
+    value_kind, values_equal_for_condition,
 };
 use serde_json::Number;
 use serde_json::Value;
@@ -106,15 +106,19 @@ impl RuntimeExecutor<'_> {
 
         let mut result = false;
         for (index, row) in rows.iter().enumerate() {
-            let compared = compare_condition_values(
-                &resolve_template_value(&row.left, &self.context.variables),
-                &row.operator,
-                &resolve_template_value(&row.right, &self.context.variables),
-            )
-            .map_err(|message| RuntimeError::ControlFlow {
-                node_id: node.id.clone(),
-                message,
-            })?;
+            let compared = match row.operator.as_str() {
+                "is_defined" => template_value_is_defined(&row.left, &self.context.variables),
+                "is_missing" => !template_value_is_defined(&row.left, &self.context.variables),
+                _ => compare_condition_values(
+                    &resolve_template_value(&row.left, &self.context.variables),
+                    &row.operator,
+                    &resolve_template_value(&row.right, &self.context.variables),
+                )
+                .map_err(|message| RuntimeError::ControlFlow {
+                    node_id: node.id.clone(),
+                    message,
+                })?,
+            };
             let row_result = if row.invert { !compared } else { compared };
 
             if index == 0 {

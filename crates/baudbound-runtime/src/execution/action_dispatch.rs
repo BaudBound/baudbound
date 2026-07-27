@@ -64,10 +64,16 @@ impl RuntimeExecutor<'_> {
         let result = match self.action_handler.execute_action(&request, &self.context) {
             Ok(result) => result,
             Err(RuntimeActionError::Cancelled) => return Err(RuntimeError::Cancelled),
-            Err(source) => {
+            Err(RuntimeActionError::Unsupported(action_type)) => {
+                return Err(RuntimeError::UnsupportedStep {
+                    action_type,
+                    node_id: node.id.clone(),
+                });
+            }
+            Err(RuntimeActionError::Failed { message, .. }) => {
                 return Err(RuntimeError::Action {
                     node_id: node.id.clone(),
-                    message: source.to_string(),
+                    message,
                 });
             }
         };

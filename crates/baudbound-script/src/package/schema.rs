@@ -176,8 +176,13 @@ mod tests {
                 "type": "action",
                 "action": "format_text",
                 "config": {
-                    "operation": operation,
-                    "input": "{{test}}"
+                    "input": "{{test}}",
+                    "operations": [
+                        {
+                            "id": format!("operation-{operation}"),
+                            "operation": operation
+                        }
+                    ]
                 },
                 "runtime_outputs": [
                     {

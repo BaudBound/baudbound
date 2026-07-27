@@ -52,8 +52,12 @@ pub(crate) fn coerce_variable_value(
         }
         "boolean" => match value {
             Value::Bool(value) => Ok(Value::Bool(value)),
-            Value::String(value) if value.eq_ignore_ascii_case("true") => Ok(Value::Bool(true)),
-            Value::String(value) if value.eq_ignore_ascii_case("false") => Ok(Value::Bool(false)),
+            Value::String(value) if value.trim().eq_ignore_ascii_case("true") => {
+                Ok(Value::Bool(true))
+            }
+            Value::String(value) if value.trim().eq_ignore_ascii_case("false") => {
+                Ok(Value::Bool(false))
+            }
             other => Err(RuntimeError::VariableOperation {
                 node_id: node.id.clone(),
                 message: format!("expected boolean, found {}", value_kind(&other)),
@@ -294,7 +298,7 @@ fn coerce_json_container(
 pub(crate) fn number_from_value(value: Option<&Value>) -> Option<f64> {
     let value = match value {
         Some(Value::Number(number)) => number.as_f64(),
-        Some(Value::String(value)) => value.parse::<f64>().ok(),
+        Some(Value::String(value)) => value.trim().parse::<f64>().ok(),
         _ => None,
     }?;
     value.is_finite().then_some(value)

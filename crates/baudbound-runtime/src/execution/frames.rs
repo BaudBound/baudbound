@@ -1,5 +1,5 @@
 use crate::runtime::{RuntimeFrame, required_config_string, validate_variable_name};
-use serde_json::{Number, Value};
+use serde_json::{Map, Number, Value};
 
 use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
 
@@ -141,8 +141,19 @@ impl RuntimeExecutor<'_> {
                 });
             }
             _ => {
-                self.execute_node(&node)?;
-                let Some(handle) = self.default_success_handle(&node) else {
+                let handle = match self.execute_node(&node) {
+                    Ok(()) => self.default_success_handle(&node),
+                    Err(error) => {
+                        let Some(failure) =
+                            ExpectedNodeFailure::from_runtime_error(&error, &node.action_type)
+                        else {
+                            return Err(error);
+                        };
+                        self.record_expected_node_failure(&node, failure)?;
+                        Some("failed".to_owned())
+                    }
+                };
+                let Some(handle) = handle else {
                     self.push_runtime_log(
                         "info",
                         format!("{} has no outgoing edge. Branch ended.", node.id),
@@ -157,6 +168,44 @@ impl RuntimeExecutor<'_> {
                 });
             }
         }
+        Ok(())
+    }
+
+    fn record_expected_node_failure(
+        &mut self,
+        node: &RuntimeNode,
+        failure: ExpectedNodeFailure<'_>,
+    ) -> Result<(), RuntimeError> {
+        let details = Map::from_iter([
+            (
+                "action_type".to_owned(),
+                Value::String(node.action_type.clone()),
+            ),
+            ("node_id".to_owned(), Value::String(node.id.clone())),
+        ]);
+        let error = Value::Object(Map::from_iter([
+            (
+                "message".to_owned(),
+                Value::String(failure.message.to_owned()),
+            ),
+            ("code".to_owned(), Value::String(failure.code.to_owned())),
+            (
+                "type".to_owned(),
+                Value::String(failure.error_type.to_owned()),
+            ),
+            ("retryable".to_owned(), Value::Bool(false)),
+            ("details".to_owned(), Value::Object(details)),
+        ]));
+        self.set_variable(
+            format!("{}.error", node.id),
+            error,
+            RunVariableScope::NodeOutput,
+        )?;
+        self.push_runtime_log(
+            "error",
+            format!("{} failed: {}", node.action_type, failure.message),
+            Some(node.id.clone()),
+        );
         Ok(())
     }
 
@@ -352,6 +401,49 @@ impl RuntimeExecutor<'_> {
                 ),
                 Some(node_id.to_owned()),
             );
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExpectedNodeFailure<'a> {
+    code: &'static str,
+    error_type: &'static str,
+    message: &'a str,
+}
+
+impl<'a> ExpectedNodeFailure<'a> {
+    fn from_runtime_error(error: &'a RuntimeError, action_type: &str) -> Option<Self> {
+        match error {
+            RuntimeError::Action { message, .. } => {
+                let (code, error_type) = match action_type {
+                    "action.delay" => ("DELAY_DURATION_INVALID", "validation"),
+                    "action.text.format" => ("TEXT_TRANSFORM_FAILED", "validation"),
+                    "action.value.convert" => ("VALUE_CONVERSION_FAILED", "validation"),
+                    _ => ("ACTION_FAILED", "runtime"),
+                };
+                Some(Self {
+                    code,
+                    error_type,
+                    message,
+                })
+            }
+            RuntimeError::Calculation { message, .. } => Some(Self {
+                code: "CALCULATION_FAILED",
+                error_type: "validation",
+                message,
+            }),
+            RuntimeError::VariableOperation { message, .. } => Some(Self {
+                code: "VARIABLE_OPERATION_FAILED",
+                error_type: "validation",
+                message,
+            }),
+            RuntimeError::InvalidGraph(_)
+            | RuntimeError::ControlFlow { .. }
+            | RuntimeError::UnsupportedStep { .. }
+            | RuntimeError::State(_)
+            | RuntimeError::Redacted(_)
+            | RuntimeError::Cancelled => None,
         }
     }
 }

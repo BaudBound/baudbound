@@ -1091,7 +1091,7 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
 }
 
 #[test]
-fn notifies_action_handler_when_a_failed_run_finishes() {
+fn notifies_action_handler_when_an_expected_action_failure_finishes() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Debug, Default)]
@@ -1118,7 +1118,7 @@ fn notifies_action_handler_when_a_failed_run_finishes() {
     }
 
     let handler = LifecycleActionHandler::default();
-    let error = execute_manual_program_with_actions(
+    let report = execute_manual_program_with_actions(
         &json!({
             "entry": {
                 "trigger": manual_trigger(),
@@ -1139,14 +1139,26 @@ fn notifies_action_handler_when_a_failed_run_finishes() {
         "script-lifecycle",
         &handler,
     )
-    .expect_err("the external action should fail");
+    .expect("the expected action failure should complete through the failed outcome");
 
-    assert!(error.to_string().contains("expected test failure"));
+    assert!(report.logs.iter().any(|log| {
+        log.level == "error"
+            && log.node_id.as_deref() == Some("n-external")
+            && log.message.contains("expected test failure")
+    }));
+    assert_eq!(
+        report
+            .variables
+            .get("n-external.error")
+            .and_then(Value::as_object)
+            .and_then(|error| error.get("message")),
+        Some(&json!("expected test failure"))
+    );
     assert_eq!(handler.finished_runs.load(Ordering::SeqCst), 1);
 }
 
 #[test]
-fn rejects_out_of_range_resolved_numeric_config_before_action_dispatch() {
+fn routes_out_of_range_resolved_numeric_config_to_failed_before_action_dispatch() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[derive(Debug)]
@@ -1166,7 +1178,7 @@ fn rejects_out_of_range_resolved_numeric_config_before_action_dispatch() {
     }
 
     let handler = TrackingActionHandler(AtomicBool::new(false));
-    let error = execute_manual_program_with_actions(
+    let report = execute_manual_program_with_actions(
         &json!({
             "entry": {
                 "trigger": manual_trigger(),
@@ -1196,14 +1208,19 @@ fn rejects_out_of_range_resolved_numeric_config_before_action_dispatch() {
         "script-1",
         &handler,
     )
-    .expect_err("resolved frequency outside the contract must fail");
+    .expect("resolved frequency outside the contract should use the failed outcome");
 
-    assert!(error.to_string().contains("at most 20000"));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.level == "error" && log.message.contains("at most 20000") })
+    );
     assert!(!handler.0.load(Ordering::SeqCst));
 }
 
 #[test]
-fn rejects_out_of_range_resolved_screen_coordinate_before_action_dispatch() {
+fn routes_out_of_range_resolved_screen_coordinate_to_failed_before_action_dispatch() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[derive(Debug)]
@@ -1223,7 +1240,7 @@ fn rejects_out_of_range_resolved_screen_coordinate_before_action_dispatch() {
     }
 
     let handler = TrackingActionHandler(AtomicBool::new(false));
-    let error = execute_manual_program_with_actions(
+    let report = execute_manual_program_with_actions(
         &json!({
             "entry": {
                 "trigger": manual_trigger(),
@@ -1253,10 +1270,258 @@ fn rejects_out_of_range_resolved_screen_coordinate_before_action_dispatch() {
         "script-1",
         &handler,
     )
-    .expect_err("resolved coordinate outside i32 must fail");
+    .expect("resolved coordinate outside i32 should use the failed outcome");
 
-    assert!(error.to_string().contains("at most 2147483647"));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.level == "error" && log.message.contains("at most 2147483647") })
+    );
     assert!(!handler.0.load(Ordering::SeqCst));
+}
+
+#[test]
+fn expected_action_failures_follow_failed_edges_with_structured_error_data() {
+    #[derive(Debug)]
+    struct FailingActionHandler;
+
+    impl RuntimeActionHandler for FailingActionHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Err(RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: "device was unavailable".to_owned(),
+            })
+        }
+    }
+
+    let report = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-action",
+                            "action_type": "action.beep",
+                            "type": "action",
+                            "action": "beep",
+                            "config": {"frequencyHz": "800", "durationMs": "200"},
+                            "runtime_outputs": []
+                        },
+                        log_node("n-failed", "failure={{n-action.error.message}} code={{n-action.error.code}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-action"),
+                        edge("n-action", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-failed-edge",
+        &FailingActionHandler,
+    )
+    .expect("expected action failure should follow its failed edge");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.message == "failure=device was unavailable code=ACTION_FAILED" })
+    );
+    let error = report
+        .variables
+        .get("n-action.error")
+        .and_then(Value::as_object)
+        .expect("structured error should be stored");
+    assert_eq!(error.get("message"), Some(&json!("device was unavailable")));
+    assert_eq!(error.get("code"), Some(&json!("ACTION_FAILED")));
+    assert_eq!(error.get("type"), Some(&json!("runtime")));
+    assert_eq!(error.get("retryable"), Some(&json!(false)));
+    assert_eq!(
+        error
+            .get("details")
+            .and_then(Value::as_object)
+            .and_then(|details| details.get("action_type")),
+        Some(&json!("action.beep"))
+    );
+}
+
+#[test]
+fn successful_actions_never_fall_back_to_a_connected_failed_edge() {
+    #[derive(Debug)]
+    struct SuccessfulActionHandler;
+
+    impl RuntimeActionHandler for SuccessfulActionHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Ok(RuntimeActionResult {
+                output_data: Map::new(),
+            })
+        }
+    }
+
+    let report = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-action",
+                            "action_type": "action.beep",
+                            "type": "action",
+                            "action": "beep",
+                            "config": {"frequencyHz": "800", "durationMs": "200"},
+                            "runtime_outputs": []
+                        },
+                        log_node("n-failed", "must not execute")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-action"),
+                        edge("n-action", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-success-with-failed-edge",
+        &SuccessfulActionHandler,
+    )
+    .expect("successful action should complete");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .all(|log| log.message != "must not execute")
+    );
+    assert!(!report.variables.contains_key("n-action.error"));
+}
+
+#[test]
+fn calculation_failures_follow_failed_edges() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-calculate",
+                            "action_type": "action.calculate",
+                            "type": "action",
+                            "action": "calculate",
+                            "config": {"expression": "("},
+                            "runtime_outputs": []
+                        },
+                        log_node(
+                            "n-failed",
+                            "calculation={{n-calculate.error.code}} type={{n-calculate.error.type}}"
+                        )
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-calculate"),
+                        edge("n-calculate", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-calculation-failed-edge",
+    )
+    .expect("calculation failure should follow its failed edge");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.message == "calculation=CALCULATION_FAILED type=validation" })
+    );
+}
+
+#[test]
+fn delay_failures_follow_failed_edges() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-delay",
+                            "action_type": "action.delay",
+                            "type": "action",
+                            "action": "delay",
+                            "config": {"amount": "not-a-duration", "unit": "seconds"},
+                            "runtime_outputs": []
+                        },
+                        log_node("n-failed", "delay={{n-delay.error.code}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-delay"),
+                        edge("n-delay", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-delay-failed-edge",
+    )
+    .expect("delay failure should follow its failed edge");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.message == "delay=DELAY_DURATION_INVALID" })
+    );
+}
+
+#[test]
+fn variable_operation_failures_follow_failed_edges() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node(
+                            "n-variable",
+                            "count",
+                            "increment",
+                            "number",
+                            "not-a-number"
+                        ),
+                        log_node("n-failed", "variable={{n-variable.error.code}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-variable"),
+                        edge("n-variable", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-variable-failed-edge",
+    )
+    .expect("variable operation failure should follow its failed edge");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| { log.message == "variable=VARIABLE_OPERATION_FAILED" })
+    );
+    assert!(!report.variables.contains_key("count"));
 }
 
 #[test]

@@ -135,7 +135,17 @@ impl RuntimeExecutor<'_> {
                         message: "increment value must resolve to a finite number".to_owned(),
                     }
                 })?;
-                let current = number_from_value(current.as_ref()).unwrap_or(0.0);
+                let current = match current {
+                    Some(current) => number_from_value(Some(&current)).ok_or_else(|| {
+                        RuntimeError::VariableOperation {
+                            node_id: node.id.clone(),
+                            message: format!(
+                                "increment requires existing variable {name} to be a finite number"
+                            ),
+                        }
+                    })?,
+                    None => 0.0,
+                };
                 number_value(node, current + increment)
             }
             "append_list" => {
@@ -158,7 +168,19 @@ impl RuntimeExecutor<'_> {
             "set_object_field" => {
                 let field_path = required_config_string(node, "fieldPath")?;
                 let value = self.resolve_json_compatible_input(node.config.get("value"))?;
-                let mut current = current.unwrap_or_else(|| Value::Object(Map::new()));
+                let mut current = match current {
+                    Some(Value::Object(object)) => Value::Object(object),
+                    Some(other) => {
+                        return Err(RuntimeError::VariableOperation {
+                            node_id: node.id.clone(),
+                            message: format!(
+                                "set_object_field requires existing variable {name} to be an object, found {}",
+                                value_kind(&other)
+                            ),
+                        });
+                    }
+                    None => Value::Object(Map::new()),
+                };
                 set_object_field(node, &mut current, &field_path, value)?;
                 Ok(current)
             }
