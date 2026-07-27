@@ -296,7 +296,7 @@ fn color_match_rejects_invalid_resolved_values_instead_of_routing_no_match() {
 }
 
 #[test]
-fn switch_without_a_matching_case_ends_the_branch() {
+fn switch_without_a_matching_case_uses_the_default_output() {
     let report = execute_manual_program(
         &program(
             vec![
@@ -311,19 +311,23 @@ fn switch_without_a_matching_case_ends_the_branch() {
                     "runtime_outputs": []
                 }),
                 log_node("n-case", "case ran"),
+                log_node("n-default", "default ran"),
             ],
             vec![
                 edge("n-trigger", "out", "n-switch"),
                 edge("n-switch", "case-ok", "n-case"),
+                edge("n-switch", "default", "n-default"),
             ],
         ),
         "switch-no-match",
     )
-    .expect("an unmatched switch should end cleanly");
+    .expect("an unmatched switch should follow its default output");
 
     assert!(!has_log(&report.logs, "case ran"));
+    assert!(has_log(&report.logs, "default ran"));
     assert!(report.logs.iter().any(|entry| {
-        entry.node_id.as_deref() == Some("n-switch") && entry.message.contains("matched no case")
+        entry.node_id.as_deref() == Some("n-switch")
+            && entry.message.contains("selected \"default\" output")
     }));
 }
 

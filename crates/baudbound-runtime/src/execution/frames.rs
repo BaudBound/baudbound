@@ -111,14 +111,7 @@ impl RuntimeExecutor<'_> {
                 });
             }
             "control.switch" => {
-                let Some(handle) = self.evaluate_switch(&node)? else {
-                    self.push_runtime_log(
-                        "warn",
-                        format!("Switch {} matched no case. Branch ended.", node.id),
-                        Some(node.id.clone()),
-                    );
-                    return Ok(());
-                };
+                let handle = self.evaluate_switch(&node)?;
                 frames.push(RuntimeFrame::Follow {
                     source_node_id: node.id,
                     handle,

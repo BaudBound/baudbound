@@ -26,6 +26,7 @@ enum PortPolicy {
     },
     SwitchCases {
         config_key: String,
+        default_output: String,
         input: String,
         output_prefix: String,
     },
@@ -188,6 +189,7 @@ fn node_ports(
         )),
         PortPolicy::SwitchCases {
             config_key,
+            default_output,
             input,
             output_prefix,
         } => {
@@ -219,6 +221,7 @@ fn node_ports(
                     )));
                 }
             }
+            outputs.insert(default_output.clone());
             Ok((BTreeSet::from([input.clone()]), outputs))
         }
     }
@@ -349,6 +352,10 @@ mod tests {
             .expect("steps array")
             .push(json!({"id":"n-log","action_type":"action.log","config":{}}));
         validate_program_graph(&valid).expect("switch case port should validate");
+
+        let mut default = valid.clone();
+        default["entry"]["program"]["edges"][0]["source_handle"] = json!("default");
+        validate_program_graph(&default).expect("switch default port should validate");
 
         let mut invalid = valid;
         invalid["entry"]["program"]["edges"][0]["source_handle"] = json!("case-missing");
