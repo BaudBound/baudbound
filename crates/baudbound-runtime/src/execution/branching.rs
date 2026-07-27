@@ -136,10 +136,7 @@ impl RuntimeExecutor<'_> {
         Ok(result)
     }
 
-    pub(super) fn evaluate_switch(
-        &mut self,
-        node: &RuntimeNode,
-    ) -> Result<Option<String>, RuntimeError> {
+    pub(super) fn evaluate_switch(&mut self, node: &RuntimeNode) -> Result<String, RuntimeError> {
         let switch_value = resolve_template_value(
             &config_string(&node.config, "value").unwrap_or_default(),
             &self.context.variables,
@@ -177,10 +174,18 @@ impl RuntimeExecutor<'_> {
                     ),
                     Some(node.id.clone()),
                 );
-                return Ok(Some(format!("case-{}", switch_case.id)));
+                return Ok(format!("case-{}", switch_case.id));
             }
         }
-        Ok(None)
+        self.push_runtime_log(
+            "info",
+            format!(
+                "Switch {} matched no case and selected \"default\" output.",
+                node.id
+            ),
+            Some(node.id.clone()),
+        );
+        Ok("default".to_owned())
     }
 
     pub(super) fn repeat_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
