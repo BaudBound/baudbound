@@ -472,8 +472,8 @@ mod tests {
         }
 
         assert_eq!(
-            tested_fields, 22,
-            "matrix must cover every declared numeric field"
+            tested_fields, 19,
+            "matrix must cover every declared root config numeric field"
         );
     }
 

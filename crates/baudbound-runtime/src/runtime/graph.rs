@@ -152,7 +152,7 @@ impl RuntimeGraph {
                 return Some((*handle).to_owned());
             }
         }
-        edges.first().map(|edge| edge.source_handle.clone())
+        None
     }
 }
 

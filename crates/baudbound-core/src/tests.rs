@@ -891,7 +891,7 @@ fn sub_script_action_runs_installed_manual_script() {
 }
 
 #[test]
-fn sub_script_action_rejects_recursive_cycle() {
+fn sub_script_action_routes_recursive_cycle_to_failed_output() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let package_path = temporary_directory.path().join("recursive-script.bbs");
     fs::write(
@@ -907,16 +907,30 @@ fn sub_script_action_rejects_recursive_cycle() {
     core.approve_installed(&store, "recursive-script")
         .expect("recursive package should approve");
 
-    let error = core
+    let report = core
         .run_installed(&store, "recursive-script")
-        .expect_err("recursive sub-script should fail");
+        .expect("recursive sub-script failure should remain available to the parent graph");
 
-    assert!(error.to_string().contains("sub-script cycle detected"));
+    assert!(
+        report
+            .variables
+            .get("n-sub.error")
+            .and_then(Value::as_object)
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("sub-script cycle detected"))
+    );
+    assert!(
+        report.logs.iter().any(|log| {
+            log.level == "error" && log.message.contains("sub-script cycle detected")
+        })
+    );
     let runs = store
         .list_run_records(Some("recursive-script"), None)
-        .expect("failed run record should list");
+        .expect("completed run record with errors should list");
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].status, "failed");
+    assert_eq!(runs[0].status, "completed");
+    assert!(runs[0].logs.iter().any(|log| log.level == "error"));
 }
 
 #[test]
@@ -1496,8 +1510,13 @@ fn create_action_handler_test_package_with_capabilities(
                                     "type": "action",
                                     "action": "format_text",
                                     "config": {
-                                        "operation": "uppercase",
-                                        "input": "hello"
+                                        "input": "hello",
+                                        "operations": [
+                                            {
+                                                "id": "uppercase",
+                                                "operation": "uppercase"
+                                            }
+                                        ]
                                     },
                                     "runtime_outputs": []
                                 }
@@ -1555,7 +1574,10 @@ fn create_target_runtime_test_package(
     let (action, config) = match action_type {
         "action.notification" => ("show_notification", r#"{"title":"Test","message":"Test"}"#),
         "action.pixel.get" => ("get_pixel_color", r#"{"x":0,"y":0}"#),
-        "action.text.format" => ("format_text", r#"{"operation":"uppercase","input":"test"}"#),
+        "action.text.format" => (
+            "format_text",
+            r#"{"input":"test","operations":[{"id":"uppercase","operation":"uppercase"}]}"#,
+        ),
         unsupported => panic!("missing schema-complete target-runtime fixture for {unsupported}"),
     };
     create_target_runtime_test_package_with_action_config(

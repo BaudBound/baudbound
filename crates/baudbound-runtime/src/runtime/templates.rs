@@ -49,6 +49,22 @@ pub(crate) fn resolve_template_value(template: &str, variables: &BTreeMap<String
     Value::String(render_template(template, variables))
 }
 
+pub(crate) fn template_value_is_defined(
+    template: &str,
+    variables: &BTreeMap<String, Value>,
+) -> bool {
+    let trimmed = template.trim();
+    let Some(expression) = trimmed
+        .strip_prefix("{{")
+        .and_then(|value| value.strip_suffix("}}"))
+        .filter(|expression| !expression.contains("{{") && !expression.contains("}}"))
+    else {
+        return true;
+    };
+
+    resolve_variable_expression(expression.trim(), variables).is_some()
+}
+
 pub(crate) fn render_json_template(
     template: &str,
     variables: &BTreeMap<String, Value>,

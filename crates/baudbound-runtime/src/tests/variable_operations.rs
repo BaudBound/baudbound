@@ -166,7 +166,7 @@ fn exposes_complete_derived_metadata_with_javascript_string_lengths() {
 
 #[test]
 fn invalid_increment_and_object_paths_fail_closed() {
-    let increment_error = execute(
+    let increment_report = execute(
         vec![variable_node(
             "n-increment",
             "count",
@@ -176,8 +176,14 @@ fn invalid_increment_and_object_paths_fail_closed() {
         )],
         linear_edges(&["n-increment"]),
     )
-    .expect_err("invalid increment must not silently become zero or one");
-    assert!(increment_error.to_string().contains("finite number"));
+    .expect("invalid increment should use the failed outcome");
+    assert!(
+        increment_report
+            .logs
+            .iter()
+            .any(|log| { log.level == "error" && log.message.contains("finite number") })
+    );
+    assert!(!increment_report.variables.contains_key("count"));
 
     for path in ["users[01].name", "users.", "users[name]", "users..name"] {
         let mut field_node = variable_node(
@@ -188,11 +194,14 @@ fn invalid_increment_and_object_paths_fail_closed() {
             json!("value"),
         );
         field_node["config"]["fieldPath"] = json!(path);
-        let error = execute(vec![field_node], linear_edges(&["n-field"]))
-            .expect_err("invalid object path must fail");
+        let report = execute(vec![field_node], linear_edges(&["n-field"]))
+            .expect("invalid object path should use the failed outcome");
         assert!(
-            error.to_string().contains("invalid object field path"),
-            "unexpected error for {path:?}: {error}"
+            report.logs.iter().any(|log| {
+                log.level == "error" && log.message.contains("invalid object field path")
+            }),
+            "unexpected logs for {path:?}: {:#?}",
+            report.logs
         );
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn missing_sub_script_fails_parent_and_persists_the_failure() {
+fn missing_sub_script_routes_failure_and_persists_parent_errors() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let parent_package_path = temporary_directory.path().join("missing-child-parent.bbs");
     fs::write(
@@ -17,17 +17,25 @@ fn missing_sub_script_fails_parent_and_persists_the_failure() {
     core.approve_installed(&store, "missing-child-parent")
         .expect("parent package should approve");
 
-    let error = core
+    let report = core
         .run_installed(&store, "missing-child-parent")
-        .expect_err("missing child script must fail the parent run");
+        .expect("missing child failure should remain available to the parent graph");
 
-    assert!(error.to_string().contains("missing-child"), "{error}");
-    assert!(error.to_string().contains("is not installed"), "{error}");
+    let message = report
+        .variables
+        .get("n-sub.error")
+        .and_then(Value::as_object)
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .expect("sub-script failure should expose a structured message");
+    assert!(message.contains("missing-child"), "{message}");
+    assert!(message.contains("is not installed"), "{message}");
     let parent_runs = store
         .list_run_records(Some("missing-child-parent"), None)
         .expect("parent run records should list");
     assert_eq!(parent_runs.len(), 1);
-    assert_eq!(parent_runs[0].status, "failed");
+    assert_eq!(parent_runs[0].status, "completed");
+    assert!(parent_runs[0].logs.iter().any(|log| log.level == "error"));
 }
 
 #[test]
@@ -52,14 +60,19 @@ fn parent_approval_cannot_bypass_child_script_approval() {
     core.approve_installed(&store, "approval-parent")
         .expect("parent package should approve");
 
-    let error = core
+    let parent_failure_report = core
         .run_installed(&store, "approval-parent")
-        .expect_err("unapproved child permissions must block the parent run");
+        .expect("unapproved child failure should remain available to the parent graph");
+    let error_message = parent_failure_report
+        .variables
+        .get("n-sub.error")
+        .and_then(Value::as_object)
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .expect("sub-script failure should expose a structured message");
     assert!(
-        error
-            .to_string()
-            .contains("is not approved for its current package"),
-        "{error}"
+        error_message.contains("is not approved for its current package"),
+        "{error_message}"
     );
 
     let failed_child_runs = store
