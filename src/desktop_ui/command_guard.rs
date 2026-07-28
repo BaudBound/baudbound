@@ -440,8 +440,11 @@ fn validate_operation(
                     .as_deref()
                     .ok_or_else(|| "a storage password is required".to_owned())?;
                 validate_text("storage password", password, 1024, false)?;
-                if password.len() < 12 {
-                    return Err("storage password must contain at least 12 bytes".to_owned());
+                if password.chars().count() < crate::secrets::PASSWORD_MIN_CHARACTERS {
+                    return Err(format!(
+                        "storage password must contain at least {} characters",
+                        crate::secrets::PASSWORD_MIN_CHARACTERS
+                    ));
                 }
                 Ok(())
             }

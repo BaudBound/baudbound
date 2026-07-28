@@ -30,6 +30,11 @@ import { Input } from "@/components/ui/input";
 import { SECRET_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import type { DashboardAction } from "@/lib/app-types";
 import {
+  STORAGE_PASSWORD_MIN_CHARACTERS,
+  evaluatePasswordStrength,
+  passwordCharacterCount,
+} from "@/lib/password-strength";
+import {
   type DashboardPayload,
   type InstalledSecretStatus,
   type SecretStorageMode,
@@ -77,6 +82,8 @@ export function SecretManagementPanel({
   const secretStorageAvailable = dashboard.secret_vault.status === "available";
   const vaultRetryAction = "secret-vault-retry";
   const storageMode = dashboard.secret_vault.mode;
+  const storagePasswordStrength = evaluatePasswordStrength(storagePassword);
+  const storagePasswordLength = passwordCharacterCount(storagePassword);
   const storageCanChange =
     dashboard.secret_vault.status !== "initializing" &&
     !dashboard.desktop_background.running &&
@@ -117,7 +124,12 @@ export function SecretManagementPanel({
     setStoragePasswordVisible(false);
   };
   const unlock = async () => {
-    if (unlockPassword.length < 12) return;
+    if (
+      passwordCharacterCount(unlockPassword) <
+      STORAGE_PASSWORD_MIN_CHARACTERS
+    ) {
+      return;
+    }
     if (
       await runAction("secret-storage-unlock", () =>
         unlockSecretStorage(unlockPassword),
@@ -130,7 +142,7 @@ export function SecretManagementPanel({
     if (!storageSwitch || !storageResetAccepted) return;
     if (
       storageSwitch.target === "password" &&
-      (storagePassword.length < 12 ||
+      (storagePasswordLength < STORAGE_PASSWORD_MIN_CHARACTERS ||
         storagePassword !== storagePasswordConfirmation)
     ) {
       return;
@@ -470,7 +482,8 @@ export function SecretManagementPanel({
             <Button variant="outline" onClick={closeUnlock}>Cancel</Button>
             <Button
               disabled={
-                unlockPassword.length < 12 ||
+                passwordCharacterCount(unlockPassword) <
+                  STORAGE_PASSWORD_MIN_CHARACTERS ||
                 busyActions.has("secret-storage-unlock")
               }
               onClick={() => void unlock()}
@@ -571,7 +584,7 @@ export function SecretManagementPanel({
               <DialogHeader>
                 <DialogTitle>Create storage password</DialogTitle>
                 <DialogDescription>
-                  Use at least 12 characters. This password is not saved and cannot be recovered.
+                  Use at least 8 characters. This password is not saved and cannot be recovered.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3">
@@ -587,6 +600,41 @@ export function SecretManagementPanel({
                     onChange={(event) => setStoragePassword(event.target.value)}
                   />
                 </label>
+                <div className="grid gap-1.5" aria-live="polite">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Password strength</span>
+                    <span
+                      className={
+                        storagePasswordStrength.score <= 1
+                          ? "text-destructive"
+                          : storagePasswordStrength.score === 2
+                            ? "text-baud-amber"
+                            : "text-baud-green"
+                      }
+                    >
+                      {storagePasswordStrength.label}
+                    </span>
+                  </div>
+                  <div
+                    aria-label="Password strength"
+                    aria-valuemax={4}
+                    aria-valuemin={0}
+                    aria-valuenow={storagePasswordStrength.score}
+                    className="h-1.5 overflow-hidden rounded-sm bg-muted"
+                    role="meter"
+                  >
+                    <div
+                      className={
+                        storagePasswordStrength.score <= 1
+                          ? "h-full bg-destructive transition-[width]"
+                          : storagePasswordStrength.score === 2
+                            ? "h-full bg-baud-amber transition-[width]"
+                            : "h-full bg-baud-green transition-[width]"
+                      }
+                      style={{ width: `${storagePasswordStrength.score * 25}%` }}
+                    />
+                  </div>
+                </div>
                 <label className="grid gap-1.5 text-sm">
                   Confirm password
                   <Input
@@ -621,7 +669,7 @@ export function SecretManagementPanel({
                 </Button>
                 <Button
                   disabled={
-                    storagePassword.length < 12 ||
+                    storagePasswordLength < STORAGE_PASSWORD_MIN_CHARACTERS ||
                     storagePassword !== storagePasswordConfirmation ||
                     busyActions.has("secret-storage-switch")
                   }
