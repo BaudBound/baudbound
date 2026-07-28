@@ -80,6 +80,9 @@ macro_rules! desktop_command_handler {
             packages::revoke_script_approval,
             reload_background_runner,
             retry_secret_vault,
+            security::unlock_secret_storage,
+            security::lock_secret_storage,
+            security::switch_secret_storage,
             config::read_runner_config,
             manual_runs::run_script,
             manual_runs::stop_run,
@@ -149,6 +152,11 @@ pub fn run_desktop_ui(
     blacklist: Arc<crate::blacklist::BlacklistService>,
     launched_from_autostart: bool,
 ) -> Result<()> {
+    let runner_home = store
+        .database_path()
+        .parent()
+        .ok_or_else(|| anyhow!("runner database path does not have a parent directory"))?
+        .to_path_buf();
     if let Err(error) = crate::script_repositories::ensure_official_repository(&store) {
         tracing::warn!(%error, "failed to register the official script repository");
     }
@@ -164,7 +172,7 @@ pub fn run_desktop_ui(
         trigger_monitor.clone(),
     );
     let background_runner = DesktopRunnerSupervisor::default();
-    let secret_vault = secret_vault::SecretVaultController::default();
+    let secret_vault = secret_vault::SecretVaultController::new(runner_home);
     let autostart_args = [
         "--config".to_owned(),
         config_path.display().to_string(),
@@ -353,6 +361,7 @@ fn retry_secret_vault<R: tauri::Runtime>(
             "Credential vault connection is already in progress."
         }
         secret_vault::StartResult::AlreadyAvailable => "Credential vault is already available.",
+        secret_vault::StartResult::PasswordLocked => "Password protected secret storage is locked.",
     };
     Ok(ActionPayload {
         dashboard,

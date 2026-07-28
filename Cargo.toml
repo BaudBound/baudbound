@@ -21,6 +21,7 @@ version = "2.0.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+argon2 = { version = "0.5.3", features = ["zeroize"] }
 bytes = "1.12.0"
 command-group = "5.0.1"
 base64 = "0.23.0"
@@ -78,6 +79,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 arboard = "3.6.1"
+argon2.workspace = true
 base64.workspace = true
 baudbound-actions = { path = "crates/baudbound-actions", version = "2.0.0" }
 baudbound-core = { path = "crates/baudbound-core", version = "2.0.0" }
@@ -88,6 +90,7 @@ baudbound-storage = { path = "crates/baudbound-storage", version = "2.0.0" }
 baudbound-triggers = { path = "crates/baudbound-triggers", version = "2.0.0" }
 bytes.workspace = true
 chrono.workspace = true
+chacha20poly1305.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 getrandom.workspace = true
@@ -136,6 +139,7 @@ windows-sys = { version = "0.61.2", features = [
 	"Win32_UI_WindowsAndMessaging",
 ] }
 zip.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true

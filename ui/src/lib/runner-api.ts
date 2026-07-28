@@ -715,8 +715,11 @@ export type BlacklistStatus = {
 
 export type SecretVaultSnapshot = {
   error: string | null;
-  status: "available" | "initializing" | "unavailable";
+  mode: SecretStorageMode;
+  status: "available" | "initializing" | "locked" | "unavailable";
 };
+
+export type SecretStorageMode = "operating_system" | "password";
 
 export type InstalledSecretStatus = {
   configured: boolean;
@@ -1358,4 +1361,33 @@ export function removeScriptSecret(reference: string, name: string) {
 
 export function retrySecretVault() {
   return invoke<ActionPayload>("retry_secret_vault");
+}
+
+export function unlockSecretStorage(password: string) {
+  return invoke<ActionPayload>("unlock_secret_storage", { password });
+}
+
+export function lockSecretStorage() {
+  return invoke<ActionPayload>("lock_secret_storage");
+}
+
+export function switchSecretStorage(
+  mode: SecretStorageMode,
+  password?: string,
+) {
+  const normalizedPassword = password || null;
+  return invokeSensitive<ActionPayload>(
+    "switch_secret_storage",
+    {
+      kind: "switch_secret_storage",
+      mode,
+      password: normalizedPassword,
+    },
+    {
+      request: {
+        mode,
+        password: normalizedPassword,
+      },
+    },
+  );
 }
