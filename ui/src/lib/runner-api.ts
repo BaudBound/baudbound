@@ -1244,6 +1244,14 @@ export function clearRunLogs() {
   );
 }
 
+export function resetStoredVariables() {
+  return invokeSensitive<ActionPayload>(
+    "reset_stored_variables",
+    { kind: "reset_stored_variables" },
+    {},
+  );
+}
+
 export function queryRunHistory(query: RunHistoryQuery) {
   return invoke<PaginatedRecords<StoredRunRecord>>("query_runs", { query });
 }

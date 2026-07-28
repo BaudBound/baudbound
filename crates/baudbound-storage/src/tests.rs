@@ -907,6 +907,50 @@ fn lists_persistent_and_global_variables_without_secret_values() {
 }
 
 #[test]
+fn clears_persistent_and_global_variables_together() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Persistent,
+            "script-1",
+            "counter",
+            None,
+            &serde_json::json!(4),
+        )
+        .expect("persistent variable should write");
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Global,
+            "script-1",
+            "shared",
+            None,
+            &serde_json::json!("ready"),
+        )
+        .expect("global variable should write");
+
+    assert_eq!(
+        store
+            .clear_stored_variables()
+            .expect("stored variables should clear"),
+        (1, 1)
+    );
+    assert!(
+        store
+            .list_stored_variables()
+            .expect("stored variables should list")
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .clear_stored_variables()
+            .expect("empty stored variables should clear"),
+        (0, 0)
+    );
+}
+
+#[test]
 fn publishes_successful_durable_variable_changes() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);

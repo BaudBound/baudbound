@@ -1,9 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
-import { Download } from "lucide-react";
+import { Download, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CodeBlock } from "@/components/code-block";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
   exportVariables,
   getVariableInventory,
+  resetStoredVariables,
   type DeclaredVariableRecord,
   type StoredVariableRecord,
   type StoredVariableChange,
@@ -25,6 +27,8 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
   const [inventory, setInventory] = useState<VariableInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [search, setSearch] = useState("");
   useEffect(() => {
     let disposed = false;
@@ -88,48 +92,88 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
     }
   }
 
+  async function resetInventory() {
+    setResetting(true);
+    try {
+      const result = await resetStoredVariables();
+      const refreshed = await getVariableInventory();
+      setInventory({
+        ...refreshed,
+        stored: sortStoredVariables(refreshed.stored),
+      });
+      setError(null);
+      toast.success(result.message);
+    } catch (reason) {
+      toast.error(`Could not reset stored variables: ${String(reason)}`);
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
-    <div className="grid gap-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Input
-          aria-label="Search variables"
-          maxLength={SEARCH_INPUT_MAX_LENGTH}
-          className="min-w-56 flex-1"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search name, script, scope, type, description, or value"
-          value={search}
-        />
-        <Button
-          className="whitespace-nowrap"
-          disabled={exporting}
-          onClick={() => void exportInventory()}
-          size="sm"
-          variant="outline"
-        >
-          <Download />
-          Export variables
-        </Button>
+    <>
+      <div className="grid gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Input
+            aria-label="Search variables"
+            maxLength={SEARCH_INPUT_MAX_LENGTH}
+            className="min-w-56 flex-1"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search name, script, scope, type, description, or value"
+            value={search}
+          />
+          <Button
+            className="whitespace-nowrap"
+            disabled={exporting}
+            onClick={() => void exportInventory()}
+            size="sm"
+            variant="outline"
+          >
+            <Download />
+            Export variables
+          </Button>
+          <Button
+            className="whitespace-nowrap"
+            disabled={inventory.stored.length === 0 || resetting}
+            onClick={() => setResetConfirmOpen(true)}
+            size="sm"
+            variant="destructive"
+          >
+            <RotateCcw />
+            Reset stored values
+          </Button>
+        </div>
+        {inventory.warnings.map((warning) => (
+          <EmptyState key={warning}>{warning}</EmptyState>
+        ))}
+        <VariableSection title="Stored values">
+          {stored.length === 0 ? (
+            <EmptyState>No stored variables match the current search.</EmptyState>
+          ) : (
+            <StoredVariablesTable variables={stored} />
+          )}
+        </VariableSection>
+        <VariableSection title="Declared defaults">
+          {declared.length === 0 ? (
+            <EmptyState>
+              No declared defaults match the current search.
+            </EmptyState>
+          ) : (
+            <DeclaredVariablesTable variables={declared} />
+          )}
+        </VariableSection>
       </div>
-      {inventory.warnings.map((warning) => (
-        <EmptyState key={warning}>{warning}</EmptyState>
-      ))}
-      <VariableSection title="Stored values">
-        {stored.length === 0 ? (
-          <EmptyState>No stored variables match the current search.</EmptyState>
-        ) : (
-          <StoredVariablesTable variables={stored} />
-        )}
-      </VariableSection>
-      <VariableSection title="Declared defaults">
-        {declared.length === 0 ? (
-          <EmptyState>
-            No declared defaults match the current search.
-          </EmptyState>
-        ) : (
-          <DeclaredVariablesTable variables={declared} />
-        )}
-      </VariableSection>
-    </div>
+      <ConfirmDialog
+        confirmLabel={resetting ? "Resetting..." : "Reset stored values"}
+        description="Delete every stored persistent and global variable value. Persistent variables return to their package defaults the next time each script runs. Global variables remain unset until a script writes them again. Running scripts can create values again after the reset. This cannot be undone."
+        destructive
+        disabled={resetting}
+        onConfirm={resetInventory}
+        onOpenChange={setResetConfirmOpen}
+        open={resetConfirmOpen}
+        title="Reset stored variable values?"
+      />
+    </>
   );
 }
 

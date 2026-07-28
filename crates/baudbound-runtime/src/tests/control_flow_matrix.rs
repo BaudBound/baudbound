@@ -427,7 +427,7 @@ fn switch_without_a_matching_case_uses_the_default_output() {
                     "type": "switch",
                     "config": {
                         "value": "missing",
-                        "cases": [{"id": "ok", "name": "OK", "expectedValue": "ok"}]
+                        "cases": [{"id": "ok", "name": "OK", "value": "ok"}]
                     },
                     "runtime_outputs": []
                 }),
