@@ -73,7 +73,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         runner_config: Mutex::new(runner_config.clone()),
         core: Arc::new(Mutex::new(core)),
         repository_refresh_worker: repositories::RepositoryRefreshWorker::default(),
-        secret_vault: secret_vault::SecretVaultController::default(),
+        secret_vault: secret_vault::SecretVaultController::new(runner_home),
         script_update_worker: crate::script_updates::ScriptUpdateWorker::default(),
         store,
         websocket_registry,

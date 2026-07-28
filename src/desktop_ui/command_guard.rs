@@ -87,6 +87,10 @@ pub(super) enum SensitiveOperation {
         reference: String,
         name: String,
     },
+    SwitchSecretStorage {
+        mode: super::secret_vault::SecretStorageMode,
+        password: Option<String>,
+    },
     ClearRunHistory,
     ClearRunLogs,
     ResetStoredVariables,
@@ -112,6 +116,7 @@ impl SensitiveOperation {
             Self::SetNetworkTriggerAuthEnabled { .. } => "set_network_trigger_auth_enabled",
             Self::SetScriptSecret { .. } => "set_script_secret",
             Self::RemoveScriptSecret { .. } => "remove_script_secret",
+            Self::SwitchSecretStorage { .. } => "switch_secret_storage",
             Self::ClearRunHistory => "clear_run_history",
             Self::ClearRunLogs => "clear_run_logs",
             Self::ResetStoredVariables => "reset_stored_variables",
@@ -163,6 +168,17 @@ impl SensitiveOperation {
             Self::RemoveScriptSecret { reference, name } => {
                 format!("Remove secret {name} from {reference}")
             }
+            Self::SwitchSecretStorage { mode, .. } => format!(
+                "Switch encrypted secret storage to {}",
+                match mode {
+                    super::secret_vault::SecretStorageMode::OperatingSystem => {
+                        "the operating system vault"
+                    }
+                    super::secret_vault::SecretStorageMode::Password => {
+                        "password protected storage"
+                    }
+                }
+            ),
             Self::ClearRunHistory => "Clear stored run history".to_owned(),
             Self::ClearRunLogs => "Clear stored run logs".to_owned(),
             Self::ResetStoredVariables => "Reset stored persistent and global variables".to_owned(),
@@ -410,6 +426,26 @@ fn validate_operation(
             validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
             validate_text("secret name", name, MAX_NAME_BYTES, false)
         }
+        SensitiveOperation::SwitchSecretStorage { mode, password } => match mode {
+            super::secret_vault::SecretStorageMode::OperatingSystem => {
+                if password.is_some() {
+                    return Err(
+                        "a password must not be provided for operating system storage".to_owned(),
+                    );
+                }
+                Ok(())
+            }
+            super::secret_vault::SecretStorageMode::Password => {
+                let password = password
+                    .as_deref()
+                    .ok_or_else(|| "a storage password is required".to_owned())?;
+                validate_text("storage password", password, 1024, false)?;
+                if password.len() < 12 {
+                    return Err("storage password must contain at least 12 bytes".to_owned());
+                }
+                Ok(())
+            }
+        },
         SensitiveOperation::ResetRunnerConfig { .. }
         | SensitiveOperation::ClearRunHistory
         | SensitiveOperation::ClearRunLogs

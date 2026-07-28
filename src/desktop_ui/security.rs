@@ -2,6 +2,7 @@ use anyhow::Result;
 use baudbound_storage::NetworkTriggerType;
 use serde::Deserialize;
 use tauri::State;
+use zeroize::Zeroize;
 
 use super::{
     ActionPayload, DesktopUiState, GeneratedTriggerTokenPayload, build_dashboard_payload,
@@ -9,6 +10,129 @@ use super::{
     consume_sensitive_operation, current_core, run_locked_action, run_locked_value,
     trigger_type_label,
 };
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SwitchSecretStorageRequest {
+    mode: super::secret_vault::SecretStorageMode,
+    password: Option<String>,
+}
+
+#[tauri::command]
+pub(super) async fn unlock_secret_storage(
+    password: String,
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    let operation_lock = state.operation_lock.clone();
+    let controller = state.secret_vault.clone();
+    let store = state.store.clone();
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let mut password = password;
+        let result = (|| {
+            let _operation = operation_lock
+                .lock()
+                .map_err(|_| anyhow::anyhow!("runner operation lock is poisoned"))?;
+            controller.unlock_password(&password, &store)?;
+            Ok::<_, anyhow::Error>("Password protected secret storage is unlocked.".to_owned())
+        })();
+        password.zeroize();
+        result
+    })
+    .await
+    .map_err(|error| format!("secret storage unlock worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload { dashboard, message })
+}
+
+#[tauri::command]
+pub(super) async fn lock_secret_storage(
+    state: State<'_, DesktopUiState>,
+) -> Result<ActionPayload, String> {
+    let operation_lock = state.operation_lock.clone();
+    let controller = state.secret_vault.clone();
+    let store = state.store.clone();
+    let background_runner = state.background_runner.clone();
+    let active_runs = state.active_runs.clone();
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runner operation lock is poisoned"))?;
+        ensure_secret_storage_idle(&background_runner, &active_runs)?;
+        controller.lock_password(&store)?;
+        Ok::<_, anyhow::Error>("Password protected secret storage is locked.".to_owned())
+    })
+    .await
+    .map_err(|error| format!("secret storage lock worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload { dashboard, message })
+}
+
+#[tauri::command]
+pub(super) async fn switch_secret_storage<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    request: SwitchSecretStorageRequest,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    let SwitchSecretStorageRequest { mode, mut password } = request;
+    let operation = SensitiveOperation::SwitchSecretStorage {
+        mode,
+        password: password.clone(),
+    };
+    consume_sensitive_operation(&confirmation_id, &operation, &guard, &state, &window)?;
+    drop(operation);
+
+    let operation_lock = state.operation_lock.clone();
+    let controller = state.secret_vault.clone();
+    let store = state.store.clone();
+    let background_runner = state.background_runner.clone();
+    let active_runs = state.active_runs.clone();
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            let _operation = operation_lock
+                .lock()
+                .map_err(|_| anyhow::anyhow!("runner operation lock is poisoned"))?;
+            ensure_secret_storage_idle(&background_runner, &active_runs)?;
+            let cleared = controller.switch(mode, password.as_deref(), &store)?;
+            Ok::<_, anyhow::Error>(format!(
+                "Secret storage changed to {}. {cleared} saved secret values were reset.",
+                match mode {
+                    super::secret_vault::SecretStorageMode::OperatingSystem => {
+                        "the operating system vault"
+                    }
+                    super::secret_vault::SecretStorageMode::Password => {
+                        "password protected storage"
+                    }
+                }
+            ))
+        })();
+        if let Some(password) = password.as_mut() {
+            password.zeroize();
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("secret storage switch worker failed: {error}"))?
+    .map_err(|error: anyhow::Error| error.to_string())?;
+    let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
+    Ok(ActionPayload { dashboard, message })
+}
+
+fn ensure_secret_storage_idle(
+    background_runner: &super::background::DesktopRunnerSupervisor,
+    active_runs: &super::active_runs::ActiveRunRegistry,
+) -> Result<()> {
+    if background_runner.snapshot()?.running {
+        anyhow::bail!("stop the desktop background runner before changing secret storage");
+    }
+    if !active_runs.snapshot().runs.is_empty() {
+        anyhow::bail!("stop all running scripts before changing secret storage");
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub(super) fn rotate_network_trigger_token<R: tauri::Runtime>(

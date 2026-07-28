@@ -59,6 +59,11 @@ impl fmt::Debug for VariableChangeObserver {
 }
 
 impl SqliteRunnerStore {
+    #[must_use]
+    pub fn database_path(&self) -> &Path {
+        &self.path
+    }
+
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let path = path.into();
         if let Some(parent) = path.parent()
@@ -107,6 +112,13 @@ impl SqliteRunnerStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(secret_cipher);
     }
 
+    pub fn clear_secret_cipher(&self) {
+        self.secret_cipher
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+
     pub fn set_variable_change_observer<F>(&self, observer: F)
     where
         F: Fn(StoredVariableChange) + Send + Sync + 'static,
@@ -135,6 +147,16 @@ impl SqliteRunnerStore {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .is_some()
+    }
+
+    pub fn clear_all_stored_secrets(&self) -> Result<usize, StorageError> {
+        let connection = self.connection()?;
+        connection
+            .execute("DELETE FROM secret_values", [])
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })
     }
 
     fn secret_cipher(&self) -> Result<SecretCipher, StorageError> {

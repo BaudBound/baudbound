@@ -718,6 +718,38 @@ fn enables_secret_access_after_the_cipher_becomes_available() {
 }
 
 #[test]
+fn clears_the_active_secret_cipher_and_all_stored_values() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    let key = SecretCipher::generate_key().expect("test key should generate");
+    store.set_secret_cipher(SecretCipher::from_key(key));
+    store
+        .set_secret("script-1", "api_key", &serde_json::json!("value"))
+        .expect("secret should store");
+
+    assert_eq!(
+        store
+            .clear_all_stored_secrets()
+            .expect("stored secrets should clear"),
+        1
+    );
+    assert!(
+        store
+            .list_secret_statuses("script-1")
+            .expect("secret statuses should load")
+            .is_empty()
+    );
+
+    store.clear_secret_cipher();
+    assert!(!store.has_secret_cipher());
+    assert!(matches!(
+        store.set_secret("script-1", "api_key", &serde_json::json!("value")),
+        Err(StorageError::SecretKeyUnavailable)
+    ));
+}
+
+#[test]
 fn rejects_unsafe_script_ids() {
     assert!(matches!(
         validate_script_id("../nope"),
