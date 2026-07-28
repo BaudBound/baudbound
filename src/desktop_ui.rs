@@ -47,6 +47,7 @@ macro_rules! desktop_command_handler {
             repositories::add_script_repository,
             scripts::clear_run_history,
             scripts::clear_run_logs,
+            scripts::reset_stored_variables,
             packages::check_script_update,
             packages::check_script_updates,
             packages::cancel_remote_script_package_preparation,

@@ -259,6 +259,17 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     assert_eq!(cleared_runs["dashboard"]["recent_runs"], json!([]));
     assert_eq!(cleared_runs["dashboard"]["run_statistics"]["total"], 0);
 
+    let reset_variables = invoke_sensitive(
+        &webview,
+        "reset_stored_variables",
+        json!({"kind": "reset_stored_variables"}),
+        json!({}),
+    );
+    assert_eq!(
+        reset_variables["message"],
+        "Stored persistent and global variables are already empty."
+    );
+
     let disabled = invoke(
         &webview,
         "set_script_enabled",

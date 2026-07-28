@@ -81,6 +81,31 @@ pub(super) fn clear_run_logs<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub(super) fn reset_stored_variables<R: tauri::Runtime>(
+    confirmation_id: String,
+    guard: State<'_, SensitiveOperationGuard>,
+    state: State<'_, DesktopUiState>,
+    window: tauri::WebviewWindow<R>,
+) -> Result<ActionPayload, String> {
+    consume_sensitive_operation(
+        &confirmation_id,
+        &SensitiveOperation::ResetStoredVariables,
+        &guard,
+        &state,
+        &window,
+    )?;
+    run_locked_action(&state, || {
+        let (persistent, global) = state.store.clear_stored_variables()?;
+        let deleted = persistent + global;
+        Ok(match deleted {
+            0 => "Stored persistent and global variables are already empty.".to_owned(),
+            1 => "Reset 1 stored variable.".to_owned(),
+            count => format!("Reset {count} stored variables."),
+        })
+    })
+}
+
+#[tauri::command]
 pub(super) fn set_script_enabled(
     reference: String,
     enabled: bool,

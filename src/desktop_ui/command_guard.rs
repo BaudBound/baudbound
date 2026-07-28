@@ -89,6 +89,7 @@ pub(super) enum SensitiveOperation {
     },
     ClearRunHistory,
     ClearRunLogs,
+    ResetStoredVariables,
 }
 
 impl SensitiveOperation {
@@ -113,6 +114,7 @@ impl SensitiveOperation {
             Self::RemoveScriptSecret { .. } => "remove_script_secret",
             Self::ClearRunHistory => "clear_run_history",
             Self::ClearRunLogs => "clear_run_logs",
+            Self::ResetStoredVariables => "reset_stored_variables",
         }
     }
 
@@ -163,6 +165,7 @@ impl SensitiveOperation {
             }
             Self::ClearRunHistory => "Clear stored run history".to_owned(),
             Self::ClearRunLogs => "Clear stored run logs".to_owned(),
+            Self::ResetStoredVariables => "Reset stored persistent and global variables".to_owned(),
         }
     }
 }
@@ -409,7 +412,8 @@ fn validate_operation(
         }
         SensitiveOperation::ResetRunnerConfig { .. }
         | SensitiveOperation::ClearRunHistory
-        | SensitiveOperation::ClearRunLogs => Ok(()),
+        | SensitiveOperation::ClearRunLogs
+        | SensitiveOperation::ResetStoredVariables => Ok(()),
     }
 }
 

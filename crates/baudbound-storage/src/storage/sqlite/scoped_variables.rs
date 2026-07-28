@@ -5,6 +5,33 @@ use crate::{StorageError, StoredVariable, StoredVariableChange, StoredVariableSc
 use super::{SqliteRunnerStore, conversions::unix_timestamp_for_sqlite};
 
 impl SqliteRunnerStore {
+    pub fn clear_stored_variables(&self) -> Result<(usize, usize), StorageError> {
+        let path = self.path.clone();
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|source| StorageError::Sqlite {
+                path: path.clone(),
+                source,
+            })?;
+        let persistent = transaction
+            .execute("DELETE FROM persistent_variables", [])
+            .map_err(|source| StorageError::Sqlite {
+                path: path.clone(),
+                source,
+            })?;
+        let global = transaction
+            .execute("DELETE FROM global_variables", [])
+            .map_err(|source| StorageError::Sqlite {
+                path: path.clone(),
+                source,
+            })?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite { path, source })?;
+        Ok((persistent, global))
+    }
+
     pub(super) fn load_scoped_variable(
         &self,
         scope: StoredVariableScope,
