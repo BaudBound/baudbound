@@ -93,6 +93,7 @@ impl SqliteRunnerStore {
                 path: self.path.clone(),
                 source,
             })?;
+        self.request_trigger_reload_with_connection(&connection)?;
         Ok(SecretStatus {
             configured: true,
             name: name.to_owned(),
@@ -107,7 +108,7 @@ impl SqliteRunnerStore {
     ) -> Result<bool, StorageError> {
         let script = self.resolve_reference(script_reference)?;
         let connection = self.connection()?;
-        connection
+        let removed = connection
             .execute(
                 "DELETE FROM secret_values WHERE script_id = ?1 AND name = ?2",
                 params![script.id, name],
@@ -116,7 +117,11 @@ impl SqliteRunnerStore {
             .map_err(|source| StorageError::Sqlite {
                 path: self.path.clone(),
                 source,
-            })
+            })?;
+        if removed {
+            self.request_trigger_reload_with_connection(&connection)?;
+        }
+        Ok(removed)
     }
 }
 

@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use baudbound_storage::{ScriptStore, SecretCipher, SqliteRunnerStore};
 use serde_json::{Value, json};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -503,6 +504,99 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 }
 
 #[test]
+fn cli_serve_requires_secrets_only_for_enabled_scripts() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("required-secret.bbs");
+    fs::write(&package_path, create_required_secret_schedule_package())
+        .expect("required-secret package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "scheduled-log"],
+    ));
+
+    let blocked = run_baudbound(&runner_home, ["serve", "--once"]);
+    assert!(
+        !blocked.status.success(),
+        "enabled script with a missing required secret must block service startup"
+    );
+    let blocked_output = command_output(&blocked);
+    assert!(blocked_output.contains("required secret values are missing"));
+    assert!(blocked_output.contains("\"Scheduled Log\" (scheduled-log): api_key"));
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "disable", "scheduled-log"],
+    ));
+    assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
+}
+
+#[test]
+fn cli_serve_stops_when_a_required_secret_is_removed() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("required-secret.bbs");
+    fs::write(&package_path, create_required_secret_schedule_package())
+        .expect("required-secret package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "scheduled-log"],
+    ));
+
+    let secret_value = SecretCipher::generate_key()
+        .expect("test secret value should generate")
+        .into_iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let key = SecretCipher::generate_key().expect("test encryption key should generate");
+    let store = SqliteRunnerStore::open(runner_home.join("runner.sqlite3"))
+        .expect("runner store should open")
+        .with_secret_cipher(SecretCipher::from_key(key));
+    store
+        .set_secret("scheduled-log", "api_key", &json!(secret_value))
+        .expect("required secret should store");
+
+    let serve = spawn_baudbound(&runner_home, ["serve", "--reload-interval-seconds", "1"]);
+    wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+        status["state"] == "running" && status["active_service_count"] == 1
+    });
+
+    assert!(
+        store
+            .remove_secret("scheduled-log", "api_key")
+            .expect("required secret should be removed")
+    );
+    assert_child_exits_with_error(
+        serve,
+        Duration::from_secs(8),
+        "required secret values are missing",
+    );
+
+    let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {
+        status["state"] == "stopped"
+    });
+    assert_eq!(stopped_status["active_service_count"], 0);
+}
+
+#[test]
 fn cli_status_reports_tampered_installed_package() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
     let runner_home = temporary_directory.path().join("runner-home");
@@ -629,6 +723,37 @@ fn assert_child_exits_successfully(mut child: Child, timeout: Duration) {
         match child.try_wait().expect("child status should be readable") {
             Some(status) => {
                 assert!(status.success(), "serve child should exit successfully");
+                return;
+            }
+            None if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            None => {
+                child.kill().expect("hung child should be killed");
+                let output = child.wait_with_output().expect("child output should read");
+                panic!(
+                    "serve child did not exit before timeout\n{}",
+                    command_output(&output)
+                );
+            }
+        }
+    }
+}
+
+fn assert_child_exits_with_error(mut child: Child, timeout: Duration, expected: &str) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait().expect("child status should be readable") {
+            Some(status) => {
+                let output = child.wait_with_output().expect("child output should read");
+                assert!(
+                    !status.success(),
+                    "serve child should fail after losing required secrets\n{}",
+                    command_output(&output)
+                );
+                assert!(
+                    command_output(&output).contains(expected),
+                    "serve child output should contain {expected:?}\n{}",
+                    command_output(&output)
+                );
                 return;
             }
             None if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
@@ -791,23 +916,45 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
 }
 
 fn create_schedule_package() -> Vec<u8> {
+    create_schedule_package_with_secrets("[]")
+}
+
+fn create_required_secret_schedule_package() -> Vec<u8> {
+    create_schedule_package_with_secrets(
+        r#"[{"name":"api_key","type":"string","description":"Test API key","required":true}]"#,
+    )
+}
+
+fn create_schedule_package_with_secrets(secrets: &str) -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let has_secrets = secrets != "[]";
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "scheduled-log",
+            "name": "Scheduled Log",
+            "version": "1.0.0",
+            "created_with": "BaudBound CLI Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "secrets": {secrets}
+        }}"#
+    );
+    let permissions = if has_secrets {
+        r#"{"declared_permissions": ["log", "read_secret"], "risk_level": "high"}"#
+    } else {
+        r#"{"declared_permissions": ["log"], "risk_level": "low"}"#
+    };
+    let capabilities = if has_secrets {
+        r#"{"required_capabilities": ["action.log", "runtime.secrets", "trigger.schedule"], "target_runtimes": ["Windows Headless", "Linux Headless"]}"#
+    } else {
+        r#"{"required_capabilities": ["action.log", "trigger.schedule"], "target_runtimes": ["Windows Headless", "Linux Headless"]}"#
+    };
 
     for (path, content) in [
-        (
-            "manifest.json",
-            r#"{
-                "format_version": 1,
-                "script_language_version": 1,
-                "id": "scheduled-log",
-                "name": "Scheduled Log",
-                "version": "1.0.0",
-                "created_with": "BaudBound CLI Test",
-                "created_at": "2026-01-01T00:00:00.000Z",
-                "minimum_runner_version": "0.1.0"
-            }"#,
-        ),
+        ("manifest.json", manifest.as_str()),
         (
             "program.json",
             r#"{
@@ -864,14 +1011,8 @@ fn create_schedule_package() -> Vec<u8> {
                 }
             }"#,
         ),
-        (
-            "permissions.json",
-            r#"{"declared_permissions": ["log"], "risk_level": "low"}"#,
-        ),
-        (
-            "capabilities.json",
-            r#"{"required_capabilities": ["action.log", "trigger.schedule"], "target_runtimes": ["Windows Headless", "Linux Headless"]}"#,
-        ),
+        ("permissions.json", permissions),
+        ("capabilities.json", capabilities),
     ] {
         writer
             .start_file(path, options)

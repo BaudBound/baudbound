@@ -151,12 +151,16 @@ impl SqliteRunnerStore {
 
     pub fn clear_all_stored_secrets(&self) -> Result<usize, StorageError> {
         let connection = self.connection()?;
-        connection
+        let removed = connection
             .execute("DELETE FROM secret_values", [])
             .map_err(|source| StorageError::Sqlite {
                 path: self.path.clone(),
                 source,
-            })
+            })?;
+        if removed > 0 {
+            self.request_trigger_reload_with_connection(&connection)?;
+        }
+        Ok(removed)
     }
 
     fn secret_cipher(&self) -> Result<SecretCipher, StorageError> {

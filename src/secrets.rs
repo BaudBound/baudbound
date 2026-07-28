@@ -25,7 +25,7 @@ const PASSWORD_KEY_PENDING_FILE_NAME: &str = "password-secret-key.pending.json";
 const PASSWORD_KEY_FORMAT: &str = "baudbound.password-secret-key";
 const PASSWORD_KEY_FORMAT_VERSION: u8 = 1;
 const PASSWORD_KEY_AAD: &[u8] = b"baudbound-password-secret-key-v1";
-const PASSWORD_MIN_BYTES: usize = 12;
+pub(crate) const PASSWORD_MIN_CHARACTERS: usize = 8;
 const PASSWORD_MAX_BYTES: usize = 1024;
 const PASSWORD_SALT_LENGTH: usize = 16;
 const PASSWORD_NONCE_LENGTH: usize = 24;
@@ -294,8 +294,8 @@ pub(crate) fn generate_environment_secret_key() -> Result<String> {
 }
 
 fn validate_password(password: &str) -> Result<()> {
-    if password.len() < PASSWORD_MIN_BYTES {
-        bail!("storage password must contain at least {PASSWORD_MIN_BYTES} bytes");
+    if password.chars().count() < PASSWORD_MIN_CHARACTERS {
+        bail!("storage password must contain at least {PASSWORD_MIN_CHARACTERS} characters");
     }
     if password.len() > PASSWORD_MAX_BYTES {
         bail!("storage password must contain at most {PASSWORD_MAX_BYTES} bytes");
@@ -409,15 +409,23 @@ mod tests {
     #[test]
     fn password_storage_rejects_short_passwords() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
-        let password = generated_test_password::<8>();
+        let password = generated_test_password::<7>();
         let error = prepare_password_secret_cipher(directory.path(), &password)
             .expect_err("short password should be rejected");
-        assert!(error.to_string().contains("at least 12 bytes"));
+        assert!(error.to_string().contains("at least 8 characters"));
         assert!(
             !directory
                 .path()
                 .join(PASSWORD_KEY_PENDING_FILE_NAME)
                 .exists()
         );
+    }
+
+    #[test]
+    fn password_storage_accepts_eight_character_passwords() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let password = generated_test_password::<8>();
+        prepare_password_secret_cipher(directory.path(), &password)
+            .expect("an eight character password should be accepted");
     }
 }
