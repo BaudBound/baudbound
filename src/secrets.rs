@@ -370,10 +370,19 @@ fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn generated_test_password<const LENGTH: usize>() -> String {
+        random_bytes::<LENGTH>()
+            .expect("test password randomness should be available")
+            .into_iter()
+            .map(|byte| char::from(b'a' + (byte % 26)))
+            .collect()
+    }
+
     #[test]
     fn password_storage_round_trip_and_wrong_password_rejection() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
-        prepare_password_secret_cipher(directory.path(), "a sufficiently long password")
+        let password = generated_test_password::<24>();
+        prepare_password_secret_cipher(directory.path(), &password)
             .expect("protected key should be prepared");
         commit_password_secret_storage(directory.path())
             .expect("protected key should be committed");
@@ -382,9 +391,13 @@ mod tests {
             desktop_secret_storage_mode(directory.path()),
             DesktopSecretStorageMode::Password
         );
-        unlock_password_secret_cipher(directory.path(), "a sufficiently long password")
+        unlock_password_secret_cipher(directory.path(), &password)
             .expect("correct password should unlock the key");
-        let error = unlock_password_secret_cipher(directory.path(), "a different long password")
+        let mut wrong_password = generated_test_password::<24>();
+        while wrong_password == password {
+            wrong_password = generated_test_password::<24>();
+        }
+        let error = unlock_password_secret_cipher(directory.path(), &wrong_password)
             .expect_err("wrong password should be rejected");
         assert!(
             error
@@ -396,7 +409,8 @@ mod tests {
     #[test]
     fn password_storage_rejects_short_passwords() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
-        let error = prepare_password_secret_cipher(directory.path(), "too short")
+        let password = generated_test_password::<8>();
+        let error = prepare_password_secret_cipher(directory.path(), &password)
             .expect_err("short password should be rejected");
         assert!(error.to_string().contains("at least 12 bytes"));
         assert!(
