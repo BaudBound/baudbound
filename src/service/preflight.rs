@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use baudbound_core::{RunnerCore, TriggerRegistration};
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::SerialInputService;
@@ -10,6 +10,7 @@ pub fn validate_serve_start(
     store: &SqliteRunnerStore,
     options: &ServeOptions,
 ) -> Result<()> {
+    validate_enabled_script_secrets(core, store)?;
     let registrations = core
         .list_trigger_registrations(store, None)
         .context("failed to load trigger registrations")?;
@@ -20,12 +21,55 @@ pub fn validate_serve_start(
     Ok(())
 }
 
+pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<()> {
+    let scripts = core
+        .list_installed(store)
+        .context("failed to load installed scripts while checking required secrets")?;
+    let mut blockers = Vec::new();
+
+    for script in scripts.into_iter().filter(|script| script.enabled) {
+        let mut missing = core
+            .list_installed_secrets(store, &script.id)
+            .with_context(|| {
+                format!(
+                    "failed to check required secrets for enabled script {:?} ({})",
+                    script.name, script.id
+                )
+            })?
+            .into_iter()
+            .filter(|secret| secret.required && !secret.configured)
+            .map(|secret| secret.name)
+            .collect::<Vec<_>>();
+        missing.sort();
+
+        if !missing.is_empty() {
+            blockers.push(format!(
+                "{:?} ({}): {}",
+                script.name,
+                script.id,
+                missing.join(", ")
+            ));
+        }
+    }
+
+    blockers.sort();
+    if !blockers.is_empty() {
+        bail!(
+            "background runner cannot run because required secret values are missing for enabled scripts. {}. Configure the listed secrets or disable the affected scripts",
+            blockers.join(". ")
+        );
+    }
+
+    Ok(())
+}
+
 pub fn print_serve_preflight(
     core: &RunnerCore,
     store: &SqliteRunnerStore,
     options: &ServeOptions,
     json: bool,
 ) -> Result<()> {
+    validate_enabled_script_secrets(core, store)?;
     let registrations = core
         .list_trigger_registrations(store, None)
         .context("failed to load trigger registrations")?;

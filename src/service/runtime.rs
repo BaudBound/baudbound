@@ -28,6 +28,7 @@ use super::{
     idle::{print_idle_service_explanation, should_exit_idle_service},
     ipc::{ServiceControlCommand, ServiceControlServer},
     options::ServeOptions,
+    preflight::validate_enabled_script_secrets,
     shutdown::install_shutdown_handler,
     summary::print_service_summary,
     triggers::{load_trigger_services, reload_trigger_services_if_changed},
@@ -79,6 +80,8 @@ pub fn serve_triggers_with_control(
 ) -> Result<()> {
     const MAX_IDLE_SLEEP: Duration = Duration::from_millis(250);
 
+    validate_enabled_script_secrets(core, store)?;
+
     const TRIGGER_CHANNEL_CAPACITY: usize = 1024;
     let (trigger_sender, trigger_receiver) = mpsc::sync_channel(TRIGGER_CHANNEL_CAPACITY);
     let (hotkey_sender, hotkey_receiver) = mpsc::channel();
@@ -109,6 +112,17 @@ pub fn serve_triggers_with_control(
     );
     let mut services =
         load_trigger_services(core, store, &options, &trigger_sender, &cancellation)?;
+    if let Err(error) = validate_enabled_script_secrets(core, store) {
+        return stop_for_secret_readiness_failure(
+            store,
+            &options,
+            &mut services,
+            &mut trigger_executor,
+            &cancellation,
+            &mut status,
+            error,
+        );
+    }
     let mut dispatched_any_event =
         dispatch_startup_events(&mut services.startup, &mut trigger_executor, &mut status);
     status.write_running(store, &options, &services)?;
@@ -186,6 +200,17 @@ pub fn serve_triggers_with_control(
         let control_reload_requested =
             matches!(service_control_command, Some(ServiceControlCommand::Reload));
         if control_reload_requested || reload_requested || Instant::now() >= next_reload_check {
+            if let Err(error) = validate_enabled_script_secrets(core, store) {
+                return stop_for_secret_readiness_failure(
+                    store,
+                    &options,
+                    &mut services,
+                    &mut trigger_executor,
+                    &cancellation,
+                    &mut status,
+                    error,
+                );
+            }
             let (reloaded_services, did_reload) = reload_trigger_services_if_changed(
                 core,
                 store,
@@ -301,6 +326,28 @@ pub fn serve_triggers_with_control(
             thread::sleep(wait_duration);
         }
     }
+}
+
+fn stop_for_secret_readiness_failure(
+    store: &SqliteRunnerStore,
+    options: &ServeOptions,
+    services: &mut super::triggers::TriggerServices,
+    trigger_executor: &mut TriggerExecutor,
+    cancellation: &RuntimeCancellationToken,
+    status: &mut ServeStatusTracker,
+    error: anyhow::Error,
+) -> Result<()> {
+    console::error(format_args!("{error}. Stopping trigger listener services."));
+    stop_runtime(
+        store,
+        options,
+        services,
+        trigger_executor,
+        cancellation,
+        status,
+    )
+    .with_context(|| format!("failed to stop after required secret validation failed: {error}"))?;
+    Err(error)
 }
 
 fn stop_runtime(

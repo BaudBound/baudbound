@@ -750,6 +750,60 @@ fn clears_the_active_secret_cipher_and_all_stored_values() {
 }
 
 #[test]
+fn secret_changes_request_an_immediate_trigger_reload() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("import reload request should be consumed")
+    );
+
+    let key = SecretCipher::generate_key().expect("test key should generate");
+    store.set_secret_cipher(SecretCipher::from_key(key));
+    store
+        .set_secret("script-1", "api_key", &serde_json::json!("value"))
+        .expect("secret should store");
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("secret set reload request should be consumed")
+    );
+
+    assert!(
+        store
+            .remove_secret("script-1", "api_key")
+            .expect("secret should be removed")
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("secret removal reload request should be consumed")
+    );
+
+    store
+        .set_secret("script-1", "api_key", &serde_json::json!("replacement"))
+        .expect("replacement secret should store");
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("replacement reload request should be consumed")
+    );
+    assert_eq!(
+        store
+            .clear_all_stored_secrets()
+            .expect("stored secrets should clear"),
+        1
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("secret reset reload request should be consumed")
+    );
+}
+
+#[test]
 fn rejects_unsafe_script_ids() {
     assert!(matches!(
         validate_script_id("../nope"),
