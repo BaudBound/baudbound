@@ -176,9 +176,10 @@ pub fn run_desktop_ui(
     let password_unlock_required = secret_vault.snapshot().mode
         == secret_vault::SecretStorageMode::Password
         && store.stored_secret_value_count()? > 0;
-    let defer_background_start_for_secret_vault =
-        runner_config.desktop.start_background_runner_on_launch
-            && crate::service::enabled_scripts_require_secret_access(&core, &store)?;
+    let defer_background_start_for_secret_vault = should_defer_background_start(
+        runner_config.desktop.start_background_runner_on_launch,
+        crate::service::enabled_scripts_require_secret_access(&core, &store),
+    );
     let autostart_args = [
         "--config".to_owned(),
         config_path.display().to_string(),
@@ -275,6 +276,25 @@ pub fn run_desktop_ui(
         .invoke_handler(secured_desktop_command_handler())
         .run(tauri::generate_context!())
         .map_err(|source| anyhow!("desktop UI failed: {source}"))
+}
+
+fn should_defer_background_start(
+    start_background_runner_on_launch: bool,
+    required_secret_access: Result<bool>,
+) -> bool {
+    if !start_background_runner_on_launch {
+        return false;
+    }
+    match required_secret_access {
+        Ok(required) => required,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "could not inspect required secrets during desktop startup; opening the desktop UI with automatic background startup deferred"
+            );
+            true
+        }
+    }
 }
 
 pub(super) struct DesktopUiState {

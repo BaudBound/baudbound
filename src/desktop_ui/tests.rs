@@ -437,6 +437,22 @@ fn only_runtime_owned_config_requires_a_background_restart() {
     assert!(runner_runtime_config_changed(&previous, &runner));
 }
 
+#[test]
+fn desktop_startup_survives_required_secret_inspection_failure() {
+    assert!(should_defer_background_start(
+        true,
+        Err(anyhow!(
+            "installed package does not match the current schema"
+        )),
+    ));
+    assert!(!should_defer_background_start(
+        false,
+        Err(anyhow!(
+            "installed package does not match the current schema"
+        )),
+    ));
+}
+
 fn invoke(webview: &tauri::WebviewWindow<test::MockRuntime>, command: &str, body: Value) -> Value {
     try_invoke(webview, command, body)
         .unwrap_or_else(|error| panic!("Tauri command {command:?} failed: {error}"))
