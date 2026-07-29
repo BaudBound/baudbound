@@ -727,12 +727,24 @@ fn clears_the_active_secret_cipher_and_all_stored_values() {
     store
         .set_secret("script-1", "api_key", &serde_json::json!("value"))
         .expect("secret should store");
+    assert_eq!(
+        store
+            .stored_secret_value_count()
+            .expect("stored secret count should load"),
+        1
+    );
 
     assert_eq!(
         store
             .clear_all_stored_secrets()
             .expect("stored secrets should clear"),
         1
+    );
+    assert_eq!(
+        store
+            .stored_secret_value_count()
+            .expect("stored secret count should load"),
+        0
     );
     assert!(
         store

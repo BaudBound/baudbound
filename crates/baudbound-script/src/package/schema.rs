@@ -236,6 +236,41 @@ mod tests {
     }
 
     #[test]
+    fn accepts_for_each_with_only_node_scoped_runtime_outputs() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["steps"] = json!([{
+            "id": "n-each",
+            "action_type": "control.for_each",
+            "type": "for_each",
+            "config": {
+                "items": "{{n-source.items}}"
+            },
+            "runtime_outputs": [
+                {
+                    "name": "item",
+                    "type": "object",
+                    "description": "Current list item for the active iteration.",
+                    "example": "n-each.item"
+                },
+                {
+                    "name": "index",
+                    "type": "number",
+                    "description": "Zero-based index for the active iteration.",
+                    "example": "n-each.index"
+                }
+            ]
+        }]);
+
+        validate_program_schema(&program).expect("For Each node outputs should match schema");
+
+        program["entry"]["program"]["steps"][0]["config"]["itemVariable"] = json!("item");
+        assert!(matches!(
+            validate_program_schema(&program),
+            Err(PackageLoadError::ProgramSchema(_))
+        ));
+    }
+
+    #[test]
     fn accepts_color_match_control_contract_exported_by_the_editor() {
         let mut program = minimal_program();
         program["entry"]["program"]["steps"] = json!([{

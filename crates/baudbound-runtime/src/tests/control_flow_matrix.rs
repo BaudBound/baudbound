@@ -446,10 +446,14 @@ fn switch_without_a_matching_case_uses_the_default_output() {
 
     assert!(!has_log(&report.logs, "case ran"));
     assert!(has_log(&report.logs, "default ran"));
-    assert!(report.logs.iter().any(|entry| {
-        entry.node_id.as_deref() == Some("n-switch")
-            && entry.message.contains("selected \"default\" output")
-    }));
+    assert!(
+        report.logs.iter().any(|entry| {
+            entry.node_id.as_deref() == Some("n-switch")
+                && entry.message.contains("selected the \"default\" output")
+        }),
+        "switch diagnostics should identify the unmatched input and default output: {:?}",
+        report.logs
+    );
 }
 
 #[test]
@@ -501,7 +505,7 @@ fn for_each_resolves_a_nested_list_variable() {
                     json!(r#"{"items":["one","two"]}"#),
                 ),
                 for_each_node("{{payload.items}}"),
-                log_node("n-item", "{{index}}={{item}}"),
+                log_node("n-item", "{{n-each.index}}={{n-each.item}}"),
                 log_node("n-done", "iteration complete"),
             ],
             vec![
@@ -625,9 +629,7 @@ fn for_each_node(items: &str) -> Value {
         "action_type": "control.for_each",
         "type": "for_each",
         "config": {
-            "items": items,
-            "itemVariable": "item",
-            "indexVariable": "index"
+            "items": items
         },
         "runtime_outputs": []
     })

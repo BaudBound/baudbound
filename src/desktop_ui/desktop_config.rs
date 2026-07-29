@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use anyhow::{Context, Result};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::{AutoLaunchManager, ManagerExt};
@@ -130,6 +132,19 @@ pub fn start_configured_background_runner(app: &AppHandle) {
             "failed to start configured desktop background runner"
         );
     }
+}
+
+pub fn start_deferred_background_runner(
+    state: &DesktopUiState,
+) -> std::result::Result<Option<String>, String> {
+    if !state
+        .deferred_background_start
+        .swap(false, Ordering::AcqRel)
+    {
+        return Ok(None);
+    }
+
+    super::run_locked_message(state, || super::start_background_runner_message(state)).map(Some)
 }
 
 #[cfg(test)]

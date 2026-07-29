@@ -455,11 +455,11 @@ export function SecretManagementPanel({
           </DialogHeader>
           <label className="grid gap-1.5 text-sm">
             Storage password
-            <div className="relative">
+            <div className="relative w-full">
               <Input
                 autoComplete="current-password"
                 autoFocus
-                className="secret-value-input pr-10"
+                className="secret-value-input w-full pr-10"
                 maxLength={1024}
                 type={storagePasswordVisible ? "text" : "password"}
                 value={unlockPassword}
@@ -470,11 +470,11 @@ export function SecretManagementPanel({
               />
               <button
                 aria-label={storagePasswordVisible ? "Hide password" : "Show password"}
-                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground"
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45"
                 onClick={() => setStoragePasswordVisible((visible) => !visible)}
                 type="button"
               >
-                {storagePasswordVisible ? <EyeOff /> : <Eye />}
+                {storagePasswordVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
           </label>

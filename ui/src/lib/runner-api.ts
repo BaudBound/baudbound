@@ -657,6 +657,7 @@ export type DashboardPayload = {
   run_statistics: RunStatistics;
   runner: RunnerStatus;
   secret_vault: SecretVaultSnapshot;
+  stored_secret_value_count: number;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
   script_updates: Record<string, ScriptUpdateState>;
   serial_devices: SerialDeviceStatus[];

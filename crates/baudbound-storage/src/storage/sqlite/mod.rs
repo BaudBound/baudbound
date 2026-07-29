@@ -163,6 +163,18 @@ impl SqliteRunnerStore {
         Ok(removed)
     }
 
+    pub fn stored_secret_value_count(&self) -> Result<usize, StorageError> {
+        let connection = self.connection()?;
+        connection
+            .query_row("SELECT COUNT(*) FROM secret_values", [], |row| {
+                row_i64_to_usize(0, row.get(0)?)
+            })
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })
+    }
+
     fn secret_cipher(&self) -> Result<SecretCipher, StorageError> {
         self.secret_cipher
             .read()

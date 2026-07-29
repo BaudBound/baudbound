@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use baudbound_storage::SqliteRunnerStore;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 pub(super) const SECRET_VAULT_EVENT_CHANNEL: &str = "runner-secret-vault";
 
@@ -134,7 +134,18 @@ impl SecretVaultController {
                     }
                 };
                 worker_state.finish_attempt(snapshot.clone());
-                publish(&app, snapshot);
+                publish(&app, snapshot.clone());
+                if snapshot.status == SecretVaultStatus::Available {
+                    let state = app.state::<super::DesktopUiState>();
+                    match super::desktop_config::start_deferred_background_runner(&state) {
+                        Ok(Some(message)) => tracing::info!(%message),
+                        Ok(None) => {}
+                        Err(error) => tracing::warn!(
+                            %error,
+                            "failed to start the background runner after secret storage became available"
+                        ),
+                    }
+                }
             })
         {
             Ok(_) => StartResult::Started,

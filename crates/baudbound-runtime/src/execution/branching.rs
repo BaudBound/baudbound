@@ -8,6 +8,11 @@ use serde_json::Value;
 
 use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
 
+pub(super) struct ConditionEvaluation {
+    pub(super) result: bool,
+    pub(super) summary: String,
+}
+
 impl RuntimeExecutor<'_> {
     pub(super) fn evaluate_color_match(
         &mut self,
@@ -83,10 +88,30 @@ impl RuntimeExecutor<'_> {
             Value::from(evaluation.blue_difference),
             RunVariableScope::NodeOutput,
         )?;
+        let selected = if evaluation.matches {
+            "match"
+        } else {
+            "no_match"
+        };
+        self.push_runtime_log(
+            "info",
+            format!(
+                "Compared actual color {} with expected color {} using {} mode and {}% tolerance. Difference: {}%. Selected {selected:?} output.",
+                diagnostic_value(actual),
+                diagnostic_value(expected),
+                config_string(&config, "comparisonMode").unwrap_or_else(|| "unknown".to_owned()),
+                diagnostic_value(config.get("tolerancePercent").unwrap_or(&Value::Null)),
+                diagnostic_value(&color_match_number(node, evaluation.difference_percent)?)
+            ),
+            Some(node.id.clone()),
+        );
         Ok(evaluation.matches)
     }
 
-    pub(super) fn evaluate_conditions(&self, node: &RuntimeNode) -> Result<bool, RuntimeError> {
+    pub(super) fn evaluate_conditions(
+        &self,
+        node: &RuntimeNode,
+    ) -> Result<ConditionEvaluation, RuntimeError> {
         let conditions = node
             .config
             .get("conditions")
@@ -101,25 +126,49 @@ impl RuntimeExecutor<'_> {
             })?;
 
         if rows.is_empty() {
-            return Ok(false);
+            return Ok(ConditionEvaluation {
+                result: false,
+                summary: "no condition rows were configured".to_owned(),
+            });
         }
 
         let mut result = false;
+        let mut summaries = Vec::with_capacity(rows.len());
         for (index, row) in rows.iter().enumerate() {
+            let left = resolve_template_value(&row.left, &self.context.variables);
+            let right = resolve_template_value(&row.right, &self.context.variables);
             let compared = match row.operator.as_str() {
                 "is_defined" => template_value_is_defined(&row.left, &self.context.variables),
                 "is_missing" => !template_value_is_defined(&row.left, &self.context.variables),
-                _ => compare_condition_values(
-                    &resolve_template_value(&row.left, &self.context.variables),
-                    &row.operator,
-                    &resolve_template_value(&row.right, &self.context.variables),
-                )
-                .map_err(|message| RuntimeError::ControlFlow {
-                    node_id: node.id.clone(),
-                    message,
+                _ => compare_condition_values(&left, &row.operator, &right).map_err(|message| {
+                    RuntimeError::ControlFlow {
+                        node_id: node.id.clone(),
+                        message,
+                    }
                 })?,
             };
             let row_result = if row.invert { !compared } else { compared };
+            let comparison = if condition_uses_right_value(&row.operator) {
+                format!(
+                    "{} {} {}",
+                    diagnostic_value(&left),
+                    condition_operator_label(&row.operator),
+                    diagnostic_value(&right)
+                )
+            } else {
+                format!(
+                    "{} {}",
+                    diagnostic_value(&left),
+                    condition_operator_label(&row.operator)
+                )
+            };
+            summaries.push(format!(
+                "row {}: {}{} => {}",
+                index + 1,
+                if row.invert { "NOT " } else { "" },
+                comparison,
+                row_result
+            ));
 
             if index == 0 {
                 result = row_result;
@@ -137,7 +186,10 @@ impl RuntimeExecutor<'_> {
                 }
             };
         }
-        Ok(result)
+        Ok(ConditionEvaluation {
+            result,
+            summary: summaries.join(". "),
+        })
     }
 
     pub(super) fn evaluate_switch(&mut self, node: &RuntimeNode) -> Result<String, RuntimeError> {
@@ -168,13 +220,14 @@ impl RuntimeExecutor<'_> {
                 self.push_runtime_log(
                     "info",
                     format!(
-                        "Switch {} matched case \"{}\".",
-                        node.id,
+                        "Switch input {} matched case {:?} with value {}.",
+                        diagnostic_value(&switch_value),
                         if switch_case.name.trim().is_empty() {
                             switch_case.id.as_str()
                         } else {
                             switch_case.name.as_str()
-                        }
+                        },
+                        diagnostic_value(&case_value)
                     ),
                     Some(node.id.clone()),
                 );
@@ -184,8 +237,8 @@ impl RuntimeExecutor<'_> {
         self.push_runtime_log(
             "info",
             format!(
-                "Switch {} matched no case and selected \"default\" output.",
-                node.id
+                "Switch input {} matched no case and selected the \"default\" output.",
+                diagnostic_value(&switch_value)
             ),
             Some(node.id.clone()),
         );
@@ -244,4 +297,62 @@ fn color_match_number(node: &RuntimeNode, value: f64) -> Result<Value, RuntimeEr
             node_id: node.id.clone(),
             message: "color difference could not be represented as a finite JSON number".to_owned(),
         })
+}
+
+fn diagnostic_value(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
+}
+
+fn condition_operator_label(operator: &str) -> &str {
+    match operator {
+        "==" => "equals",
+        "!=" => "does not equal",
+        ">" => "is greater than",
+        ">=" => "is greater than or equal to",
+        "<" => "is less than",
+        "<=" => "is less than or equal to",
+        "contains" => "contains",
+        "equals_ignore_case" => "equals, ignoring case",
+        "contains_ignore_case" => "contains, ignoring case",
+        "does_not_contain" => "does not contain",
+        "starts_with" => "starts with",
+        "ends_with" => "ends with",
+        "regex_match" => "matches regular expression",
+        "is_empty" => "is empty",
+        "is_null" => "is null",
+        "is_true" => "is true",
+        "is_false" => "is false",
+        "is_numeric" => "is numeric",
+        "is_text" => "is text",
+        "is_boolean" => "is a boolean",
+        "is_list" => "is a list",
+        "is_object" => "is an object",
+        "is_not_empty" => "is not empty",
+        "has_key" => "has key",
+        "contains_item" => "contains item",
+        "length_equals" => "has length equal to",
+        "length_greater_than" => "has length greater than",
+        "length_less_than" => "has length less than",
+        "is_defined" => "is defined",
+        "is_missing" => "is missing",
+        other => other,
+    }
+}
+
+fn condition_uses_right_value(operator: &str) -> bool {
+    !matches!(
+        operator,
+        "is_empty"
+            | "is_null"
+            | "is_true"
+            | "is_false"
+            | "is_numeric"
+            | "is_text"
+            | "is_boolean"
+            | "is_list"
+            | "is_object"
+            | "is_not_empty"
+            | "is_defined"
+            | "is_missing"
+    )
 }

@@ -1,4 +1,4 @@
-use crate::runtime::{RuntimeFrame, required_config_string, validate_variable_name};
+use crate::runtime::RuntimeFrame;
 use serde_json::{Map, Number, Value};
 
 use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
@@ -82,11 +82,6 @@ impl RuntimeExecutor<'_> {
                 } else {
                     "no_match"
                 };
-                self.push_runtime_log(
-                    "info",
-                    format!("Color Match {} selected \"{}\" output.", node.id, branch),
-                    Some(node.id.clone()),
-                );
                 frames.push(RuntimeFrame::Follow {
                     source_node_id: node.id,
                     handle: branch.to_owned(),
@@ -94,14 +89,20 @@ impl RuntimeExecutor<'_> {
                 });
             }
             "control.if" => {
-                let branch = if self.evaluate_conditions(&node)? {
-                    "true"
-                } else {
-                    "false"
-                };
+                let evaluation = self.evaluate_conditions(&node)?;
+                let branch = if evaluation.result { "true" } else { "false" };
                 self.push_runtime_log(
                     "info",
-                    format!("If / Else {} selected \"{}\" output.", node.id, branch),
+                    format!(
+                        "Evaluated {} If / Else condition row{}. {}. Selected {branch:?} output.",
+                        condition_row_count(&node),
+                        if condition_row_count(&node) == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                        evaluation.summary
+                    ),
                     Some(node.id.clone()),
                 );
                 frames.push(RuntimeFrame::Follow {
@@ -120,6 +121,11 @@ impl RuntimeExecutor<'_> {
             }
             "control.repeat" => {
                 let count = self.repeat_count(&node)?;
+                self.push_runtime_log(
+                    "info",
+                    format!("Started Repeat with {count} configured iterations."),
+                    Some(node.id.clone()),
+                );
                 frames.push(RuntimeFrame::Repeat {
                     node_id: node.id,
                     index: 0,
@@ -299,12 +305,14 @@ impl RuntimeExecutor<'_> {
         index: u64,
     ) -> Result<(), RuntimeError> {
         let node = self.graph.node(node_id)?.clone();
-        if !self.evaluate_conditions(&node)? {
+        let evaluation = self.evaluate_conditions(&node)?;
+        if !evaluation.result {
             self.push_runtime_log(
                 "info",
                 format!(
-                    "While {node_id} condition failed after {index} iteration{}.",
-                    if index == 1 { "" } else { "s" }
+                    "While {node_id} condition failed after {index} iteration{}: {}.",
+                    if index == 1 { "" } else { "s" },
+                    evaluation.summary
                 ),
                 Some(node_id.to_owned()),
             );
@@ -320,7 +328,10 @@ impl RuntimeExecutor<'_> {
         self.log_loop_iteration(
             node_id,
             index,
-            format!("While {node_id} iteration {next_index}; condition passed."),
+            format!(
+                "While {node_id} iteration {next_index}. Condition passed: {}.",
+                evaluation.summary
+            ),
         );
         frames.push(RuntimeFrame::While {
             node_id: node_id.to_owned(),
@@ -341,7 +352,7 @@ impl RuntimeExecutor<'_> {
         index: usize,
         items: Vec<Value>,
     ) -> Result<(), RuntimeError> {
-        let node = self.graph.node(node_id)?.clone();
+        self.graph.node(node_id)?;
         if index >= items.len() {
             frames.push(RuntimeFrame::Follow {
                 source_node_id: node_id.to_owned(),
@@ -351,24 +362,29 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
-        let item_variable = required_config_string(&node, "itemVariable")?;
-        let index_variable = required_config_string(&node, "indexVariable")?;
-        validate_variable_name(&node, &item_variable)?;
-        validate_variable_name(&node, &index_variable)?;
+        let item_variable = format!("{node_id}.item");
+        let index_variable = format!("{node_id}.index");
         self.set_variable(
-            item_variable,
+            item_variable.clone(),
             items[index].clone(),
-            RunVariableScope::Runtime,
+            RunVariableScope::NodeOutput,
         )?;
         self.set_variable(
-            index_variable,
+            index_variable.clone(),
             Value::Number(Number::from(u64::try_from(index).unwrap_or(u64::MAX))),
-            RunVariableScope::Runtime,
+            RunVariableScope::NodeOutput,
         )?;
         self.log_loop_iteration(
             node_id,
             u64::try_from(index).unwrap_or(u64::MAX),
-            format!("For Each {node_id} item {} of {}.", index + 1, items.len()),
+            format!(
+                "For Each item {} of {} set node output {:?} to {} and node output {:?} to {index}.",
+                index + 1,
+                items.len(),
+                item_variable,
+                serde_json::to_string(&items[index]).unwrap_or_else(|_| items[index].to_string()),
+                index_variable
+            ),
         );
         frames.push(RuntimeFrame::ForEach {
             node_id: node_id.to_owned(),
@@ -403,6 +419,13 @@ impl RuntimeExecutor<'_> {
             );
         }
     }
+}
+
+fn condition_row_count(node: &RuntimeNode) -> usize {
+    node.config
+        .get("conditions")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len)
 }
 
 #[derive(Debug, Clone, Copy)]
