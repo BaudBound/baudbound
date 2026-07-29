@@ -48,6 +48,74 @@ fn set_and_increment_resolve_variable_references() {
 }
 
 #[test]
+fn resolves_references_recursively_inside_json_values() {
+    let report = execute(
+        vec![
+            variable_node(
+                "n-source",
+                "source",
+                "set",
+                "string",
+                json!("quoted \"value\"\r\n"),
+            ),
+            variable_node(
+                "n-object",
+                "payload",
+                "set",
+                "object",
+                json!(r#"{"nested":{"value":"{{source}}"}}"#),
+            ),
+            variable_node(
+                "n-list",
+                "items",
+                "append_list",
+                "list",
+                json!(r#"{"value":"{{source}}"}"#),
+            ),
+        ],
+        linear_edges(&["n-source", "n-object", "n-list"]),
+    )
+    .expect("nested variable references should resolve without corrupting JSON");
+
+    assert_eq!(
+        report.variables.get("payload"),
+        Some(&json!({"nested": {"value": "quoted \"value\"\r\n"}}))
+    );
+    assert_eq!(
+        report.variables.get("items"),
+        Some(&json!([{"value": "quoted \"value\"\r\n"}]))
+    );
+}
+
+#[test]
+fn logs_variable_names_scopes_inputs_and_resulting_values() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "number", json!(2)),
+            variable_node("n-increment", "count", "increment", "number", json!(3)),
+            variable_node("n-append", "items", "append_list", "list", json!("first")),
+            variable_node("n-clear", "count", "clear", "number", Value::Null),
+        ],
+        linear_edges(&["n-set", "n-increment", "n-append", "n-clear"]),
+    )
+    .expect("variable operations should execute");
+
+    let messages = report
+        .logs
+        .iter()
+        .map(|log| log.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(messages.contains(&r#"Set runtime variable "count" to 2.0."#));
+    assert!(messages.contains(&r#"Incremented runtime variable "count" by 3. New value: 5.0."#));
+    assert!(
+        messages.contains(
+            &r#"Appended "first" to runtime list variable "items". New value: ["first"]."#
+        )
+    );
+    assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0."#));
+}
+
+#[test]
 fn append_list_preserves_json_compatible_items() {
     let report = execute(
         vec![

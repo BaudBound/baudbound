@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use baudbound_storage::{ScriptStore, SecretCipher, SqliteRunnerStore};
 use serde_json::{Value, json};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
@@ -538,6 +539,58 @@ fn cli_serve_requires_secrets_only_for_enabled_scripts() {
         ["script", "disable", "scheduled-log"],
     ));
     assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
+
+    let key = SecretCipher::generate_key().expect("test encryption key should generate");
+    let store = SqliteRunnerStore::open(runner_home.join("runner.sqlite3"))
+        .expect("runner store should open")
+        .with_secret_cipher(SecretCipher::from_key(key));
+    store
+        .set_secret("scheduled-log", "api_key", &json!("configured"))
+        .expect("required secret should store");
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "enable", "scheduled-log"],
+    ));
+
+    let locked = run_baudbound(&runner_home, ["serve", "--once"]);
+    assert!(
+        !locked.status.success(),
+        "an inaccessible required secret must block service startup"
+    );
+    assert!(
+        command_output(&locked).contains("required secret values cannot be read"),
+        "{}",
+        command_output(&locked)
+    );
+
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "disable", "scheduled-log"],
+    ));
+    assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
+}
+
+#[test]
+fn cli_serve_does_not_require_optional_secret_values() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let runner_home = temporary_directory.path().join("runner-home");
+    let package_path = temporary_directory.path().join("optional-secret.bbs");
+    fs::write(&package_path, create_optional_secret_schedule_package())
+        .expect("optional-secret package should be written");
+
+    assert_success(run_baudbound(
+        &runner_home,
+        [
+            "script",
+            "import",
+            package_path.to_str().expect("path should be UTF-8"),
+        ],
+    ));
+    assert_success(run_baudbound(
+        &runner_home,
+        ["script", "approve", "scheduled-log"],
+    ));
+    assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
 }
 
 #[test]
@@ -574,7 +627,12 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
         .set_secret("scheduled-log", "api_key", &json!(secret_value))
         .expect("required secret should store");
 
-    let serve = spawn_baudbound(&runner_home, ["serve", "--reload-interval-seconds", "1"]);
+    let encoded_key = STANDARD.encode(key);
+    let serve = spawn_baudbound_with_secret_key(
+        &runner_home,
+        ["serve", "--reload-interval-seconds", "1"],
+        &encoded_key,
+    );
     wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 1
     });
@@ -644,6 +702,23 @@ fn spawn_baudbound<const N: usize>(runner_home: &Path, args: [&str; N]) -> Child
     Command::new(env!("CARGO_BIN_EXE_baudbound"))
         .args(args)
         .env("BAUDBOUND_HOME", runner_home)
+        .env_remove("BAUDBOUND_CONFIG")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("baudbound command should spawn")
+}
+
+fn spawn_baudbound_with_secret_key<const N: usize>(
+    runner_home: &Path,
+    args: [&str; N],
+    encoded_key: &str,
+) -> Child {
+    Command::new(env!("CARGO_BIN_EXE_baudbound"))
+        .args(args)
+        .env("BAUDBOUND_HOME", runner_home)
+        .env("BAUDBOUND_SECRET_KEY", encoded_key)
         .env_remove("BAUDBOUND_CONFIG")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -922,6 +997,12 @@ fn create_schedule_package() -> Vec<u8> {
 fn create_required_secret_schedule_package() -> Vec<u8> {
     create_schedule_package_with_secrets(
         r#"[{"name":"api_key","type":"string","description":"Test API key","required":true}]"#,
+    )
+}
+
+fn create_optional_secret_schedule_package() -> Vec<u8> {
+    create_schedule_package_with_secrets(
+        r#"[{"name":"api_key","type":"string","description":"Test API key","required":false}]"#,
     )
 }
 

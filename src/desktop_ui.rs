@@ -1,6 +1,6 @@
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
 use anyhow::{Result, anyhow};
@@ -173,6 +173,12 @@ pub fn run_desktop_ui(
     );
     let background_runner = DesktopRunnerSupervisor::default();
     let secret_vault = secret_vault::SecretVaultController::new(runner_home);
+    let password_unlock_required = secret_vault.snapshot().mode
+        == secret_vault::SecretStorageMode::Password
+        && store.stored_secret_value_count()? > 0;
+    let defer_background_start_for_secret_vault =
+        runner_config.desktop.start_background_runner_on_launch
+            && crate::service::enabled_scripts_require_secret_access(&core, &store)?;
     let autostart_args = [
         "--config".to_owned(),
         config_path.display().to_string(),
@@ -209,6 +215,7 @@ pub fn run_desktop_ui(
             websocket_registry,
             operation_lock: Arc::new(Mutex::new(())),
             trigger_monitor,
+            deferred_background_start: AtomicBool::new(defer_background_start_for_secret_vault),
         })
         .setup(move |app| {
             app.state::<DesktopUiState>()
@@ -230,7 +237,11 @@ pub fn run_desktop_ui(
                     }
                 }));
             desktop_config::reconcile_autostart_registration(app.handle());
-            lifecycle::configure_desktop_lifecycle(app, launched_from_autostart)?;
+            lifecycle::configure_desktop_lifecycle(
+                app,
+                launched_from_autostart,
+                password_unlock_required,
+            )?;
             let state = app.state::<DesktopUiState>();
             let variable_event_app = app.handle().clone();
             state.store.set_variable_change_observer(move |change| {
@@ -251,7 +262,9 @@ pub fn run_desktop_ui(
                 state.config_path.clone(),
                 state.store.clone(),
             );
-            desktop_config::start_configured_background_runner(app.handle());
+            if !defer_background_start_for_secret_vault {
+                desktop_config::start_configured_background_runner(app.handle());
+            }
             if let Some(window) = app.get_webview_window("main") {
                 window
                     .set_title("BaudBound")
@@ -280,6 +293,7 @@ pub(super) struct DesktopUiState {
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     operation_lock: Arc<Mutex<()>>,
     trigger_monitor: TriggerMonitor,
+    deferred_background_start: AtomicBool,
 }
 
 #[tauri::command]

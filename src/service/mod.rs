@@ -17,6 +17,7 @@ mod webhooks;
 
 pub(crate) use ipc::{ServiceControlCommand, redact_service_control, request_service_control};
 pub use options::{RunnerConfigSerialPortRebindSink, ServeOptions, ServeOverrides};
+pub(crate) use preflight::enabled_scripts_require_secret_access;
 pub use preflight::{print_serve_preflight, validate_serve_start};
 pub use runtime::{ServeRuntimeControl, serve_triggers, serve_triggers_with_control};
 

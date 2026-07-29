@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
 import { AppUpdateDialog } from "@/components/app-update-dialog";
 import { DashboardLoadState } from "@/components/dashboard-load-state";
+import { StartupSecretUnlockDialog } from "@/components/startup-secret-unlock-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/active-run-events";
 import type { DashboardAction, Notice, TabId } from "@/lib/app-types";
 import { formatCount } from "@/lib/count-format";
+import { needsStartupSecretUnlock } from "@/lib/secret-storage";
 import {
   navigationGroups,
   navigationItems,
@@ -84,6 +86,8 @@ export function App() {
   const [generatedTriggerTokens, setGeneratedTriggerTokens] = useState<
     GeneratedTriggerToken[]
   >([]);
+  const [startupSecretUnlockDismissed, setStartupSecretUnlockDismissed] =
+    useState(false);
   const dashboardRef = useRef<DashboardPayload | null>(null);
   const backgroundStopPending = useRef(false);
   const backgroundStopRequestAcknowledged = useRef(false);
@@ -484,6 +488,10 @@ export function App() {
     () => createDesktopTimeFormatter(timeFormat),
     [timeFormat],
   );
+  const startupSecretUnlockOpen =
+    dashboard !== null &&
+    !startupSecretUnlockDismissed &&
+    needsStartupSecretUnlock(dashboard);
 
   return (
     <DesktopTimeProvider timeFormat={timeFormat}>
@@ -697,6 +705,13 @@ export function App() {
           </section>
         </main>
         <AppUpdateDialog updater={updater} />
+        <StartupSecretUnlockDialog
+          busy={busyActions.has("startup-secret-storage-unlock")}
+          onDismiss={() => setStartupSecretUnlockDismissed(true)}
+          open={startupSecretUnlockOpen}
+          runAction={runAction}
+          storedValueCount={dashboard?.stored_secret_value_count ?? 0}
+        />
         <OneTimeTriggerTokensDialog
           onDone={() => setGeneratedTriggerTokens([])}
           tokens={generatedTriggerTokens}

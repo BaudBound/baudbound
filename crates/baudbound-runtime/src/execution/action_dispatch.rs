@@ -6,7 +6,7 @@ use crate::runtime::{
 
 use super::{
     RunVariableScope, RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor,
-    RuntimeNode,
+    RuntimeNode, action_diagnostics::action_completion_message,
 };
 
 impl RuntimeExecutor<'_> {
@@ -83,6 +83,8 @@ impl RuntimeExecutor<'_> {
             self.log_http_response(node, &request.config, &result.output_data);
         }
 
+        let completion_message =
+            action_completion_message(&node.action_type, &request.config, &result.output_data);
         for (key, value) in result.output_data {
             self.set_variable(
                 format!("{}.{}", node.id, key),
@@ -91,11 +93,9 @@ impl RuntimeExecutor<'_> {
             )?;
         }
 
-        self.push_runtime_log(
-            "info",
-            format!("Action {} completed.", node.action_type),
-            Some(node.id.clone()),
-        );
+        if let Some(message) = completion_message {
+            self.push_runtime_log("info", message, Some(node.id.clone()));
+        }
         Ok(())
     }
 
@@ -150,9 +150,9 @@ impl RuntimeExecutor<'_> {
         self.push_runtime_log(
             "info",
             format!(
-                "Calculation {} completed with result {}.",
-                node.id,
-                value_to_string(&value)
+                "Evaluated calculation expression {}. Result: {}.",
+                serde_json::to_string(&rendered).unwrap_or_else(|_| rendered.clone()),
+                serde_json::to_string(&value).unwrap_or_else(|_| value_to_string(&value))
             ),
             Some(node.id.clone()),
         );

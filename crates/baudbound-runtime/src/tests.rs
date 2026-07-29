@@ -816,14 +816,12 @@ fn executes_for_each_over_json_list() {
                             "action_type": "control.for_each",
                             "type": "for_each",
                             "config": {
-                                "items": "[\"one\", \"two\"]",
-                                "itemVariable": "item",
-                                "indexVariable": "index"
+                                "items": "[\"one\", \"two\"]"
                             },
                             "runtime_outputs": []
                         },
-                        log_node("n-item", "item={{index}}:{{item}}"),
-                        log_node("n-done", "done item={{item}}")
+                        log_node("n-item", "item={{n-each.index}}:{{n-each.item}}"),
+                        log_node("n-done", "done item={{n-each.item}}")
                     ],
                     "edges": [
                         edge("n-trigger", "out", "n-each"),
@@ -840,6 +838,8 @@ fn executes_for_each_over_json_list() {
     assert!(report.logs.iter().any(|log| log.message == "item=0:one"));
     assert!(report.logs.iter().any(|log| log.message == "item=1:two"));
     assert!(report.logs.iter().any(|log| log.message == "done item=two"));
+    assert_eq!(report.variables.get("n-each.item"), Some(&json!("two")));
+    assert_eq!(report.variables.get("n-each.index"), Some(&json!(1)));
 }
 
 #[test]
@@ -995,6 +995,83 @@ fn executes_external_action_handler_and_exposes_output_reference() {
             .logs
             .iter()
             .any(|log| log.message == "external=hello")
+    );
+}
+
+#[test]
+fn resolves_bracket_paths_and_nested_external_action_inputs() {
+    #[derive(Debug)]
+    struct NestedInputActionHandler;
+
+    impl RuntimeActionHandler for NestedInputActionHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            assert_eq!(request.config.get("input"), Some(&json!("Ada")));
+            assert_eq!(
+                request.config.get("operations"),
+                Some(&json!([
+                    {
+                        "operation": "replace",
+                        "search": "Ada",
+                        "replacement": "admin"
+                    }
+                ]))
+            );
+            Ok(RuntimeActionResult {
+                output_data: Map::from_iter([("text".to_owned(), json!("admin"))]),
+            })
+        }
+    }
+
+    let report = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node(
+                            "n-records",
+                            "records",
+                            "set",
+                            "list",
+                            r#"[{"name":"Ada","meta":{"role-name":"admin"}}]"#
+                        ),
+                        {
+                            "id": "n-format",
+                            "action_type": "action.text.format",
+                            "type": "action",
+                            "action": "format_text",
+                            "config": {
+                                "input": "{{records[0].name}}",
+                                "operations": [{
+                                    "operation": "replace",
+                                    "search": "{{records[0].name}}",
+                                    "replacement": "{{records[0].meta[\"role-name\"]}}"
+                                }]
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-records"),
+                        edge("n-records", "out", "n-format")
+                    ]
+                }
+            }
+        }),
+        "script-nested-inputs",
+        &NestedInputActionHandler,
+    )
+    .expect("all nested action inputs should resolve");
+
+    assert!(
+        report.logs.iter().any(|log| {
+            log.message == r#"Applied 1 text transform operation. Result: "admin"."#
+        })
     );
 }
 

@@ -17,10 +17,14 @@ const MENU_RELOAD_RUNNER: &str = "reload-runner";
 const MENU_QUIT: &str = "quit";
 const QUIT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn configure_desktop_lifecycle(app: &mut App, launched_from_autostart: bool) -> Result<()> {
+pub fn configure_desktop_lifecycle(
+    app: &mut App,
+    launched_from_autostart: bool,
+    force_initial_window_visible: bool,
+) -> Result<()> {
     configure_close_to_tray(app);
     configure_tray(app)?;
-    configure_initial_window_visibility(app, launched_from_autostart);
+    configure_initial_window_visibility(app, launched_from_autostart, force_initial_window_visible);
     Ok(())
 }
 
@@ -54,9 +58,14 @@ fn configure_close_to_tray(app: &App) {
     });
 }
 
-fn configure_initial_window_visibility(app: &App, launched_from_autostart: bool) {
+fn configure_initial_window_visibility(
+    app: &App,
+    launched_from_autostart: bool,
+    force_visible: bool,
+) {
     let state = app.state::<super::DesktopUiState>();
-    let start_hidden = launched_from_autostart
+    let start_hidden = !force_visible
+        && launched_from_autostart
         && state
             .runner_config
             .lock()

@@ -6,6 +6,7 @@ use crate::{RuntimeCancellationToken, RuntimeStateStore};
 use serde_json::Value;
 use std::{io::Write, sync::Arc};
 
+mod action_diagnostics;
 mod action_dispatch;
 mod api;
 mod branching;
@@ -86,7 +87,10 @@ impl<'a> RuntimeExecutor<'a> {
         let trigger_node_id = self.context.identity.trigger_node_id.clone();
         self.push_runtime_log(
             "info",
-            format!("Trigger {} started.", trigger_node_id),
+            format!(
+                "Started trigger {trigger_node_id:?} for script {:?}.",
+                self.context.identity.script_id
+            ),
             Some(trigger_node_id.clone()),
         );
         self.seed_trigger_payload_outputs(&trigger_node_id)?;
@@ -102,7 +106,11 @@ impl<'a> RuntimeExecutor<'a> {
             self.process_frame(frame, &mut frames)?;
         }
 
-        self.push_runtime_log("info", "Run completed.", None);
+        self.push_runtime_log(
+            "info",
+            format!("Run {:?} completed.", self.context.identity.run_id),
+            None,
+        );
         Ok(RunReport {
             identity: self.context.identity.clone(),
             logs: self.logs.clone(),

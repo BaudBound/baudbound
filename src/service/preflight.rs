@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use baudbound_core::{RunnerCore, TriggerRegistration};
-use baudbound_storage::SqliteRunnerStore;
+use baudbound_storage::{ScriptStore, SqliteRunnerStore};
 use baudbound_triggers::SerialInputService;
 
 use super::options::ServeOptions;
@@ -25,10 +25,11 @@ pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerSt
     let scripts = core
         .list_installed(store)
         .context("failed to load installed scripts while checking required secrets")?;
-    let mut blockers = Vec::new();
+    let mut missing_blockers = Vec::new();
+    let mut locked_blockers = Vec::new();
 
     for script in scripts.into_iter().filter(|script| script.enabled) {
-        let mut missing = core
+        let required = core
             .list_installed_secrets(store, &script.id)
             .with_context(|| {
                 format!(
@@ -37,30 +38,91 @@ pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerSt
                 )
             })?
             .into_iter()
-            .filter(|secret| secret.required && !secret.configured)
-            .map(|secret| secret.name)
+            .filter(|secret| secret.required)
+            .collect::<Vec<_>>();
+        let mut missing = required
+            .iter()
+            .filter(|secret| !secret.configured)
+            .map(|secret| secret.name.clone())
+            .collect::<Vec<_>>();
+        let mut locked = required
+            .iter()
+            .filter(|secret| secret.configured)
+            .filter_map(|secret| match store.read_secret(&script.id, &secret.name) {
+                Ok(Some(_)) => None,
+                Ok(None) => {
+                    missing.push(secret.name.clone());
+                    None
+                }
+                Err(_) => Some(secret.name.clone()),
+            })
             .collect::<Vec<_>>();
         missing.sort();
+        locked.sort();
 
         if !missing.is_empty() {
-            blockers.push(format!(
+            missing_blockers.push(format!(
                 "{:?} ({}): {}",
                 script.name,
                 script.id,
                 missing.join(", ")
             ));
         }
+        if !locked.is_empty() {
+            locked_blockers.push(format!(
+                "{:?} ({}): {}",
+                script.name,
+                script.id,
+                locked.join(", ")
+            ));
+        }
     }
 
-    blockers.sort();
-    if !blockers.is_empty() {
-        bail!(
-            "background runner cannot run because required secret values are missing for enabled scripts. {}. Configure the listed secrets or disable the affected scripts",
-            blockers.join(". ")
-        );
+    missing_blockers.sort();
+    locked_blockers.sort();
+    let mut problems = Vec::new();
+    if !missing_blockers.is_empty() {
+        problems.push(format!(
+            "required secret values are missing for enabled scripts: {}. Configure the listed secrets or disable the affected scripts",
+            missing_blockers.join(". ")
+        ));
+    }
+    if !locked_blockers.is_empty() {
+        problems.push(format!(
+            "required secret values cannot be read for enabled scripts because encrypted secret storage is locked or unavailable: {}. Unlock secret storage or disable the affected scripts",
+            locked_blockers.join(". ")
+        ));
+    }
+    if !problems.is_empty() {
+        bail!("background runner cannot run. {}", problems.join(". "));
     }
 
     Ok(())
+}
+
+pub(crate) fn enabled_scripts_require_secret_access(
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
+) -> Result<bool> {
+    let scripts = core
+        .list_installed(store)
+        .context("failed to load installed scripts while checking required secret access")?;
+    for script in scripts.into_iter().filter(|script| script.enabled) {
+        if core
+            .list_installed_secrets(store, &script.id)
+            .with_context(|| {
+                format!(
+                    "failed to check required secret access for enabled script {:?} ({})",
+                    script.name, script.id
+                )
+            })?
+            .into_iter()
+            .any(|secret| secret.required && secret.configured)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn print_serve_preflight(

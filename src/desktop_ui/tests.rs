@@ -79,6 +79,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         websocket_registry,
         operation_lock: Arc::new(Mutex::new(())),
         trigger_monitor: crate::trigger_monitor::TriggerMonitor::default(),
+        deferred_background_start: std::sync::atomic::AtomicBool::new(false),
     };
     let app = test::mock_builder()
         .plugin(

@@ -26,7 +26,7 @@ pub(super) async fn unlock_secret_storage(
     let operation_lock = state.operation_lock.clone();
     let controller = state.secret_vault.clone();
     let store = state.store.clone();
-    let message = tauri::async_runtime::spawn_blocking(move || {
+    let mut message = tauri::async_runtime::spawn_blocking(move || {
         let mut password = password;
         let result = (|| {
             let _operation = operation_lock
@@ -41,6 +41,22 @@ pub(super) async fn unlock_secret_storage(
     .await
     .map_err(|error| format!("secret storage unlock worker failed: {error}"))?
     .map_err(|error| error.to_string())?;
+    match super::desktop_config::start_deferred_background_runner(&state) {
+        Ok(Some(started)) => {
+            message.push(' ');
+            message.push_str(&started);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "failed to start the background runner after unlocking secret storage"
+            );
+            message.push_str(
+                " The configured background runner could not start. Check the Service page for details.",
+            );
+        }
+    }
     let dashboard = build_dashboard_payload(&state).map_err(|error| error.to_string())?;
     Ok(ActionPayload { dashboard, message })
 }

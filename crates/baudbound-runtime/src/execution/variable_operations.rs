@@ -1,8 +1,8 @@
 use crate::RuntimeVariableScope;
 use crate::runtime::{
     coerce_variable_value, config_string, empty_value_for_type, number_from_value, number_value,
-    required_config_string, resolve_template_value, set_object_field, validate_variable_name,
-    value_kind,
+    required_config_string, resolve_config_value, resolve_template_value, set_object_field,
+    validate_variable_name, value_kind,
 };
 use serde_json::{Map, Value};
 
@@ -38,8 +38,13 @@ impl RuntimeExecutor<'_> {
             }
         };
 
-        if let Some(scope) = scope {
-            self.execute_stored_variable_operation(node, scope, &name, &operation, &value_type)?;
+        let scope_label = match scope {
+            Some(RuntimeVariableScope::Persistent) => "persistent",
+            Some(RuntimeVariableScope::Global) => "global",
+            None => "runtime",
+        };
+        let next = if let Some(scope) = scope {
+            self.execute_stored_variable_operation(node, scope, &name, &operation, &value_type)?
         } else {
             let current = self.context.variables.get(&name).cloned();
             let value = self.calculate_variable_operation_value(
@@ -49,12 +54,13 @@ impl RuntimeExecutor<'_> {
                 &value_type,
                 current,
             )?;
-            self.set_variable(name.clone(), value, RunVariableScope::Runtime)?;
-        }
+            self.set_variable(name.clone(), value.clone(), RunVariableScope::Runtime)?;
+            value
+        };
 
         self.push_runtime_log(
-            "debug",
-            format!("Variable operation {operation} completed."),
+            "info",
+            self.variable_operation_message(node, &name, &operation, scope_label, &next),
             Some(node.id.clone()),
         );
         Ok(())
@@ -67,7 +73,7 @@ impl RuntimeExecutor<'_> {
         name: &str,
         operation: &str,
         value_type: &str,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Value, RuntimeError> {
         const MAX_COMPARE_AND_SET_ATTEMPTS: usize = 32;
         let store = self.state_store.ok_or_else(|| {
             RuntimeError::State(
@@ -104,8 +110,8 @@ impl RuntimeExecutor<'_> {
                 )
                 .map_err(RuntimeError::State)?
             {
-                self.set_variable(name.to_owned(), next, run_scope)?;
-                return Ok(());
+                self.set_variable(name.to_owned(), next.clone(), run_scope)?;
+                return Ok(next);
             }
         }
 
@@ -124,7 +130,11 @@ impl RuntimeExecutor<'_> {
     ) -> Result<Value, RuntimeError> {
         match operation {
             "set" => {
-                let raw_value = self.resolve_variable_input(node.config.get("value"));
+                let raw_value = if matches!(value_type, "list" | "object") {
+                    self.resolve_json_compatible_input(node.config.get("value"))?
+                } else {
+                    self.resolve_variable_input(node.config.get("value"))
+                };
                 coerce_variable_value(node, raw_value, value_type)
             }
             "increment" => {
@@ -193,14 +203,21 @@ impl RuntimeExecutor<'_> {
     }
 
     fn resolve_variable_input(&self, value: Option<&Value>) -> Value {
-        match value.cloned().unwrap_or(Value::Null) {
-            Value::String(template) => resolve_template_value(&template, &self.context.variables),
-            value => value,
-        }
+        resolve_config_value(value.unwrap_or(&Value::Null), &self.context.variables)
     }
 
     fn resolve_json_compatible_input(&self, value: Option<&Value>) -> Result<Value, RuntimeError> {
-        let resolved = self.resolve_variable_input(value);
+        let raw = value.cloned().unwrap_or(Value::Null);
+        if let Value::String(text) = &raw
+            && let Ok(json_value) = serde_json::from_str::<Value>(text.trim())
+        {
+            return Ok(resolve_config_value(&json_value, &self.context.variables));
+        }
+
+        let resolved = match raw {
+            Value::String(template) => resolve_template_value(&template, &self.context.variables),
+            value => resolve_config_value(&value, &self.context.variables),
+        };
         match resolved {
             Value::String(text) => match serde_json::from_str(text.trim()) {
                 Ok(value) => Ok(value),
@@ -209,4 +226,51 @@ impl RuntimeExecutor<'_> {
             value => Ok(value),
         }
     }
+
+    fn variable_operation_message(
+        &self,
+        node: &RuntimeNode,
+        name: &str,
+        operation: &str,
+        scope: &str,
+        next: &Value,
+    ) -> String {
+        let next = diagnostic_value(next);
+        match operation {
+            "increment" => {
+                let amount = self.resolve_variable_input(node.config.get("value"));
+                format!(
+                    "Incremented {scope} variable {name:?} by {}. New value: {next}.",
+                    diagnostic_value(&amount)
+                )
+            }
+            "append_list" => {
+                let item = self
+                    .resolve_json_compatible_input(node.config.get("value"))
+                    .unwrap_or(Value::Null);
+                format!(
+                    "Appended {} to {scope} list variable {name:?}. New value: {next}.",
+                    diagnostic_value(&item)
+                )
+            }
+            "set_object_field" => {
+                let path = config_string(&node.config, "fieldPath").unwrap_or_default();
+                let value = self
+                    .resolve_json_compatible_input(node.config.get("value"))
+                    .unwrap_or(Value::Null);
+                format!(
+                    "Set field {path:?} on {scope} object variable {name:?} to {}. New value: {next}.",
+                    diagnostic_value(&value)
+                )
+            }
+            "clear" => {
+                format!("Cleared {scope} variable {name:?}. New value: {next}.")
+            }
+            _ => format!("Set {scope} variable {name:?} to {next}."),
+        }
+    }
+}
+
+fn diagnostic_value(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
 }
