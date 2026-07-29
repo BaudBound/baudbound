@@ -141,7 +141,7 @@ export function RunVariablePanel({
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="select-text">
               {visibleRows.map((row) => (
                 <VariableTableRow
                   expanded={expandedNames.has(row.name)}

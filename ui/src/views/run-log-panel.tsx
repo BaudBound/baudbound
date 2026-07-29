@@ -141,7 +141,7 @@ export function RunLogPanel({
                 </SortableTableHeader>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="select-text">
               {visibleLogs.map((log, index) => (
                 <tr
                   className="border-b border-border align-top last:border-b-0"

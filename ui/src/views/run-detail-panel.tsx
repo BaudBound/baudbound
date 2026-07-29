@@ -43,7 +43,7 @@ export function RunDetailPanel({
           <CardHeader>
             <CardTitle>Run</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="select-text">
             <Details
               rows={[
                 ["Run ID", run.run_id],
