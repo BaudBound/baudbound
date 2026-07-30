@@ -54,7 +54,17 @@ fn limited_paths_reject_symbolic_link_workspace_escapes() {
     )
     .expect_err("workspace symlink escape must fail");
 
-    assert!(error.to_string().contains("escapes the script workspace"));
+    assert!(
+        matches!(
+            &error,
+            baudbound_runtime::RuntimeActionError::Failed {
+                action_type,
+                message,
+            } if action_type == "action.file.write"
+                && message.contains("failed to create parent directory")
+        ),
+        "unexpected symlink rejection: {error}"
+    );
     assert!(!outside.join("result.txt").exists());
 }
 
