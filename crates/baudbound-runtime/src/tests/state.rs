@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 use crate::{
     RunIdentity, RunVariableScope, RuntimeCancellationToken, RuntimeDefaultVariable,
     RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
-    VersionedRuntimeVariable, execute_manual_program_with_state,
+    RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
+    UnsupportedActionHandler, VersionedRuntimeVariable, execute_manual_program_with_state,
 };
 
 #[derive(Default)]
@@ -93,6 +93,20 @@ impl RuntimeStateStore for TestStateStore {
             }
             _ => Ok(false),
         }
+    }
+
+    fn delete_variable(
+        &self,
+        scope: RuntimeVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<bool, String> {
+        Ok(self
+            .variables
+            .lock()
+            .map_err(|_| "test variable lock poisoned".to_owned())?
+            .remove(&(scope.into(), script_id.to_owned(), name.to_owned()))
+            .is_some())
     }
 
     fn read_secret(&self, script_id: &str, name: &str) -> Result<Option<Value>, String> {
@@ -194,6 +208,37 @@ fn persistent_default_initializes_once_then_retains_changes() {
 
     assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
     assert_eq!(second.variables.get("counter"), Some(&json!(12.0)));
+}
+
+#[test]
+fn deleting_a_persistent_variable_removes_its_stored_value() {
+    let store = TestStateStore::default();
+    execute_manual_program_with_state(
+        &variable_program("persistent", "set", json!("saved"), "stored"),
+        "script-1",
+        state_resources(&store, &[]),
+    )
+    .expect("persistent value should store");
+
+    let mut delete_program = variable_program("persistent", "delete", Value::Null, "deleted");
+    delete_program["entry"]["program"]["steps"][0]["config"]
+        .as_object_mut()
+        .expect("delete config should be an object")
+        .remove("valueType");
+    let deleted = execute_manual_program_with_state(
+        &delete_program,
+        "script-1",
+        state_resources(&store, &[]),
+    )
+    .expect("persistent value should delete");
+
+    assert!(!deleted.variables.contains_key("counter"));
+    assert!(
+        store
+            .load_variable(RuntimeVariableScope::Persistent, "script-1", "counter")
+            .expect("stored value should load")
+            .is_none()
+    );
 }
 
 #[test]
@@ -331,6 +376,68 @@ fn rejects_missing_required_secret_before_execution() {
     assert!(error.to_string().contains("required secret"));
 }
 
+#[test]
+fn exposes_script_settings_through_the_read_only_settings_object() {
+    let store = TestStateStore::default();
+    let settings = RuntimeScriptSettings {
+        values: json!({
+            "enabled": true,
+            "endpoint": "https://example.test/api",
+            "retries": 3
+        }),
+    };
+    let report = execute_manual_program_with_state(
+        &variable_program(
+            "runtime",
+            "set",
+            json!("ok"),
+            "{{settings.endpoint}} retries={{settings.retries}} enabled={{settings.enabled}}",
+        ),
+        "script-1",
+        state_resources(&store, &[]).with_script_settings(&settings),
+    )
+    .expect("Script Settings should resolve during execution");
+
+    assert_eq!(
+        report.variables.get("settings"),
+        Some(&json!({
+            "enabled": true,
+            "endpoint": "https://example.test/api",
+            "retries": 3
+        }))
+    );
+    assert_eq!(
+        report.variable_scopes.get("settings"),
+        Some(&RunVariableScope::Setting)
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|entry| { entry.message == "https://example.test/api retries=3 enabled=true" })
+    );
+}
+
+#[test]
+fn rejects_a_non_object_script_settings_snapshot() {
+    let store = TestStateStore::default();
+    let settings = RuntimeScriptSettings {
+        values: json!(["invalid"]),
+    };
+    let error = execute_manual_program_with_state(
+        &variable_program("runtime", "set", json!("ok"), "done"),
+        "script-1",
+        state_resources(&store, &[]).with_script_settings(&settings),
+    )
+    .expect_err("Script Settings must use an object root");
+
+    assert!(
+        error
+            .to_string()
+            .contains("Script Settings must be provided as an object")
+    );
+}
+
 fn state_resources<'a>(
     store: &'a TestStateStore,
     secrets: &'a [RuntimeSecretDeclaration],
@@ -356,6 +463,7 @@ fn default_variable(
         name: name.to_owned(),
         scope,
         value_type: value_type.to_owned(),
+        item_type: None,
         value,
     }
 }

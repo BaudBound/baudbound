@@ -16,6 +16,7 @@ import { ScriptDetailPanel } from "@/views/script-detail-panel";
 import { ScriptPackageToolbar } from "@/views/script-package-toolbar";
 import { ScriptProblemPanel } from "@/views/script-problem-panel";
 import { ScriptRow } from "@/views/script-row";
+import { ScriptSettingsDialog } from "@/views/script-settings-dialog";
 import { ScriptUpdateCheckDialog } from "@/views/script-update-check-dialog";
 import { RunDetailPanel } from "@/views/run-detail-panel";
 
@@ -62,6 +63,7 @@ export function ScriptsView({
   const [detailScriptId, setDetailScriptId] = useState<string | null>(null);
   const [detailRun, setDetailRun] = useState<StoredRunRecord | null>(null);
   const [approvalScriptId, setApprovalScriptId] = useState<string | null>(null);
+  const [settingsScriptId, setSettingsScriptId] = useState<string | null>(null);
   const [checkUpdatesOpen, setCheckUpdatesOpen] = useState(false);
   const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
     dashboard.runner.scripts,
@@ -72,6 +74,9 @@ export function ScriptsView({
   );
   const detailScript = dashboard.runner.scripts.find(
     (script) => script.installed.id === detailScriptId,
+  ) ?? null;
+  const settingsScript = dashboard.runner.scripts.find(
+    (script) => script.installed.id === settingsScriptId,
   ) ?? null;
 
   return (
@@ -86,6 +91,7 @@ export function ScriptsView({
       />
       <ScriptProblemPanel
         onApproveScript={setApprovalScriptId}
+        scriptSettings={dashboard.script_settings}
         scripts={dashboard.runner.scripts}
       />
       {dashboard.runner.scripts.length === 0 ? (
@@ -129,7 +135,7 @@ export function ScriptsView({
                   </SortableTableHeader>
                   <th className="px-3 py-2">Update</th>
                   <th className="px-3 py-2">
-                    <span className="ml-auto block w-[11.5rem]">Actions</span>
+                    <span className="ml-auto block w-56">Actions</span>
                   </th>
                 </tr>
               </thead>
@@ -143,8 +149,12 @@ export function ScriptsView({
                     key={script.installed.id}
                     onReviewApproval={setApprovalScriptId}
                     onViewDetails={setDetailScriptId}
+                    onViewSettings={setSettingsScriptId}
                     runAction={runAction}
                     script={script}
+                    settingCount={
+                      (dashboard.script_settings[script.installed.id] ?? []).length
+                    }
                     updateState={dashboard.script_updates[script.installed.id]}
                   />
                 ))}
@@ -188,6 +198,10 @@ export function ScriptsView({
               recentRuns={dashboard.recent_runs}
               runAction={runAction}
               script={detailScript}
+              onManageSettings={() => setSettingsScriptId(detailScript.installed.id)}
+              settingCount={
+                (dashboard.script_settings[detailScript.installed.id] ?? []).length
+              }
               updateState={dashboard.script_updates[detailScript.installed.id]}
             />
             <DetailDialog
@@ -212,6 +226,19 @@ export function ScriptsView({
           </>
         ) : null}
       </DetailDialog>
+      {settingsScript ? (
+        <ScriptSettingsDialog
+          busyActions={busyActions}
+          onOpenChange={(open) => {
+            if (!open) setSettingsScriptId(null);
+          }}
+          open
+          runAction={runAction}
+          scriptId={settingsScript.installed.id}
+          scriptName={settingsScript.installed.name}
+          settings={dashboard.script_settings[settingsScript.installed.id] ?? []}
+        />
+      ) : null}
       <ScriptUpdateCheckDialog
         busyActions={busyActions}
         dashboard={dashboard}

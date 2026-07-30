@@ -10,8 +10,8 @@ use baudbound_runtime::{RunIdentity, RuntimeActionHandler, RuntimeActionRequest,
 use serde_json::{Map, Value, json};
 
 use super::{
-    DesktopActionAdapter, DesktopActionHandler, HeadlessActionHandler, SerialDeviceConfig,
-    WebSocketMessageSink,
+    ActionSecurityPolicy, DesktopActionAdapter, DesktopActionHandler, HeadlessActionHandler,
+    SerialDeviceConfig, WebSocketMessageSink,
 };
 
 #[path = "tests/file_actions.rs"]
@@ -197,7 +197,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
     ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
-            output_data: Map::from_iter([("handled".to_owned(), json!("window_focus"))]),
+            output_data: Map::from_iter([("handled".to_owned(), json!("window.focus"))]),
         })
     }
 
@@ -576,7 +576,7 @@ fn desktop_action_handler_routes_input_and_window_actions_to_adapter() {
         ("action.mouse.move", "mouse_move"),
         ("action.pixel.get", "pixel_get"),
         ("action.window.active", "active_window"),
-        ("action.window.focus", "window_focus"),
+        ("action.window.focus", "window.focus"),
     ] {
         let result = execute_with_handler(&handler, action_type, json!({}), Value::Null)
             .expect("desktop action should route to adapter");
@@ -694,7 +694,8 @@ fn sends_http_request_and_parses_json_response() {
         "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nX-Test: ok\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
     );
 
-    let result = execute(
+    let result = execute_with_handler(
+        &private_network_handler(),
         "action.http",
         json!({
             "method": "POST",
@@ -704,6 +705,7 @@ fn sends_http_request_and_parses_json_response() {
             "timeoutSeconds": "5",
             "body": "{\"name\":\"baudbound\"}"
         }),
+        Value::Null,
     )
     .expect("HTTP request should succeed");
 
@@ -743,7 +745,8 @@ fn downloads_file_to_destination() {
     let directory = tempfile::tempdir().expect("tempdir should be created");
     let destination = directory.path().join("downloads").join("file.txt");
 
-    let result = execute(
+    let result = execute_with_handler(
+        &private_network_handler(),
         "action.file.download",
         json!({
             "url": server.url("/file.txt"),
@@ -751,6 +754,7 @@ fn downloads_file_to_destination() {
             "overwrite": "false",
             "timeoutSeconds": 5
         }),
+        Value::Null,
     )
     .expect("download should succeed");
 
@@ -829,13 +833,13 @@ fn rejects_open_application_with_invalid_arguments() {
         "action.application.open",
         json!({
             "application": "example-app",
-            "arguments": "\"unterminated"
+            "arguments": "--old string form"
         }),
     )
-    .expect_err("unterminated arguments should fail");
+    .expect_err("string arguments should fail");
 
     assert!(
-        error.to_string().contains("unterminated quoted string"),
+        error.to_string().contains("arguments must be an array"),
         "{error}"
     );
 }
@@ -957,6 +961,12 @@ fn execute(
     execute_with_trigger_payload(action_type, config, Value::Null)
 }
 
+fn private_network_handler() -> HeadlessActionHandler {
+    HeadlessActionHandler::default().with_security_policy(ActionSecurityPolicy {
+        allow_private_http_requests: true,
+    })
+}
+
 fn execute_with_trigger_payload(
     action_type: &str,
     config: Value,
@@ -1049,15 +1059,15 @@ fn execute_with_handler(
     handler.execute_action(&request, &context)
 }
 
-fn platform_echo_process(message: &str) -> (&'static str, String) {
+fn platform_echo_process(message: &str) -> (&'static str, Vec<String>) {
     #[cfg(windows)]
     {
-        ("cmd", format!("/C echo {message}"))
+        ("cmd", vec!["/C".to_owned(), format!("echo {message}")])
     }
 
     #[cfg(not(windows))]
     {
-        ("printf", message.to_owned())
+        ("printf", vec![message.to_owned()])
     }
 }
 

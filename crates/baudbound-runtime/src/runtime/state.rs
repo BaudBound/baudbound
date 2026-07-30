@@ -17,6 +17,7 @@ pub struct RuntimeDefaultVariable {
     pub name: String,
     pub scope: RuntimeDefaultVariableScope,
     pub value_type: String,
+    pub item_type: Option<String>,
     pub value: Value,
 }
 
@@ -31,6 +32,11 @@ pub struct RuntimeSecretDeclaration {
     pub name: String,
     pub required: bool,
     pub value_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeScriptSettings {
+    pub values: Value,
 }
 
 pub trait RuntimeStateStore: Send + Sync {
@@ -48,6 +54,13 @@ pub trait RuntimeStateStore: Send + Sync {
         name: &str,
         expected_version: Option<u64>,
         value: &Value,
+    ) -> Result<bool, String>;
+
+    fn delete_variable(
+        &self,
+        scope: RuntimeVariableScope,
+        script_id: &str,
+        name: &str,
     ) -> Result<bool, String>;
 
     fn read_secret(&self, script_id: &str, name: &str) -> Result<Option<Value>, String>;

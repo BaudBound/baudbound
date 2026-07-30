@@ -11,7 +11,7 @@ mod capabilities;
 fn validates_matching_permissions() {
     let report = validate_program_permissions(
         &program_with_steps(&["runtime.set_variable", "action.log", "action.file.read"]),
-        &["file_read", "log", "set_local_variable"].map(str::to_owned),
+        &["file.read", "log", "variable.local.set"].map(str::to_owned),
         RiskLevel::Medium,
         &RunnerPolicy::default(),
     )
@@ -31,20 +31,20 @@ fn rejects_missing_permission() {
     )
     .expect_err("missing permission should fail");
 
-    assert!(error.to_string().contains("file_read"));
+    assert!(error.to_string().contains("file.read"));
 }
 
 #[test]
 fn rejects_stale_extra_permission() {
     let error = validate_program_permissions(
         &program_with_steps(&["action.log"]),
-        &["log".to_owned(), "file_read".to_owned()],
+        &["log".to_owned(), "file.read".to_owned()],
         RiskLevel::Low,
         &RunnerPolicy::default(),
     )
     .expect_err("unused permission should fail");
 
-    assert!(error.to_string().contains("file_read"));
+    assert!(error.to_string().contains("file.read"));
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn rejects_duplicate_permission() {
 fn rejects_risk_mismatch() {
     let error = validate_program_permissions(
         &program_with_steps(&["action.file.read"]),
-        &["file_read".to_owned()],
+        &["file.read".to_owned()],
         RiskLevel::Low,
         &RunnerPolicy::default(),
     )
@@ -77,7 +77,7 @@ fn rejects_risk_mismatch() {
 fn policy_blocks_dangerous_permissions() {
     let error = validate_program_permissions(
         &program_with_steps(&["action.shell"]),
-        &["run_shell_command".to_owned()],
+        &["process.shell".to_owned()],
         RiskLevel::Dangerous,
         &RunnerPolicy::default(),
     )
@@ -93,7 +93,7 @@ fn derives_scope_and_secret_permissions_from_configuration() {
     program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("global");
     let report = validate_program_permissions_with_secrets(
         &program,
-        &["read_secret".to_owned(), "set_global_variable".to_owned()],
+        &["secret.read".to_owned(), "variable.global.set".to_owned()],
         RiskLevel::High,
         &RunnerPolicy::permissive(),
         true,
@@ -106,7 +106,7 @@ fn derives_scope_and_secret_permissions_from_configuration() {
             .iter()
             .map(|permission| permission.name.as_str())
             .collect::<Vec<_>>(),
-        ["read_secret", "set_global_variable"]
+        ["secret.read", "variable.global.set"]
     );
 }
 
@@ -137,7 +137,7 @@ fn derives_permissions_from_manifest_default_variables() {
             .iter()
             .map(|permission| permission.name.as_str())
             .collect::<Vec<_>>(),
-        ["set_local_variable", "set_persistent_variable"]
+        ["variable.local.set", "variable.persistent.set"]
     );
     assert_eq!(report.calculated_risk, RiskLevel::Medium);
 }

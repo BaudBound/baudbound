@@ -10,6 +10,7 @@ mod approval;
 mod execution;
 mod lifecycle;
 mod logs;
+mod settings;
 
 pub fn handle_script_command(
     config: &RunnerConfig,
@@ -32,6 +33,9 @@ pub fn handle_script_command(
         }
         ScriptCommand::Inspect { script, json } => {
             lifecycle::inspect_script(core, store, script, json)?;
+        }
+        ScriptCommand::Settings { command } => {
+            settings::handle_settings_command(core, store, command)?;
         }
         ScriptCommand::Enable { script } => {
             lifecycle::set_script_enabled(core, store, script, true)?;

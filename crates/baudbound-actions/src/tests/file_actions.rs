@@ -2,7 +2,10 @@ use std::fs;
 
 use serde_json::json;
 
-use super::{TestHttpServer, execute, execute_with_handler, execute_with_package_path};
+use super::{
+    TestHttpServer, execute, execute_with_handler, execute_with_package_path,
+    private_network_handler,
+};
 use crate::{ActionLimits, HeadlessActionHandler};
 
 #[test]
@@ -272,7 +275,8 @@ fn download_rejects_http_failures_and_respects_overwrite() {
     let failed_server = TestHttpServer::start(
         "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     );
-    let status_error = execute(
+    let status_error = execute_with_handler(
+        &private_network_handler(),
         "action.file.download",
         json!({
             "url": failed_server.url("/missing"),
@@ -280,6 +284,7 @@ fn download_rejects_http_failures_and_respects_overwrite() {
             "overwrite": false,
             "timeoutSeconds": 2
         }),
+        serde_json::Value::Null,
     )
     .expect_err("non-success download status must fail");
     assert!(status_error.to_string().contains("returned 404"));
@@ -307,7 +312,8 @@ fn download_rejects_http_failures_and_respects_overwrite() {
     let success_server = TestHttpServer::start(
         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nnew",
     );
-    execute(
+    execute_with_handler(
+        &private_network_handler(),
         "action.file.download",
         json!({
             "url": success_server.url("/file"),
@@ -315,10 +321,34 @@ fn download_rejects_http_failures_and_respects_overwrite() {
             "overwrite": true,
             "timeoutSeconds": 2
         }),
+        serde_json::Value::Null,
     )
     .expect("download overwrite should succeed");
     success_server.join();
     assert_eq!(fs::read_to_string(&destination).unwrap(), "new");
+}
+
+#[test]
+fn download_blocks_private_destinations_by_default() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let destination = directory.path().join("download.txt");
+
+    let error = execute(
+        "action.file.download",
+        json!({
+            "url": "http://127.0.0.1:1/private",
+            "destinationPath": destination,
+            "timeoutSeconds": 1
+        }),
+    )
+    .expect_err("private downloads must be blocked by default");
+
+    assert!(
+        error
+            .to_string()
+            .contains("allow_private_http_requests is false")
+    );
+    assert!(!destination.exists());
 }
 
 #[test]
@@ -328,7 +358,7 @@ fn oversized_download_preserves_destination_and_removes_temporary_file() {
     fs::write(&destination, "existing").expect("destination should be written");
     let server =
         TestHttpServer::start("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nresponse-too-large");
-    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+    let handler = private_network_handler().with_limits(ActionLimits {
         max_file_download_bytes: 4,
         ..ActionLimits::default()
     });

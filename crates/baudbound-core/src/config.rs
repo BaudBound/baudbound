@@ -399,6 +399,7 @@ max_run_record_bytes = 8388608
 allow_shell_commands = true
 allow_dangerous_permissions = true
 allow_public_network_listeners = true
+allow_private_http_requests = false
 
 [updates]
 automatic_checks = true
@@ -534,6 +535,7 @@ pub struct SecuritySettings {
 #[serde(default)]
 pub struct SecurityPolicySettings {
     pub allow_dangerous_permissions: bool,
+    pub allow_private_http_requests: bool,
     pub allow_public_network_listeners: bool,
     pub allow_shell_commands: bool,
 }
@@ -542,6 +544,7 @@ impl Default for SecurityPolicySettings {
     fn default() -> Self {
         Self {
             allow_dangerous_permissions: true,
+            allow_private_http_requests: false,
             allow_public_network_listeners: true,
             allow_shell_commands: true,
         }

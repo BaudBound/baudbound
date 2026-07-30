@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use crate::{execute_manual_program, runtime::compare_condition_values};
+use crate::{
+    execute_manual_program,
+    runtime::{compare_condition_values, compare_condition_values_with_end},
+};
 
 #[derive(serde::Deserialize)]
 struct ConditionEqualityCase {
@@ -23,12 +26,6 @@ fn condition_equality_follows_the_shared_editor_parity_matrix() {
             compare_condition_values(&case.left, "==", &case.right),
             Ok(case.expected),
             "condition equality case {:?} produced an unexpected result",
-            case.name
-        );
-        assert_eq!(
-            compare_condition_values(&case.left, "!=", &case.right),
-            Ok(!case.expected),
-            "condition inequality case {:?} produced an unexpected result",
             case.name
         );
     }
@@ -83,7 +80,6 @@ fn calculated_whole_number_matches_an_integer_condition_literal() {
 fn supports_every_exported_condition_operator() {
     let cases = [
         (json!("42"), "==", json!(42), true),
-        (json!("42"), "!=", json!(41), true),
         (json!(10), ">", json!(9), true),
         (json!(10), ">=", json!(10), true),
         (json!(9), "<", json!(10), true),
@@ -101,12 +97,6 @@ fn supports_every_exported_condition_operator() {
             json!("BOUN"),
             true,
         ),
-        (
-            json!("BaudBound"),
-            "does_not_contain",
-            json!("Runner"),
-            true,
-        ),
         (json!("BaudBound"), "starts_with", json!("Baud"), true),
         (json!("BaudBound"), "ends_with", json!("Bound"), true),
         (
@@ -116,7 +106,6 @@ fn supports_every_exported_condition_operator() {
             true,
         ),
         (json!([]), "is_empty", Value::Null, true),
-        (Value::Null, "is_null", Value::Null, true),
         (json!(true), "is_true", Value::Null, true),
         (json!(false), "is_false", Value::Null, true),
         (json!("true"), "is_true", Value::Null, false),
@@ -124,17 +113,12 @@ fn supports_every_exported_condition_operator() {
         (Value::Null, "is_false", Value::Null, false),
         (json!("42.5"), "is_numeric", Value::Null, true),
         (json!("42px"), "is_numeric", Value::Null, false),
-        (json!("text"), "is_text", Value::Null, true),
+        (json!("text"), "is_string", Value::Null, true),
         (json!(true), "is_boolean", Value::Null, true),
         (json!([1, 2]), "is_list", Value::Null, true),
         (json!({"name": "BaudBound"}), "is_object", Value::Null, true),
-        (json!("value"), "is_not_empty", Value::Null, true),
-        (json!([]), "is_not_empty", Value::Null, false),
         (json!({"name": "BaudBound"}), "has_key", json!("name"), true),
         (json!([1, 2]), "contains_item", json!("2"), true),
-        (json!("åäö"), "length_equals", json!(3), true),
-        (json!([1, 2, 3]), "length_greater_than", json!(2), true),
-        (json!({"first": 1}), "length_less_than", json!(2), true),
     ];
 
     for (left, operator, right, expected) in cases {
@@ -147,6 +131,36 @@ fn supports_every_exported_condition_operator() {
 }
 
 #[test]
+fn inclusive_between_condition_validates_values_and_bounds() {
+    assert_eq!(
+        compare_condition_values_with_end(&json!(1), "is_between", &json!(1), Some(&json!(10))),
+        Ok(true)
+    );
+    assert_eq!(
+        compare_condition_values_with_end(&json!(10), "is_between", &json!(1), Some(&json!(10))),
+        Ok(true)
+    );
+    assert_eq!(
+        compare_condition_values_with_end(&json!(11), "is_between", &json!(1), Some(&json!(10))),
+        Ok(false)
+    );
+
+    let numeric_error = compare_condition_values_with_end(
+        &json!("not-a-number"),
+        "is_between",
+        &json!(1),
+        Some(&json!(10)),
+    )
+    .expect_err("invalid range input must fail");
+    assert!(numeric_error.contains("numeric input, start, and end"));
+
+    let order_error =
+        compare_condition_values_with_end(&json!(5), "is_between", &json!(10), Some(&json!(1)))
+            .expect_err("reversed range bounds must fail");
+    assert!(order_error.contains("start must be less than or equal to end"));
+}
+
+#[test]
 fn rejects_invalid_numeric_and_regex_conditions() {
     let numeric_error = compare_condition_values(&json!("not-a-number"), ">", &json!(1))
         .expect_err("invalid numeric comparison must fail");
@@ -155,19 +169,11 @@ fn rejects_invalid_numeric_and_regex_conditions() {
     let regex_error = compare_condition_values(&json!("value"), "regex_match", &json!("["))
         .expect_err("invalid regular expression must fail");
     assert!(regex_error.contains("invalid regex pattern"));
-
-    let length_error = compare_condition_values(&json!(42), "length_equals", &json!(2))
-        .expect_err("scalar length comparison must fail");
-    assert!(length_error.contains("string, list, or object"));
-
-    let target_error = compare_condition_values(&json!("value"), "length_equals", &json!(1.5))
-        .expect_err("fractional length target must fail");
-    assert!(target_error.contains("non-negative integer"));
 }
 
 #[test]
-fn presence_checks_distinguish_missing_values_from_existing_null_values() {
-    let defined_report = execute_manual_program(
+fn null_or_missing_condition_matches_null_and_missing_values() {
+    let null_report = execute_manual_program(
         &program(
             vec![
                 variable_node(
@@ -185,15 +191,15 @@ fn presence_checks_distinguish_missing_values_from_existing_null_values() {
                         "conditions": [{
                             "id": "condition-1",
                             "left": "{{payload.available}}",
-                            "operator": "is_defined",
+                            "operator": "is_null_or_missing",
                             "right": "",
                             "invert": false
                         }]
                     },
                     "runtime_outputs": []
                 }),
-                log_node("n-true", "existing null is defined"),
-                log_node("n-false", "existing null is missing"),
+                log_node("n-true", "existing null matched"),
+                log_node("n-false", "existing null did not match"),
             ],
             vec![
                 edge("n-trigger", "out", "n-payload"),
@@ -202,12 +208,12 @@ fn presence_checks_distinguish_missing_values_from_existing_null_values() {
                 edge("n-if", "false", "n-false"),
             ],
         ),
-        "defined-null-condition",
+        "null-condition",
     )
-    .expect("defined presence check should execute");
+    .expect("null or missing check should execute for null");
 
-    assert!(has_log(&defined_report.logs, "existing null is defined"));
-    assert!(!has_log(&defined_report.logs, "existing null is missing"));
+    assert!(has_log(&null_report.logs, "existing null matched"));
+    assert!(!has_log(&null_report.logs, "existing null did not match"));
 
     let missing_report = execute_manual_program(
         &program(
@@ -220,7 +226,7 @@ fn presence_checks_distinguish_missing_values_from_existing_null_values() {
                         "conditions": [{
                             "id": "condition-1",
                             "left": "{{payload.missing}}",
-                            "operator": "is_missing",
+                            "operator": "is_null_or_missing",
                             "right": "",
                             "invert": false
                         }]
@@ -238,13 +244,52 @@ fn presence_checks_distinguish_missing_values_from_existing_null_values() {
         ),
         "missing-condition",
     )
-    .expect("missing presence check should execute");
+    .expect("null or missing check should execute for a missing value");
 
     assert!(has_log(&missing_report.logs, "missing value detected"));
     assert!(!has_log(
         &missing_report.logs,
         "missing value was treated as defined"
     ));
+
+    let defined_report = execute_manual_program(
+        &program(
+            vec![
+                variable_node("n-payload", "payload", "set", "string", json!("available")),
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{payload}}",
+                            "operator": "is_null_or_missing",
+                            "right": "",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "defined value incorrectly matched"),
+                log_node("n-false", "defined value did not match"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-payload"),
+                edge("n-payload", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "defined-condition",
+    )
+    .expect("null or missing check should execute for a defined value");
+
+    assert!(!has_log(
+        &defined_report.logs,
+        "defined value incorrectly matched"
+    ));
+    assert!(has_log(&defined_report.logs, "defined value did not match"));
 }
 
 #[test]

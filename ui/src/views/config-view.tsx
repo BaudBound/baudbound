@@ -426,7 +426,7 @@ function SimpleConfigEditor({
         <CardHeader>
           <CardTitle>Runner security policy</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <BooleanField
             checked={config.security.policy.allow_shell_commands}
             description="Allow approved scripts to start shell commands."
@@ -464,6 +464,22 @@ function SimpleConfigEditor({
                   policy: {
                     ...config.security.policy,
                     allow_public_network_listeners,
+                  },
+                },
+              })
+            }
+          />
+          <BooleanField
+            checked={config.security.policy.allow_private_http_requests}
+            description="Allow approved scripts to call localhost, LAN, and other private network HTTP destinations."
+            label="Allow private HTTP requests"
+            onChange={(allow_private_http_requests) =>
+              onChange({
+                ...config,
+                security: {
+                  policy: {
+                    ...config.security.policy,
+                    allow_private_http_requests,
                   },
                 },
               })

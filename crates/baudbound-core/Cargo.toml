@@ -14,6 +14,7 @@ baudbound-runtime = { path = "../baudbound-runtime", version = "2.0.0" }
 baudbound-script = { path = "../baudbound-script", version = "2.0.0" }
 baudbound-security = { path = "../baudbound-security", version = "2.0.0" }
 baudbound-storage = { path = "../baudbound-storage", version = "2.0.0" }
+chrono.workspace = true
 baudbound-triggers = { path = "../baudbound-triggers", version = "2.0.0" }
 serde.workspace = true
 serde_json.workspace = true

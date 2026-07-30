@@ -44,7 +44,7 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
     triggerSortSelectors,
   );
   const serialRows = rows.filter(
-    (row): row is TriggerRow & SerialTriggerRegistration => row.runner_type === "serial_input",
+    (row): row is TriggerRow & SerialTriggerRegistration => row.runner_type === "serial.input",
   );
 
   return (

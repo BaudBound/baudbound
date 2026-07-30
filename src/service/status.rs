@@ -109,7 +109,7 @@ fn serve_status_services(
             serde_json::json!({}),
         ),
         serve_status_service(
-            "serial_input",
+            "serial.input",
             options.serial_enabled,
             services.serial_input_service.len(),
             format!("{} configured device(s)", options.serial_devices.len()),

@@ -164,7 +164,7 @@ function Fact({
 
 function serialReaderStatuses(dashboard: DashboardPayload) {
   const readers =
-    dashboard.service_status?.services.find((service) => service.name === "serial_input")?.details
+    dashboard.service_status?.services.find((service) => service.name === "serial.input")?.details
       ?.readers ?? [];
   return readers.filter(isCompleteSerialReaderStatus);
 }

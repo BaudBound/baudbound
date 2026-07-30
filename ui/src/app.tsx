@@ -48,23 +48,67 @@ import {
 } from "@/lib/time-format";
 import { useAppUpdater } from "@/hooks/use-app-updater";
 import { useTriggerMonitor } from "@/hooks/use-trigger-monitor";
-import { AboutView } from "@/views/about-view";
-import { BrowseScriptsView } from "@/views/browse-scripts-view";
 import { DashboardView } from "@/views/dashboard-view";
-import { DiagnosticsView } from "@/views/diagnostics-view";
-import { LogsView } from "@/views/logs-view";
-import { RunsView } from "@/views/runs-view";
-import { SecurityView } from "@/views/security-view";
 import { OneTimeTriggerTokensDialog } from "@/views/security/one-time-trigger-tokens-dialog";
-import { ScriptsView } from "@/views/scripts-view";
-import { ServiceView } from "@/views/service-view";
-import { ToolsView } from "@/views/tools-view";
-import { TriggerMonitorView } from "@/views/trigger-monitor-view";
-import { VariablesView } from "@/views/variables-view";
 
+const AboutView = lazy(() =>
+  import("@/views/about-view").then((module) => ({
+    default: module.AboutView,
+  })),
+);
+const BrowseScriptsView = lazy(() =>
+  import("@/views/browse-scripts-view").then((module) => ({
+    default: module.BrowseScriptsView,
+  })),
+);
 const ConfigView = lazy(() =>
   import("@/views/config-view").then((module) => ({
     default: module.ConfigView,
+  })),
+);
+const DiagnosticsView = lazy(() =>
+  import("@/views/diagnostics-view").then((module) => ({
+    default: module.DiagnosticsView,
+  })),
+);
+const LogsView = lazy(() =>
+  import("@/views/logs-view").then((module) => ({
+    default: module.LogsView,
+  })),
+);
+const RunsView = lazy(() =>
+  import("@/views/runs-view").then((module) => ({
+    default: module.RunsView,
+  })),
+);
+const SecurityView = lazy(() =>
+  import("@/views/security-view").then((module) => ({
+    default: module.SecurityView,
+  })),
+);
+const ScriptsView = lazy(() =>
+  import("@/views/scripts-view").then((module) => ({
+    default: module.ScriptsView,
+  })),
+);
+const ServiceView = lazy(() =>
+  import("@/views/service-view").then((module) => ({
+    default: module.ServiceView,
+  })),
+);
+const ToolsView = lazy(() =>
+  import("@/views/tools-view").then((module) => ({
+    default: module.ToolsView,
+  })),
+);
+const TriggerMonitorView = lazy(() =>
+  import("@/views/trigger-monitor-view").then((module) => ({
+    default: module.TriggerMonitorView,
+  })),
+);
+const VariablesView = lazy(() =>
+  import("@/views/variables-view").then((module) => ({
+    default: module.VariablesView,
   })),
 );
 const activeRunEventChannel = "runner-active-run";
@@ -622,14 +666,15 @@ export function App() {
           ) : null}
 
           <section className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-5 max-md:p-3">
-            {!dashboard ? (
-              <DashboardLoadState
-                error={dashboardLoadError}
-                onRetry={() => void refresh()}
-              />
-            ) : activeTab === "dashboard" ? (
-              <DashboardView dashboard={dashboard} />
-            ) : activeTab === "browse" ? (
+            <Suspense fallback={<EmptyState>Loading view...</EmptyState>}>
+              {!dashboard ? (
+                <DashboardLoadState
+                  error={dashboardLoadError}
+                  onRetry={() => void refresh()}
+                />
+              ) : activeTab === "dashboard" ? (
+                <DashboardView dashboard={dashboard} />
+              ) : activeTab === "browse" ? (
               <BrowseScriptsView
                 busyActions={busyActions}
                 dashboard={dashboard}
@@ -687,21 +732,18 @@ export function App() {
                 dashboard={dashboard}
                 runAction={runAction}
               />
-            ) : activeTab === "config" ? (
-              <Suspense
-                fallback={<EmptyState>Loading configuration...</EmptyState>}
-              >
+              ) : activeTab === "config" ? (
                 <ConfigView
                   busyActions={busyActions}
                   dashboard={dashboard}
                   runAction={runAction}
                 />
-              </Suspense>
-            ) : activeTab === "about" ? (
-              <AboutView updater={updater} />
-            ) : (
-              <DiagnosticsView dashboard={dashboard} />
-            )}
+              ) : activeTab === "about" ? (
+                <AboutView updater={updater} />
+              ) : (
+                <DiagnosticsView dashboard={dashboard} />
+              )}
+            </Suspense>
           </section>
         </main>
         <AppUpdateDialog updater={updater} />

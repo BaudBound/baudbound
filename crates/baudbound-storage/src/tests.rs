@@ -289,7 +289,7 @@ fn update_replaces_package_and_invalidates_approval() {
     let imported = import_test_script(&store, &temporary_directory);
     store
         .approve_script(ApproveScriptRequest {
-            approved_permissions: vec!["file_write_limited".to_owned()],
+            approved_permissions: vec!["file.write.limited".to_owned()],
             network_triggers: Vec::new(),
             package_hash: imported.package_hash,
             script_id: imported.id,
@@ -541,7 +541,7 @@ fn stores_finds_and_revokes_approval() {
     );
     let approval = store
         .approve_script(ApproveScriptRequest {
-            approved_permissions: vec!["http_request".to_owned()],
+            approved_permissions: vec!["http.request".to_owned()],
             network_triggers: Vec::new(),
             package_hash: imported.package_hash.clone(),
             script_id: imported.id,
@@ -553,7 +553,7 @@ fn stores_finds_and_revokes_approval() {
             .expect("approval should request trigger reload")
     );
 
-    assert_eq!(approval.approval.approved_permissions, ["http_request"]);
+    assert_eq!(approval.approval.approved_permissions, ["http.request"]);
     assert_eq!(
         store
             .find_script_approval("Script One")
@@ -813,6 +813,87 @@ fn secret_changes_request_an_immediate_trigger_reload() {
             .consume_trigger_reload_request()
             .expect("secret reset reload request should be consumed")
     );
+}
+
+#[test]
+fn script_settings_round_trip_and_request_trigger_reloads() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("import reload request should be consumed")
+    );
+
+    let configured = store
+        .set_script_setting(
+            "script-1",
+            "Endpoint",
+            &serde_json::json!("https://example.com"),
+        )
+        .expect("setting should store");
+    assert_eq!(configured.name, "Endpoint");
+    assert_eq!(configured.value, serde_json::json!("https://example.com"));
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("setting reload request should be consumed")
+    );
+    assert_eq!(
+        store
+            .list_script_settings("script-1")
+            .expect("settings should list"),
+        vec![configured]
+    );
+
+    let replacement = store
+        .set_script_setting(
+            "script-1",
+            "Endpoint",
+            &serde_json::json!("https://example.org"),
+        )
+        .expect("setting should update");
+    assert_eq!(replacement.value, serde_json::json!("https://example.org"));
+    assert!(
+        store
+            .remove_script_setting("script-1", "Endpoint")
+            .expect("setting should be removed")
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("setting removal reload request should be consumed")
+    );
+    assert!(
+        store
+            .list_script_settings("script-1")
+            .expect("settings should list")
+            .is_empty()
+    );
+}
+
+#[test]
+fn removing_a_script_removes_its_stored_settings() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    store
+        .set_script_setting("script-1", "Mode", &serde_json::json!("fast"))
+        .expect("setting should store");
+
+    store
+        .remove_script("script-1")
+        .expect("script should be removed");
+
+    let connection =
+        rusqlite::Connection::open(store.path()).expect("database should be inspectable");
+    let count = connection
+        .query_row("SELECT COUNT(*) FROM script_settings", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .expect("setting count should load");
+    assert_eq!(count, 0);
 }
 
 #[test]
@@ -1085,12 +1166,32 @@ fn publishes_successful_durable_variable_changes() {
             .expect("stale write should be rejected")
     );
 
+    {
+        let observed_changes = changes.lock().expect("observer lock should work");
+        assert_eq!(observed_changes.len(), 1);
+        assert_eq!(observed_changes[0].name, "counter");
+        assert_eq!(observed_changes[0].script_id.as_deref(), Some("script-1"));
+        assert_eq!(observed_changes[0].value, serde_json::json!(1));
+        assert_eq!(observed_changes[0].version, 1);
+        assert!(!observed_changes[0].deleted);
+    }
+
+    assert!(
+        store
+            .delete_variable(StoredVariableScope::Persistent, "script-1", "counter")
+            .expect("variable should delete")
+    );
+    assert!(
+        store
+            .load_variable(StoredVariableScope::Persistent, "script-1", "counter")
+            .expect("deleted variable should load")
+            .is_none()
+    );
     let changes = changes.lock().expect("observer lock should work");
-    assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].name, "counter");
-    assert_eq!(changes[0].script_id.as_deref(), Some("script-1"));
-    assert_eq!(changes[0].value, serde_json::json!(1));
-    assert_eq!(changes[0].version, 1);
+    assert_eq!(changes.len(), 2);
+    assert!(changes[1].deleted);
+    assert_eq!(changes[1].name, "counter");
+    assert_eq!(changes[1].script_id.as_deref(), Some("script-1"));
 }
 
 #[test]

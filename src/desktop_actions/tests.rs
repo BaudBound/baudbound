@@ -188,19 +188,19 @@ fn message_box_is_rejected_without_a_native_cancellable_backend() {
 
 #[test]
 fn builds_pixel_color_metadata() {
-    let output = pixel_color_map(-12, 34, 16, 32, 48, 255);
+    let output = pixel_color_map(-12, 34, 171, 32, 48, 255);
 
     assert_eq!(
         output.get("hex"),
-        Some(&Value::String("#102030".to_owned()))
+        Some(&Value::String("#ab2030".to_owned()))
     );
-    assert_eq!(output.get("red"), Some(&Value::Number(Number::from(16))));
+    assert_eq!(output.get("red"), Some(&Value::Number(Number::from(171))));
     assert_eq!(output.get("green"), Some(&Value::Number(Number::from(32))));
     assert_eq!(output.get("blue"), Some(&Value::Number(Number::from(48))));
     assert_eq!(output.get("alpha"), Some(&Value::Number(Number::from(255))));
     assert_eq!(
         output.get("integer"),
-        Some(&Value::Number(Number::from(0x10_20_30_u32)))
+        Some(&Value::Number(Number::from(0xab_20_30_u32)))
     );
     assert_eq!(output.get("x"), Some(&Value::Number(Number::from(-12))));
     assert_eq!(output.get("y"), Some(&Value::Number(Number::from(34))));

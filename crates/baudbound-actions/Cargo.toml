@@ -11,7 +11,9 @@ rust-version.workspace = true
 [dependencies]
 baudbound-runtime = { path = "../baudbound-runtime", version = "2.0.0" }
 base64.workspace = true
+cap-std.workspace = true
 command-group.workspace = true
+getrandom.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

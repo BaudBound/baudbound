@@ -18,3 +18,8 @@ impl Default for ActionLimits {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActionSecurityPolicy {
+    pub allow_private_http_requests: bool,
+}

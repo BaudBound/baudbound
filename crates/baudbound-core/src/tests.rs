@@ -123,6 +123,7 @@ fn creates_failed_run_record_with_package_identity() {
         entries: Vec::new(),
         manifest: Manifest {
             variables: Vec::new(),
+            settings: Vec::new(),
             format_version: 1,
             script_language_version: 1,
             id: "script-1".to_owned(),
@@ -242,10 +243,7 @@ fn current_script_approval_allows_policy_blocked_permissions() {
     let approval = core
         .approve_installed(&store, "network-trigger")
         .expect("package should approve");
-    assert_eq!(
-        approval.approval.approved_permissions,
-        ["webhook_public_bind"]
-    );
+    assert_eq!(approval.approval.approved_permissions, ["network.webhook"]);
 
     let report = core
         .run_installed(&store, "network-trigger")
@@ -254,7 +252,7 @@ fn current_script_approval_allows_policy_blocked_permissions() {
 }
 
 #[test]
-fn configured_policy_blocks_approved_public_network_triggers() {
+fn public_listener_policy_does_not_block_approved_network_trigger_packages() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let package_path = temporary_directory.path().join("network-trigger.bbs");
     fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
@@ -267,35 +265,22 @@ fn configured_policy_blocks_approved_public_network_triggers() {
         .approve_installed(&store, "network-trigger")
         .expect("package should be approved before policy is restricted");
 
-    let restricted_core = core_with_policy(true, true, false);
-    let error = restricted_core
+    let loopback_only_core = core_with_policy(true, true, false);
+    let registrations = loopback_only_core
         .list_trigger_registrations(&store, None)
-        .expect_err("blocked network trigger must not register");
+        .expect("listener exposure is enforced when a listener starts");
     assert!(
-        error
-            .to_string()
-            .contains("security.policy.allow_public_network_listeners"),
-        "{error}"
+        registrations
+            .iter()
+            .any(|registration| registration.action_type == "trigger.webhook")
     );
-    let error = restricted_core
+    loopback_only_core
         .run_installed(&store, "network-trigger")
-        .expect_err("approved package must remain blocked by runner policy");
-    assert!(
-        error
-            .to_string()
-            .contains("security.policy.allow_public_network_listeners"),
-        "{error}"
-    );
-    let status = restricted_core.status(&store).expect("status should build");
-    assert!(
-        status.scripts[0]
-            .package_error
-            .as_deref()
-            .is_some_and(|message| {
-                message.contains("security.policy.allow_public_network_listeners")
-            }),
-        "{status:?}"
-    );
+        .expect("listener exposure policy must not change package execution approval");
+    let status = loopback_only_core
+        .status(&store)
+        .expect("status should build");
+    assert!(status.scripts[0].package_error.is_none(), "{status:?}");
 }
 
 #[test]
@@ -308,8 +293,8 @@ fn configured_policy_blocks_approved_dangerous_permissions() {
             "dangerous-process",
             "action.process.run",
             "run_process",
-            r#"{"arguments":"","executable":"unused","workingDirectory":""}"#,
-            "run_process",
+            r#"{"arguments":[],"executable":"unused","workingDirectory":""}"#,
+            "process.run",
             "dangerous",
         ),
     )
@@ -346,7 +331,7 @@ fn configured_policy_blocks_approved_shell_commands_independently() {
             "action.shell",
             "run_shell_command",
             r#"{"command":"unused"}"#,
-            "run_shell_command",
+            "process.shell",
             "dangerous",
         ),
     )
@@ -1112,10 +1097,7 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].approval_status,
         ApprovalStatus::Missing
     ));
-    assert_eq!(
-        status.scripts[0].declared_permissions,
-        ["webhook_public_bind"]
-    );
+    assert_eq!(status.scripts[0].declared_permissions, ["network.webhook"]);
     let metadata = status.scripts[0]
         .metadata
         .as_ref()
@@ -1209,6 +1191,7 @@ fn core_with_policy(
     let mut config = RunnerConfig::default();
     config.security.policy = SecurityPolicySettings {
         allow_dangerous_permissions,
+        allow_private_http_requests: false,
         allow_public_network_listeners,
         allow_shell_commands,
     };
@@ -1331,7 +1314,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
         ("program.json", program.as_str()),
         (
             "permissions.json",
-            r#"{"declared_permissions": ["webhook_public_bind"], "risk_level": "high"}"#,
+            r#"{"declared_permissions": ["network.webhook"], "risk_level": "high"}"#,
         ),
         ("capabilities.json", capabilities.as_str()),
     ] {
@@ -1415,7 +1398,7 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
         ("program.json", program.as_str()),
         (
             "permissions.json",
-            r#"{"declared_permissions": ["sub_script_run"], "risk_level": "high"}"#,
+            r#"{"declared_permissions": ["script.run"], "risk_level": "high"}"#,
         ),
         ("capabilities.json", capabilities.as_str()),
     ])
@@ -1560,7 +1543,7 @@ fn create_action_handler_test_package_with_capabilities(
         ("program.json", program),
         (
             "permissions.json",
-            r#"{"declared_permissions": ["text_transform"], "risk_level": "low"}"#,
+            r#"{"declared_permissions": ["text.transform"], "risk_level": "low"}"#,
         ),
         ("capabilities.json", capabilities.as_str()),
     ])

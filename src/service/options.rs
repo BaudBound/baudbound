@@ -26,6 +26,7 @@ pub struct ServeOptions {
     pub max_websocket_message_bytes: usize,
     pub(crate) once: bool,
     pub(crate) process_watch_enabled: bool,
+    pub(crate) allow_public_network_listeners: bool,
     pub(crate) reload_check_interval: Duration,
     pub(crate) run_schedules_immediately: bool,
     pub(crate) schedules_enabled: bool,
@@ -89,6 +90,7 @@ impl ServeOptions {
                 .unwrap_or(config.websockets.max_message_bytes),
             once,
             process_watch_enabled: config.triggers.process_watch_enabled,
+            allow_public_network_listeners: config.security.policy.allow_public_network_listeners,
             reload_check_interval: Duration::from_secs(
                 overrides
                     .reload_interval_seconds

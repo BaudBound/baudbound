@@ -126,6 +126,7 @@ impl SqliteRunnerStore {
         drop(connection);
         if changed {
             self.notify_variable_changed(StoredVariableChange {
+                deleted: false,
                 name: name.to_owned(),
                 scope: match scope {
                     StoredVariableScope::Persistent => "persistent",
@@ -138,6 +139,48 @@ impl SqliteRunnerStore {
                 version: expected_version
                     .and_then(|version| u64::try_from(version).ok())
                     .map_or(1, |version| version.saturating_add(1)),
+            });
+        }
+        Ok(changed)
+    }
+
+    pub(super) fn delete_scoped_variable(
+        &self,
+        scope: StoredVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<bool, StorageError> {
+        let updated_at_unix = unix_timestamp_for_sqlite()?;
+        let connection = self.connection()?;
+        let changed = match scope {
+            StoredVariableScope::Persistent => connection.execute(
+                "DELETE FROM persistent_variables WHERE script_id = ?1 AND name = ?2",
+                params![script_id, name],
+            ),
+            StoredVariableScope::Global => connection.execute(
+                "DELETE FROM global_variables WHERE name = ?1",
+                params![name],
+            ),
+        }
+        .map_err(|source| StorageError::Sqlite {
+            path: self.path.clone(),
+            source,
+        })? == 1;
+
+        drop(connection);
+        if changed {
+            self.notify_variable_changed(StoredVariableChange {
+                deleted: true,
+                name: name.to_owned(),
+                scope: match scope {
+                    StoredVariableScope::Persistent => "persistent",
+                    StoredVariableScope::Global => "global",
+                }
+                .to_owned(),
+                script_id: (scope == StoredVariableScope::Persistent).then(|| script_id.to_owned()),
+                updated_at_unix: u64::try_from(updated_at_unix).unwrap_or_default(),
+                value: serde_json::Value::Null,
+                version: 0,
             });
         }
         Ok(changed)

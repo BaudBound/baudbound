@@ -14,7 +14,15 @@ const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
     "boolean",
     "object",
     "list",
-    "http_response",
+    "datetime",
+    "duration",
+    "file_path",
+];
+const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
+    "string",
+    "number",
+    "boolean",
+    "object",
     "datetime",
     "duration",
     "file_path",
@@ -22,7 +30,7 @@ const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
 
 pub(super) fn validate_default_variables(
     default_variables: &[RuntimeDefaultVariable],
-    declared_variables: &BTreeMap<String, (String, String)>,
+    declared_variables: &BTreeMap<String, (String, Option<String>)>,
     secret_names: &[String],
 ) -> Result<(), RuntimeError> {
     let mut names = BTreeSet::new();
@@ -45,7 +53,11 @@ pub(super) fn validate_default_variables(
                 RuntimeDefaultVariableScope::Runtime => "runtime",
                 RuntimeDefaultVariableScope::Persistent => "persistent",
             };
-            if node_scope != default_scope || node_type != &variable.value_type {
+            if node_scope != default_scope
+                || node_type
+                    .as_ref()
+                    .is_some_and(|node_type| node_type != &variable.value_type)
+            {
                 return Err(RuntimeError::InvalidGraph(format!(
                     "default variable {:?} does not match Variable Operation scope and type",
                     variable.name
@@ -109,7 +121,33 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
             variable.name, variable.value_type
         )));
     }
-    if !value_matches_type(&variable.value_type, &variable.value) {
+    if variable.value_type == "list" {
+        match variable.item_type.as_deref() {
+            Some(item_type) if SUPPORTED_LIST_ITEM_TYPES.contains(&item_type) => {}
+            Some(item_type) => {
+                return Err(RuntimeError::InvalidGraph(format!(
+                    "default variable {:?} uses unsupported list item type {item_type:?}",
+                    variable.name
+                )));
+            }
+            None => {
+                return Err(RuntimeError::InvalidGraph(format!(
+                    "default variable {:?} must declare a list item type",
+                    variable.name
+                )));
+            }
+        }
+    } else if variable.item_type.is_some() {
+        return Err(RuntimeError::InvalidGraph(format!(
+            "default variable {:?} declares an item type but is not a list",
+            variable.name
+        )));
+    }
+    if !value_matches_type(
+        &variable.value_type,
+        variable.item_type.as_deref(),
+        &variable.value,
+    ) {
         return Err(RuntimeError::InvalidGraph(format!(
             "default variable {:?} value does not match type {}",
             variable.name, variable.value_type
@@ -118,28 +156,39 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
     Ok(())
 }
 
-fn value_matches_type(value_type: &str, value: &Value) -> bool {
+fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
         "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
-        "list" => value.is_array(),
-        "object" => value.is_object(),
-        "http_response" => value.as_object().is_some_and(|object| {
-            object.get("type").and_then(Value::as_str) == Some("http_response")
-                && object.get("status").is_some_and(Value::is_number)
-                && object.get("headers").is_some_and(Value::is_object)
-                && object.contains_key("body")
+        "list" => value.as_array().is_some_and(|items| {
+            item_type.is_some_and(|item_type| {
+                items
+                    .iter()
+                    .all(|item| value_matches_type(item_type, None, item))
+            })
         }),
+        "object" => value.is_object(),
         "datetime" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(Value::as_str) == Some("datetime")
                 && object.get("value").is_some_and(Value::is_string)
         }),
         "duration" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(Value::as_str) == Some("duration")
-                && object.get("unit").is_some_and(Value::is_string)
-                && object.get("value").is_some_and(Value::is_number)
+                && object
+                    .get("unit")
+                    .and_then(Value::as_str)
+                    .is_some_and(|unit| {
+                        matches!(
+                            unit,
+                            "milliseconds" | "seconds" | "minutes" | "hours" | "days"
+                        )
+                    })
+                && object
+                    .get("value")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| value.is_finite() && value >= 0.0)
         }),
         _ => false,
     }

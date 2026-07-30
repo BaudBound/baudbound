@@ -733,17 +733,36 @@ fn wait_for_service_status(
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {
     let deadline = Instant::now() + timeout;
+    let mut last_status = None;
     loop {
-        if let Some(status) = read_service_status(runner_home)
-            && predicate(&status)
-        {
-            return status;
+        if let Some(status) = read_service_status(runner_home) {
+            if predicate(&status) {
+                return status;
+            }
+            last_status = Some(status);
         }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for service status in {}",
-            runner_home.join("runner.sqlite3").display()
-        );
+        if Instant::now() >= deadline {
+            let status = last_status
+                .as_ref()
+                .map(|status| {
+                    serde_json::to_string_pretty(status)
+                        .unwrap_or_else(|error| format!("<failed to serialize status: {error}>"))
+                })
+                .unwrap_or_else(|| "<no service status row was observed>".to_owned());
+            let home_entries = fs::read_dir(runner_home)
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_else(|error| format!("<failed to read runner home: {error}>"));
+            panic!(
+                "timed out after {timeout:?} waiting for service status\nrunner database: {}\nrunner home entries: {home_entries}\nlast observed status:\n{status}",
+                runner_home.join("runner.sqlite3").display()
+            );
+        }
         thread::sleep(Duration::from_millis(50));
     }
 }
@@ -969,7 +988,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
         ("program.json", program.as_str()),
         (
             "permissions.json",
-            r#"{"declared_permissions": ["log", "webhook_public_bind"], "risk_level": "high"}"#,
+            r#"{"declared_permissions": ["log", "network.webhook"], "risk_level": "high"}"#,
         ),
         (
             "capabilities.json",
@@ -1024,7 +1043,7 @@ fn create_schedule_package_with_secrets(secrets: &str) -> Vec<u8> {
         }}"#
     );
     let permissions = if has_secrets {
-        r#"{"declared_permissions": ["log", "read_secret"], "risk_level": "high"}"#
+        r#"{"declared_permissions": ["log", "secret.read"], "risk_level": "high"}"#
     } else {
         r#"{"declared_permissions": ["log"], "risk_level": "low"}"#
     };

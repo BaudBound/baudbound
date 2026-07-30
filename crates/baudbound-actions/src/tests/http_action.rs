@@ -7,8 +7,8 @@ use std::{
 
 use serde_json::{Value, json};
 
-use super::{execute, execute_with_handler};
-use crate::{ActionLimits, HeadlessActionHandler};
+use super::execute_with_handler;
+use crate::{ActionLimits, ActionSecurityPolicy, HeadlessActionHandler};
 
 #[test]
 fn supports_every_editor_http_method_and_body_policy() {
@@ -19,16 +19,13 @@ fn supports_every_editor_http_method_and_body_policy() {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec()
         };
         let server = LoopbackHttpServer::start(response, Duration::ZERO);
-        let result = execute(
-            "action.http",
-            json!({
-                "method": method,
-                "url": server.url("/method"),
-                "headers": {"X-Test": "method"},
-                "timeoutSeconds": 2,
-                "body": "request-body"
-            }),
-        )
+        let result = execute_http(json!({
+            "method": method,
+            "url": server.url("/method"),
+            "headers": {"X-Test": "method"},
+            "timeoutSeconds": 2,
+            "body": "request-body"
+        }))
         .unwrap_or_else(|error| panic!("{method} request should succeed: {error}"));
         let request = server.join();
 
@@ -57,14 +54,11 @@ fn preserves_large_response_bodies_without_losing_output_metadata() {
     .into_bytes();
     let server = LoopbackHttpServer::start(response, Duration::ZERO);
 
-    let result = execute(
-        "action.http",
-        json!({
-            "method": "GET",
-            "url": server.url("/large"),
-            "timeoutSeconds": 5
-        }),
-    )
+    let result = execute_http(json!({
+        "method": "GET",
+        "url": server.url("/large"),
+        "timeoutSeconds": 5
+    }))
     .expect("large response should succeed");
     server.join();
 
@@ -87,7 +81,7 @@ fn rejects_response_bodies_that_exceed_the_configured_limit() {
         b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ntoo-large".to_vec(),
         Duration::ZERO,
     );
-    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+    let handler = loopback_http_handler().with_limits(ActionLimits {
         max_http_response_bytes: 4,
         ..ActionLimits::default()
     });
@@ -115,14 +109,11 @@ fn enforces_request_timeout() {
         Duration::from_millis(150),
     );
 
-    let error = execute(
-        "action.http",
-        json!({
-            "method": "GET",
-            "url": server.url("/slow"),
-            "timeoutSeconds": 0.02
-        }),
-    )
+    let error = execute_http(json!({
+        "method": "GET",
+        "url": server.url("/slow"),
+        "timeoutSeconds": 0.02
+    }))
     .expect_err("slow response must time out");
     server.join();
 
@@ -143,21 +134,18 @@ fn rejects_invalid_http_configuration_and_connection_failures() {
     ];
 
     for config in invalid_configs {
-        let error = execute("action.http", config).expect_err("invalid HTTP config must fail");
+        let error = execute_http(config).expect_err("invalid HTTP config must fail");
         assert!(!error.to_string().trim().is_empty());
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("test port should bind");
     let address = listener.local_addr().expect("test address should resolve");
     drop(listener);
-    let error = execute(
-        "action.http",
-        json!({
-            "method": "GET",
-            "url": format!("http://{address}/closed?token=private-value"),
-            "timeoutSeconds": 1
-        }),
-    )
+    let error = execute_http(json!({
+        "method": "GET",
+        "url": format!("http://{address}/closed?token=private-value"),
+        "timeoutSeconds": 1
+    }))
     .expect_err("connection failure must be surfaced");
     assert!(error.to_string().contains("HTTP request GET"));
     assert!(!error.to_string().contains("private-value"));
@@ -166,16 +154,13 @@ fn rejects_invalid_http_configuration_and_connection_failures() {
 
 #[test]
 fn refuses_to_send_malformed_json_request_bodies() {
-    let error = execute(
-        "action.http",
-        json!({
-            "method": "POST",
-            "url": "http://127.0.0.1:1/not-reached",
-            "headers": {"Content-Type": "application/json"},
-            "timeoutSeconds": 1,
-            "body": "{\"data\":\"scanner\r\"}"
-        }),
-    )
+    let error = execute_http(json!({
+        "method": "POST",
+        "url": "http://127.0.0.1:1/not-reached",
+        "headers": {"Content-Type": "application/json"},
+        "timeoutSeconds": 1,
+        "body": "{\"data\":\"scanner\r\"}"
+    }))
     .expect_err("raw control characters must not be sent as JSON");
 
     assert!(
@@ -183,6 +168,39 @@ fn refuses_to_send_malformed_json_request_bodies() {
             .to_string()
             .contains("HTTP request body is not valid JSON")
     );
+}
+
+#[test]
+fn blocks_private_http_destinations_by_default() {
+    let error = execute_with_handler(
+        &HeadlessActionHandler::default(),
+        "action.http",
+        json!({
+            "method": "GET",
+            "url": "http://127.0.0.1:9/blocked",
+            "timeoutSeconds": 2
+        }),
+        Value::Null,
+    )
+    .expect_err("loopback HTTP should be blocked by the default policy");
+
+    assert!(
+        error
+            .to_string()
+            .contains("allow_private_http_requests is false")
+    );
+}
+
+fn execute_http(
+    config: Value,
+) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+    execute_with_handler(&loopback_http_handler(), "action.http", config, Value::Null)
+}
+
+fn loopback_http_handler() -> HeadlessActionHandler {
+    HeadlessActionHandler::default().with_security_policy(ActionSecurityPolicy {
+        allow_private_http_requests: true,
+    })
 }
 
 struct LoopbackHttpServer {

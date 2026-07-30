@@ -318,6 +318,11 @@ pub enum ScriptCommand {
         #[arg(long)]
         json: bool,
     },
+    /// View or configure declared Script Settings.
+    Settings {
+        #[command(subcommand)]
+        command: ScriptSettingsCommand,
+    },
     /// Enable an installed script for long-lived trigger services.
     Enable {
         /// Installed script id or name.
@@ -391,6 +396,39 @@ pub enum ScriptCommand {
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ScriptSettingsCommand {
+    /// List declared settings, configured overrides, defaults, and effective values.
+    List {
+        /// Installed script id or name.
+        script: String,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set one configured override. Objects and lists use JSON.
+    Set {
+        /// Installed script id or name.
+        script: String,
+        /// Declared setting name.
+        name: String,
+        /// Value parsed according to the declared setting type.
+        value: String,
+    },
+    /// Remove one configured override and return to the package default.
+    Unset {
+        /// Installed script id or name.
+        script: String,
+        /// Declared setting name.
+        name: String,
+    },
+    /// Remove every configured override for one script.
+    Reset {
+        /// Installed script id or name.
+        script: String,
     },
 }
 

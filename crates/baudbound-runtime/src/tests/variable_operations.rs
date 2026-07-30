@@ -6,7 +6,7 @@ use crate::execute_manual_program;
 fn set_coerces_exported_json_container_strings() {
     let report = execute(
         vec![
-            variable_node("n-list", "items", "set", "list", json!(r#"["one",2]"#)),
+            variable_node("n-list", "items", "set", "list", json!(r#"["one","two"]"#)),
             variable_node(
                 "n-object",
                 "payload",
@@ -19,7 +19,7 @@ fn set_coerces_exported_json_container_strings() {
     )
     .expect("JSON container values should be parsed");
 
-    assert_eq!(report.variables.get("items"), Some(&json!(["one", 2])));
+    assert_eq!(report.variables.get("items"), Some(&json!(["one", "two"])));
     assert_eq!(
         report.variables.get("payload"),
         Some(&json!({"status": "ok"}))
@@ -49,6 +49,13 @@ fn set_and_increment_resolve_variable_references() {
 
 #[test]
 fn resolves_references_recursively_inside_json_values() {
+    let append = variable_node(
+        "n-list",
+        "items",
+        "append_list",
+        "list",
+        json!(r#"{"value":"{{source}}"}"#),
+    );
     let report = execute(
         vec![
             variable_node(
@@ -65,13 +72,7 @@ fn resolves_references_recursively_inside_json_values() {
                 "object",
                 json!(r#"{"nested":{"value":"{{source}}"}}"#),
             ),
-            variable_node(
-                "n-list",
-                "items",
-                "append_list",
-                "list",
-                json!(r#"{"value":"{{source}}"}"#),
-            ),
+            append,
         ],
         linear_edges(&["n-source", "n-object", "n-list"]),
     )
@@ -117,22 +118,116 @@ fn logs_variable_names_scopes_inputs_and_resulting_values() {
 
 #[test]
 fn append_list_preserves_json_compatible_items() {
+    let append = variable_node(
+        "n-append",
+        "items",
+        "append_list",
+        "list",
+        json!(r#"{"id":7}"#),
+    );
     let report = execute(
         vec![
             variable_node("n-list", "items", "set", "list", json!("[]")),
-            variable_node(
-                "n-append",
-                "items",
-                "append_list",
-                "list",
-                json!(r#"{"id":7}"#),
-            ),
+            append,
         ],
         linear_edges(&["n-list", "n-append"]),
     )
     .expect("JSON object should append as an object rather than a string");
 
     assert_eq!(report.variables.get("items"), Some(&json!([{"id": 7}])));
+}
+
+#[test]
+fn supports_toggle_remove_merge_and_delete_operations() {
+    let mut remove_first = variable_node(
+        "n-remove-first",
+        "items",
+        "remove_list_items",
+        "list",
+        json!(2),
+    );
+    remove_first["config"]["removeMode"] = json!("first");
+
+    let mut remove_all = variable_node(
+        "n-remove-all",
+        "items",
+        "remove_list_items",
+        "list",
+        json!(2),
+    );
+    remove_all["config"]["removeMode"] = json!("all");
+
+    let mut list = variable_node("n-list", "items", "set", "list", json!("[1,2,2,3]"));
+    list["config"]["itemType"] = json!("number");
+
+    let mut remove_field = variable_node(
+        "n-remove-field",
+        "payload",
+        "remove_object_field",
+        "object",
+        Value::Null,
+    );
+    remove_field["config"]["fieldPath"] = json!("user.private.token");
+
+    let merge = variable_node(
+        "n-merge",
+        "payload",
+        "merge_object",
+        "object",
+        json!(r#"{"status":"ready","count":2}"#),
+    );
+
+    let report = execute(
+        vec![
+            variable_node(
+                "n-toggle",
+                "enabled",
+                "toggle_boolean",
+                "boolean",
+                Value::Null,
+            ),
+            list,
+            remove_first,
+            remove_all,
+            variable_node(
+                "n-object",
+                "payload",
+                "set",
+                "object",
+                json!(r#"{"user":{"name":"Ada","private":{"token":"secret"}},"count":1}"#),
+            ),
+            remove_field,
+            merge,
+            variable_node("n-delete", "enabled", "delete", "boolean", Value::Null),
+        ],
+        linear_edges(&[
+            "n-toggle",
+            "n-list",
+            "n-remove-first",
+            "n-remove-all",
+            "n-object",
+            "n-remove-field",
+            "n-merge",
+            "n-delete",
+        ]),
+    )
+    .expect("new variable operations should execute");
+
+    assert!(
+        !report.variables.contains_key("enabled"),
+        "delete did not remove enabled; logs: {:#?}",
+        report.logs
+    );
+    assert!(!report.variables.contains_key("enabled.$type"));
+    assert_eq!(report.variables.get("items"), Some(&json!([1, 3])));
+    assert_eq!(
+        report.variables.get("payload"),
+        Some(&json!({
+            "user": {"name": "Ada", "private": {}},
+            "count": 2,
+            "status": "ready"
+        }))
+    );
 }
 
 #[test]
@@ -145,6 +240,7 @@ fn set_object_field_supports_dot_fields_and_numeric_indexes() {
         json!(r#"{"name":"Ada"}"#),
     );
     field_node["config"]["fieldPath"] = json!("users[0].profile");
+    field_node["config"]["fieldValueType"] = json!("object");
 
     let report = execute(vec![field_node], linear_edges(&["n-field"]))
         .expect("valid nested object path should execute");
@@ -158,46 +254,53 @@ fn set_object_field_supports_dot_fields_and_numeric_indexes() {
 #[test]
 fn clear_uses_the_editor_default_for_every_variable_type() {
     let types = [
-        ("string", json!("")),
-        ("number", json!(0)),
-        ("boolean", json!(false)),
-        ("list", json!([])),
-        ("object", json!({})),
+        ("string", json!("value"), json!("")),
+        ("number", json!(42), json!(0)),
+        ("boolean", json!(true), json!(false)),
+        ("list", json!(["value"]), json!([])),
+        ("object", json!({"value": true}), json!({})),
         (
             "duration",
+            json!({"type": "duration", "unit": "minutes", "value": 5}),
             json!({"type": "duration", "unit": "seconds", "value": 0}),
         ),
         (
             "datetime",
+            json!({"type": "datetime", "value": "2026-07-29T00:00:00.000Z"}),
             json!({"type": "datetime", "value": "1970-01-01T00:00:00.000Z"}),
         ),
-        (
-            "http_response",
-            json!({"type": "http_response", "status": 0, "headers": {}, "body": ""}),
-        ),
-        ("file_path", json!("")),
+        ("file_path", json!("input.txt"), json!("")),
     ];
     let steps = types
         .iter()
         .enumerate()
-        .map(|(index, (value_type, _))| {
-            variable_node(
-                &format!("n-clear-{index}"),
-                &format!("value_{index}"),
-                "clear",
-                value_type,
-                Value::Null,
-            )
+        .flat_map(|(index, (value_type, initial, _))| {
+            [
+                variable_node(
+                    &format!("n-set-{index}"),
+                    &format!("value_{index}"),
+                    "set",
+                    value_type,
+                    initial.clone(),
+                ),
+                variable_node(
+                    &format!("n-clear-{index}"),
+                    &format!("value_{index}"),
+                    "clear",
+                    value_type,
+                    Value::Null,
+                ),
+            ]
         })
         .collect::<Vec<_>>();
     let ids = (0..types.len())
-        .map(|index| format!("n-clear-{index}"))
+        .flat_map(|index| [format!("n-set-{index}"), format!("n-clear-{index}")])
         .collect::<Vec<_>>();
     let id_refs = ids.iter().map(String::as_str).collect::<Vec<_>>();
 
     let report = execute(steps, linear_edges(&id_refs)).expect("clear operations should execute");
 
-    for (index, (_, expected)) in types.iter().enumerate() {
+    for (index, (_, _, expected)) in types.iter().enumerate() {
         assert_eq!(
             report.variables.get(&format!("value_{index}")),
             Some(expected),
@@ -205,6 +308,52 @@ fn clear_uses_the_editor_default_for_every_variable_type() {
             types[index].0
         );
     }
+}
+
+#[test]
+fn clear_requires_an_existing_variable_and_append_infers_item_type() {
+    let clear_report = execute(
+        vec![variable_node(
+            "n-clear",
+            "missing",
+            "clear",
+            "string",
+            Value::Null,
+        )],
+        linear_edges(&["n-clear"]),
+    )
+    .expect("missing clear target should follow the failed path");
+    assert!(
+        clear_report
+            .logs
+            .iter()
+            .any(|log| log.level == "error" && log.message.contains("requires existing variable"))
+    );
+
+    let report = execute(
+        vec![
+            variable_node("n-first", "items", "append_list", "list", json!(1)),
+            variable_node("n-second", "items", "append_list", "list", json!(2)),
+        ],
+        linear_edges(&["n-first", "n-second"]),
+    )
+    .expect("append should infer a homogeneous number list");
+    assert_eq!(report.variables.get("items"), Some(&json!([1, 2])));
+
+    let mismatch = execute(
+        vec![
+            variable_node("n-first", "items", "append_list", "list", json!(1)),
+            variable_node("n-second", "items", "append_list", "list", json!("two")),
+        ],
+        linear_edges(&["n-first", "n-second"]),
+    )
+    .expect("item type mismatch should follow the failed path");
+    assert!(
+        mismatch
+            .logs
+            .iter()
+            .any(|log| { log.level == "error" && log.message.contains("requires number items") })
+    );
 }
 
 #[test]
@@ -292,6 +441,30 @@ fn all_derived_metadata_names_are_read_only() {
     }
 }
 
+#[test]
+fn script_settings_namespace_is_read_only() {
+    for name in ["settings", "settings.endpoint"] {
+        let error = execute(
+            vec![variable_node(
+                "n-write",
+                name,
+                "set",
+                "string",
+                json!("changed"),
+            )],
+            linear_edges(&["n-write"]),
+        )
+        .expect_err("Script Settings must not be writable");
+        let message = error.to_string();
+        assert!(
+            message.contains("read-only Script Settings")
+                || message.contains("Script Settings are read-only")
+                || message.contains("invalid variable name"),
+            "unexpected error for {name:?}: {message}"
+        );
+    }
+}
+
 fn execute(steps: Vec<Value>, edges: Vec<Value>) -> Result<crate::RunReport, crate::RuntimeError> {
     execute_manual_program(
         &json!({
@@ -328,7 +501,7 @@ fn linear_edges(node_ids: &[&str]) -> Vec<Value> {
 }
 
 fn variable_node(id: &str, name: &str, operation: &str, value_type: &str, value: Value) -> Value {
-    json!({
+    let mut node = json!({
         "id": id,
         "action_type": "runtime.set_variable",
         "type": "set_variable",
@@ -336,11 +509,23 @@ fn variable_node(id: &str, name: &str, operation: &str, value_type: &str, value:
             "name": name,
             "operation": operation,
             "scope": "runtime",
-            "valueType": value_type,
             "value": value
         },
         "runtime_outputs": []
-    })
+    });
+    if operation == "set" {
+        node["config"]["valueType"] = json!(value_type);
+    }
+    if operation == "set" && value_type == "list" {
+        node["config"]["itemType"] = json!("string");
+    }
+    if operation == "set_object_field" {
+        node["config"]["fieldValueType"] = json!("string");
+    }
+    if operation == "remove_list_items" {
+        node["config"]["removeMode"] = json!("all");
+    }
+    node
 }
 
 fn assert_metadata(

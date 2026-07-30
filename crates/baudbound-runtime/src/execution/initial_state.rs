@@ -7,8 +7,8 @@ use crate::runtime::{
     required_config_string, validate_variable_name,
 };
 use crate::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeSecretDeclaration,
-    RuntimeStateStore, RuntimeVariableScope,
+    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
 };
 
 use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
@@ -26,12 +26,13 @@ pub(super) fn load_initial_state(
     script_id: &str,
     state_store: Option<&dyn RuntimeStateStore>,
     default_variables: &[RuntimeDefaultVariable],
+    script_settings: Option<&RuntimeScriptSettings>,
     secrets: &[RuntimeSecretDeclaration],
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
     let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
-    let mut declared_variables = BTreeMap::<String, (String, String)>::new();
+    let mut declared_variables = BTreeMap::<String, (String, Option<String>)>::new();
 
     for node in graph
         .nodes()
@@ -40,7 +41,23 @@ pub(super) fn load_initial_state(
         let name = required_config_string(node, "name")?;
         validate_variable_name(node, &name)?;
         let scope_name = required_config_string(node, "scope")?;
-        let value_type = required_config_string(node, "valueType")?;
+        let operation = required_config_string(node, "operation")?;
+        let value_type = match operation.as_str() {
+            "set" => Some(required_config_string(node, "valueType")?),
+            "increment" => Some("number".to_owned()),
+            "toggle_boolean" => Some("boolean".to_owned()),
+            "append_list" | "remove_list_items" => Some("list".to_owned()),
+            "set_object_field" | "remove_object_field" | "merge_object" => {
+                Some("object".to_owned())
+            }
+            "clear" | "delete" => None,
+            invalid => {
+                return Err(RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: format!("unsupported variable operation {invalid}"),
+                });
+            }
+        };
         let scope = match scope_name.as_str() {
             "runtime" => None,
             "persistent" => Some(RuntimeVariableScope::Persistent),
@@ -52,13 +69,22 @@ pub(super) fn load_initial_state(
                 });
             }
         };
-        if let Some((existing_scope, existing_type)) =
-            declared_variables.insert(name.clone(), (scope_name.clone(), value_type.clone()))
-            && (existing_scope != scope_name || existing_type != value_type)
-        {
-            return Err(RuntimeError::InvalidGraph(format!(
-                "variable {name:?} is declared with conflicting scope or type"
-            )));
+        if let Some((existing_scope, existing_type)) = declared_variables.get_mut(&name) {
+            if *existing_scope != scope_name
+                || existing_type
+                    .as_ref()
+                    .zip(value_type.as_ref())
+                    .is_some_and(|(existing, incoming)| existing != incoming)
+            {
+                return Err(RuntimeError::InvalidGraph(format!(
+                    "variable {name:?} is declared with conflicting scope or type"
+                )));
+            }
+            if existing_type.is_none() {
+                *existing_type = value_type;
+            }
+        } else {
+            declared_variables.insert(name.clone(), (scope_name.clone(), value_type));
         }
         if let Some(scope) = scope {
             declarations.insert(name.clone(), scope);
@@ -84,6 +110,16 @@ pub(super) fn load_initial_state(
     }
 
     validate_default_variables(default_variables, &declared_variables, &secret_names)?;
+    if declared_variables.contains_key("settings")
+        || default_variables
+            .iter()
+            .any(|variable| variable.name == "settings")
+        || secret_names.iter().any(|name| name == "settings")
+    {
+        return Err(RuntimeError::InvalidGraph(
+            "\"settings\" is reserved for the read-only Script Settings object".to_owned(),
+        ));
+    }
 
     let has_persistent_default = default_variables
         .iter()
@@ -96,6 +132,20 @@ pub(super) fn load_initial_state(
         ));
     }
     let mut secret_values = Vec::new();
+    if let Some(settings) = script_settings {
+        if !settings.values.is_object() {
+            return Err(RuntimeError::State(
+                "Script Settings must be provided as an object".to_owned(),
+            ));
+        }
+        insert_initial_variable(
+            &mut variables,
+            &mut variable_scopes,
+            "settings".to_owned(),
+            settings.values.clone(),
+            RunVariableScope::Setting,
+        );
+    }
     for variable in default_variables
         .iter()
         .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
@@ -194,14 +244,7 @@ fn validate_secret_value(
     declaration: &RuntimeSecretDeclaration,
     value: &Value,
 ) -> Result<(), RuntimeError> {
-    let valid = match declaration.value_type.as_str() {
-        "string" | "file_path" => value.is_string(),
-        "number" => value.is_number(),
-        "boolean" => value.is_boolean(),
-        "list" => value.is_array(),
-        "object" | "http_response" | "datetime" | "duration" => value.is_object(),
-        _ => false,
-    };
+    let valid = declaration.value_type == "string" && value.is_string();
     if valid {
         Ok(())
     } else {

@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+
+use base64::{Engine, engine::general_purpose};
 use serde_json::Value;
 
 use crate::runtime::{DERIVED_VARIABLE_METADATA_SUFFIXES, value_to_string};
@@ -49,15 +52,121 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn redact_text(&self, text: &str) -> String {
-        self.secret_values
-            .iter()
-            .fold(text.to_owned(), |redacted, value| {
-                let sensitive = value_to_string(value);
-                if sensitive.is_empty() {
-                    redacted
-                } else {
-                    redacted.replace(&sensitive, "[REDACTED]")
-                }
-            })
+        redact_secret_text(text, &self.secret_values)
+    }
+}
+
+fn redact_secret_text(text: &str, secret_values: &[Value]) -> String {
+    secret_text_variants(secret_values)
+        .into_iter()
+        .fold(text.to_owned(), |redacted, sensitive| {
+            redacted.replace(&sensitive, "[REDACTED]")
+        })
+}
+
+fn secret_text_variants(secret_values: &[Value]) -> Vec<String> {
+    let mut raw_values = BTreeSet::new();
+    for value in secret_values {
+        collect_secret_text(value, &mut raw_values);
+    }
+
+    let mut variants = BTreeSet::new();
+    for raw in raw_values {
+        if raw.is_empty() {
+            continue;
+        }
+        variants.insert(raw.clone());
+
+        let json = serde_json::to_string(&raw).unwrap_or_default();
+        if let Some(escaped) = json
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            && escaped != raw
+        {
+            variants.insert(escaped.to_owned());
+        }
+
+        if raw.len() >= 8 {
+            variants.insert(url::form_urlencoded::byte_serialize(raw.as_bytes()).collect());
+            variants.insert(percent_encode(raw.as_bytes()));
+            variants.insert(general_purpose::STANDARD.encode(raw.as_bytes()));
+            variants.insert(general_purpose::STANDARD_NO_PAD.encode(raw.as_bytes()));
+            variants.insert(general_purpose::URL_SAFE.encode(raw.as_bytes()));
+            variants.insert(general_purpose::URL_SAFE_NO_PAD.encode(raw.as_bytes()));
+            variants.insert(
+                raw.as_bytes()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            );
+        }
+    }
+
+    let mut variants = variants.into_iter().collect::<Vec<_>>();
+    variants.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    variants
+}
+
+fn percent_encode(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len());
+    for byte in bytes {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(*byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn collect_secret_text(value: &Value, values: &mut BTreeSet<String>) {
+    let rendered = value_to_string(value);
+    if !rendered.is_empty() {
+        values.insert(rendered);
+    }
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_secret_text(item, values);
+            }
+        }
+        Value::Object(entries) => {
+            for item in entries.values() {
+                collect_secret_text(item, values);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_secret_text;
+    use serde_json::json;
+
+    #[test]
+    fn redacts_encoded_and_escaped_secret_representations() {
+        let secret = "api token/with+symbols";
+        let text = [
+            secret.to_owned(),
+            "api%20token%2Fwith%2Bsymbols".to_owned(),
+            "YXBpIHRva2VuL3dpdGgrc3ltYm9scw==".to_owned(),
+            "61706920746f6b656e2f776974682b73796d626f6c73".to_owned(),
+        ]
+        .join(" ");
+
+        let redacted = redact_secret_text(&text, &[json!(secret)]);
+        assert!(!redacted.contains("token"));
+        assert!(!redacted.contains("YXBp"));
+        assert!(!redacted.contains("617069"));
+    }
+
+    #[test]
+    fn redacts_scalar_values_extracted_from_structured_secrets() {
+        let redacted = redact_secret_text(
+            "password=deep-secret-value",
+            &[json!({"credentials": {"password": "deep-secret-value"}})],
+        );
+        assert_eq!(redacted, "password=[REDACTED]");
     }
 }

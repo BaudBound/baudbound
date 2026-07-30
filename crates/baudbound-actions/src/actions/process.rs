@@ -10,7 +10,7 @@ use baudbound_runtime::{
 use serde_json::{Map, Number, Value};
 use sysinfo::{Pid, ProcessesToUpdate, Signal, System};
 
-use crate::{config_string, failed, required_string};
+use crate::{config_string, failed, required_string, value_kind};
 
 mod supervisor;
 
@@ -78,12 +78,11 @@ pub(crate) fn open_application_action(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let application = required_string(request, "application")?;
-    let arguments = config_string(&request.config, "arguments").unwrap_or_default();
-    let parsed_arguments = parse_command_arguments(request, &arguments)?;
+    let arguments = config_string_array(request, "arguments")?;
 
     let mut command = Command::new(&application);
     command
-        .args(&parsed_arguments)
+        .args(&arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -109,7 +108,7 @@ pub(crate) fn open_application_action(
             ),
             (
                 "arguments".to_owned(),
-                Value::Array(parsed_arguments.into_iter().map(Value::String).collect()),
+                Value::Array(arguments.into_iter().map(Value::String).collect()),
             ),
         ]),
     })
@@ -120,12 +119,11 @@ pub(crate) fn run_process_action(
     context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let executable = required_string(request, "executable")?;
-    let arguments = config_string(&request.config, "arguments").unwrap_or_default();
+    let arguments = config_string_array(request, "arguments")?;
     let working_directory = config_string(&request.config, "workingDirectory").unwrap_or_default();
-    let parsed_arguments = parse_command_arguments(request, &arguments)?;
 
     let mut command = Command::new(&executable);
-    command.args(&parsed_arguments);
+    command.args(&arguments);
     if !working_directory.trim().is_empty() {
         command.current_dir(&working_directory);
     }
@@ -340,54 +338,32 @@ fn normalize_path_string(path: &str) -> String {
     }
 }
 
-pub(crate) fn parse_command_arguments(
+fn config_string_array(
     request: &RuntimeActionRequest,
-    input: &str,
+    key: &str,
 ) -> Result<Vec<String>, RuntimeActionError> {
-    let mut arguments = Vec::new();
-    let mut current = String::new();
-    let mut chars = input.chars().peekable();
-    let mut quote = None::<char>;
-
-    while let Some(character) = chars.next() {
-        if character == '\\' {
-            let escaped_character = chars.peek().copied().filter(|next| {
-                *next == '\\' || next.is_whitespace() || matches!(*next, '"' | '\'')
-            });
-            if let Some(escaped_character) = escaped_character {
-                chars.next();
-                current.push(escaped_character);
-            } else {
-                current.push('\\');
-            }
-            continue;
-        }
-
-        match quote {
-            Some(active_quote) if character == active_quote => quote = None,
-            Some(_) => current.push(character),
-            None if matches!(character, '"' | '\'') => quote = Some(character),
-            None if character.is_whitespace() => {
-                if !current.is_empty() {
-                    arguments.push(std::mem::take(&mut current));
-                }
-                while matches!(chars.peek(), Some(next) if next.is_whitespace()) {
-                    chars.next();
-                }
-            }
-            None => current.push(character),
-        }
-    }
-
-    if quote.is_some() {
-        return failed(
+    match request.config.get(key) {
+        Some(Value::Array(values)) => values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| match value {
+                Value::String(value) => Ok(value.clone()),
+                other => failed(
+                    request,
+                    format!(
+                        "{key}[{index}] must be a string, found {}",
+                        value_kind(other)
+                    ),
+                ),
+            })
+            .collect(),
+        Some(Value::Null) | None => Ok(Vec::new()),
+        Some(other) => failed(
             request,
-            "process arguments contain an unterminated quoted string",
-        );
+            format!(
+                "{key} must be an array of strings, found {}",
+                value_kind(other)
+            ),
+        ),
     }
-    if !current.is_empty() {
-        arguments.push(current);
-    }
-
-    Ok(arguments)
 }

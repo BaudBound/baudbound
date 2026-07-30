@@ -34,6 +34,9 @@ impl RuntimeExecutor<'_> {
 
     fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
         self.ensure_not_cancelled()?;
+        if node.action_type == "action.webhook_response" {
+            self.validate_webhook_response_state(node)?;
+        }
         let config = if node.action_type == "action.http" {
             resolve_http_request_config(&node.config, &self.context.variables).map_err(
                 |message| RuntimeError::Action {
@@ -92,9 +95,35 @@ impl RuntimeExecutor<'_> {
                 RunVariableScope::NodeOutput,
             )?;
         }
+        if node.action_type == "action.webhook_response" {
+            self.webhook_response_sent = true;
+        }
 
         if let Some(message) = completion_message {
             self.push_runtime_log("info", message, Some(node.id.clone()));
+        }
+        Ok(())
+    }
+
+    fn validate_webhook_response_state(&self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        let waiting = self
+            .context
+            .trigger_payload
+            .get("response")
+            .and_then(|response| response.get("waiting"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !waiting {
+            return Err(RuntimeError::Action {
+                node_id: node.id.clone(),
+                message: "Webhook Response reached without a waiting webhook request.".to_owned(),
+            });
+        }
+        if self.webhook_response_sent {
+            return Err(RuntimeError::Action {
+                node_id: node.id.clone(),
+                message: "Webhook response was already sent for this request.".to_owned(),
+            });
         }
         Ok(())
     }

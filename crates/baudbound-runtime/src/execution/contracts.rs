@@ -6,7 +6,8 @@ use std::{
 };
 
 use crate::{
-    RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeSecretDeclaration, RuntimeStateStore,
+    RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeScriptSettings,
+    RuntimeSecretDeclaration, RuntimeStateStore,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -92,6 +93,7 @@ pub enum RunVariableScope {
     Persistent,
     Runtime,
     Secret,
+    Setting,
 }
 
 impl RunVariableScope {
@@ -104,6 +106,7 @@ impl RunVariableScope {
             Self::Persistent => "persistent",
             Self::Runtime => "runtime",
             Self::Secret => "secret",
+            Self::Setting => "setting",
         }
     }
 }
@@ -175,6 +178,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) default_variables: &'a [RuntimeDefaultVariable],
     pub(super) observer: Option<Arc<dyn RuntimeRunObserver>>,
     pub(super) output_limits: RuntimeOutputLimits,
+    pub(super) script_settings: Option<&'a RuntimeScriptSettings>,
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
 }
 
@@ -210,6 +214,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             default_variables: &[],
             observer: None,
             output_limits: RuntimeOutputLimits::default(),
+            script_settings: None,
             secrets: &[],
         }
     }
@@ -243,6 +248,12 @@ impl<'a> RuntimeExecutionResources<'a> {
         default_variables: &'a [RuntimeDefaultVariable],
     ) -> Self {
         self.default_variables = default_variables;
+        self
+    }
+
+    #[must_use]
+    pub fn with_script_settings(mut self, settings: &'a RuntimeScriptSettings) -> Self {
+        self.script_settings = Some(settings);
         self
     }
 

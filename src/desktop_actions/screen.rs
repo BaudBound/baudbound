@@ -131,7 +131,7 @@ pub(in crate::desktop_actions) fn pixel_color_map(
         ("y".to_owned(), Value::Number(Number::from(y))),
         (
             "hex".to_owned(),
-            Value::String(format!("#{red:02X}{green:02X}{blue:02X}")),
+            Value::String(format!("#{red:02x}{green:02x}{blue:02x}")),
         ),
         (
             "rgb".to_owned(),

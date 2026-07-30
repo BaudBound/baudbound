@@ -1,5 +1,5 @@
 use crate::runtime::{
-    RuntimeConditionRow, RuntimeSwitchCaseRow, compare_condition_values, config_string,
+    RuntimeConditionRow, RuntimeSwitchCaseRow, compare_condition_values_with_end, config_string,
     required_config_string, resolve_config_map, resolve_template_value, template_value_is_defined,
     value_kind, values_equal_for_condition,
 };
@@ -137,18 +137,32 @@ impl RuntimeExecutor<'_> {
         for (index, row) in rows.iter().enumerate() {
             let left = resolve_template_value(&row.left, &self.context.variables);
             let right = resolve_template_value(&row.right, &self.context.variables);
+            let right_end = resolve_template_value(&row.right_end, &self.context.variables);
             let compared = match row.operator.as_str() {
-                "is_defined" => template_value_is_defined(&row.left, &self.context.variables),
-                "is_missing" => !template_value_is_defined(&row.left, &self.context.variables),
-                _ => compare_condition_values(&left, &row.operator, &right).map_err(|message| {
-                    RuntimeError::ControlFlow {
-                        node_id: node.id.clone(),
-                        message,
-                    }
+                "is_null_or_missing" => {
+                    !template_value_is_defined(&row.left, &self.context.variables) || left.is_null()
+                }
+                _ => compare_condition_values_with_end(
+                    &left,
+                    &row.operator,
+                    &right,
+                    Some(&right_end),
+                )
+                .map_err(|message| RuntimeError::ControlFlow {
+                    node_id: node.id.clone(),
+                    message,
                 })?,
             };
             let row_result = if row.invert { !compared } else { compared };
-            let comparison = if condition_uses_right_value(&row.operator) {
+            let comparison = if row.operator == "is_between" {
+                format!(
+                    "{} {} {} and {}",
+                    diagnostic_value(&left),
+                    condition_operator_label(&row.operator),
+                    diagnostic_value(&right),
+                    diagnostic_value(&right_end)
+                )
+            } else if condition_uses_right_value(&row.operator) {
                 format!(
                     "{} {} {}",
                     diagnostic_value(&left),
@@ -306,35 +320,28 @@ fn diagnostic_value(value: &Value) -> String {
 fn condition_operator_label(operator: &str) -> &str {
     match operator {
         "==" => "equals",
-        "!=" => "does not equal",
         ">" => "is greater than",
         ">=" => "is greater than or equal to",
         "<" => "is less than",
         "<=" => "is less than or equal to",
+        "is_between" => "is between",
         "contains" => "contains",
         "equals_ignore_case" => "equals, ignoring case",
         "contains_ignore_case" => "contains, ignoring case",
-        "does_not_contain" => "does not contain",
         "starts_with" => "starts with",
         "ends_with" => "ends with",
         "regex_match" => "matches regular expression",
         "is_empty" => "is empty",
-        "is_null" => "is null",
+        "is_null_or_missing" => "is null or missing",
         "is_true" => "is true",
         "is_false" => "is false",
         "is_numeric" => "is numeric",
-        "is_text" => "is text",
+        "is_string" => "is a string",
         "is_boolean" => "is a boolean",
         "is_list" => "is a list",
         "is_object" => "is an object",
-        "is_not_empty" => "is not empty",
         "has_key" => "has key",
         "contains_item" => "contains item",
-        "length_equals" => "has length equal to",
-        "length_greater_than" => "has length greater than",
-        "length_less_than" => "has length less than",
-        "is_defined" => "is defined",
-        "is_missing" => "is missing",
         other => other,
     }
 }
@@ -343,16 +350,13 @@ fn condition_uses_right_value(operator: &str) -> bool {
     !matches!(
         operator,
         "is_empty"
-            | "is_null"
+            | "is_null_or_missing"
             | "is_true"
             | "is_false"
             | "is_numeric"
-            | "is_text"
+            | "is_string"
             | "is_boolean"
             | "is_list"
             | "is_object"
-            | "is_not_empty"
-            | "is_defined"
-            | "is_missing"
     )
 }
