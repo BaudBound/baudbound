@@ -35,6 +35,7 @@ const config: RunnerConfig = {
   security: {
     policy: {
       allow_dangerous_permissions: true,
+      allow_private_http_requests: false,
       allow_public_network_listeners: true,
       allow_shell_commands: true,
     },

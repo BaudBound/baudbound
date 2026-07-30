@@ -135,13 +135,17 @@ mod tests {
 
         for (variable_type, value) in cases {
             let mut manifest = minimal_manifest();
-            manifest["variables"] = json!([{
+            let mut variable = json!({
                 "name": "example",
                 "scope": "persistent",
                 "type": variable_type,
                 "description": "",
                 "value": value
-            }]);
+            });
+            if variable_type == "list" {
+                variable["item_type"] = json!("string");
+            }
+            manifest["variables"] = json!([variable]);
 
             validate_manifest_schema(&manifest).unwrap_or_else(|error| {
                 panic!("{variable_type} default variable should match schema: {error}")
@@ -212,7 +216,7 @@ mod tests {
             "id": "n-parse-url",
             "action_type": "action.url.parse",
             "type": "action",
-            "action": "parse_url",
+                "action": "parse_url",
             "config": {
                 "url": "{{request_url}}"
             },

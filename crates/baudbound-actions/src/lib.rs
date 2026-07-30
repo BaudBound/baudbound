@@ -20,8 +20,8 @@ use actions::{
     write_file_action,
 };
 pub use limits::{
-    ActionLimits, DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES,
-    DEFAULT_MAX_HTTP_RESPONSE_BYTES,
+    ActionLimits, ActionSecurityPolicy, DEFAULT_MAX_FILE_DOWNLOAD_BYTES,
+    DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
 };
 
 pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
@@ -77,6 +77,7 @@ pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
 #[derive(Default)]
 pub struct HeadlessActionHandler {
     limits: ActionLimits,
+    policy: ActionSecurityPolicy,
     serial_connections: Arc<SerialConnectionRegistry>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
 }
@@ -355,6 +356,7 @@ impl HeadlessActionHandler {
     pub fn from_serial_devices(devices: impl IntoIterator<Item = SerialDeviceConfig>) -> Self {
         Self {
             limits: ActionLimits::default(),
+            policy: ActionSecurityPolicy::default(),
             serial_connections: Arc::new(SerialConnectionRegistry::new(devices)),
             websocket_sink: None,
         }
@@ -369,6 +371,12 @@ impl HeadlessActionHandler {
     #[must_use]
     pub fn with_limits(mut self, limits: ActionLimits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    #[must_use]
+    pub fn with_security_policy(mut self, policy: ActionSecurityPolicy) -> Self {
+        self.policy = policy;
         self
     }
 
@@ -391,15 +399,20 @@ impl RuntimeActionHandler for HeadlessActionHandler {
             "action.clipboard.set" => desktop_only_action(request, "clipboard writes"),
             "action.file.copy" => copy_file_action(request, context),
             "action.file.delete" => delete_file_action(request, context),
-            "action.file.download" => {
-                download_file_action(request, context, self.limits.max_file_download_bytes)
-            }
+            "action.file.download" => download_file_action(
+                request,
+                context,
+                self.limits.max_file_download_bytes,
+                &self.policy,
+            ),
             "action.file.move" => move_file_action(request, context),
             "action.file.read" => {
                 read_file_action(request, context, self.limits.max_file_read_bytes)
             }
             "action.file.write" => write_file_action(request, context),
-            "action.http" => http_request_action(request, self.limits.max_http_response_bytes),
+            "action.http" => {
+                http_request_action(request, self.limits.max_http_response_bytes, &self.policy)
+            }
             "action.message_box" => desktop_only_action(request, "message boxes"),
             "action.notification" => desktop_only_action(request, "desktop notifications"),
             "action.application.open" => open_application_action(request),

@@ -10,6 +10,8 @@ pub(crate) struct RuntimeConditionRow {
     pub(crate) combinator: Option<String>,
     pub(crate) operator: String,
     pub(crate) right: String,
+    #[serde(default, rename = "rightEnd")]
+    pub(crate) right_end: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

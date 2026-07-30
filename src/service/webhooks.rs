@@ -18,7 +18,9 @@ use crate::console;
 use super::{
     executor::{TriggerCompletion, TriggerExecutor, TriggerSubmitError},
     heartbeat::ServeStatusTracker,
-    network_auth::{RunnerNetworkTriggerAuthenticator, validate_listener_exposure},
+    network_auth::{
+        ListenerExposurePolicy, RunnerNetworkTriggerAuthenticator, validate_listener_exposure,
+    },
     options::ServeOptions,
 };
 
@@ -225,7 +227,10 @@ pub(super) fn build_webhook_host(
         NetworkTriggerKind::Webhook,
         &options.webhook_bind,
         options.webhook_port,
-        options.webhook_allow_unauthenticated_public_bind,
+        ListenerExposurePolicy {
+            allow_public_network_listeners: options.allow_public_network_listeners,
+            allow_unauthenticated_public_bind: options.webhook_allow_unauthenticated_public_bind,
+        },
     )?;
 
     let service = WebhookService::from_registrations(registrations)

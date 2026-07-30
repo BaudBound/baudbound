@@ -9,9 +9,11 @@ pub use color_match::{
     ColorComparisonMode, ColorMatchEvaluation, RgbColor, evaluate_color_match, parse_rgb_color,
 };
 pub use package::{
-    PackageAsset, PackageEntry, PackageLoadError, PackageSummary, ScriptPackage,
-    load_script_package, load_script_package_reader, read_package_asset, read_package_asset_reader,
+    MAX_SCRIPT_SETTING_CONTAINER_ITEMS, MAX_SCRIPT_SETTING_VALUE_DEPTH, PackageAsset, PackageEntry,
+    PackageLoadError, PackageSummary, ScriptPackage, load_script_package,
+    load_script_package_reader, read_package_asset, read_package_asset_reader,
     validate_asset_package_path, validate_resolved_numeric_config,
+    validate_script_setting_value_limits,
 };
 pub use repository::{
     MAX_RELEASE_NOTES_BYTES, MAX_REPOSITORY_BYTES, MAX_REPOSITORY_SCRIPTS,
@@ -22,5 +24,5 @@ pub use repository::{
 };
 pub use types::{
     Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
-    RiskLevel, SecretDeclaration,
+    RiskLevel, ScriptSettingDeclaration, SecretDeclaration,
 };

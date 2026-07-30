@@ -70,7 +70,7 @@ function scriptStatus(
   return {
     approval_status,
     blacklist: { entries: [], severity: null },
-    declared_permissions: ["run_process"],
+    declared_permissions: ["process.run"],
     installed: {
       asset_count: 0,
       enabled: true,

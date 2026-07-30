@@ -1,59 +1,83 @@
-use std::time::Instant;
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+    time::{Duration, Instant},
+};
 
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
 use reqwest::{
     Method, StatusCode,
-    blocking::Client,
+    blocking::{Client, Response},
     header::{HeaderMap, HeaderName, HeaderValue},
+    redirect::Policy,
 };
 use serde_json::{Map, Number, Value};
+use url::{Host, Url};
 
 use crate::{
-    actions::bounded_io, config_string, failed, number_from_config, required_string,
-    timeout_duration, value_kind, value_to_string,
+    ActionSecurityPolicy, actions::bounded_io, config_string, failed, number_from_config,
+    required_string, timeout_duration, value_kind, value_to_string,
 };
 
 pub(crate) fn http_request_action(
     request: &RuntimeActionRequest,
     max_response_bytes: u64,
+    policy: &ActionSecurityPolicy,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let method = request_method(request)?;
     let url = required_string(request, "url")?;
+    let mut url = Url::parse(&url).map_err(|source| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!("invalid HTTP URL: {source}"),
+    })?;
     let timeout = timeout_duration(request)?;
     let headers = request_headers(request)?;
     let user_agent = config_string(&request.config, "userAgent");
     let body = config_string(&request.config, "body").unwrap_or_default();
     validate_json_request_body(request, &headers, &body)?;
-    let safe_url = safe_http_destination(&url);
-
-    let client = Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed to build HTTP client: {source}"),
-        })?;
 
     let started_at = Instant::now();
-    let mut builder = client.request(method.clone(), &url).headers(headers);
-    if let Some(user_agent) = user_agent.filter(|value| !value.trim().is_empty()) {
-        builder = builder.header(reqwest::header::USER_AGENT, user_agent);
-    }
-    if method_allows_body(&method) && !body.is_empty() {
-        builder = builder.body(body);
-    }
-
-    let mut response = builder
-        .send()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!(
-                "HTTP request {method} {safe_url} failed: {}",
-                sanitized_http_error(&source, &url, &safe_url)
-            ),
-        })?;
+    let mut method = method;
+    let mut body = body;
+    let mut redirects = 0_u8;
+    let mut response = loop {
+        let client = validated_http_client(request, &url, timeout, policy)?;
+        let safe_url = safe_http_destination(url.as_str());
+        let mut builder = client
+            .request(method.clone(), url.clone())
+            .headers(headers.clone());
+        if let Some(user_agent) = user_agent
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            builder = builder.header(reqwest::header::USER_AGENT, user_agent);
+        }
+        if method_allows_body(&method) && !body.is_empty() {
+            builder = builder.body(body.clone());
+        }
+        let response = builder
+            .send()
+            .map_err(|source| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!(
+                    "HTTP request {method} {safe_url} failed: {}",
+                    sanitized_http_error(&source, url.as_str(), &safe_url)
+                ),
+            })?;
+        let Some(next_url) = redirect_target(request, &url, &response)? else {
+            break response;
+        };
+        if redirects >= 10 {
+            return failed(request, "HTTP request exceeded 10 redirects");
+        }
+        if redirects_switch_to_get(response.status(), &method) {
+            method = Method::GET;
+            body.clear();
+        }
+        redirects += 1;
+        url = next_url;
+    };
     let duration_ms = elapsed_millis(started_at);
     let status = response.status();
     let headers = response_headers(response.headers());
@@ -98,6 +122,178 @@ pub(crate) fn http_request_action(
     }
 
     Ok(RuntimeActionResult { output_data })
+}
+
+pub(crate) fn send_download_request(
+    request: &RuntimeActionRequest,
+    url: &str,
+    timeout: Duration,
+    policy: &ActionSecurityPolicy,
+) -> Result<Response, RuntimeActionError> {
+    let mut url = Url::parse(url).map_err(|source| RuntimeActionError::Failed {
+        action_type: request.action_type.clone(),
+        message: format!("invalid download URL: {source}"),
+    })?;
+    for redirects in 0_u8..=10 {
+        let client = validated_http_client(request, &url, timeout, policy)?;
+        let safe_url = safe_http_destination(url.as_str());
+        let response =
+            client
+                .get(url.clone())
+                .send()
+                .map_err(|source| RuntimeActionError::Failed {
+                    action_type: request.action_type.clone(),
+                    message: format!(
+                        "download request {safe_url} failed: {}",
+                        sanitized_http_error(&source, url.as_str(), &safe_url)
+                    ),
+                })?;
+        let Some(next_url) = redirect_target(request, &url, &response)? else {
+            return Ok(response);
+        };
+        if redirects == 10 {
+            return failed(request, "download request exceeded 10 redirects");
+        }
+        url = next_url;
+    }
+    unreachable!("redirect loop always returns or advances to its fixed limit")
+}
+
+fn validated_http_client(
+    request: &RuntimeActionRequest,
+    url: &Url,
+    timeout: Duration,
+    policy: &ActionSecurityPolicy,
+) -> Result<Client, RuntimeActionError> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return failed(request, "HTTP URL scheme must be http or https");
+    }
+    let mut builder = Client::builder()
+        .timeout(timeout)
+        .redirect(Policy::none())
+        .no_proxy();
+    if !policy.allow_private_http_requests {
+        let addresses = resolved_destination_addresses(request, url)?;
+        if addresses
+            .iter()
+            .any(|address| is_private_http_address(*address))
+        {
+            return failed(
+                request,
+                format!(
+                    "HTTP request to private or local network destination {} is blocked because security.policy.allow_private_http_requests is false",
+                    safe_http_destination(url.as_str())
+                ),
+            );
+        }
+        if let Some(Host::Domain(host)) = url.host() {
+            let port = url
+                .port_or_known_default()
+                .expect("validated HTTP schemes always have a known default port");
+            let socket_addresses = addresses
+                .into_iter()
+                .map(|address| SocketAddr::new(address, port))
+                .collect::<Vec<_>>();
+            builder = builder.resolve_to_addrs(host, &socket_addresses);
+        }
+    }
+    builder
+        .build()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to build HTTP client: {source}"),
+        })
+}
+
+fn resolved_destination_addresses(
+    request: &RuntimeActionRequest,
+    url: &Url,
+) -> Result<Vec<IpAddr>, RuntimeActionError> {
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: "HTTP URL is missing a port and has no known default".to_owned(),
+        })?;
+    match url.host() {
+        Some(Host::Ipv4(address)) => Ok(vec![IpAddr::V4(address)]),
+        Some(Host::Ipv6(address)) => Ok(vec![IpAddr::V6(address)]),
+        Some(Host::Domain(host)) => {
+            let addresses = (host, port)
+                .to_socket_addrs()
+                .map_err(|source| RuntimeActionError::Failed {
+                    action_type: request.action_type.clone(),
+                    message: format!("failed to resolve HTTP host {host}: {source}"),
+                })?
+                .map(|address| address.ip())
+                .collect::<Vec<_>>();
+            if addresses.is_empty() {
+                return failed(request, format!("HTTP host {host} did not resolve"));
+            }
+            Ok(addresses)
+        }
+        None => failed(request, "HTTP URL is missing a host"),
+    }
+}
+
+fn is_private_http_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_private_ipv4_address(address),
+        IpAddr::V6(address) => is_private_ipv6_address(address),
+    }
+}
+
+fn is_private_ipv4_address(address: Ipv4Addr) -> bool {
+    address.is_private()
+        || address.is_loopback()
+        || address.is_link_local()
+        || address.is_broadcast()
+        || address.is_documentation()
+        || address.octets()[0] == 0
+        || address.octets()[0] >= 224
+        || address.octets() == [169, 254, 169, 254]
+}
+
+fn is_private_ipv6_address(address: Ipv6Addr) -> bool {
+    address.is_loopback()
+        || address.is_unspecified()
+        || (address.segments()[0] & 0xfe00) == 0xfc00
+        || (address.segments()[0] & 0xffc0) == 0xfe80
+        || (address.segments()[0] & 0xff00) == 0xff00
+}
+
+fn redirect_target(
+    request: &RuntimeActionRequest,
+    current_url: &Url,
+    response: &reqwest::blocking::Response,
+) -> Result<Option<Url>, RuntimeActionError> {
+    if !response.status().is_redirection() {
+        return Ok(None);
+    }
+    let Some(location) = response.headers().get(reqwest::header::LOCATION) else {
+        return Ok(None);
+    };
+    let location = location
+        .to_str()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("HTTP redirect location is not valid header text: {source}"),
+        })?;
+    current_url
+        .join(location)
+        .map(Some)
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("HTTP redirect location is not a valid URL: {source}"),
+        })
+}
+
+fn redirects_switch_to_get(status: StatusCode, method: &Method) -> bool {
+    matches!(
+        status,
+        StatusCode::MOVED_PERMANENTLY | StatusCode::FOUND | StatusCode::SEE_OTHER
+    ) && *method != Method::GET
+        && *method != Method::HEAD
 }
 
 fn safe_http_destination(value: &str) -> String {

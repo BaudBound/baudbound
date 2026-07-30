@@ -54,7 +54,6 @@ pub struct Capability {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunnerPolicy {
     pub allow_dangerous_actions: bool,
-    pub allow_network_servers: bool,
     pub allow_shell_commands: bool,
 }
 
@@ -63,7 +62,6 @@ impl RunnerPolicy {
     pub fn permissive() -> Self {
         Self {
             allow_dangerous_actions: true,
-            allow_network_servers: true,
             allow_shell_commands: true,
         }
     }
@@ -132,6 +130,7 @@ struct PathPermissionRule {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum PathAccess {
+    Delete,
     Read,
     Write,
 }
@@ -276,8 +275,9 @@ pub fn calculate_program_permissions_with_declarations(
                         .as_ref()
                         .map(|value| value.name.as_str())
                 ),
-                (PathAccess::Read, Some("file_read"))
-                    | (PathAccess::Write, Some("file_write_limited"))
+                (PathAccess::Delete, Some("file.delete.any"))
+                    | (PathAccess::Read, Some("file.read"))
+                    | (PathAccess::Write, Some("file.write.limited"))
             )
         });
         if let Some(permission) = &definition.permission
@@ -303,15 +303,15 @@ pub fn calculate_program_permissions_with_declarations(
     {
         let permission = match scope.as_str() {
             "runtime" => PermissionGrant {
-                name: "set_local_variable".to_owned(),
+                name: "variable.local.set".to_owned(),
                 risk: RiskLevel::Low,
             },
             "persistent" => PermissionGrant {
-                name: "set_persistent_variable".to_owned(),
+                name: "variable.persistent.set".to_owned(),
                 risk: RiskLevel::Medium,
             },
             "global" => PermissionGrant {
-                name: "set_global_variable".to_owned(),
+                name: "variable.global.set".to_owned(),
                 risk: RiskLevel::High,
             },
             invalid => {
@@ -330,7 +330,7 @@ pub fn calculate_program_permissions_with_declarations(
             &mut permissions,
             &mut seen_permissions,
             PermissionGrant {
-                name: "set_local_variable".to_owned(),
+                name: "variable.local.set".to_owned(),
                 risk: RiskLevel::Low,
             },
         );
@@ -340,14 +340,14 @@ pub fn calculate_program_permissions_with_declarations(
             &mut permissions,
             &mut seen_permissions,
             PermissionGrant {
-                name: "set_persistent_variable".to_owned(),
+                name: "variable.persistent.set".to_owned(),
                 risk: RiskLevel::Medium,
             },
         );
     }
-    if requirements.has_secret_declarations && seen_permissions.insert("read_secret".to_owned()) {
+    if requirements.has_secret_declarations && seen_permissions.insert("secret.read".to_owned()) {
         permissions.push(PermissionGrant {
-            name: "read_secret".to_owned(),
+            name: "secret.read".to_owned(),
             risk: RiskLevel::High,
         });
     }
@@ -421,10 +421,12 @@ fn insert_permission(
 fn permission_for_path(access: &PathAccess, path: &str) -> PermissionGrant {
     let unbounded = is_unbounded_path(path);
     let (name, risk) = match (access, unbounded) {
-        (PathAccess::Read, false) => ("file_read", RiskLevel::Medium),
-        (PathAccess::Read, true) => ("read_sensitive_file", RiskLevel::Dangerous),
-        (PathAccess::Write, false) => ("file_write_limited", RiskLevel::High),
-        (PathAccess::Write, true) => ("write_any_file", RiskLevel::Dangerous),
+        (PathAccess::Delete, false) => ("file.delete.limited", RiskLevel::High),
+        (PathAccess::Delete, true) => ("file.delete.any", RiskLevel::Dangerous),
+        (PathAccess::Read, false) => ("file.read", RiskLevel::Medium),
+        (PathAccess::Read, true) => ("file.read.any", RiskLevel::Dangerous),
+        (PathAccess::Write, false) => ("file.write.limited", RiskLevel::High),
+        (PathAccess::Write, true) => ("file.write.any", RiskLevel::Dangerous),
     };
     PermissionGrant {
         name: name.to_owned(),
@@ -536,20 +538,10 @@ fn enforce_runner_policy(
                 reason: "dangerous actions are disabled because security.policy.allow_dangerous_permissions is false".to_owned(),
             });
         }
-        if permission.name == "run_shell_command" && !policy.allow_shell_commands {
+        if permission.name == "process.shell" && !policy.allow_shell_commands {
             return Err(PermissionValidationError::PolicyBlocked {
                 permission: permission.name.clone(),
                 reason: "shell commands are disabled because security.policy.allow_shell_commands is false".to_owned(),
-            });
-        }
-        if matches!(
-            permission.name.as_str(),
-            "webhook_public_bind" | "websocket_public_bind"
-        ) && !policy.allow_network_servers
-        {
-            return Err(PermissionValidationError::PolicyBlocked {
-                permission: permission.name.clone(),
-                reason: "public network listeners are disabled because security.policy.allow_public_network_listeners is false".to_owned(),
             });
         }
     }

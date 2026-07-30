@@ -600,7 +600,9 @@ export type StoredVariableRecord = {
   version: number;
 };
 
-export type StoredVariableChange = Omit<StoredVariableRecord, "script_name">;
+export type StoredVariableChange = Omit<StoredVariableRecord, "script_name"> & {
+  deleted: boolean;
+};
 
 export type DeclaredVariableRecord = {
   description: string;
@@ -659,6 +661,7 @@ export type DashboardPayload = {
   secret_vault: SecretVaultSnapshot;
   stored_secret_value_count: number;
   secret_statuses: Record<string, InstalledSecretStatus[]>;
+  script_settings: Record<string, InstalledScriptSettingStatus[]>;
   script_updates: Record<string, ScriptUpdateState>;
   serial_devices: SerialDeviceStatus[];
   service_health: ServiceHealthDocument;
@@ -729,6 +732,19 @@ export type InstalledSecretStatus = {
   required: boolean;
   updated_at_unix: number | null;
   value_type: string;
+};
+
+export type InstalledScriptSettingStatus = {
+  configured: boolean;
+  configured_value: unknown | null;
+  default_value: unknown | null;
+  description: string;
+  effective_value: unknown | null;
+  item_type: "boolean" | "datetime" | "duration" | "file_path" | "number" | "object" | "string" | null;
+  name: string;
+  required: boolean;
+  updated_at_unix: number | null;
+  value_type: "boolean" | "datetime" | "duration" | "file_path" | "list" | "number" | "object" | "string";
 };
 
 export type ActionPayload = {
@@ -807,6 +823,7 @@ export type SecuritySettings = {
 
 export type SecurityPolicySettings = {
   allow_dangerous_permissions: boolean;
+  allow_private_http_requests: boolean;
   allow_public_network_listeners: boolean;
   allow_shell_commands: boolean;
 };
@@ -897,6 +914,14 @@ async function invokeSensitive<T>(
     ...args,
     confirmationId: challenge.confirmation_id,
   });
+}
+
+async function sha256Hex(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 export function getDashboardState() {
@@ -1301,7 +1326,11 @@ export function stopManualScriptRuns(reference: string) {
 }
 
 export function setScriptEnabled(reference: string, enabled: boolean) {
-  return invoke<ActionPayload>("set_script_enabled", { enabled, reference });
+  return invokeSensitive<ActionPayload>(
+    "set_script_enabled",
+    { kind: "set_script_enabled", enabled, reference },
+    { enabled, reference },
+  );
 }
 
 export function rotateNetworkTriggerToken(
@@ -1357,6 +1386,48 @@ export function removeScriptSecret(reference: string, name: string) {
     "remove_script_secret",
     { kind: "remove_script_secret", name, reference },
     { name, reference },
+  );
+}
+
+export function setScriptSetting(
+  reference: string,
+  name: string,
+  value: string,
+) {
+  return sha256Hex(value).then((valueDigest) =>
+    invokeSensitive<ActionPayload>(
+      "set_script_setting",
+      {
+        kind: "set_script_setting",
+        name,
+        reference,
+        value_digest: valueDigest,
+      },
+      {
+        request: {
+          name,
+          reference,
+          value,
+          valueDigest,
+        },
+      },
+    ),
+  );
+}
+
+export function unsetScriptSetting(reference: string, name: string) {
+  return invokeSensitive<ActionPayload>(
+    "unset_script_setting",
+    { kind: "unset_script_setting", name, reference },
+    { name, reference },
+  );
+}
+
+export function resetScriptSettings(reference: string) {
+  return invokeSensitive<ActionPayload>(
+    "reset_script_settings",
+    { kind: "reset_script_settings", reference },
+    { reference },
   );
 }
 

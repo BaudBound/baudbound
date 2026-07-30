@@ -21,9 +21,13 @@ pub(crate) mod schema;
 use color_match::validate_program_color_match_contract;
 use graph::validate_program_graph;
 use limits::package_limits;
+pub use manifest::{
+    MAX_SCRIPT_SETTING_CONTAINER_ITEMS, MAX_SCRIPT_SETTING_VALUE_DEPTH,
+    validate_script_setting_value_limits,
+};
 use manifest::{
-    validate_manifest_metadata, validate_manifest_secrets, validate_manifest_variable_operations,
-    validate_manifest_variables,
+    validate_manifest_metadata, validate_manifest_secrets, validate_manifest_settings,
+    validate_manifest_variable_operations, validate_manifest_variables,
 };
 use numeric::validate_program_numeric_contract;
 use schema::{validate_manifest_schema, validate_program_schema};
@@ -167,6 +171,7 @@ pub fn read_package_asset_reader<R: Read + Seek>(
     validate_manifest_metadata(&manifest)?;
     validate_manifest_assets(&entries, &manifest)?;
     validate_manifest_variables(&manifest)?;
+    validate_manifest_settings(&manifest)?;
     validate_manifest_secrets(&manifest)?;
 
     let reference = asset_reference.trim();
@@ -221,6 +226,7 @@ pub fn load_script_package_reader<R: Read + Seek>(
     validate_manifest_assets(&entries, &manifest)?;
     validate_manifest_variables(&manifest)?;
     validate_manifest_variable_operations(&manifest, &program)?;
+    validate_manifest_settings(&manifest)?;
     validate_manifest_secrets(&manifest)?;
 
     Ok(ScriptPackage {
@@ -616,7 +622,7 @@ mod tests {
                     "minimum_runner_version": "0.1.0",
                     "secrets": [{"name": "api_token", "type": "binary", "required": false}]
                 }"#,
-                "is not one of",
+                "\"string\" was expected",
             ),
         ] {
             let error = load_script_package_reader(Cursor::new(create_test_package_with_manifest(

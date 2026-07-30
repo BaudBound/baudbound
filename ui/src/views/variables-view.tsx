@@ -332,12 +332,22 @@ function applyVariableChange(
     stored.scope === change.scope &&
     stored.name === change.name &&
     stored.script_id === change.script_id;
+  if (change.deleted) {
+    return {
+      ...inventory,
+      stored: inventory.stored.filter((item) => !keyMatches(item)),
+    };
+  }
   const existing = inventory.stored.find(keyMatches);
   const scriptName =
     existing?.script_name ??
     (change.script_id ? inventory.script_names[change.script_id] : undefined) ??
     null;
-  const next: StoredVariableRecord = { ...change, script_name: scriptName };
+  const { deleted: _, ...storedChange } = change;
+  const next: StoredVariableRecord = {
+    ...storedChange,
+    script_name: scriptName,
+  };
   return {
     ...inventory,
     stored: sortStoredVariables(

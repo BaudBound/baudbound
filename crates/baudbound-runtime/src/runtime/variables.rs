@@ -90,6 +90,19 @@ pub(crate) fn set_object_field(
     Ok(())
 }
 
+pub(crate) fn remove_object_field(
+    node: &RuntimeNode,
+    target: &mut Value,
+    field_path: &str,
+) -> Result<bool, RuntimeError> {
+    let segments =
+        parse_object_path(field_path).map_err(|message| RuntimeError::VariableOperation {
+            node_id: node.id.clone(),
+            message,
+        })?;
+    Ok(remove_path_value(target, &segments))
+}
+
 #[derive(Debug)]
 enum ObjectPathSegment {
     Field(String),
@@ -187,6 +200,38 @@ fn set_path_value(target: &mut Value, segments: &[ObjectPathSegment], value: Val
             }
             set_path_value(&mut items[*index], remaining, value);
         }
+    }
+}
+
+fn remove_path_value(target: &mut Value, segments: &[ObjectPathSegment]) -> bool {
+    let Some((segment, remaining)) = segments.split_first() else {
+        return false;
+    };
+
+    if remaining.is_empty() {
+        return match segment {
+            ObjectPathSegment::Field(field) => target
+                .as_object_mut()
+                .is_some_and(|object| object.remove(field).is_some()),
+            ObjectPathSegment::Index(index) => target.as_array_mut().is_some_and(|items| {
+                if *index >= items.len() {
+                    return false;
+                }
+                items.remove(*index);
+                true
+            }),
+        };
+    }
+
+    match segment {
+        ObjectPathSegment::Field(field) => target
+            .as_object_mut()
+            .and_then(|object| object.get_mut(field))
+            .is_some_and(|child| remove_path_value(child, remaining)),
+        ObjectPathSegment::Index(index) => target
+            .as_array_mut()
+            .and_then(|items| items.get_mut(*index))
+            .is_some_and(|child| remove_path_value(child, remaining)),
     }
 }
 

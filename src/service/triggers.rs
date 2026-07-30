@@ -13,7 +13,9 @@ use baudbound_triggers::{
 };
 
 use super::{
-    network_auth::{RunnerNetworkTriggerAuthenticator, validate_listener_exposure},
+    network_auth::{
+        ListenerExposurePolicy, RunnerNetworkTriggerAuthenticator, validate_listener_exposure,
+    },
     options::ServeOptions,
     webhooks::{WebhookHost, build_webhook_host},
 };
@@ -287,7 +289,11 @@ fn build_trigger_services(
             baudbound_triggers::NetworkTriggerKind::WebSocket,
             &options.websocket_bind,
             options.websocket_port,
-            options.websocket_allow_unauthenticated_public_bind,
+            ListenerExposurePolicy {
+                allow_public_network_listeners: options.allow_public_network_listeners,
+                allow_unauthenticated_public_bind: options
+                    .websocket_allow_unauthenticated_public_bind,
+            },
         )?;
         WebSocketService::start_or_reconfigure(
             registrations.clone(),

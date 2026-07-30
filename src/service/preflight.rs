@@ -10,7 +10,7 @@ pub fn validate_serve_start(
     store: &SqliteRunnerStore,
     options: &ServeOptions,
 ) -> Result<()> {
-    validate_enabled_script_secrets(core, store)?;
+    validate_enabled_script_requirements(core, store)?;
     let registrations = core
         .list_trigger_registrations(store, None)
         .context("failed to load trigger registrations")?;
@@ -21,12 +21,16 @@ pub fn validate_serve_start(
     Ok(())
 }
 
-pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerStore) -> Result<()> {
+pub fn validate_enabled_script_requirements(
+    core: &RunnerCore,
+    store: &SqliteRunnerStore,
+) -> Result<()> {
     let scripts = core
         .list_installed(store)
-        .context("failed to load installed scripts while checking required secrets")?;
+        .context("failed to load installed scripts while checking runtime requirements")?;
     let mut missing_blockers = Vec::new();
     let mut locked_blockers = Vec::new();
+    let mut setting_blockers = Vec::new();
 
     for script in scripts.into_iter().filter(|script| script.enabled) {
         let required = core
@@ -76,10 +80,33 @@ pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerSt
                 locked.join(", ")
             ));
         }
+
+        let mut missing_settings = core
+            .list_installed_script_settings(store, &script.id)
+            .with_context(|| {
+                format!(
+                    "failed to check required Script Settings for enabled script {:?} ({})",
+                    script.name, script.id
+                )
+            })?
+            .into_iter()
+            .filter(|setting| setting.required && setting.effective_value.is_none())
+            .map(|setting| setting.name)
+            .collect::<Vec<_>>();
+        missing_settings.sort();
+        if !missing_settings.is_empty() {
+            setting_blockers.push(format!(
+                "{:?} ({}): {}",
+                script.name,
+                script.id,
+                missing_settings.join(", ")
+            ));
+        }
     }
 
     missing_blockers.sort();
     locked_blockers.sort();
+    setting_blockers.sort();
     let mut problems = Vec::new();
     if !missing_blockers.is_empty() {
         problems.push(format!(
@@ -91,6 +118,12 @@ pub fn validate_enabled_script_secrets(core: &RunnerCore, store: &SqliteRunnerSt
         problems.push(format!(
             "required secret values cannot be read for enabled scripts because encrypted secret storage is locked or unavailable: {}. Unlock secret storage or disable the affected scripts",
             locked_blockers.join(". ")
+        ));
+    }
+    if !setting_blockers.is_empty() {
+        problems.push(format!(
+            "required Script Settings are missing for enabled scripts: {}. Configure the listed settings or disable the affected scripts",
+            setting_blockers.join(". ")
         ));
     }
     if !problems.is_empty() {
@@ -131,7 +164,7 @@ pub fn print_serve_preflight(
     options: &ServeOptions,
     json: bool,
 ) -> Result<()> {
-    validate_enabled_script_secrets(core, store)?;
+    validate_enabled_script_requirements(core, store)?;
     let registrations = core
         .list_trigger_registrations(store, None)
         .context("failed to load trigger registrations")?;
@@ -243,7 +276,7 @@ fn serve_preflight_rows(
             "process poller".to_owned(),
         ),
         serve_preflight_row(
-            "serial_input",
+            "serial.input",
             options.serial_enabled,
             count_trigger_registrations(registrations, "trigger.serial_input"),
             format!("{} configured device(s)", options.serial_devices.len()),

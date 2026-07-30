@@ -28,7 +28,7 @@ use super::{
     idle::{print_idle_service_explanation, should_exit_idle_service},
     ipc::{ServiceControlCommand, ServiceControlServer},
     options::ServeOptions,
-    preflight::validate_enabled_script_secrets,
+    preflight::validate_enabled_script_requirements,
     shutdown::install_shutdown_handler,
     summary::print_service_summary,
     triggers::{load_trigger_services, reload_trigger_services_if_changed},
@@ -80,7 +80,7 @@ pub fn serve_triggers_with_control(
 ) -> Result<()> {
     const MAX_IDLE_SLEEP: Duration = Duration::from_millis(250);
 
-    validate_enabled_script_secrets(core, store)?;
+    validate_enabled_script_requirements(core, store)?;
 
     const TRIGGER_CHANNEL_CAPACITY: usize = 1024;
     let (trigger_sender, trigger_receiver) = mpsc::sync_channel(TRIGGER_CHANNEL_CAPACITY);
@@ -112,8 +112,8 @@ pub fn serve_triggers_with_control(
     );
     let mut services =
         load_trigger_services(core, store, &options, &trigger_sender, &cancellation)?;
-    if let Err(error) = validate_enabled_script_secrets(core, store) {
-        return stop_for_secret_readiness_failure(
+    if let Err(error) = validate_enabled_script_requirements(core, store) {
+        return stop_for_requirement_validation_failure(
             store,
             &options,
             &mut services,
@@ -200,8 +200,8 @@ pub fn serve_triggers_with_control(
         let control_reload_requested =
             matches!(service_control_command, Some(ServiceControlCommand::Reload));
         if control_reload_requested || reload_requested || Instant::now() >= next_reload_check {
-            if let Err(error) = validate_enabled_script_secrets(core, store) {
-                return stop_for_secret_readiness_failure(
+            if let Err(error) = validate_enabled_script_requirements(core, store) {
+                return stop_for_requirement_validation_failure(
                     store,
                     &options,
                     &mut services,
@@ -328,7 +328,7 @@ pub fn serve_triggers_with_control(
     }
 }
 
-fn stop_for_secret_readiness_failure(
+fn stop_for_requirement_validation_failure(
     store: &SqliteRunnerStore,
     options: &ServeOptions,
     services: &mut super::triggers::TriggerServices,
@@ -346,7 +346,9 @@ fn stop_for_secret_readiness_failure(
         cancellation,
         status,
     )
-    .with_context(|| format!("failed to stop after required secret validation failed: {error}"))?;
+    .with_context(|| {
+        format!("failed to stop after runtime requirement validation failed: {error}")
+    })?;
     Err(error)
 }
 

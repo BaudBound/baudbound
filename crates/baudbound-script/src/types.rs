@@ -30,6 +30,8 @@ pub struct Manifest {
     #[serde(default)]
     pub variables: Vec<DefaultVariable>,
     #[serde(default)]
+    pub settings: Vec<ScriptSettingDeclaration>,
+    #[serde(default)]
     pub secrets: Vec<SecretDeclaration>,
 }
 
@@ -39,6 +41,8 @@ pub struct DefaultVariable {
     pub scope: String,
     #[serde(rename = "type")]
     pub value_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
     #[serde(default)]
     pub description: String,
     pub value: Value,
@@ -53,6 +57,21 @@ pub struct SecretDeclaration {
     pub description: String,
     #[serde(default)]
     pub required: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ScriptSettingDeclaration {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub value_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

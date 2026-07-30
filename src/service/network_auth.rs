@@ -12,6 +12,12 @@ pub(super) struct RunnerNetworkTriggerAuthenticator {
     store: SqliteRunnerStore,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ListenerExposurePolicy {
+    pub(super) allow_public_network_listeners: bool,
+    pub(super) allow_unauthenticated_public_bind: bool,
+}
+
 impl RunnerNetworkTriggerAuthenticator {
     pub(super) fn new(core: &RunnerCore, store: &SqliteRunnerStore) -> Self {
         Self {
@@ -61,7 +67,7 @@ pub(super) fn validate_listener_exposure(
     trigger_kind: NetworkTriggerKind,
     bind: &str,
     port: u16,
-    allow_unauthenticated_public_bind: bool,
+    policy: ListenerExposurePolicy,
 ) -> Result<()> {
     if is_loopback_bind(bind) {
         return Ok(());
@@ -74,6 +80,11 @@ pub(super) fn validate_listener_exposure(
         NetworkTriggerKind::Webhook => "webhook",
         NetworkTriggerKind::WebSocket => "WebSocket",
     };
+    if !policy.allow_public_network_listeners {
+        anyhow::bail!(
+            "{listener_name} listener cannot bind to {bind}:{port} because security.policy.allow_public_network_listeners is false"
+        );
+    }
     let mut unprotected = Vec::new();
     for registration in registrations
         .iter()
@@ -99,7 +110,7 @@ pub(super) fn validate_listener_exposure(
     if unprotected.is_empty() {
         return Ok(());
     }
-    if allow_unauthenticated_public_bind {
+    if policy.allow_unauthenticated_public_bind {
         tracing::warn!(
             "starting public {listener_name} listener on {bind}:{port} with authentication disabled for: {}",
             unprotected.join(", ")
@@ -123,7 +134,11 @@ fn is_loopback_bind(bind: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_loopback_bind;
+    use baudbound_core::RunnerCore;
+    use baudbound_storage::SqliteRunnerStore;
+    use baudbound_triggers::NetworkTriggerKind;
+
+    use super::{ListenerExposurePolicy, is_loopback_bind, validate_listener_exposure};
 
     #[test]
     fn classifies_listener_bind_addresses_conservatively() {
@@ -136,5 +151,45 @@ mod tests {
         assert!(!is_loopback_bind("192.168.1.5"));
         assert!(!is_loopback_bind("runner.internal"));
         assert!(!is_loopback_bind("not an address"));
+    }
+
+    #[test]
+    fn listener_policy_allows_loopback_and_blocks_disabled_public_exposure() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let store = SqliteRunnerStore::open(directory.path().join("runner.sqlite3"))
+            .expect("test store should open");
+        let core = RunnerCore::default();
+        let policy = ListenerExposurePolicy {
+            allow_public_network_listeners: false,
+            allow_unauthenticated_public_bind: false,
+        };
+
+        validate_listener_exposure(
+            &core,
+            &store,
+            &[],
+            NetworkTriggerKind::Webhook,
+            "127.0.0.1",
+            31_920,
+            policy,
+        )
+        .expect("loopback listener should not require public exposure permission");
+
+        let error = validate_listener_exposure(
+            &core,
+            &store,
+            &[],
+            NetworkTriggerKind::Webhook,
+            "0.0.0.0",
+            31_920,
+            policy,
+        )
+        .expect_err("disabled public listener exposure must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("security.policy.allow_public_network_listeners"),
+            "{error}"
+        );
     }
 }

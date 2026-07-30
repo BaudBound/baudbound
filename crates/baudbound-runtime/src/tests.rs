@@ -999,6 +999,138 @@ fn executes_external_action_handler_and_exposes_output_reference() {
 }
 
 #[test]
+fn webhook_response_requires_a_waiting_webhook_request() {
+    #[derive(Debug)]
+    struct UnexpectedActionHandler;
+
+    impl RuntimeActionHandler for UnexpectedActionHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            panic!("webhook response handler must not run without a waiting request");
+        }
+    }
+
+    let report = execute_trigger_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.webhook",
+                    "type": "webhook",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-response",
+                        "action_type": "action.webhook_response",
+                        "type": "action",
+                            "action": "webhook_response",
+                        "config": {
+                            "statusCode": 200,
+                            "contentType": "text/plain",
+                            "headers": [],
+                            "body": "ok"
+                        },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [
+                        edge("n-trigger", "out", "n-response")
+                    ]
+                }
+            }
+        }),
+        "script-webhook",
+        "n-trigger",
+        json!({"response": {"waiting": false}, "trigger_id": "n-trigger"}),
+        &UnexpectedActionHandler,
+    )
+    .expect("fallible webhook response should follow its failed branch");
+
+    assert_eq!(
+        report.variables["n-response.error"]["message"],
+        json!("Webhook Response reached without a waiting webhook request.")
+    );
+}
+
+#[test]
+fn webhook_response_can_only_be_sent_once_per_run() {
+    #[derive(Debug)]
+    struct WebhookResponseHandler;
+
+    impl RuntimeActionHandler for WebhookResponseHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Ok(RuntimeActionResult {
+                output_data: Map::from_iter([
+                    ("sent".to_owned(), json!(true)),
+                    ("trigger_id".to_owned(), json!("n-trigger")),
+                    ("status_code".to_owned(), json!(200)),
+                ]),
+            })
+        }
+    }
+
+    let response_node = |id: &str| {
+        json!({
+            "id": id,
+            "action_type": "action.webhook_response",
+            "type": "action",
+            "action": "webhook_response",
+            "config": {
+                "statusCode": 200,
+                "contentType": "text/plain",
+                "headers": [],
+                "body": "ok"
+            },
+            "runtime_outputs": []
+        })
+    };
+    let report = execute_trigger_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.webhook",
+                    "type": "webhook",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        response_node("n-response-1"),
+                        response_node("n-response-2")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-response-1"),
+                        edge("n-response-1", "out", "n-response-2")
+                    ]
+                }
+            }
+        }),
+        "script-webhook",
+        "n-trigger",
+        json!({"response": {"waiting": true}, "trigger_id": "n-trigger"}),
+        &WebhookResponseHandler,
+    )
+    .expect("second webhook response should follow its failed branch");
+
+    assert_eq!(report.variables["n-response-1.sent"], json!(true));
+    assert_eq!(
+        report.variables["n-response-2.error"]["message"],
+        json!("Webhook response was already sent for this request.")
+    );
+}
+
+#[test]
 fn resolves_bracket_paths_and_nested_external_action_inputs() {
     #[derive(Debug)]
     struct NestedInputActionHandler;
@@ -1795,7 +1927,7 @@ fn variable_node(
     value_type: &str,
     value: impl Into<Value>,
 ) -> Value {
-    json!({
+    let mut node = json!({
         "id": id,
         "action_type": "runtime.set_variable",
         "type": "set_variable",
@@ -1807,5 +1939,9 @@ fn variable_node(
             "value": value.into()
         },
         "runtime_outputs": []
-    })
+    });
+    if value_type == "list" {
+        node["config"]["itemType"] = json!("object");
+    }
+    node
 }

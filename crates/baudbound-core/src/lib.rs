@@ -8,6 +8,7 @@ mod run_records;
 mod runtime_state;
 mod secrets;
 mod serial;
+mod settings;
 mod status;
 mod sub_script;
 mod triggers;
@@ -20,7 +21,9 @@ use std::{
     sync::Arc,
 };
 
-use baudbound_actions::{ActionLimits, HeadlessActionHandler, WebSocketMessageSink};
+use baudbound_actions::{
+    ActionLimits, ActionSecurityPolicy, HeadlessActionHandler, WebSocketMessageSink,
+};
 use baudbound_runtime::{
     RunIdentity, RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
     RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeOutputLimits,
@@ -68,6 +71,7 @@ pub use config::{
 pub use package::PackageInspection;
 pub use secrets::{InstalledSecretStatus, MAX_SECRET_INPUT_BYTES};
 pub use serial::{SerialDeviceConfig, serial_device_configs_from_settings};
+pub use settings::{InstalledScriptSettingStatus, MAX_SCRIPT_SETTING_INPUT_BYTES};
 pub use status::{
     ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptMetadata, ScriptStatus,
     TriggerRegistrationStatus,
@@ -118,6 +122,7 @@ impl RuntimeRunObserver for CompositeRunObserver {
 pub struct RunnerCore {
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
+    action_security_policy: ActionSecurityPolicy,
     blacklist_policy: Arc<dyn BlacklistPolicy>,
     configured_target_runtimes: Vec<String>,
     execution_queue: Arc<ScriptExecutionQueue>,
@@ -134,6 +139,7 @@ impl Default for RunnerCore {
         Self {
             action_handler: None,
             action_limits: ActionLimits::default(),
+            action_security_policy: ActionSecurityPolicy::default(),
             blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: Vec::new(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
@@ -163,6 +169,9 @@ impl RunnerCore {
                 max_file_read_bytes: config.limits.max_file_read_bytes,
                 max_http_response_bytes: config.limits.max_http_response_bytes,
             },
+            action_security_policy: ActionSecurityPolicy {
+                allow_private_http_requests: config.security.policy.allow_private_http_requests,
+            },
             blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: config.runner.target_runtimes.clone(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
@@ -175,7 +184,6 @@ impl RunnerCore {
             },
             policy: RunnerPolicy {
                 allow_dangerous_actions: config.security.policy.allow_dangerous_permissions,
-                allow_network_servers: config.security.policy.allow_public_network_listeners,
                 allow_shell_commands: config.security.policy.allow_shell_commands,
             },
             run_observers: Vec::new(),
@@ -288,10 +296,36 @@ impl RunnerCore {
             .iter()
             .map(|secret| secret.name.clone())
             .collect::<std::collections::BTreeSet<_>>();
+        let declared_settings = package
+            .manifest
+            .settings
+            .iter()
+            .map(|setting| {
+                (
+                    setting.name.clone(),
+                    (setting.value_type.clone(), setting.item_type.clone()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         let result = store.update_script(import_request_from_package(&staged.path, package))?;
         for secret in store.list_secret_statuses(&result.id)? {
             if !declared_secret_names.contains(&secret.name) {
                 store.remove_secret(&result.id, &secret.name)?;
+            }
+        }
+        for setting in store.list_script_settings(&result.id)? {
+            let compatible =
+                declared_settings
+                    .get(&setting.name)
+                    .is_some_and(|(value_type, item_type)| {
+                        settings::value_matches_type(
+                            value_type,
+                            item_type.as_deref(),
+                            &setting.value,
+                        )
+                    });
+            if !compatible {
+                store.remove_script_setting(&result.id, &setting.name)?;
             }
         }
         Ok(result)
@@ -522,6 +556,33 @@ impl RunnerCore {
         secrets::remove_installed_secret(self, store, reference, name)
     }
 
+    pub fn list_installed_script_settings(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+    ) -> Result<Vec<InstalledScriptSettingStatus>, CoreError> {
+        settings::list_installed_script_settings(self, store, reference)
+    }
+
+    pub fn set_installed_script_setting_from_text(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        name: &str,
+        value: &str,
+    ) -> Result<InstalledScriptSettingStatus, CoreError> {
+        settings::set_installed_script_setting_from_text(self, store, reference, name, value)
+    }
+
+    pub fn remove_installed_script_setting(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        name: &str,
+    ) -> Result<bool, CoreError> {
+        settings::remove_installed_script_setting(self, store, reference, name)
+    }
+
     pub fn run_installed(
         &self,
         store: &impl ScriptStore,
@@ -701,9 +762,12 @@ impl RunnerCore {
                     RuntimeDefaultVariableScope::Runtime
                 },
                 value_type: variable.value_type.clone(),
+                item_type: variable.item_type.clone(),
                 value: variable.value.clone(),
             })
             .collect::<Vec<_>>();
+        let script_settings =
+            settings::resolve_runtime_script_settings(store, &installed.id, &package)?;
 
         let runtime_resources = || {
             let resources = RuntimeExecutionResources::new(&core_action_handler)
@@ -711,6 +775,7 @@ impl RunnerCore {
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
                 .with_default_variables(&default_variables)
+                .with_script_settings(&script_settings)
                 .with_output_limits(self.output_limits);
             match self.run_observers.as_slice() {
                 [] => resources,
@@ -769,7 +834,8 @@ impl RunnerCore {
     pub fn headless_action_handler(&self) -> HeadlessActionHandler {
         let mut action_handler = HeadlessActionHandler::default()
             .with_serial_connections(Arc::clone(&self.serial_connections))
-            .with_limits(self.action_limits);
+            .with_limits(self.action_limits)
+            .with_security_policy(self.action_security_policy);
         if let Some(sink) = &self.websocket_sink {
             action_handler = action_handler.with_websocket_sink(Arc::clone(sink));
         }
@@ -980,6 +1046,8 @@ pub enum CoreError {
     SubScriptCycle(String),
     #[error("secret configuration is invalid: {0}")]
     InvalidSecret(String),
+    #[error("Script Setting configuration is invalid: {0}")]
+    InvalidSetting(String),
     #[error(transparent)]
     Version(#[from] VersionCompatibilityError),
 }

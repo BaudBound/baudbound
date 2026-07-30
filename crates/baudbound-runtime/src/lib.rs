@@ -6,7 +6,8 @@ mod runtime;
 pub use execution::*;
 pub use runtime::{
     RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeDefaultVariableScope,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
+    RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
+    VersionedRuntimeVariable,
 };
 
 #[cfg(test)]

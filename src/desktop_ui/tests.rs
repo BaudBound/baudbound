@@ -271,15 +271,17 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         "Stored persistent and global variables are already empty."
     );
 
-    let disabled = invoke(
+    let disabled = invoke_sensitive(
         &webview,
         "set_script_enabled",
+        json!({"kind": "set_script_enabled", "reference": "desktop-workflow", "enabled": false}),
         json!({"reference": "desktop-workflow", "enabled": false}),
     );
     assert_eq!(disabled["dashboard"]["runner"]["enabled_script_count"], 0);
-    invoke(
+    invoke_sensitive(
         &webview,
         "set_script_enabled",
+        json!({"kind": "set_script_enabled", "reference": "desktop-workflow", "enabled": true}),
         json!({"reference": "desktop-workflow", "enabled": true}),
     );
 

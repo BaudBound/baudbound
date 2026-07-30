@@ -36,6 +36,7 @@ struct RuntimeExecutor<'a> {
     variable_scopes: std::collections::BTreeMap<String, RunVariableScope>,
     secret_names: Vec<String>,
     secret_values: Vec<Value>,
+    webhook_response_sent: bool,
 }
 
 impl<'a> RuntimeExecutor<'a> {
@@ -50,6 +51,7 @@ impl<'a> RuntimeExecutor<'a> {
             &identity.script_id,
             resources.state_store,
             resources.default_variables,
+            resources.script_settings,
             resources.secrets,
         )?;
         for (name, value) in &initial_state.variables {
@@ -79,6 +81,7 @@ impl<'a> RuntimeExecutor<'a> {
             variable_scopes: initial_state.variable_scopes,
             secret_names: initial_state.secret_names,
             secret_values: initial_state.secret_values,
+            webhook_response_sent: false,
         })
     }
 

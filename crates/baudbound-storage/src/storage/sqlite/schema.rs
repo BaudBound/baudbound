@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 15;
+pub const CURRENT_SCHEMA_VERSION: i64 = 16;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -343,6 +343,28 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 SET information_mismatch_refresh_required = 1
                 WHERE information_mismatch IS NOT NULL;
                 PRAGMA user_version = 15;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 16 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                CREATE TABLE script_settings (
+                    script_id TEXT NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    value_json TEXT NOT NULL,
+                    updated_at_unix INTEGER NOT NULL,
+                    PRIMARY KEY (script_id, name)
+                );
+                PRAGMA user_version = 16;
                 COMMIT;
                 "#,
             )

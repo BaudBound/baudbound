@@ -49,6 +49,22 @@ pub(super) enum SensitiveOperation {
         reference: String,
         enabled: bool,
     },
+    SetScriptEnabled {
+        reference: String,
+        enabled: bool,
+    },
+    SetScriptSetting {
+        reference: String,
+        name: String,
+        value_digest: String,
+    },
+    UnsetScriptSetting {
+        reference: String,
+        name: String,
+    },
+    ResetScriptSettings {
+        reference: String,
+    },
     InstallRemoteScriptPackage {
         review_id: String,
         sha256: String,
@@ -107,6 +123,10 @@ impl SensitiveOperation {
             Self::ImportScriptPackage { .. } => "import_script_package",
             Self::UpdateScriptPackage { .. } => "update_script_package",
             Self::SetScriptAutomaticUpdateChecks { .. } => "set_script_automatic_update_checks",
+            Self::SetScriptEnabled { .. } => "set_script_enabled",
+            Self::SetScriptSetting { .. } => "set_script_setting",
+            Self::UnsetScriptSetting { .. } => "unset_script_setting",
+            Self::ResetScriptSettings { .. } => "reset_script_settings",
             Self::InstallRemoteScriptPackage { .. } => "install_remote_script_package",
             Self::RunScript { .. } => "run_script",
             Self::SaveRunnerConfig { .. } => "save_runner_config",
@@ -142,6 +162,19 @@ impl SensitiveOperation {
                 "{} automatic update checks for {reference}",
                 if *enabled { "Enable" } else { "Disable" }
             ),
+            Self::SetScriptEnabled { reference, enabled } => format!(
+                "{} {reference}",
+                if *enabled { "Enable" } else { "Disable" }
+            ),
+            Self::SetScriptSetting {
+                reference, name, ..
+            } => format!("Set Script Setting {name} for {reference}"),
+            Self::UnsetScriptSetting { reference, name } => {
+                format!("Reset Script Setting {name} for {reference}")
+            }
+            Self::ResetScriptSettings { reference } => {
+                format!("Reset all Script Settings for {reference}")
+            }
             Self::InstallRemoteScriptPackage { .. } => {
                 "Install the reviewed remote script package".to_owned()
             }
@@ -364,8 +397,23 @@ fn validate_operation(
         | SensitiveOperation::RevokeScriptApproval { reference }
         | SensitiveOperation::RemoveScript { reference }
         | SensitiveOperation::RunScript { reference }
-        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
+        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. }
+        | SensitiveOperation::SetScriptEnabled { reference, .. }
+        | SensitiveOperation::ResetScriptSettings { reference } => {
             validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)
+        }
+        SensitiveOperation::SetScriptSetting {
+            reference,
+            name,
+            value_digest,
+        } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
+            validate_text("setting name", name, MAX_NAME_BYTES, false)?;
+            validate_sha256_digest("setting value digest", value_digest)
+        }
+        SensitiveOperation::UnsetScriptSetting { reference, name } => {
+            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
+            validate_text("setting name", name, MAX_NAME_BYTES, false)
         }
         SensitiveOperation::ImportScriptPackage { package_path }
         | SensitiveOperation::UpdateScriptPackage { package_path } => {
@@ -475,6 +523,13 @@ fn validate_text(
     Ok(())
 }
 
+fn validate_sha256_digest(label: &str, value: &str) -> Result<(), String> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    Err(format!("{label} must contain 64 hexadecimal characters"))
+}
+
 impl ConfirmationChallenge {
     pub(super) fn into_confirmation_id(self) -> String {
         self.confirmation_id
@@ -515,7 +570,11 @@ fn operation_digest(
         | SensitiveOperation::RevokeScriptApproval { reference }
         | SensitiveOperation::RemoveScript { reference }
         | SensitiveOperation::RunScript { reference }
-        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. } => {
+        | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. }
+        | SensitiveOperation::SetScriptEnabled { reference, .. }
+        | SensitiveOperation::SetScriptSetting { reference, .. }
+        | SensitiveOperation::UnsetScriptSetting { reference, .. }
+        | SensitiveOperation::ResetScriptSettings { reference } => {
             let installed = state
                 .store
                 .verify_script_package_hash(reference)

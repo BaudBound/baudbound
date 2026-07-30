@@ -118,36 +118,10 @@ fn parse_secret_value(value_type: &str, input: &str) -> Result<Value, CoreError>
         )));
     }
     match value_type {
-        "string" | "file_path" => Ok(Value::String(input.to_owned())),
-        "number" => input
-            .parse::<f64>()
-            .ok()
-            .filter(|value| value.is_finite())
-            .and_then(serde_json::Number::from_f64)
-            .map(Value::Number)
-            .ok_or_else(|| CoreError::InvalidSecret("expected a finite number".to_owned())),
-        "boolean" => input
-            .parse::<bool>()
-            .map(Value::Bool)
-            .map_err(|_| CoreError::InvalidSecret("expected true or false".to_owned())),
-        "list" => parse_json_container(input, false),
-        "object" | "http_response" | "datetime" | "duration" => parse_json_container(input, true),
+        "string" => Ok(Value::String(input.to_owned())),
         invalid => Err(CoreError::InvalidSecret(format!(
             "unsupported declared type {invalid:?}"
         ))),
-    }
-}
-
-fn parse_json_container(input: &str, object: bool) -> Result<Value, CoreError> {
-    let value = serde_json::from_str::<Value>(input)
-        .map_err(|error| CoreError::InvalidSecret(format!("expected valid JSON: {error}")))?;
-    if (object && value.is_object()) || (!object && value.is_array()) {
-        Ok(value)
-    } else {
-        Err(CoreError::InvalidSecret(format!(
-            "expected a JSON {}",
-            if object { "object" } else { "array" }
-        )))
     }
 }
 

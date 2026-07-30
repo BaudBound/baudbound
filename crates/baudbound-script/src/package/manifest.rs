@@ -12,11 +12,22 @@ const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
     "boolean",
     "object",
     "list",
-    "http_response",
     "datetime",
     "duration",
     "file_path",
 ];
+const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
+    "string",
+    "number",
+    "boolean",
+    "object",
+    "datetime",
+    "duration",
+    "file_path",
+];
+const SUPPORTED_SETTING_TYPES: &[&str] = SUPPORTED_VARIABLE_TYPES;
+pub const MAX_SCRIPT_SETTING_CONTAINER_ITEMS: usize = 4096;
+pub const MAX_SCRIPT_SETTING_VALUE_DEPTH: usize = 32;
 
 const MAX_DEFAULT_VALUE_BYTES: usize = 1_048_576;
 
@@ -104,6 +115,25 @@ pub(super) fn validate_manifest_metadata(manifest: &Manifest) -> Result<(), Pack
             errors.push(format!(
                 "manifest variable {:?} default value exceeds {MAX_DEFAULT_VALUE_BYTES} bytes",
                 variable.name
+            ));
+        }
+    }
+    for setting in &manifest.settings {
+        validate_text(
+            "setting description",
+            &setting.description,
+            1024,
+            true,
+            false,
+            &mut errors,
+        );
+        if setting.default_value.as_ref().is_some_and(|value| {
+            serde_json::to_vec(value)
+                .is_ok_and(|serialized| serialized.len() > MAX_DEFAULT_VALUE_BYTES)
+        }) {
+            errors.push(format!(
+                "manifest setting {:?} default value exceeds {MAX_DEFAULT_VALUE_BYTES} bytes",
+                setting.name
             ));
         }
     }
@@ -205,14 +235,94 @@ pub(super) fn validate_manifest_secrets(manifest: &Manifest) -> Result<(), Packa
         if !names.insert(secret.name.as_str()) {
             errors.push(format!("duplicate manifest secret name {:?}", secret.name));
         }
-        if !SUPPORTED_VARIABLE_TYPES.contains(&secret.value_type.as_str()) {
+        if secret.value_type != "string" {
             errors.push(format!(
-                "manifest secret {:?} uses unsupported type {:?}",
+                "manifest secret {:?} must use type \"string\", found {:?}",
                 secret.name, secret.value_type
             ));
         }
     }
     finish_validation(errors)
+}
+
+pub(super) fn validate_manifest_settings(manifest: &Manifest) -> Result<(), PackageLoadError> {
+    let mut errors = Vec::new();
+    let mut names = BTreeSet::new();
+    for setting in &manifest.settings {
+        validate_name("setting", &setting.name, &mut errors);
+        if !names.insert(setting.name.as_str()) {
+            errors.push(format!(
+                "duplicate manifest setting name {:?}",
+                setting.name
+            ));
+        }
+        if !SUPPORTED_SETTING_TYPES.contains(&setting.value_type.as_str()) {
+            errors.push(format!(
+                "manifest setting {:?} uses unsupported type {:?}",
+                setting.name, setting.value_type
+            ));
+        } else if let Some(error) =
+            validate_list_item_type(&setting.value_type, setting.item_type.as_deref())
+        {
+            errors.push(format!("manifest setting {:?} {error}", setting.name));
+        } else if setting.default_value.as_ref().is_some_and(|value| {
+            !value_matches_declared_type(&setting.value_type, setting.item_type.as_deref(), value)
+        }) {
+            errors.push(format!(
+                "manifest setting {:?} default value does not match type {}",
+                setting.name, setting.value_type
+            ));
+        } else if let Some(error) = setting
+            .default_value
+            .as_ref()
+            .and_then(|value| validate_script_setting_value_limits(value).err())
+        {
+            errors.push(format!(
+                "manifest setting {:?} default value {error}",
+                setting.name
+            ));
+        }
+    }
+    finish_validation(errors)
+}
+
+pub fn validate_script_setting_value_limits(value: &serde_json::Value) -> Result<(), String> {
+    validate_script_setting_value_at_depth(value, 0)
+}
+
+fn validate_script_setting_value_at_depth(
+    value: &serde_json::Value,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > MAX_SCRIPT_SETTING_VALUE_DEPTH {
+        return Err(format!(
+            "exceeds the maximum nesting depth of {MAX_SCRIPT_SETTING_VALUE_DEPTH}"
+        ));
+    }
+    match value {
+        serde_json::Value::Array(items) => {
+            if items.len() > MAX_SCRIPT_SETTING_CONTAINER_ITEMS {
+                return Err(format!(
+                    "contains more than {MAX_SCRIPT_SETTING_CONTAINER_ITEMS} list items"
+                ));
+            }
+            for item in items {
+                validate_script_setting_value_at_depth(item, depth + 1)?;
+            }
+        }
+        serde_json::Value::Object(properties) => {
+            if properties.len() > MAX_SCRIPT_SETTING_CONTAINER_ITEMS {
+                return Err(format!(
+                    "contains more than {MAX_SCRIPT_SETTING_CONTAINER_ITEMS} object properties"
+                ));
+            }
+            for property in properties.values() {
+                validate_script_setting_value_at_depth(property, depth + 1)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 pub(super) fn validate_manifest_variables(manifest: &Manifest) -> Result<(), PackageLoadError> {
@@ -249,7 +359,15 @@ pub(super) fn validate_manifest_variables(manifest: &Manifest) -> Result<(), Pac
                 "manifest variable {:?} uses unsupported type {:?}",
                 variable.name, variable.value_type
             ));
-        } else if !default_value_matches_type(&variable.value_type, &variable.value) {
+        } else if let Some(error) =
+            validate_list_item_type(&variable.value_type, variable.item_type.as_deref())
+        {
+            errors.push(format!("manifest variable {:?} {error}", variable.name));
+        } else if !value_matches_declared_type(
+            &variable.value_type,
+            variable.item_type.as_deref(),
+            &variable.value,
+        ) {
             errors.push(format!(
                 "manifest variable {:?} default value does not match type {}",
                 variable.name, variable.value_type
@@ -293,17 +411,33 @@ pub(super) fn validate_manifest_variable_operations(
         let Some(variable) = defaults.get(name) else {
             continue;
         };
+        let operation = config
+            .get("operation")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("set");
         let scope = config
             .get("scope")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        let value_type = config
-            .get("valueType")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("string");
-        if scope != variable.scope || value_type != variable.value_type {
+        let declared_type = match operation {
+            "set" => config.get("valueType").and_then(serde_json::Value::as_str),
+            "increment" => Some("number"),
+            "toggle_boolean" => Some("boolean"),
+            "append_list" | "remove_list_items" => Some("list"),
+            "set_object_field" | "remove_object_field" | "merge_object" => Some("object"),
+            "clear" | "delete" => None,
+            _ => config.get("valueType").and_then(serde_json::Value::as_str),
+        };
+        if scope != variable.scope
+            || declared_type.is_some_and(|value_type| value_type != variable.value_type)
+        {
             errors.push(format!(
-                "manifest variable {name:?} does not match Variable Operation scope and type"
+                "manifest variable {name:?} does not match Variable Operation scope{}",
+                if declared_type.is_some() {
+                    " and type"
+                } else {
+                    ""
+                }
             ));
         }
     }
@@ -322,40 +456,69 @@ fn validate_name(kind: &str, name: &str, errors: &mut Vec<String>) {
             "manifest {kind} {name:?} uses a reserved variable prefix"
         ));
     }
+    if kind != "setting" && name == "settings" {
+        errors.push(format!(
+            "manifest {kind} {name:?} uses the reserved Script Settings namespace"
+        ));
+    }
 }
 
-fn default_value_matches_type(value_type: &str, value: &serde_json::Value) -> bool {
+fn value_matches_declared_type(
+    value_type: &str,
+    item_type: Option<&str>,
+    value: &serde_json::Value,
+) -> bool {
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
         "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
-        "list" => value.is_array(),
-        "object" => value.is_object(),
-        "http_response" => value.as_object().is_some_and(|object| {
-            object.get("type").and_then(serde_json::Value::as_str) == Some("http_response")
-                && object
-                    .get("status")
-                    .is_some_and(serde_json::Value::is_number)
-                && object
-                    .get("headers")
-                    .is_some_and(serde_json::Value::is_object)
-                && object.contains_key("body")
+        "list" => value.as_array().is_some_and(|items| {
+            item_type.is_some_and(|item_type| {
+                items
+                    .iter()
+                    .all(|item| value_matches_declared_type(item_type, None, item))
+            })
         }),
+        "object" => value.is_object(),
         "datetime" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(serde_json::Value::as_str) == Some("datetime")
                 && object
                     .get("value")
-                    .is_some_and(serde_json::Value::is_string)
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok())
         }),
         "duration" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(serde_json::Value::as_str) == Some("duration")
-                && object.get("unit").is_some_and(serde_json::Value::is_string)
+                && object
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|unit| {
+                        matches!(
+                            unit,
+                            "milliseconds" | "seconds" | "minutes" | "hours" | "days"
+                        )
+                    })
                 && object
                     .get("value")
-                    .is_some_and(serde_json::Value::is_number)
+                    .and_then(serde_json::Value::as_f64)
+                    .is_some_and(|value| value.is_finite() && value >= 0.0)
         }),
         _ => false,
+    }
+}
+
+fn validate_list_item_type(value_type: &str, item_type: Option<&str>) -> Option<String> {
+    if value_type == "list" {
+        match item_type {
+            Some(item_type) if SUPPORTED_LIST_ITEM_TYPES.contains(&item_type) => None,
+            Some(item_type) => Some(format!("uses unsupported list item type {item_type:?}")),
+            None => Some("must declare item_type because its type is list".to_owned()),
+        }
+    } else if item_type.is_some() {
+        Some("cannot declare item_type unless its type is list".to_owned())
+    } else {
+        None
     }
 }
 
@@ -382,6 +545,134 @@ mod tests {
         }]));
 
         validate_manifest_variables(&manifest).expect("valid default variable should pass");
+    }
+
+    #[test]
+    fn validates_typed_script_setting_defaults() {
+        let manifest = manifest_with_settings(serde_json::json!([
+            {
+                "name": "endpoint",
+                "type": "string",
+                "description": "Service endpoint",
+                "required": true,
+                "default_value": "https://example.test"
+            },
+            {
+                "name": "retries",
+                "type": "number",
+                "default_value": 3
+            },
+            {
+                "name": "enabled",
+                "type": "boolean",
+                "default_value": true
+            },
+            {
+                "name": "headers",
+                "type": "object",
+                "default_value": {"Accept": "application/json"}
+            },
+            {
+                "name": "labels",
+                "type": "list",
+                "item_type": "string",
+                "default_value": ["one", "two"]
+            },
+            {
+                "name": "started_at",
+                "type": "datetime",
+                "default_value": {
+                    "type": "datetime",
+                    "value": "2026-07-29T12:00:00Z"
+                }
+            },
+            {
+                "name": "timeout",
+                "type": "duration",
+                "default_value": {
+                    "type": "duration",
+                    "unit": "seconds",
+                    "value": 30
+                }
+            },
+            {
+                "name": "output_path",
+                "type": "file_path",
+                "default_value": "/tmp/output.txt"
+            }
+        ]));
+
+        validate_manifest_settings(&manifest).expect("valid Script Settings should pass");
+    }
+
+    #[test]
+    fn rejects_invalid_script_setting_declarations() {
+        for (settings, expected) in [
+            (
+                serde_json::json!([
+                    {"name": "mode", "type": "string"},
+                    {"name": "mode", "type": "string"}
+                ]),
+                "duplicate manifest setting name",
+            ),
+            (
+                serde_json::json!([
+                    {"name": "mode", "type": "http_response"}
+                ]),
+                "unsupported type",
+            ),
+            (
+                serde_json::json!([
+                    {"name": "retries", "type": "number", "default_value": "three"}
+                ]),
+                "default value does not match type",
+            ),
+            (
+                serde_json::json!([
+                    {
+                        "name": "mixed",
+                        "type": "list",
+                        "item_type": "string",
+                        "default_value": ["one", 2]
+                    }
+                ]),
+                "default value does not match type",
+            ),
+            (
+                serde_json::json!([
+                    {
+                        "name": "started_at",
+                        "type": "datetime",
+                        "default_value": {
+                            "type": "datetime",
+                            "value": "not-a-date"
+                        }
+                    }
+                ]),
+                "default value does not match type",
+            ),
+        ] {
+            let error = validate_manifest_settings(&manifest_with_settings(settings))
+                .expect_err("invalid Script Settings should fail");
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn rejects_script_setting_defaults_that_exceed_structural_limits() {
+        let oversized = serde_json::Value::Array(
+            (0..=MAX_SCRIPT_SETTING_CONTAINER_ITEMS)
+                .map(|_| serde_json::Value::String("value".to_owned()))
+                .collect(),
+        );
+        let error = validate_manifest_settings(&manifest_with_settings(serde_json::json!([{
+            "name": "items",
+            "type": "list",
+            "item_type": "string",
+            "default_value": oversized
+        }])))
+        .expect_err("oversized Script Setting default should fail");
+        assert!(error.to_string().contains("list items"), "{error}");
     }
 
     #[test]
@@ -427,6 +718,10 @@ mod tests {
                 serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]),
                 "does not match type",
             ),
+            (
+                serde_json::json!([{"name": "settings", "scope": "runtime", "type": "string", "value": "reserved"}]),
+                "reserved Script Settings namespace",
+            ),
         ] {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
                 .expect_err("invalid default variable should fail");
@@ -469,6 +764,21 @@ mod tests {
             "created_at": "2026-01-01T00:00:00.000Z",
             "minimum_runner_version": "0.1.0",
             "variables": variables
+        }))
+        .expect("test manifest should deserialize")
+    }
+
+    fn manifest_with_settings(settings: serde_json::Value) -> Manifest {
+        serde_json::from_value(serde_json::json!({
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+            "name": "script-settings",
+            "version": "1.0.0",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "settings": settings
         }))
         .expect("test manifest should deserialize")
     }

@@ -1,4 +1,4 @@
-import { AlertTriangle, Eye, RefreshCw } from "lucide-react";
+import { AlertTriangle, Eye, RefreshCw, Settings2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -59,16 +59,20 @@ const recentRunSortSelectors: Record<
 export function ScriptDetailPanel({
   busyActions,
   onViewRun,
+  onManageSettings,
   recentRuns,
   runAction,
   script,
+  settingCount,
   updateState,
 }: {
   busyActions: Set<string>;
   onViewRun: (run: StoredRunRecord) => void;
+  onManageSettings: () => void;
   recentRuns: StoredRunRecord[];
   runAction: DashboardAction;
   script: ScriptStatus;
+  settingCount: number;
   updateState: ScriptUpdateState;
 }) {
   const [enableChecksOpen, setEnableChecksOpen] = useState(false);
@@ -130,8 +134,19 @@ export function ScriptDetailPanel({
       ) : null}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>About this script</CardTitle>
+          <span title={settingCount === 0 ? "This script does not declare any settings" : "Script Settings"}>
+            <Button
+              disabled={settingCount === 0}
+              onClick={onManageSettings}
+              size="sm"
+              variant="outline"
+            >
+              <Settings2 />
+              Script Settings
+            </Button>
+          </span>
         </CardHeader>
         <CardContent>
           {metadata ? (

@@ -7,37 +7,20 @@ use baudbound_runtime::{RuntimeActionError, RuntimeCancellationToken};
 use serde_json::{Value, json};
 
 use super::{execute, execute_with_cancellation};
-use crate::actions::process::parse_command_arguments;
 
 #[test]
-fn parses_quoted_arguments_without_destroying_windows_paths() {
-    let request = request("action.process.run");
-    let arguments = parse_command_arguments(
-        &request,
-        r#"alpha "two words" 'three words' escaped\ value C:\Temp\file.txt quote\"value slash\\value"#,
+fn run_process_rejects_string_arguments() {
+    let error = execute(
+        "action.process.run",
+        json!({
+            "executable": "baudbound-definitely-missing-executable",
+            "arguments": "--old string form",
+            "workingDirectory": ""
+        }),
     )
-    .expect("valid arguments should parse");
+    .expect_err("string arguments must be rejected before starting the process");
 
-    assert_eq!(
-        arguments,
-        [
-            "alpha",
-            "two words",
-            "three words",
-            "escaped value",
-            r"C:\Temp\file.txt",
-            "quote\"value",
-            r"slash\value"
-        ]
-    );
-}
-
-#[test]
-fn rejects_unterminated_quoted_arguments() {
-    let request = request("action.process.run");
-    let error = parse_command_arguments(&request, r#"one "unterminated"#)
-        .expect_err("unterminated arguments must fail");
-    assert!(error.to_string().contains("unterminated quoted string"));
+    assert!(error.to_string().contains("arguments must be an array"));
 }
 
 #[test]
@@ -70,7 +53,7 @@ fn run_process_rejects_missing_executables_and_working_directories() {
         "action.process.run",
         json!({
             "executable": "baudbound-definitely-missing-executable",
-            "arguments": "",
+            "arguments": [],
             "workingDirectory": ""
         }),
     )
@@ -231,15 +214,6 @@ fn process_and_shell_reject_invalid_timeouts() {
     }
 }
 
-fn request(action_type: &str) -> baudbound_runtime::RuntimeActionRequest {
-    baudbound_runtime::RuntimeActionRequest {
-        action: None,
-        action_type: action_type.to_owned(),
-        config: Default::default(),
-        node_id: "node-process-test".to_owned(),
-    }
-}
-
 fn output<'a>(result: &'a baudbound_runtime::RuntimeActionResult, key: &str) -> &'a str {
     result.output_data[key]
         .as_str()
@@ -251,29 +225,35 @@ fn normalize_path(value: &str) -> String {
 }
 
 #[cfg(windows)]
-fn failing_process_command() -> (&'static str, &'static str) {
+fn failing_process_command() -> (&'static str, Vec<&'static str>) {
     (
         "cmd",
-        r#"/C "echo stdout-value & echo stderr-value 1>&2 & cd & exit /B 7""#,
+        vec![
+            "/C",
+            "echo stdout-value & echo stderr-value 1>&2 & cd & exit /B 7",
+        ],
     )
 }
 
 #[cfg(not(windows))]
-fn failing_process_command() -> (&'static str, &'static str) {
+fn failing_process_command() -> (&'static str, Vec<&'static str>) {
     (
         "sh",
-        r#"-c "printf stdout-value; printf stderr-value >&2; pwd; exit 7""#,
+        vec![
+            "-c",
+            "printf stdout-value; printf stderr-value >&2; pwd; exit 7",
+        ],
     )
 }
 
 #[cfg(windows)]
-fn successful_process_command() -> (&'static str, &'static str) {
-    ("cmd", "/C exit 0")
+fn successful_process_command() -> (&'static str, Vec<&'static str>) {
+    ("cmd", vec!["/C", "exit 0"])
 }
 
 #[cfg(not(windows))]
-fn successful_process_command() -> (&'static str, &'static str) {
-    ("sh", "-c true")
+fn successful_process_command() -> (&'static str, Vec<&'static str>) {
+    ("sh", vec!["-c", "true"])
 }
 
 #[cfg(windows)]

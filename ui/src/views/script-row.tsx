@@ -1,4 +1,4 @@
-import { Eye, Play, Power, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { Eye, Play, Power, Settings2, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -31,18 +31,22 @@ export function ScriptRow({
   activeRuns,
   busyActions,
   onReviewApproval,
+  onViewSettings,
   onViewDetails,
   runAction,
   script,
+  settingCount,
   updateState,
 }: {
   activeRuns: ActiveRun[];
   busyActions: Set<string>;
   onReviewApproval: (scriptId: string) => void;
+  onViewSettings: (scriptId: string) => void;
   onViewDetails: (scriptId: string) => void;
   runAction: DashboardAction;
   script: ScriptStatus;
   updateState: ScriptUpdateState;
+  settingCount: number;
 }) {
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const reference = script.installed.id;
@@ -116,7 +120,7 @@ export function ScriptRow({
         </Badge>
       </td>
       <td className="px-3 py-3" data-label="Actions">
-        <div className="ml-auto flex w-[11.5rem] justify-between max-[1280px]:ml-0">
+        <div className="ml-auto flex w-56 justify-between max-[1280px]:ml-0">
           {runControl === "stop" ? (
             <Button
               aria-label={`Stop ${script.installed.name}`}
@@ -160,6 +164,19 @@ export function ScriptRow({
           >
             <Eye />
           </Button>
+          <span title={settingCount === 0 ? "This script does not declare any settings" : "Script Settings"}>
+            <Button
+              aria-label={`Configure settings for ${script.installed.name}`}
+              className="size-8 p-0"
+              disabled={settingCount === 0}
+              onClick={() => onViewSettings(reference)}
+              size="sm"
+              title="Script Settings"
+              variant="outline"
+            >
+              <Settings2 />
+            </Button>
+          </span>
           <Button
             aria-label={`Review approval for ${script.installed.name}`}
             className="size-8 p-0"

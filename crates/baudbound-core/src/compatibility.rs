@@ -485,6 +485,7 @@ mod tests {
             entries: Vec::new(),
             manifest: Manifest {
                 variables: Vec::new(),
+                settings: Vec::new(),
                 format_version: 1,
                 script_language_version: 1,
                 id: "script-1".to_owned(),

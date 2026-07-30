@@ -26,6 +26,7 @@ pub struct StoredVariable {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StoredVariableChange {
+    pub deleted: bool,
     pub name: String,
     pub scope: String,
     pub script_id: Option<String>,
@@ -39,6 +40,13 @@ pub struct SecretStatus {
     pub configured: bool,
     pub name: String,
     pub updated_at_unix: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct StoredScriptSetting {
+    pub name: String,
+    pub updated_at_unix: u64,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -550,6 +558,12 @@ pub trait ScriptStore: Send + Sync {
         expected_version: Option<u64>,
         value: &serde_json::Value,
     ) -> Result<bool, StorageError>;
+    fn delete_variable(
+        &self,
+        scope: StoredVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<bool, StorageError>;
     fn list_secret_statuses(
         &self,
         script_reference: &str,
@@ -566,6 +580,21 @@ pub trait ScriptStore: Send + Sync {
         value: &serde_json::Value,
     ) -> Result<SecretStatus, StorageError>;
     fn remove_secret(&self, script_reference: &str, name: &str) -> Result<bool, StorageError>;
+    fn list_script_settings(
+        &self,
+        script_reference: &str,
+    ) -> Result<Vec<StoredScriptSetting>, StorageError>;
+    fn set_script_setting(
+        &self,
+        script_reference: &str,
+        name: &str,
+        value: &serde_json::Value,
+    ) -> Result<StoredScriptSetting, StorageError>;
+    fn remove_script_setting(
+        &self,
+        script_reference: &str,
+        name: &str,
+    ) -> Result<bool, StorageError>;
 }
 
 #[cfg(test)]

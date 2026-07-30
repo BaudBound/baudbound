@@ -35,15 +35,14 @@ pub(crate) fn render_template(template: &str, variables: &BTreeMap<String, Value
 }
 
 pub(crate) fn resolve_template_value(template: &str, variables: &BTreeMap<String, Value>) -> Value {
-    let trimmed = template.trim();
-    if let Some(expression) = trimmed
+    if let Some(expression) = template
         .strip_prefix("{{")
         .and_then(|value| value.strip_suffix("}}"))
         .filter(|expression| !expression.contains("{{") && !expression.contains("}}"))
     {
         return resolve_variable_expression(expression.trim(), variables)
             .cloned()
-            .unwrap_or_else(|| Value::String(trimmed.to_owned()));
+            .unwrap_or_else(|| Value::String(template.to_owned()));
     }
 
     Value::String(render_template(template, variables))
@@ -53,8 +52,7 @@ pub(crate) fn template_value_is_defined(
     template: &str,
     variables: &BTreeMap<String, Value>,
 ) -> bool {
-    let trimmed = template.trim();
-    let Some(expression) = trimmed
+    let Some(expression) = template
         .strip_prefix("{{")
         .and_then(|value| value.strip_suffix("}}"))
         .filter(|expression| !expression.contains("{{") && !expression.contains("}}"))
@@ -285,5 +283,21 @@ mod tests {
             .expect("expected object")
             .clone()
         );
+    }
+
+    #[test]
+    fn exact_value_references_do_not_consume_surrounding_whitespace() {
+        let variables = BTreeMap::from([("value".to_owned(), json!({"nested": true}))]);
+
+        assert_eq!(
+            resolve_template_value("{{value}}", &variables),
+            json!({"nested": true})
+        );
+        assert_eq!(
+            resolve_template_value(" {{value}} ", &variables),
+            json!(" {\"nested\":true} ")
+        );
+        assert!(template_value_is_defined(" {{missing}} ", &variables));
+        assert!(!template_value_is_defined("{{missing}}", &variables));
     }
 }

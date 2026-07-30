@@ -809,7 +809,7 @@ fn serial_input_registration(config: Value) -> TriggerRegistration {
         action_type: "trigger.serial_input".to_owned(),
         config,
         node_id: "n-serial".to_owned(),
-        runner_type: "serial_input".to_owned(),
+        runner_type: "serial.input".to_owned(),
         script_id: "script-1".to_owned(),
         script_name: "Script One".to_owned(),
     }

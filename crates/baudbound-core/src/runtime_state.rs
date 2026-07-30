@@ -49,6 +49,17 @@ impl<S: ScriptStore> RuntimeStateStore for CoreRuntimeStateStore<'_, S> {
             .map_err(|error| error.to_string())
     }
 
+    fn delete_variable(
+        &self,
+        scope: RuntimeVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<bool, String> {
+        self.store
+            .delete_variable(to_stored_scope(scope), script_id, name)
+            .map_err(|error| error.to_string())
+    }
+
     fn read_secret(&self, script_id: &str, name: &str) -> Result<Option<Value>, String> {
         self.store
             .read_secret(script_id, name)

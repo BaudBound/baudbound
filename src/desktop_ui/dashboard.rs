@@ -36,6 +36,15 @@ pub(super) fn build_dashboard_payload(state: &DesktopUiState) -> Result<Dashboar
                 .map(|secrets| (script.installed.id.clone(), secrets))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
+    let script_settings = runner
+        .scripts
+        .iter()
+        .filter_map(|script| {
+            core.list_installed_script_settings(&state.store, &script.installed.id)
+                .ok()
+                .map(|settings| (script.installed.id.clone(), settings))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     let trigger_auth_statuses = runner
         .scripts
         .iter()
@@ -91,6 +100,7 @@ pub(super) fn build_dashboard_payload(state: &DesktopUiState) -> Result<Dashboar
         secret_vault: state.secret_vault.snapshot(),
         stored_secret_value_count: state.store.stored_secret_value_count()?,
         secret_statuses,
+        script_settings,
         script_updates,
         serial_devices,
         service_health,
@@ -131,6 +141,8 @@ pub(super) struct DashboardPayload {
     secret_vault: secret_vault::SecretVaultSnapshot,
     stored_secret_value_count: usize,
     secret_statuses: std::collections::BTreeMap<String, Vec<baudbound_core::InstalledSecretStatus>>,
+    script_settings:
+        std::collections::BTreeMap<String, Vec<baudbound_core::InstalledScriptSettingStatus>>,
     script_updates: std::collections::BTreeMap<String, ScriptUpdatePayload>,
     serial_devices: Vec<SerialDevicePayload>,
     service_health: Value,

@@ -5,20 +5,38 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCount } from "@/lib/count-format";
-import type { ScriptStatus } from "@/lib/runner-api";
+import type {
+  InstalledScriptSettingStatus,
+  ScriptStatus,
+} from "@/lib/runner-api";
 import { hasApprovalProblem, scriptProblems } from "@/lib/script-problems";
 import { approvalLabel, packageHashLabel, riskVariant } from "@/lib/status-format";
 
 export function ScriptProblemPanel({
   onApproveScript,
+  scriptSettings,
   scripts,
 }: {
   onApproveScript: (scriptId: string) => void;
+  scriptSettings: Record<string, InstalledScriptSettingStatus[]>;
   scripts: ScriptStatus[];
 }) {
   const scriptsWithProblems = scripts
     .map((script) => {
       const problems = scriptProblems(script);
+      const missingRequiredSettings = (
+        scriptSettings[script.installed.id] ?? []
+      ).filter((setting) => setting.required && setting.effective_value === null);
+      if (script.installed.enabled && missingRequiredSettings.length > 0) {
+        problems.push({
+          detail: `Configure ${missingRequiredSettings
+            .map((setting) => setting.name)
+            .join(", ")} or disable this script.`,
+          id: "required-script-settings",
+          severity: "error",
+          title: "Required Script Settings are missing",
+        });
+      }
       return {
         problems: script.installed.enabled
           ? problems
@@ -45,7 +63,7 @@ export function ScriptProblemPanel({
         <div>
           <CardTitle>Scripts needing attention</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Resolve approval, package integrity, and trigger registration issues before relying on automatic execution.
+            Resolve approval, package integrity, Script Settings, and trigger registration issues before relying on automatic execution.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

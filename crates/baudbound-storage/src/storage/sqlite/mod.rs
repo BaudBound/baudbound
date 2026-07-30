@@ -29,8 +29,8 @@ mod secrets;
 mod update_cache;
 
 use conversions::{
-    bool_to_sqlite, row_i64_to_usize, u32_to_sqlite, u64_to_sqlite, unix_timestamp_for_sqlite,
-    usize_to_sqlite,
+    bool_to_sqlite, row_i64_to_u64, row_i64_to_usize, u32_to_sqlite, u64_to_sqlite,
+    unix_timestamp_for_sqlite, usize_to_sqlite,
 };
 use rows::{resolve_script, row_to_approval, row_to_installed_script, row_to_run_record};
 pub use run_retention::RunRetentionPolicy;
@@ -978,6 +978,15 @@ impl ScriptStore for SqliteRunnerStore {
         self.compare_and_set_scoped_variable(scope, script_id, name, expected_version, value)
     }
 
+    fn delete_variable(
+        &self,
+        scope: StoredVariableScope,
+        script_id: &str,
+        name: &str,
+    ) -> Result<bool, StorageError> {
+        self.delete_scoped_variable(scope, script_id, name)
+    }
+
     fn list_secret_statuses(
         &self,
         script_reference: &str,
@@ -1004,5 +1013,113 @@ impl ScriptStore for SqliteRunnerStore {
 
     fn remove_secret(&self, script_reference: &str, name: &str) -> Result<bool, StorageError> {
         self.remove_stored_secret(script_reference, name)
+    }
+
+    fn list_script_settings(
+        &self,
+        script_reference: &str,
+    ) -> Result<Vec<crate::StoredScriptSetting>, StorageError> {
+        let installed = self.resolve_reference(script_reference)?;
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT name, value_json, updated_at_unix
+                 FROM script_settings
+                 WHERE script_id = ?1
+                 ORDER BY name COLLATE NOCASE",
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        let rows = statement
+            .query_map(params![installed.id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row_i64_to_u64(2, row.get::<_, i64>(2)?)?,
+                ))
+            })
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        rows.map(|row| {
+            let (name, value_json, updated_at_unix) =
+                row.map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+            let value = serde_json::from_str(&value_json).map_err(|source| {
+                StorageError::Operation(format!(
+                    "stored Script Setting {name:?} contains invalid JSON: {source}"
+                ))
+            })?;
+            Ok(crate::StoredScriptSetting {
+                name,
+                updated_at_unix,
+                value,
+            })
+        })
+        .collect()
+    }
+
+    fn set_script_setting(
+        &self,
+        script_reference: &str,
+        name: &str,
+        value: &serde_json::Value,
+    ) -> Result<crate::StoredScriptSetting, StorageError> {
+        let installed = self.resolve_reference(script_reference)?;
+        let value_json = serde_json::to_string(value).map_err(|source| {
+            StorageError::Operation(format!(
+                "failed to serialize Script Setting {name:?}: {source}"
+            ))
+        })?;
+        let updated_at_unix = current_unix_timestamp();
+        let updated_at_sqlite = u64_to_sqlite(updated_at_unix)?;
+        let connection = self.connection()?;
+        connection
+            .execute(
+                "INSERT INTO script_settings (script_id, name, value_json, updated_at_unix)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(script_id, name) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at_unix = excluded.updated_at_unix",
+                params![installed.id, name, value_json, updated_at_sqlite],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        self.request_trigger_reload_with_connection(&connection)?;
+        Ok(crate::StoredScriptSetting {
+            name: name.to_owned(),
+            updated_at_unix,
+            value: value.clone(),
+        })
+    }
+
+    fn remove_script_setting(
+        &self,
+        script_reference: &str,
+        name: &str,
+    ) -> Result<bool, StorageError> {
+        let installed = self.resolve_reference(script_reference)?;
+        let connection = self.connection()?;
+        let removed = connection
+            .execute(
+                "DELETE FROM script_settings WHERE script_id = ?1 AND name = ?2",
+                params![installed.id, name],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?
+            > 0;
+        if removed {
+            self.request_trigger_reload_with_connection(&connection)?;
+        }
+        Ok(removed)
     }
 }
