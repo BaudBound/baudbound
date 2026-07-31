@@ -247,7 +247,7 @@ fn reads_utf8_file() {
 
     let result = execute(
         "action.file.read",
-        json!({ "path": path.display().to_string(), "encoding": "utf-8" }),
+        json!({ "path": path.display().to_string() }),
     )
     .expect("file read should succeed");
 

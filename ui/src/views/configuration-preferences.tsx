@@ -1,11 +1,19 @@
 import { Clock3, Download, LogIn, Play, Power, X } from "lucide-react";
 
+import { NumericField } from "@/components/numeric-field";
+import type { NumericFieldContract } from "@/components/numeric-field-model";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import type { RunnerConfig, TimeFormat } from "@/lib/runner-api";
+
+const updateIntervalContract: NumericFieldContract = {
+  kind: "integer",
+  maximum: "8760",
+  minimum: "1",
+  signed: false,
+};
 
 export function ConfigGroupHeading({
   description,
@@ -64,33 +72,34 @@ export function SharedConfiguration({
                 onChange({ ...config, updates: { ...config.updates, automatic_checks } })
               }
             />
-            <label className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 px-4 py-3.5 max-sm:grid-cols-1">
+            <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 px-4 py-3.5 max-sm:grid-cols-1">
               <span>
-                <span className="block text-sm font-medium">Check interval</span>
+                <label className="block text-sm font-medium" htmlFor="update-check-interval">
+                  Check interval
+                </label>
                 <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
                   Minimum hours between repository refreshes and enabled automatic checks.
                 </span>
               </span>
-              <Input
-                max={8_760}
-                min={1}
-                onChange={(event) =>
-                  onChange({
-                    ...config,
-                    updates: {
-                      ...config.updates,
-                      check_interval_hours: boundedInteger(
-                        event.target.valueAsNumber,
-                        1,
-                        8_760,
-                      ),
-                    },
-                  })
-                }
-                type="number"
+              <NumericField
+                ariaLabel="Check interval"
+                contract={updateIntervalContract}
+                id="update-check-interval"
+                onChange={(draft) => {
+                  const parsed = Number(draft);
+                  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 8_760) {
+                    onChange({
+                      ...config,
+                      updates: {
+                        ...config.updates,
+                        check_interval_hours: parsed,
+                      },
+                    });
+                  }
+                }}
                 value={config.updates.check_interval_hours}
               />
-            </label>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -243,10 +252,4 @@ function TimeFormatRow({
       </div>
     </div>
   );
-}
-
-function boundedInteger(value: number, min: number, max: number) {
-  return Number.isFinite(value)
-    ? Math.min(max, Math.max(min, Math.trunc(value)))
-    : min;
 }
