@@ -1,6 +1,8 @@
 import { Plus, RefreshCcw, RotateCcw, Save, Trash2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 
+import { NumericField } from "@/components/numeric-field";
+import type { NumericFieldContract } from "@/components/numeric-field-model";
 import { TomlCodeEditor } from "@/components/toml-code-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1194,17 +1196,36 @@ function NumberField({
   onChange: (value: number) => void;
   value: number;
 }) {
+  const inputId = useId();
+  const contract: NumericFieldContract = {
+    kind: "integer",
+    maximum: String(max ?? Number.MAX_SAFE_INTEGER),
+    minimum: String(min),
+    signed: min < 0,
+  };
+
   return (
-    <label className="grid gap-1.5 text-sm">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <Input
-        max={max}
-        min={min}
-        onChange={(event) => onChange(clampNumber(event.target.valueAsNumber, min, max))}
-        type="number"
+    <div className="grid gap-1.5 text-sm">
+      <label className="text-xs text-muted-foreground" htmlFor={inputId}>
+        {label}
+      </label>
+      <NumericField
+        ariaLabel={label}
+        contract={contract}
+        id={inputId}
+        onChange={(draft) => {
+          const parsed = Number(draft);
+          if (
+            Number.isInteger(parsed) &&
+            parsed >= min &&
+            (max === undefined || parsed <= max)
+          ) {
+            onChange(parsed);
+          }
+        }}
         value={Number.isFinite(value) ? value : min}
       />
-    </label>
+    </div>
   );
 }
 
@@ -1321,11 +1342,4 @@ const targetRuntimeOptions = [
 function nullableText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function clampNumber(value: number, min: number, max?: number) {
-  if (!Number.isFinite(value)) return min;
-  const integer = Math.trunc(value);
-  if (typeof max === "number") return Math.min(Math.max(integer, min), max);
-  return Math.max(integer, min);
 }

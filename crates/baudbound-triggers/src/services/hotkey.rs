@@ -91,7 +91,7 @@ impl HotkeyService {
         key: &str,
         timestamp: SystemTime,
     ) -> Result<Vec<TriggerEvent>, TriggerError> {
-        let normalized_key = normalize_hotkey(key).map_err(|message| {
+        let normalized_key = normalize_windows_hotkey(key).map_err(|message| {
             TriggerError::Failed("trigger.hotkey".to_owned(), message.to_owned())
         })?;
         let Some(registrations) = self.bindings.get(&normalized_key) else {
@@ -143,13 +143,13 @@ impl HotkeySpec {
         }
 
         Ok(Self {
-            normalized_key: normalize_hotkey(key)
+            normalized_key: normalize_windows_hotkey(key)
                 .map_err(|message| TriggerError::Failed(registration.node_id.clone(), message))?,
         })
     }
 }
 
-fn normalize_hotkey(input: &str) -> Result<String, String> {
+pub fn normalize_windows_hotkey(input: &str) -> Result<String, String> {
     parse_hotkey(input).map(|hotkey| hotkey.expression)
 }
 

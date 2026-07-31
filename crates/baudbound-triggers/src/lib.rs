@@ -17,7 +17,7 @@ pub use services::{
     FileWatchService, HotkeyService, NativeHotkeyService, ProcessStartedService, ScheduleService,
     SerialDeviceConfig, SerialInputService, SerialReaderStatus, StartupService,
     WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig, WebhookDispatch,
-    WebhookRequest, WebhookResponse, WebhookService,
+    WebhookRequest, WebhookResponse, WebhookService, normalize_windows_hotkey,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]

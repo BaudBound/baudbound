@@ -6,6 +6,7 @@ use baudbound_script::{
     validate_script_setting_value_limits,
 };
 use baudbound_storage::{ScriptStore, StoredScriptSetting};
+use baudbound_triggers::normalize_windows_hotkey;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -166,7 +167,7 @@ fn parse_setting_value(
         )));
     }
     let value = match declaration.value_type.as_str() {
-        "string" | "file_path" => Ok(Value::String(input.to_owned())),
+        "string" | "file_path" | "hotkey" | "color" => Ok(Value::String(input.to_owned())),
         "number" => input
             .parse::<f64>()
             .ok()
@@ -225,6 +226,10 @@ pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, valu
     match value_type {
         "string" => value.is_string(),
         "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
+        "hotkey" => value
+            .as_str()
+            .is_some_and(|key| normalize_windows_hotkey(key).is_ok()),
+        "color" => value.as_str().is_some_and(is_hex_color),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
@@ -262,6 +267,12 @@ pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, valu
     }
 }
 
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -287,6 +298,8 @@ mod tests {
                 json!({"type": "duration", "unit": "minutes", "value": 5}),
             ),
             ("file_path", "/tmp/output.txt", json!("/tmp/output.txt")),
+            ("hotkey", "Ctrl+Shift+F8", json!("Ctrl+Shift+F8")),
+            ("color", "#1A2b3C", json!("#1A2b3C")),
         ] {
             assert_eq!(
                 parse_setting_value(
@@ -325,6 +338,13 @@ mod tests {
                 "does not match declared type",
             ),
             ("file_path", "   ", "does not match declared type"),
+            (
+                "hotkey",
+                "Ctrl+DefinitelyNotAKey",
+                "does not match declared type",
+            ),
+            ("color", "red", "does not match declared type"),
+            ("color", "#12345G", "does not match declared type"),
             ("list", "[\"one\",2]", "does not match declared type"),
         ] {
             let error = parse_setting_value(&declaration(value_type, None), input)

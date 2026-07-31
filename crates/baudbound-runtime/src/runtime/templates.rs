@@ -34,7 +34,7 @@ pub(crate) fn render_template(template: &str, variables: &BTreeMap<String, Value
     output
 }
 
-pub(crate) fn resolve_template_value(template: &str, variables: &BTreeMap<String, Value>) -> Value {
+pub fn resolve_template_value(template: &str, variables: &BTreeMap<String, Value>) -> Value {
     if let Some(expression) = template
         .strip_prefix("{{")
         .and_then(|value| value.strip_suffix("}}"))

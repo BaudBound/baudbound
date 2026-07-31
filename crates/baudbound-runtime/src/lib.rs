@@ -7,7 +7,7 @@ pub use execution::*;
 pub use runtime::{
     RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeDefaultVariableScope,
     RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
-    VersionedRuntimeVariable,
+    VersionedRuntimeVariable, resolve_template_value,
 };
 
 #[cfg(test)]

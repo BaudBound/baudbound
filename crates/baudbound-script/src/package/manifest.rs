@@ -25,7 +25,18 @@ const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
     "duration",
     "file_path",
 ];
-const SUPPORTED_SETTING_TYPES: &[&str] = SUPPORTED_VARIABLE_TYPES;
+const SUPPORTED_SETTING_TYPES: &[&str] = &[
+    "string",
+    "number",
+    "boolean",
+    "object",
+    "list",
+    "datetime",
+    "duration",
+    "file_path",
+    "hotkey",
+    "color",
+];
 pub const MAX_SCRIPT_SETTING_CONTAINER_ITEMS: usize = 4096;
 pub const MAX_SCRIPT_SETTING_VALUE_DEPTH: usize = 32;
 
@@ -471,6 +482,8 @@ fn value_matches_declared_type(
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
         "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
+        "hotkey" => value.as_str().is_some_and(|key| !key.trim().is_empty()),
+        "color" => value.as_str().is_some_and(is_hex_color),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
@@ -506,6 +519,12 @@ fn value_matches_declared_type(
         }),
         _ => false,
     }
+}
+
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
 }
 
 fn validate_list_item_type(value_type: &str, item_type: Option<&str>) -> Option<String> {
@@ -599,6 +618,16 @@ mod tests {
                 "name": "output_path",
                 "type": "file_path",
                 "default_value": "/tmp/output.txt"
+            },
+            {
+                "name": "shortcut",
+                "type": "hotkey",
+                "default_value": "Ctrl+Shift+F8"
+            },
+            {
+                "name": "accent",
+                "type": "color",
+                "default_value": "#1A2b3C"
             }
         ]));
 
@@ -624,6 +653,12 @@ mod tests {
             (
                 serde_json::json!([
                     {"name": "retries", "type": "number", "default_value": "three"}
+                ]),
+                "default value does not match type",
+            ),
+            (
+                serde_json::json!([
+                    {"name": "accent", "type": "color", "default_value": "#12345G"}
                 ]),
                 "default value does not match type",
             ),

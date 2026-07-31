@@ -460,7 +460,9 @@ impl RunnerCore {
             if !include_inactive && !has_current_approval(store, &script, &package)? {
                 continue;
             }
-            registrations.extend(trigger_registrations_from_package(&script, &package)?);
+            registrations.extend(trigger_registrations_from_package(
+                store, &script, &package,
+            )?);
         }
         registrations.sort_by(|left, right| {
             left.script_name
@@ -867,7 +869,7 @@ impl RunnerCore {
                     if let Err(error) = self.validate_loaded_package(&package) {
                         package_error = Some(error.to_string());
                     } else {
-                        match trigger_registrations_from_package(&script, &package) {
+                        match trigger_registrations_from_package(store, &script, &package) {
                             Ok(registrations) => {
                                 triggers = registrations
                                     .into_iter()

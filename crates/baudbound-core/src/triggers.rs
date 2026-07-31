@@ -1,11 +1,12 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
 };
 
+use baudbound_runtime::resolve_template_value;
 use baudbound_script::ScriptPackage;
-use baudbound_storage::{InstalledScript, ScriptStore};
+use baudbound_storage::{InstalledScript, ScriptStore, StoredVariableScope};
 use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 use serde_json::Value;
 
@@ -32,6 +33,7 @@ impl<S: ScriptStore> TriggerDispatcher for CoreTriggerDispatcher<'_, S> {
 }
 
 pub(crate) fn trigger_registrations_from_package(
+    store: &impl ScriptStore,
     installed: &InstalledScript,
     package: &ScriptPackage,
 ) -> Result<Vec<TriggerRegistration>, CoreError> {
@@ -51,6 +53,16 @@ pub(crate) fn trigger_registrations_from_package(
 
     let mut seen_node_ids = BTreeSet::new();
     let mut registrations = Vec::new();
+    let pre_trigger_values = trigger_values
+        .iter()
+        .any(|trigger| {
+            trigger
+                .get("action_type")
+                .and_then(Value::as_str)
+                .is_some_and(|action_type| !pre_trigger_template_fields(action_type).is_empty())
+        })
+        .then(|| pre_trigger_variables(store, installed, package))
+        .transpose()?;
     for trigger in trigger_values {
         let action_type = trigger
             .get("action_type")
@@ -80,6 +92,9 @@ pub(crate) fn trigger_registrations_from_package(
             .get("config")
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
+        if let Some(variables) = pre_trigger_values.as_ref() {
+            resolve_pre_trigger_config(action_type, &mut config, variables);
+        }
         if action_type == "trigger.file_watch" {
             resolve_limited_file_watch_path(installed, &mut config)?;
         }
@@ -95,6 +110,79 @@ pub(crate) fn trigger_registrations_from_package(
     }
 
     Ok(registrations)
+}
+
+fn pre_trigger_variables(
+    store: &impl ScriptStore,
+    installed: &InstalledScript,
+    package: &ScriptPackage,
+) -> Result<BTreeMap<String, Value>, CoreError> {
+    let mut variables = BTreeMap::new();
+    for variable in &package.manifest.variables {
+        let value = if variable.scope == "persistent" {
+            store
+                .load_variable(
+                    StoredVariableScope::Persistent,
+                    &installed.id,
+                    &variable.name,
+                )?
+                .map(|stored| stored.value)
+                .unwrap_or_else(|| variable.value.clone())
+        } else {
+            variable.value.clone()
+        };
+        variables.insert(variable.name.clone(), value);
+    }
+
+    let configured_settings = store
+        .list_script_settings(&installed.id)?
+        .into_iter()
+        .map(|setting| (setting.name, setting.value))
+        .collect::<BTreeMap<_, _>>();
+    let settings = package
+        .manifest
+        .settings
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.name.clone(),
+                configured_settings
+                    .get(&declaration.name)
+                    .cloned()
+                    .or_else(|| declaration.default_value.clone())
+                    .unwrap_or(Value::Null),
+            )
+        })
+        .collect();
+    variables.insert("settings".to_owned(), Value::Object(settings));
+    Ok(variables)
+}
+
+fn resolve_pre_trigger_config(
+    action_type: &str,
+    config: &mut Value,
+    variables: &BTreeMap<String, Value>,
+) {
+    for field in pre_trigger_template_fields(action_type) {
+        let Some(template) = config.get(*field).and_then(Value::as_str) else {
+            continue;
+        };
+        let resolved = resolve_template_value(template, variables);
+        if let Some(value) = config.get_mut(*field) {
+            *value = resolved;
+        }
+    }
+}
+
+fn pre_trigger_template_fields(action_type: &str) -> &'static [&'static str] {
+    match action_type {
+        "trigger.schedule" => &["every"],
+        "trigger.file_watch" => &["path"],
+        "trigger.process_started" => &["target"],
+        "trigger.hotkey" => &["key"],
+        "trigger.webhook" => &["timeoutResponseContentType", "timeoutResponseBody"],
+        _ => &[],
+    }
 }
 
 fn resolve_limited_file_watch_path(
@@ -169,4 +257,62 @@ fn nearest_existing_ancestor(path: &Path) -> PathBuf {
         current = parent;
     }
     current.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn resolves_schedule_values_available_before_trigger_dispatch() {
+        let variables = BTreeMap::from([
+            ("interval".to_owned(), json!(2.5)),
+            ("settings".to_owned(), json!({ "interval": 4 })),
+        ]);
+
+        let mut default_config = json!({ "every": "{{interval}}", "unit": "seconds" });
+        resolve_pre_trigger_config("trigger.schedule", &mut default_config, &variables);
+        assert_eq!(default_config["every"], json!(2.5));
+
+        let mut setting_config = json!({ "every": "{{settings.interval}}", "unit": "seconds" });
+        resolve_pre_trigger_config("trigger.schedule", &mut setting_config, &variables);
+        assert_eq!(setting_config["every"], json!(4));
+    }
+
+    #[test]
+    fn leaves_unavailable_schedule_values_unresolved_for_service_validation() {
+        let mut config = json!({ "every": "{{node.output}}", "unit": "seconds" });
+
+        resolve_pre_trigger_config("trigger.schedule", &mut config, &BTreeMap::new());
+
+        assert_eq!(config["every"], json!("{{node.output}}"));
+    }
+
+    #[test]
+    fn resolves_only_declared_pre_trigger_fields() {
+        let variables = BTreeMap::from([
+            ("path".to_owned(), json!("inbox")),
+            ("key".to_owned(), json!("Ctrl+F8")),
+            ("name".to_owned(), json!("must-not-resolve")),
+        ]);
+
+        let mut file_watch = json!({ "path": "{{path}}", "recursive": false });
+        resolve_pre_trigger_config("trigger.file_watch", &mut file_watch, &variables);
+        assert_eq!(file_watch["path"], json!("inbox"));
+
+        let mut hotkey = json!({ "key": "{{key}}" });
+        resolve_pre_trigger_config("trigger.hotkey", &mut hotkey, &variables);
+        assert_eq!(hotkey["key"], json!("Ctrl+F8"));
+
+        for (action_type, field) in [
+            ("trigger.serial_input", "deviceId"),
+            ("trigger.webhook", "hookName"),
+            ("trigger.websocket", "path"),
+        ] {
+            let mut config = json!({ (field): "{{name}}" });
+            resolve_pre_trigger_config(action_type, &mut config, &variables);
+            assert_eq!(config[field], json!("{{name}}"));
+        }
+    }
 }

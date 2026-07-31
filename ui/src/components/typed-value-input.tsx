@@ -2,7 +2,15 @@ import CodeMirror from "@uiw/react-codemirror";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ColorValueInput } from "@/components/color-value-input";
+import { HotkeyInput } from "@/components/hotkey-input";
 import { Input } from "@/components/ui/input";
+import {
+  runtimeFloatMaximum,
+  runtimeFloatMinimum,
+  type NumericFieldContract,
+} from "@/components/numeric-field-model";
+import { NumericField } from "@/components/numeric-field";
 import {
   Select,
   SelectContent,
@@ -16,6 +24,17 @@ type ValueType = InstalledScriptSettingStatus["value_type"];
 type ItemType = NonNullable<InstalledScriptSettingStatus["item_type"]>;
 
 const durationUnits = ["milliseconds", "seconds", "minutes", "hours", "days"] as const;
+const runtimeNumberContract: NumericFieldContract = {
+  kind: "float",
+  maximum: runtimeFloatMaximum,
+  minimum: runtimeFloatMinimum,
+  signed: true,
+};
+const durationAmountContract: NumericFieldContract = {
+  ...runtimeNumberContract,
+  minimum: "0",
+  signed: false,
+};
 
 export function TypedValueInput({
   id,
@@ -41,6 +60,18 @@ export function TypedValueInput({
           <SelectItem value="false">False</SelectItem>
         </SelectContent>
       </Select>
+    );
+  }
+
+  if (valueType === "number") {
+    return (
+      <NumericField
+        ariaLabel="Number value"
+        contract={runtimeNumberContract}
+        id={id}
+        onChange={onChange}
+        value={value}
+      />
     );
   }
 
@@ -102,17 +133,16 @@ export function TypedValueInput({
       : "seconds";
     return (
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_11rem]">
-        <Input
+        <NumericField
+          ariaLabel="Duration amount"
+          contract={durationAmountContract}
           id={id}
-          min={0}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (Number.isFinite(next) && next >= 0) {
+          onChange={(nextDraft) => {
+            const next = Number(nextDraft);
+            if (nextDraft.trim() && Number.isFinite(next) && next >= 0) {
               onChange(JSON.stringify({ type: "duration", unit, value: next }));
             }
           }}
-          step="any"
-          type="number"
           value={amount}
         />
         <Select
@@ -136,6 +166,14 @@ export function TypedValueInput({
     );
   }
 
+  if (valueType === "hotkey") {
+    return <HotkeyInput id={id} onChange={onChange} value={value} />;
+  }
+
+  if (valueType === "color") {
+    return <ColorValueInput id={id} onChange={onChange} value={value} />;
+  }
+
   if (valueType === "string") {
     return (
       <textarea
@@ -150,9 +188,8 @@ export function TypedValueInput({
   return (
     <Input
       id={id}
-      inputMode={valueType === "number" ? "decimal" : undefined}
       onChange={(event) => onChange(event.target.value)}
-      type={valueType === "number" ? "number" : "text"}
+      type="text"
       value={value}
     />
   );

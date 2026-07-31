@@ -62,6 +62,32 @@ fn delayed_poll_coalesces_missed_ticks_without_cadence_drift() {
 }
 
 #[test]
+fn three_second_schedule_fires_at_three_second_boundaries() {
+    let start = Instant::now();
+    let mut service = ScheduleService::from_registrations(
+        [registration("n-three-seconds", "3", "seconds")],
+        start,
+    )
+    .expect("schedule should parse");
+
+    assert!(
+        service
+            .due_events(start + Duration::from_millis(2_999), SystemTime::UNIX_EPOCH)
+            .is_empty()
+    );
+    for elapsed_seconds in [3, 6, 9] {
+        let now = start + Duration::from_secs(elapsed_seconds);
+        let events = service.due_events(now, SystemTime::UNIX_EPOCH);
+        assert_eq!(events.len(), 1, "expected a tick at {elapsed_seconds}s");
+        assert_eq!(events[0].payload["interval_seconds"], 3);
+        assert_eq!(
+            service.time_until_next_due(now),
+            Some(Duration::from_secs(3))
+        );
+    }
+}
+
+#[test]
 fn reload_preserves_unchanged_deadlines_and_resets_changed_schedules() {
     let start = Instant::now();
     let original = ScheduleService::from_registrations(

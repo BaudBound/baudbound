@@ -744,7 +744,7 @@ export type InstalledScriptSettingStatus = {
   name: string;
   required: boolean;
   updated_at_unix: number | null;
-  value_type: "boolean" | "datetime" | "duration" | "file_path" | "list" | "number" | "object" | "string";
+  value_type: "boolean" | "color" | "datetime" | "duration" | "file_path" | "hotkey" | "list" | "number" | "object" | "string";
 };
 
 export type ActionPayload = {

@@ -20,7 +20,7 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-[#080b12] px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:opacity-60 data-placeholder:text-muted-foreground [&_svg]:shrink-0",
+        "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-[#080b12] px-3 py-0 text-sm leading-none text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:opacity-60 data-placeholder:text-muted-foreground *:data-[slot=select-value]:flex *:data-[slot=select-value]:h-full *:data-[slot=select-value]:items-center [&_svg]:shrink-0",
         className,
       )}
       data-slot="select-trigger"
@@ -71,7 +71,7 @@ export function SelectItem({
   return (
     <SelectPrimitive.Item
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        "relative flex min-h-9 cursor-default select-none items-center rounded-md py-0 pl-2 pr-8 text-sm leading-none outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 *:[span]:last:flex *:[span]:last:min-h-9 *:[span]:last:items-center",
         className,
       )}
       data-slot="select-item"

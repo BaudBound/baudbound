@@ -2,6 +2,8 @@ import { RotateCcw, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDialog } from "@/components/detail-dialog";
+import { isValidColor } from "@/components/color-value-input";
+import { validateHotkey } from "@/components/hotkey-input";
 import { TypedValueInput } from "@/components/typed-value-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -222,6 +224,12 @@ function validateDraftValue(
   if (valueType === "string") return null;
   if (valueType === "file_path") {
     return value.trim() ? null : "Enter a file path.";
+  }
+  if (valueType === "hotkey") {
+    return validateHotkey(value) ? null : "Press a valid Windows key combination.";
+  }
+  if (valueType === "color") {
+    return isValidColor(value) ? null : "Select a color in #RRGGBB format.";
   }
   if (valueType === "number") {
     const parsed = Number(value);
