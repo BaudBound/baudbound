@@ -191,14 +191,14 @@ impl ConfigWriteOperation {
                 "Saved runner config and restarted the desktop background runner."
             }
             (Self::Save, false, true) => {
-                "Saved runner config. Restart the desktop background runner to apply listener changes."
+                "Saved runner config. Restart the desktop background runner to apply runtime changes."
             }
             (Self::Save, false, false) => "Saved runner config.",
             (Self::Reset, true, _) => {
                 "Reset runner config to defaults and restarted the desktop background runner."
             }
             (Self::Reset, false, true) => {
-                "Reset runner config to defaults. Restart the desktop background runner to apply listener changes."
+                "Reset runner config to defaults. Restart the desktop background runner to apply runtime changes."
             }
             (Self::Reset, false, false) => "Reset runner config to defaults.",
         }
@@ -285,11 +285,48 @@ fn save_valid_runner_config(
 }
 
 pub(super) fn runner_runtime_config_changed(previous: &RunnerConfig, next: &RunnerConfig) -> bool {
-    previous.runner != next.runner
-        || previous.serial != next.serial
-        || previous.triggers != next.triggers
-        || previous.webhooks != next.webhooks
-        || previous.websockets != next.websockets
+    let RunnerConfig {
+        desktop: _,
+        display: _,
+        limits: previous_limits,
+        runner: previous_runner,
+        security: previous_security,
+        serial: previous_serial,
+        triggers: previous_triggers,
+        updates: _,
+        webhooks: previous_webhooks,
+        websockets: previous_websockets,
+    } = previous;
+    let RunnerConfig {
+        desktop: _,
+        display: _,
+        limits: next_limits,
+        runner: next_runner,
+        security: next_security,
+        serial: next_serial,
+        triggers: next_triggers,
+        updates: _,
+        webhooks: next_webhooks,
+        websockets: next_websockets,
+    } = next;
+
+    (
+        previous_limits,
+        previous_runner,
+        previous_security,
+        previous_serial,
+        previous_triggers,
+        previous_webhooks,
+        previous_websockets,
+    ) != (
+        next_limits,
+        next_runner,
+        next_security,
+        next_serial,
+        next_triggers,
+        next_webhooks,
+        next_websockets,
+    )
 }
 
 fn rollback_result<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> String {
