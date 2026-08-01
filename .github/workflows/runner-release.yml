@@ -25,7 +25,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           submodules: true
+
+      - name: Verify release tag provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/master:refs/remotes/origin/master
+
+          tag_ref="refs/tags/${GITHUB_REF_NAME}"
+          if [[ "$(git cat-file -t "$tag_ref")" != "tag" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} must be an annotated tag." >&2
+            exit 1
+          fi
+
+          tag_commit="$(git rev-list -n 1 "$tag_ref")"
+          if ! git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/master; then
+            echo "Release tag ${GITHUB_REF_NAME} does not point to a protected master commit." >&2
+            exit 1
+          fi
 
       - name: Install Linux desktop build dependencies
         run: |

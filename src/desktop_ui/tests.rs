@@ -400,6 +400,33 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 
     let started = invoke(&webview, "start_background_runner", json!({}));
     assert_eq!(started["dashboard"]["desktop_background"]["running"], true);
+
+    let mut restart_config = RunnerConfig::default();
+    restart_config.security.policy.allow_private_http_requests = true;
+    let restarted = invoke_sensitive(
+        &webview,
+        "save_runner_config_model",
+        json!({
+            "kind": "save_runner_config_model",
+            "config": restart_config,
+            "restart_background": true
+        }),
+        json!({"config": restart_config, "restartBackground": true}),
+    );
+    assert_eq!(
+        restarted["message"],
+        "Saved runner config and restarted the desktop background runner."
+    );
+    assert_eq!(
+        restarted["dashboard"]["desktop_background"]["running"],
+        true
+    );
+    let restarted_config = invoke(&webview, "read_runner_config", json!({}));
+    assert_eq!(
+        restarted_config["config"]["security"]["policy"]["allow_private_http_requests"],
+        true
+    );
+
     invoke(&webview, "stop_background_runner", json!({}));
     let stopped = invoke_sensitive(
         &webview,
@@ -419,7 +446,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
 }
 
 #[test]
-fn only_runtime_owned_config_requires_a_background_restart() {
+fn background_restart_detection_covers_every_runtime_owned_config_section() {
     let previous = RunnerConfig::default();
 
     let mut desktop = previous.clone();
@@ -434,9 +461,36 @@ fn only_runtime_owned_config_requires_a_background_restart() {
     updates.updates.check_interval_hours = 6;
     assert!(!runner_runtime_config_changed(&previous, &updates));
 
+    let mut limits = previous.clone();
+    limits.limits.max_http_response_bytes += 1;
+    assert!(runner_runtime_config_changed(&previous, &limits));
+
     let mut runner = previous.clone();
     runner.runner.trigger_reload_seconds = 5;
     assert!(runner_runtime_config_changed(&previous, &runner));
+
+    let mut security = previous.clone();
+    security.security.policy.allow_private_http_requests = true;
+    assert!(runner_runtime_config_changed(&previous, &security));
+
+    let mut serial = previous.clone();
+    serial.serial.devices.insert(
+        "controller".to_owned(),
+        baudbound_core::SerialDeviceSettings::default(),
+    );
+    assert!(runner_runtime_config_changed(&previous, &serial));
+
+    let mut triggers = previous.clone();
+    triggers.triggers.schedules_enabled = false;
+    assert!(runner_runtime_config_changed(&previous, &triggers));
+
+    let mut webhooks = previous.clone();
+    webhooks.webhooks.port += 1;
+    assert!(runner_runtime_config_changed(&previous, &webhooks));
+
+    let mut websockets = previous.clone();
+    websockets.websockets.port += 1;
+    assert!(runner_runtime_config_changed(&previous, &websockets));
 }
 
 #[test]
