@@ -16,7 +16,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::{
     Request, Response, StatusCode,
     body::Incoming,
-    header::{HeaderName, HeaderValue},
+    header::{AUTHORIZATION, HeaderName, HeaderValue},
     server::conn::http1,
     service::service_fn,
 };
@@ -38,7 +38,6 @@ const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const HEADER_READ_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_HEADER_BYTES: usize = 32 * 1024;
-const TOKEN_HEADER: &str = "x-baudbound-token";
 
 pub(super) struct IncomingWebhook {
     pub(super) parsed: ParsedWebhookRequest,
@@ -248,12 +247,12 @@ async fn parse_request(
         .uri()
         .path_and_query()
         .map_or_else(|| request.uri().path().to_owned(), ToString::to_string);
-    let token = header_value(request.headers(), TOKEN_HEADER);
+    let token = bearer_token(request.headers());
     let origin = header_value(request.headers(), "origin");
     let headers = request
         .headers()
         .iter()
-        .filter(|(name, _)| !name.as_str().eq_ignore_ascii_case(TOKEN_HEADER))
+        .filter(|(name, _)| *name != AUTHORIZATION)
         .filter_map(|(name, value)| {
             value
                 .to_str()
@@ -277,6 +276,22 @@ async fn parse_request(
         },
         token,
     })
+}
+
+fn bearer_token(headers: &hyper::HeaderMap) -> Option<String> {
+    let mut values = headers.get_all(AUTHORIZATION).iter();
+    let authorization = values.next()?.to_str().ok()?.trim();
+    if values.next().is_some() {
+        return None;
+    }
+
+    let mut parts = authorization.split_ascii_whitespace();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(scheme), Some(token), None) if scheme.eq_ignore_ascii_case("bearer") => {
+            Some(token.to_owned())
+        }
+        _ => None,
+    }
 }
 
 async fn read_body(mut body: Incoming, max_body_bytes: usize) -> Result<Vec<u8>, WebhookResponse> {

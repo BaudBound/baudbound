@@ -238,7 +238,7 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
         "POST",
         "/events/test",
         "{}",
-        &[("X-BaudBound-Token", "wrong-token")],
+        &[("Authorization", "Bearer wrong-token")],
     );
     accept_next(&mut host);
     assert!(
@@ -247,6 +247,24 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
             .expect("wrong-token response should arrive")
             .starts_with("HTTP/1.1 403")
     );
+
+    for headers in [
+        vec![("Authorization", "Basic correct-token")],
+        vec![("X-BaudBound-Token", "correct-token")],
+        vec![
+            ("Authorization", "Bearer correct-token"),
+            ("Authorization", "Bearer correct-token"),
+        ],
+    ] {
+        let malformed = send_request_with_headers(&host, "POST", "/events/test", "{}", &headers);
+        accept_next(&mut host);
+        assert!(
+            malformed
+                .recv_timeout(Duration::from_secs(1))
+                .expect("malformed authorization response should arrive")
+                .starts_with("HTTP/1.1 401")
+        );
+    }
 
     let preflight = send_request_with_headers(
         &host,
@@ -258,7 +276,7 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
             ("Access-Control-Request-Method", "POST"),
             (
                 "Access-Control-Request-Headers",
-                "Content-Type, X-BaudBound-Token",
+                "Content-Type, Authorization",
             ),
         ],
     );
@@ -280,7 +298,7 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
         "/events/test",
         "{}",
         &[
-            ("X-BaudBound-Token", "correct-token"),
+            ("Authorization", "bEaReR correct-token"),
             ("Origin", "https://allowed.example"),
         ],
     );
@@ -298,7 +316,7 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
     let event = event_receiver
         .recv_timeout(Duration::from_secs(1))
         .expect("authenticated request should dispatch");
-    assert!(event.payload["headers"].get("x-baudbound-token").is_none());
+    assert!(event.payload["headers"].get("authorization").is_none());
     assert!(event_receiver.try_recv().is_err());
 }
 

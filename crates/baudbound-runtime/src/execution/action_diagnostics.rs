@@ -138,9 +138,9 @@ pub(super) fn action_completion_message(
             displayed(output.get("relative").or_else(|| config.get("relative")))
         ),
         "action.notification" => format!(
-            "Displayed notification {} with a {} character message.",
+            "Displayed notification {} with message {}.",
             quoted(output_or_config(output, config, "title", "title")),
-            text_length(output_or_config(output, config, "message", "message"))
+            quoted(output_or_config(output, config, "message", "message"))
         ),
         "action.pixel.get" => format!(
             "Read pixel at x={}, y={}. Color: {}.",
@@ -271,7 +271,11 @@ pub(super) fn action_completion_message(
             )
         }
     };
-    Some(message)
+    Some(format!(
+        "{message} Inputs: {}. Outputs: {}.",
+        diagnostic_map(config),
+        diagnostic_map(output)
+    ))
 }
 
 fn operation_count(config: &Map<String, Value>) -> usize {
@@ -297,12 +301,6 @@ fn output_value<'a>(output: &'a Map<String, Value>, key: &str) -> Option<&'a Val
     output.get(key)
 }
 
-fn text_length(value: Option<&Value>) -> usize {
-    value
-        .and_then(Value::as_str)
-        .map_or(0, |value| value.chars().count())
-}
-
 fn quoted(value: Option<&Value>) -> String {
     value.map_or_else(|| "\"unknown\"".to_owned(), diagnostic_value)
 }
@@ -313,6 +311,10 @@ fn displayed(value: Option<&Value>) -> String {
 
 fn diagnostic_value(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| value_to_string(value))
+}
+
+fn diagnostic_map(value: &Map<String, Value>) -> String {
+    diagnostic_value(&Value::Object(value.clone()))
 }
 
 #[cfg(test)]
@@ -328,19 +330,19 @@ mod tests {
                 "action.file.copy",
                 json!({"sourcePath": "a.txt", "destinationPath": "b.txt"}),
                 json!({"bytes": 12}),
-                "Copied file \"a.txt\" to \"b.txt\". Bytes copied: 12.",
+                "Copied file \"a.txt\" to \"b.txt\". Bytes copied: 12. Inputs: {\"destinationPath\":\"b.txt\",\"sourcePath\":\"a.txt\"}. Outputs: {\"bytes\":12}.",
             ),
             (
                 "action.pixel.get",
                 json!({"x": 10, "y": 20}),
                 json!({"hex": "#AABBCC"}),
-                "Read pixel at x=10, y=20. Color: \"#AABBCC\".",
+                "Read pixel at x=10, y=20. Color: \"#AABBCC\". Inputs: {\"x\":10,\"y\":20}. Outputs: {\"hex\":\"#AABBCC\"}.",
             ),
             (
                 "action.value.convert",
                 json!({"targetType": "number"}),
                 json!({"value": 42}),
-                "Converted value to \"number\". Result: 42.",
+                "Converted value to \"number\". Result: 42. Inputs: {\"targetType\":\"number\"}. Outputs: {\"value\":42}.",
             ),
         ];
 
@@ -371,5 +373,26 @@ mod tests {
         assert!(message.contains(r#""line\r\nnext""#));
         assert!(!message.contains('\r'));
         assert!(!message.contains('\n'));
+    }
+
+    #[test]
+    fn notification_message_includes_complete_resolved_data() {
+        let message = action_completion_message(
+            "action.notification",
+            json!({"title": "Ping results", "message": "Reply from 1.1.1.1: 18 ms"})
+                .as_object()
+                .expect("config"),
+            json!({"displayed": true}).as_object().expect("output"),
+        )
+        .expect("message");
+
+        assert!(message.contains(
+            "Displayed notification \"Ping results\" with message \"Reply from 1.1.1.1: 18 ms\"."
+        ));
+        assert!(message.contains(
+            "Inputs: {\"message\":\"Reply from 1.1.1.1: 18 ms\",\"title\":\"Ping results\"}."
+        ));
+        assert!(message.contains("Outputs: {\"displayed\":true}."));
+        assert!(!message.contains("character message"));
     }
 }

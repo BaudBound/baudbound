@@ -16,6 +16,8 @@ mod mouse;
 mod process;
 mod screen;
 pub(crate) mod screen_tools;
+#[cfg(windows)]
+mod text_input;
 #[cfg(not(windows))]
 mod unsupported_input;
 #[cfg(windows)]
@@ -118,9 +120,15 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
     fn keyboard_type_text(
         &self,
         request: &RuntimeActionRequest,
-        _context: &RuntimeContext,
+        context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_keyboard_type_text(request)
+        #[cfg(windows)]
+        return run_keyboard_type_text(request, context);
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            run_keyboard_type_text(request)
+        }
     }
 
     fn mouse_click(
