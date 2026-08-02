@@ -58,9 +58,10 @@ impl TriggerExecutor {
         core: &RunnerCore,
         store: &SqliteRunnerStore,
         worker_label: &str,
-        cancellation: RuntimeCancellationToken,
+        parent_cancellation: &RuntimeCancellationToken,
         trigger_monitor: Option<TriggerMonitor>,
     ) -> Result<Self, String> {
+        let cancellation = parent_cancellation.child_token();
         let core = core.clone();
         let store = store.clone();
         let run_cancellation = cancellation.clone();

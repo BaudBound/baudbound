@@ -210,6 +210,32 @@ fn dropping_executor_cancels_its_shared_runtime_token() {
 }
 
 #[test]
+fn production_executor_cancellation_is_isolated_and_parent_shutdown_cascades() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let store = SqliteRunnerStore::open(directory.path().join("runner.sqlite3"))
+        .expect("test store should open");
+    let core = RunnerCore::default();
+    let parent = baudbound_runtime::RuntimeCancellationToken::new();
+
+    let reloaded_executor = TriggerExecutor::new(&core, &store, "reloaded", &parent, None)
+        .expect("reloaded service executor should start");
+    let sibling_executor = TriggerExecutor::new(&core, &store, "sibling", &parent, None)
+        .expect("sibling service executor should start");
+    let reloaded_cancellation = reloaded_executor.cancellation.clone();
+    let sibling_cancellation = sibling_executor.cancellation.clone();
+    drop(reloaded_executor);
+
+    assert!(reloaded_cancellation.is_cancelled());
+    assert!(!sibling_cancellation.is_cancelled());
+    assert!(!parent.is_cancelled());
+
+    parent.cancel();
+
+    assert!(sibling_cancellation.is_cancelled());
+    drop(sibling_executor);
+}
+
+#[test]
 fn shutdown_waits_until_execution_workers_have_exited() {
     let (started_sender, started_receiver) = mpsc::channel();
     let (release_sender, release_receiver) = mpsc::channel();

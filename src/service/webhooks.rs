@@ -267,7 +267,7 @@ pub(super) fn build_webhook_host(
             core,
             store,
             "webhook",
-            cancellation.clone(),
+            cancellation,
             options.trigger_monitor.clone(),
         )
         .map_err(|error| anyhow!("failed to start webhook executor: {error}"))?,
@@ -288,7 +288,7 @@ fn browser_origin_denied_response() -> WebhookResponse {
 fn authentication_error_response(error: NetworkTriggerAuthenticationError) -> WebhookResponse {
     match error {
         NetworkTriggerAuthenticationError::MissingToken => {
-            text_response(401, "Webhook token is required.")
+            text_response(401, "Webhook Bearer authorization is required.")
         }
         NetworkTriggerAuthenticationError::InvalidToken => {
             text_response(403, "Webhook token is invalid.")

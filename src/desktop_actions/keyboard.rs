@@ -1,7 +1,6 @@
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
-use enigo::Keyboard;
 use serde_json::{Map, Number, Value};
 
 mod keymap;
@@ -10,7 +9,8 @@ use keymap::parse_key_combo;
 
 use super::{
     config::{failed_error, required_string},
-    input::{InputAction, NativeInputState, native_input},
+    input::{InputAction, NativeInputState},
+    text_input::type_text,
 };
 
 pub(super) fn run_keyboard(
@@ -47,11 +47,13 @@ pub(super) fn run_keyboard(
 
 pub(super) fn run_keyboard_type_text(
     request: &RuntimeActionRequest,
+    context: &RuntimeContext,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let text = required_string(request, "text")?;
-    let mut enigo = native_input(request)?;
-    enigo
-        .text(&text)
+    if context.cancellation.is_cancelled() {
+        return Err(RuntimeActionError::Cancelled);
+    }
+    type_text(&text)
         .map_err(|source| failed_error(request, format!("typing text failed: {source}")))?;
 
     Ok(RuntimeActionResult {

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use baudbound_triggers::{WebhookRequest, WebhookResponse};
 
-const TOKEN_HEADER: &str = "x-baudbound-token";
+const AUTHORIZATION_HEADER: &str = "authorization";
 
 pub(super) struct ParsedWebhookRequest {
     pub(super) origin: Option<String>,
@@ -27,7 +27,7 @@ pub(super) fn preflight_response(
     if requested_headers.split(',').map(str::trim).any(|header| {
         !header.is_empty()
             && !header.eq_ignore_ascii_case("content-type")
-            && !header.eq_ignore_ascii_case(TOKEN_HEADER)
+            && !header.eq_ignore_ascii_case(AUTHORIZATION_HEADER)
     }) {
         return Some(text_response(
             403,
@@ -50,7 +50,7 @@ pub(super) fn preflight_response(
     );
     response.headers.insert(
         "Access-Control-Allow-Headers".to_owned(),
-        "Content-Type, X-BaudBound-Token".to_owned(),
+        "Content-Type, Authorization".to_owned(),
     );
     response
         .headers

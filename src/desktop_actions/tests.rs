@@ -159,6 +159,39 @@ fn pre_cancelled_message_box_returns_without_opening_native_ui() {
 }
 
 #[test]
+#[cfg(windows)]
+fn pre_cancelled_type_text_returns_without_sending_native_input() {
+    let cancellation = baudbound_runtime::RuntimeCancellationToken::new();
+    cancellation.cancel();
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.keyboard.type_text".to_owned(),
+        config: Map::from_iter([(
+            "text".to_owned(),
+            Value::String("must not be typed".to_owned()),
+        )]),
+        node_id: "n-type-text".to_owned(),
+    };
+    let context = RuntimeContext {
+        cancellation,
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "trigger-1".to_owned(),
+        },
+        package_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+
+    let error = SystemDesktopActionAdapter::default()
+        .keyboard_type_text(&request, &context)
+        .expect_err("pre-cancelled Type Text should not send native input");
+
+    assert!(matches!(error, RuntimeActionError::Cancelled));
+}
+
+#[test]
 #[cfg(not(windows))]
 fn message_box_is_rejected_without_a_native_cancellable_backend() {
     let request = RuntimeActionRequest {

@@ -155,6 +155,18 @@ fn shell_command_captures_nonzero_exit_stdout_and_stderr() {
     assert!(output(&result, "stderr").contains("stderr-value"));
 }
 
+#[cfg(windows)]
+#[test]
+fn shell_command_preserves_nested_powershell_quotes_and_script_blocks() {
+    let command = r#"powershell -NoProfile -Command "$r='expected output'; if($r){if($null-ne $r.Length){$r}else{'missing'}}""#;
+    let result = execute("action.shell", json!({"command": command}))
+        .expect("nested PowerShell command should execute");
+
+    assert_eq!(result.output_data.get("success"), Some(&json!(true)));
+    assert_eq!(output(&result, "stdout").trim(), "expected output");
+    assert_eq!(output(&result, "stderr"), "");
+}
+
 #[test]
 fn shell_command_timeout_terminates_the_process_group_promptly() {
     let started = Instant::now();

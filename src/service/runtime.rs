@@ -94,7 +94,7 @@ pub fn serve_triggers_with_control(
         core,
         store,
         "listener",
-        cancellation.clone(),
+        &cancellation,
         options.trigger_monitor.clone(),
     )
     .map_err(|error| anyhow!("failed to start trigger execution workers: {error}"))?;

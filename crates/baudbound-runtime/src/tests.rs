@@ -1200,11 +1200,18 @@ fn resolves_bracket_paths_and_nested_external_action_inputs() {
     )
     .expect("all nested action inputs should resolve");
 
-    assert!(
-        report.logs.iter().any(|log| {
-            log.message == r#"Applied 1 text transform operation. Result: "admin"."#
+    let action_log = report
+        .logs
+        .iter()
+        .find(|log| {
+            log.message
+                .starts_with("Applied 1 text transform operation.")
         })
-    );
+        .expect("text transform completion should be logged");
+    assert!(action_log.message.contains(r#"Result: "admin"."#));
+    assert!(action_log.message.contains(r#""input":"Ada""#));
+    assert!(action_log.message.contains(r#""replacement":"admin""#));
+    assert!(action_log.message.contains(r#"Outputs: {"text":"admin"}."#));
 }
 
 #[test]

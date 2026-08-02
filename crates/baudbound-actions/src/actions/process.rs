@@ -4,6 +4,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
@@ -228,7 +231,8 @@ fn platform_shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
         let mut shell = Command::new("cmd");
-        shell.args(["/C", command]);
+        shell.args(["/D", "/S", "/C"]);
+        shell.raw_arg(format!("\"{command}\""));
         shell
     }
 
