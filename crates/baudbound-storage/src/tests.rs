@@ -1,6 +1,9 @@
 use super::*;
 use crate::storage::filesystem::validate_script_id;
 
+#[path = "tests/file_permissions.rs"]
+mod file_permissions;
+
 fn open_store(temporary_directory: &tempfile::TempDir) -> SqliteRunnerStore {
     SqliteRunnerStore::open(
         temporary_directory

@@ -67,6 +67,64 @@ fn staged_packages_are_independent_of_the_selected_source_file() {
     );
 }
 
+/// Guards the script workspace anchor end to end through `RunnerCore`.
+///
+/// The unit test in `baudbound-actions` builds a package path by hand in the
+/// installed layout, so it cannot observe which path the execution path
+/// actually supplies. This test drives a real import, approval, and run so the
+/// wiring is what is covered.
+#[test]
+fn limited_relative_writes_resolve_inside_the_runner_home_workspace() {
+    let script_id = "workspace-anchor-probe";
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("workspace-anchor.bbs");
+    fs::write(&package_path, create_workspace_write_test_package(script_id))
+        .expect("workspace anchor package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("workspace anchor package should import");
+    core.approve_installed(&store, script_id)
+        .expect("workspace anchor package should approve");
+    let report = core
+        .run_installed(&store, script_id)
+        .expect("workspace anchor package should run");
+    let logs = report
+        .logs
+        .iter()
+        .map(|entry| format!("{entry:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let expected = store
+        .root()
+        .join("workspaces")
+        .join(script_id)
+        .join("output")
+        .join("result.txt");
+    assert!(
+        expected.is_file(),
+        "a bounded relative write must resolve inside the runner home workspace, expected {}\nrun logs:\n{logs}",
+        expected.display()
+    );
+    assert_eq!(
+        fs::read_to_string(&expected).expect("workspace output should be readable"),
+        "workspace"
+    );
+
+    let stray = std::env::temp_dir().join("workspaces").join(script_id);
+    let stray_exists = stray.exists();
+    if stray_exists {
+        let _ = fs::remove_dir_all(std::env::temp_dir().join("workspaces"));
+    }
+    assert!(
+        !stray_exists,
+        "a bounded relative write must not create a workspace in the system temp directory, found {}",
+        stray.display()
+    );
+}
+
 #[test]
 fn installed_package_trust_boundaries_reject_replaced_bytes() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
@@ -1936,6 +1994,70 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
 
 fn create_action_handler_test_package() -> Vec<u8> {
     create_action_handler_test_package_with_capabilities(None)
+}
+
+/// Builds a package whose only step writes to a bounded relative path.
+///
+/// The trigger is wired to the step so the action actually executes. A package
+/// with no edges imports and approves cleanly but never runs its step, which
+/// would make a workspace assertion vacuous.
+fn create_workspace_write_test_package(script_id: &str) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "{script_id}",
+            "name": "{script_id}",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "version": "1.0.0"
+        }}"#
+    );
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [{
+                    "id": "n-write",
+                    "action_type": "action.file.write",
+                    "type": "action",
+                    "action": "write_file",
+                    "config": {
+                        "path": "output/result.txt",
+                        "content": "workspace",
+                        "mode": "overwrite"
+                    },
+                    "runtime_outputs": []
+                }],
+                "edges": [{
+                    "execution_order": 0,
+                    "source": "n-manual",
+                    "source_handle": "out",
+                    "target": "n-write",
+                    "target_handle": "input"
+                }]
+            }
+        }
+    }"#;
+    let capabilities = capabilities_json(program, test_headless_runtime());
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions":["file.write.limited"],"risk_level":"high"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
 }
 
 fn create_cancellable_test_package() -> Vec<u8> {
