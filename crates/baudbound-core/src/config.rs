@@ -544,10 +544,13 @@ max_run_record_bytes = 8388608
 
 [security.policy]
 # Approval decides whether a specific package is trusted.
-# These settings independently restrict which trusted packages may run.
-allow_shell_commands = true
-allow_dangerous_permissions = true
-allow_public_network_listeners = true
+# These settings independently decide which capabilities are available at all.
+# They ship disabled. Enable one when a script you trust needs it, either here
+# or from Settings in the desktop app. Approving a package is not enough on its
+# own while the matching setting is false.
+allow_shell_commands = false
+allow_dangerous_permissions = false
+allow_public_network_listeners = false
 allow_private_http_requests = false
 
 [updates]
@@ -752,12 +755,19 @@ pub struct SecurityPolicySettings {
 }
 
 impl Default for SecurityPolicySettings {
+    /// Capabilities ship disabled and are enabled deliberately.
+    ///
+    /// These values must stay identical to the `[security.policy]` block in
+    /// [`RunnerConfig::template_toml`]. The struct carries `#[serde(default)]`,
+    /// so a config file that omits a key falls back here rather than to the
+    /// template, and a disagreement would give a fresh install and an upgraded
+    /// install different security behaviour from the same visible config.
     fn default() -> Self {
         Self {
-            allow_dangerous_permissions: true,
+            allow_dangerous_permissions: false,
             allow_private_http_requests: false,
-            allow_public_network_listeners: true,
-            allow_shell_commands: true,
+            allow_public_network_listeners: false,
+            allow_shell_commands: false,
         }
     }
 }
@@ -1325,6 +1335,33 @@ mod tests {
     use super::*;
 
     #[test]
+    /// The written template and the `Default` impl must not drift apart.
+    ///
+    /// `SecurityPolicySettings` carries `#[serde(default)]`, so a config file
+    /// that omits a key falls back to the `Default` impl rather than to the
+    /// template. If the two disagree, a fresh install and an upgraded install
+    /// get different security behaviour from the same visible config.
+    #[test]
+    fn template_security_policy_matches_the_default_impl() {
+        let temporary_directory = tempfile::tempdir().expect("temp dir");
+        let config_path = temporary_directory.path().join("runner.toml");
+        let template = RunnerConfig::from_toml(RunnerConfig::template_toml(), &config_path)
+            .expect("template should parse");
+
+        assert_eq!(template.security.policy, SecurityPolicySettings::default());
+    }
+
+    #[test]
+    fn security_policy_capabilities_are_disabled_until_enabled() {
+        let policy = SecurityPolicySettings::default();
+
+        assert!(!policy.allow_dangerous_permissions);
+        assert!(!policy.allow_shell_commands);
+        assert!(!policy.allow_public_network_listeners);
+        assert!(!policy.allow_private_http_requests);
+    }
+
+    #[test]
     fn missing_config_uses_safe_defaults() {
         let temporary_directory = tempfile::tempdir().expect("temp dir");
         let config_path = temporary_directory.path().join("runner.toml");
@@ -1382,7 +1419,7 @@ mod tests {
         assert!(contents.contains("[triggers]"));
         assert!(contents.contains("hotkeys_enabled = true"));
         assert!(contents.contains("[security.policy]"));
-        assert!(contents.contains("allow_shell_commands = true"));
+        assert!(contents.contains("allow_shell_commands = false"));
     }
 
     #[test]
