@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use baudbound_runtime::{
@@ -447,7 +447,9 @@ fn resolve_action_path(
     intent: PathIntent,
 ) -> Result<ActionPath, RuntimeActionError> {
     let path = Path::new(configured_path);
-    if path.is_absolute() || contains_parent_component(path) {
+    // Shares one classifier with the permission calculator so the risk approved
+    // by the user and the authority used at run time cannot disagree.
+    if baudbound_security::is_unbounded_path(configured_path) {
         return Ok(ActionPath::Ambient(path.to_path_buf()));
     }
     // A bounded relative path is only bounded if a workspace exists to bound it
@@ -487,16 +489,6 @@ fn resolve_action_path(
         relative: path.to_path_buf(),
         display: workspace.join(path),
     })
-}
-
-fn contains_parent_component(path: &Path) -> bool {
-    path.components()
-        .any(|component| component == Component::ParentDir)
-        || path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .split('/')
-            .any(|component| component == "..")
 }
 
 fn script_workspace(context: &RuntimeContext) -> Option<PathBuf> {

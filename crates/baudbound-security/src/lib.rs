@@ -443,48 +443,98 @@ fn permission_for_path(access: &PathAccess, path: &str) -> PermissionGrant {
     }
 }
 
-fn is_unbounded_path(path: &str) -> bool {
+/// Reports whether a configured path can escape the script workspace.
+///
+/// This is the single authority for path risk. The permission calculator uses
+/// it to decide between a bounded permission such as `file.write.limited` and
+/// the Dangerous `file.write.any`, and the runtime path resolver uses it to
+/// decide between workspace confinement and ambient authority. Two independent
+/// implementations previously disagreed about several Windows forms, which let
+/// a path classify as bounded at approval time and resolve elsewhere at run
+/// time.
+///
+/// Classification is deliberately platform independent. A package authored on
+/// Linux can be installed on Windows, so a Windows-specific escape form must
+/// classify the same way on both. That makes a few paths that are harmless on
+/// Linux, such as a file name containing a colon, classify as unbounded
+/// everywhere. The alternative is a risk level that depends on which machine
+/// happened to build the package.
+#[must_use]
+pub fn is_unbounded_path(path: &str) -> bool {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return false;
     }
+    // A template resolves at run time, so its target cannot be proven bounded.
     if trimmed.contains("{{") && trimmed.contains("}}") {
         return true;
     }
 
-    let mut normalized = trimmed.replace('\\', "/").to_lowercase();
-    while normalized.contains("//") {
-        normalized = normalized.replace("//", "/");
+    // Treat both separators as separators regardless of host platform.
+    let normalized = trimmed.replace('\\', "/");
+
+    // A leading separator is a filesystem root on either platform. A leading
+    // tilde is treated as a home reference even though no supported platform
+    // expands it, because a package that relies on expansion should not be
+    // presented to the user as a bounded write.
+    if normalized.starts_with('/') || normalized == "~" || normalized.starts_with("~/") {
+        return true;
     }
-    let bytes = normalized.as_bytes();
-    let contains_parent_traversal = normalized.split('/').any(|component| component == "..");
-    let absolute = normalized.starts_with('/')
-        || normalized.starts_with("~/")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_lowercase()
-            && bytes[1] == b':'
-            && bytes[2] == b'/');
-    absolute
-        || contains_parent_traversal
-        || [
-            "/.aws/",
-            "/.azure/",
-            "/.config/",
-            "/.docker/",
-            "/.gnupg/",
-            "/.kube/",
-            "/.ssh/",
-            "/etc/",
-            "/root/",
-            "/var/lib/",
-            "/windows/system32/",
-            "/windows/syswow64/",
-            "/programdata/",
-            "/appdata/local/",
-            "/appdata/roaming/",
-        ]
-        .iter()
-        .any(|marker| normalized.contains(marker))
+
+    for segment in normalized.split('/').filter(|segment| !segment.is_empty()) {
+        if segment == ".." {
+            return true;
+        }
+        // A colon is a drive prefix such as `C:file.txt`, which resolves
+        // against that drive's current directory, or an alternate data stream
+        // such as `notes.txt:hidden`, which writes to a hidden stream of
+        // another file. Neither stays inside the workspace.
+        if segment.contains(':') {
+            return true;
+        }
+        if is_reserved_device_name(segment) {
+            return true;
+        }
+    }
+
+    let lowercase = normalized.to_lowercase();
+    [
+        "/.aws/",
+        "/.azure/",
+        "/.config/",
+        "/.docker/",
+        "/.gnupg/",
+        "/.kube/",
+        "/.ssh/",
+        "/etc/",
+        "/root/",
+        "/var/lib/",
+        "/windows/system32/",
+        "/windows/syswow64/",
+        "/programdata/",
+        "/appdata/local/",
+        "/appdata/roaming/",
+    ]
+    .iter()
+    .any(|marker| lowercase.contains(marker))
+}
+
+/// Reports whether a path segment names a reserved Windows device.
+///
+/// These names resolve to a device rather than a file in whichever directory
+/// they appear, so they never stay inside the workspace. Windows matches them
+/// against the segment stem and ignores trailing dots and spaces.
+fn is_reserved_device_name(segment: &str) -> bool {
+    let stem = segment.split('.').next().unwrap_or_default();
+    let stem = stem.trim_end_matches([' ', '.']);
+    let stem = stem.to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    let bytes = stem.as_bytes();
+    bytes.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && bytes[3].is_ascii_digit()
 }
 
 fn config_value_string(value: &Value) -> String {
