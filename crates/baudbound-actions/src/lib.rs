@@ -7,13 +7,15 @@ mod resource_tracker;
 use std::{sync::Arc, time::Duration};
 
 use baudbound_runtime::{
-    RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest, RuntimeActionResult,
-    RuntimeContext,
+    ResourceLimit, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
+    RuntimeActionResult, RuntimeContext,
 };
 use resource_tracker::ActionResourceTracker;
 use serde_json::{Map, Number, Value};
 
-pub use actions::{SerialConnectionRegistry, SerialDeviceConfig};
+pub use actions::{
+    ActionFile, SerialConnectionRegistry, SerialDeviceConfig, open_configured_file_for_read,
+};
 use actions::{
     convert_value_action, copy_file_action, delete_file_action, desktop_only_action,
     download_file_action, http_request_action, kill_process_action, move_file_action,
@@ -138,10 +140,17 @@ pub trait DesktopActionAdapter: Send + Sync {
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
+    /// Plays audio from a package asset or a configured filesystem path.
+    ///
+    /// `max_read_bytes` is the configured file read limit. A filesystem source
+    /// is a file read and must be bounded by the same limit as
+    /// `action.file.read`, which the caller supplies because the adapter does
+    /// not own runner configuration.
     fn sound_play(
         &self,
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
+        max_read_bytes: ResourceLimit,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
     fn keyboard(
@@ -259,6 +268,7 @@ impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
+        _max_read_bytes: ResourceLimit,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         desktop_only_action(request, "audio playback")
     }
@@ -359,7 +369,10 @@ where
             "action.process.status" if uses_window_title_match(request) => self
                 .adapter
                 .process_status_by_window_title(request, context),
-            "action.sound.play" => self.adapter.sound_play(request, context),
+            "action.sound.play" => {
+                self.adapter
+                    .sound_play(request, context, self.headless.limits.max_file_read_bytes)
+            }
             "action.window.active" => self.adapter.active_window(request, context),
             "action.window.focus" => self.adapter.window_focus(request, context),
             _ => self.headless.execute_action(request, context),

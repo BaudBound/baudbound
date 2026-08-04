@@ -83,15 +83,28 @@ fn bounded_number(
 pub(super) fn run_sound_play(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    max_read_bytes: baudbound_runtime::ResourceLimit,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source = config_string(request, "source").unwrap_or_else(|| "asset".to_owned());
     if source.trim() == "file_path" {
         let file_path = required_string(request, "filePath")?;
-        let file = std::fs::File::open(&file_path).map_err(|source| {
-            failed_error(
-                request,
-                format!("failed to open audio file {file_path:?}: {source}"),
-            )
+        // Routed through the shared path resolver so a bounded relative path is
+        // confined to the script workspace and an absolute path is classified
+        // as a Dangerous read, matching every other filesystem action. A raw
+        // open here bypassed path classification entirely and turned this
+        // Medium-risk node into an arbitrary file read.
+        let file = baudbound_actions::open_configured_file_for_read(
+            request,
+            context,
+            &file_path,
+            max_read_bytes,
+        )
+        .map_err(|error| {
+            // The underlying cause distinguishes a missing file from an
+            // unreadable one, which lets a script probe the filesystem. Keep the
+            // detail out of the script-visible message.
+            tracing::debug!(path = %file_path, "sound playback source could not be opened: {error}");
+            failed_error(request, "failed to read the audio source".to_owned())
         })?;
         play_audio_source(
             request,

@@ -350,9 +350,48 @@ struct ActionMetadata {
     len: u64,
 }
 
-enum ActionFile {
+pub enum ActionFile {
     Ambient(fs::File),
     Limited(cap_std::fs::File),
+}
+
+/// Opens a configured path for reading through the shared path resolver.
+///
+/// Callers outside this module get the same treatment as the file actions: a
+/// bounded relative path is confined to the script workspace, an absolute or
+/// parent-traversing path uses ambient authority and therefore requires a
+/// Dangerous permission, and the configured read limit is applied before any
+/// content is handed back.
+pub fn open_configured_file_for_read(
+    request: &RuntimeActionRequest,
+    context: &RuntimeContext,
+    configured_path: &str,
+    max_read_bytes: ResourceLimit,
+) -> Result<ActionFile, RuntimeActionError> {
+    let path = resolve_action_path(request, context, configured_path, PathIntent::Existing)?;
+    let metadata = path
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {configured_path}: {source}"),
+        })?;
+    if !metadata.is_file {
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("{configured_path} is not a regular file"),
+        });
+    }
+    if max_read_bytes.is_exceeded_by(metadata.len) {
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
+        });
+    }
+    path.open_read()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to read {configured_path}: {source}"),
+        })
 }
 
 struct AccountedWriter<'a, W> {
@@ -936,6 +975,15 @@ impl ActionFile {
         match self {
             Self::Ambient(file) => file.sync_all(),
             Self::Limited(file) => file.sync_all(),
+        }
+    }
+}
+
+impl io::Seek for ActionFile {
+    fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+        match self {
+            Self::Ambient(file) => file.seek(position),
+            Self::Limited(file) => file.seek(position),
         }
     }
 }

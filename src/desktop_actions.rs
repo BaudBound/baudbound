@@ -132,8 +132,9 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
         &self,
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
+        max_read_bytes: baudbound_runtime::ResourceLimit,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_sound_play(request, context)
+        run_sound_play(request, context, max_read_bytes)
     }
 
     fn keyboard(

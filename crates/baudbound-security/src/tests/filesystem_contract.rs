@@ -75,3 +75,47 @@ fn contract_path_rules_are_covered_by_the_filesystem_key_list() {
         unlisted.join("; ")
     );
 }
+
+#[test]
+fn sound_playback_from_an_absolute_path_requires_a_dangerous_read() {
+    let program = serde_json::json!({
+        "entry": {
+            "trigger": {"id": "n-1", "action_type": "trigger.manual", "config": {}},
+            "program": {"steps": [{
+                "id": "n-sound",
+                "action_type": "action.sound.play",
+                "config": {"source": "file_path", "filePath": "/etc/shadow"}
+            }]}
+        }
+    });
+
+    let report = calculate_program_permissions(&program).expect("permissions should calculate");
+    let names = report
+        .required_permissions
+        .iter()
+        .map(|permission| permission.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        names.contains(&"file.read.any"),
+        "an absolute audio path must require a Dangerous read, found {names:?}"
+    );
+    assert_eq!(report.calculated_risk, RiskLevel::Dangerous);
+}
+
+#[test]
+fn sound_playback_from_a_package_asset_stays_medium_risk() {
+    let program = serde_json::json!({
+        "entry": {
+            "trigger": {"id": "n-1", "action_type": "trigger.manual", "config": {}},
+            "program": {"steps": [{
+                "id": "n-sound",
+                "action_type": "action.sound.play",
+                "config": {"source": "asset", "assetPath": "assets/notify.wav"}
+            }]}
+        }
+    });
+
+    let report = calculate_program_permissions(&program).expect("permissions should calculate");
+    assert_eq!(report.calculated_risk, RiskLevel::Medium);
+}

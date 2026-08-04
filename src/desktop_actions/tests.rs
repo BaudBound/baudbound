@@ -1030,10 +1030,63 @@ fn asset_sound_requires_package_context_before_audio_io() {
     };
 
     let error = adapter
-        .sound_play(&request, &context)
+        .sound_play(
+            &request,
+            &context,
+            baudbound_runtime::ResourceLimit::Unlimited,
+        )
         .expect_err("asset playback without package should fail");
 
     assert!(error.to_string().contains("installed package context"));
+}
+
+/// A filesystem audio source must go through the shared path resolver.
+///
+/// Without a workspace a bounded relative path has nothing to resolve against,
+/// so it must fail closed rather than opening the path with ambient authority.
+#[test]
+fn sound_playback_from_a_file_path_is_bounded_by_the_path_resolver() {
+    let adapter = SystemDesktopActionAdapter::default();
+    let request = RuntimeActionRequest {
+        action: None,
+        action_type: "action.sound.play".to_owned(),
+        config: serde_json::json!({"source": "file_path", "filePath": "tone.wav"})
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+        node_id: "n-sound".to_owned(),
+    };
+    let context = RuntimeContext {
+        cancellation: Default::default(),
+        identity: baudbound_runtime::RunIdentity {
+            run_id: "run-1".to_owned(),
+            script_id: "script-1".to_owned(),
+            trigger_node_id: "n-trigger".to_owned(),
+        },
+        package_bytes: None,
+        package_path: None,
+        workspace_path: None,
+        trigger_payload: Value::Null,
+        variables: Default::default(),
+    };
+
+    let error = adapter
+        .sound_play(
+            &request,
+            &context,
+            baudbound_runtime::ResourceLimit::Unlimited,
+        )
+        .expect_err("a bounded audio path without a workspace must fail");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("failed to read the audio source"),
+        "unexpected audio source rejection: {message}"
+    );
+    assert!(
+        !message.contains("tone.wav"),
+        "the audio failure must not report which path was probed: {message}"
+    );
 }
 
 #[cfg(windows)]

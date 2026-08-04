@@ -142,6 +142,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
+        _max_read_bytes: baudbound_runtime::ResourceLimit,
     ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
