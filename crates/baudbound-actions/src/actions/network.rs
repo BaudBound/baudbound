@@ -410,7 +410,7 @@ fn safe_http_destination(value: &str) -> String {
         destination.push(':');
         destination.push_str(&port.to_string());
     }
-    destination.push_str(url.path());
+    destination.push_str(&redacted_path(url.path()));
     let query_names = url
         .query_pairs()
         .map(|(name, _)| format!("{name}=[REDACTED]"))
@@ -420,6 +420,27 @@ fn safe_http_destination(value: &str) -> String {
         destination.push_str(&query_names.join("&"));
     }
     destination
+}
+
+/// Redacts path segments that carry enough entropy to be a credential.
+///
+/// Query values were already redacted, but the path was emitted verbatim, so a
+/// key embedded in a REST path or a signed URL segment reached the run log. A
+/// short segment is kept because it is almost always a route name that the
+/// author needs in order to recognise the request.
+fn redacted_path(path: &str) -> String {
+    const MAX_PLAIN_SEGMENT_CHARS: usize = 24;
+
+    path.split('/')
+        .map(|segment| {
+            if segment.chars().count() > MAX_PLAIN_SEGMENT_CHARS {
+                "[REDACTED]"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn sanitized_http_error(error: &reqwest::Error, original_url: &str, safe_url: &str) -> String {

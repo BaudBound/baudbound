@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::compile_safe_regex;
+use crate::compile_cached_regex;
 use crate::runtime::{number_from_value, value_to_string};
 
 #[cfg(test)]
@@ -102,7 +102,9 @@ fn compare_range(value: Option<f64>, start: Option<f64>, end: Option<f64>) -> Re
 }
 
 fn safe_regex_match(value: &str, pattern: &str) -> Result<bool, String> {
-    compile_safe_regex(pattern).map(|regex| regex.is_match(value))
+    // Uses the cached form because a condition inside a loop evaluates once per
+    // iteration and compilation dominates the cost.
+    compile_cached_regex(pattern).map(|regex| regex.is_match(value))
 }
 
 fn is_value_empty(value: &Value) -> bool {

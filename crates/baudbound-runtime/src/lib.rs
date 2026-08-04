@@ -14,7 +14,7 @@ pub use runtime::{
     RuntimeDefaultVariableScope, RuntimeScriptSettings, RuntimeSecretDeclaration,
     RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable, resolve_template_value,
 };
-pub use safe_regex::{compile_safe_regex, max_simulation_regex_input_bytes};
+pub use safe_regex::{compile_cached_regex, compile_safe_regex, max_simulation_regex_input_bytes};
 
 #[cfg(test)]
 mod tests;

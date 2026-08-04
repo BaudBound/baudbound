@@ -1,4 +1,7 @@
-use std::sync::OnceLock;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use regex::Regex;
 use serde::Deserialize;
@@ -13,13 +16,48 @@ struct RegexPolicy {
     version: u32,
 }
 
+/// Largest number of compiled patterns kept in memory.
+///
+/// This bounds cache memory, not what a script may do. Passing the limit evicts
+/// an entry and recompiles later, so a script using an unbounded variety of
+/// patterns keeps working at the original cost.
+const MAX_CACHED_PATTERNS: usize = 256;
+
 pub fn compile_safe_regex(pattern: &str) -> Result<Regex, String> {
+    compile_cached_regex(pattern).map(|regex| regex.as_ref().clone())
+}
+
+/// Compiles a pattern, reusing a previous compilation where possible.
+///
+/// Condition evaluation compiles on every call, so a pattern inside a loop was
+/// recompiled once per iteration. The regex engine is a finite automaton and
+/// matching is linear, so compilation was the expensive part.
+pub fn compile_cached_regex(pattern: &str) -> Result<Arc<Regex>, String> {
     let maximum = regex_policy().max_pattern_utf8_bytes;
     if pattern.len() > maximum {
         return Err(format!("regex pattern exceeds {maximum} UTF-8 bytes"));
     }
 
-    Regex::new(pattern).map_err(|source| format!("invalid regex pattern: {source}"))
+    let cache = regex_cache();
+    let mut entries = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(regex) = entries.get(pattern) {
+        return Ok(Arc::clone(regex));
+    }
+
+    let regex =
+        Arc::new(Regex::new(pattern).map_err(|source| format!("invalid regex pattern: {source}"))?);
+    if entries.len() >= MAX_CACHED_PATTERNS {
+        entries.clear();
+    }
+    entries.insert(pattern.to_owned(), Arc::clone(&regex));
+    Ok(regex)
+}
+
+fn regex_cache() -> &'static Mutex<HashMap<String, Arc<Regex>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Regex>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[must_use]
