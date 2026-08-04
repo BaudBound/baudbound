@@ -10,7 +10,51 @@
 //! same way on both platforms or the risk shown at approval time depends on
 //! which machine happened to build the package.
 
+use serde::Deserialize;
+
 use super::*;
+
+#[derive(Deserialize)]
+struct PathConformance {
+    cases: Vec<PathCase>,
+    version: u32,
+}
+
+#[derive(Deserialize)]
+struct PathCase {
+    path: String,
+    reason: String,
+    unbounded: bool,
+}
+
+/// The editor and the runner must classify every shared case identically.
+///
+/// The editor shows the risk at approval time and the runner recalculates it
+/// before running. A disagreement makes a package fail to import, or worse,
+/// shows the user a lower risk than the one that is enforced.
+#[test]
+fn shared_path_classification_fixtures_conform() {
+    let conformance: PathConformance = serde_json::from_str(include_str!(
+        "../../../../contracts/path-classification-conformance.json"
+    ))
+    .expect("shared path classification fixtures should parse");
+    assert_eq!(conformance.version, 1);
+
+    for case in conformance.cases {
+        assert_eq!(
+            is_unbounded_path(&case.path),
+            case.unbounded,
+            "{:?} should be {}: {}",
+            case.path,
+            if case.unbounded {
+                "unbounded"
+            } else {
+                "bounded"
+            },
+            case.reason
+        );
+    }
+}
 
 #[test]
 fn bounded_relative_paths_classify_as_limited() {
