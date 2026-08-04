@@ -62,6 +62,7 @@ fn dialog_context() -> RuntimeContext {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     }
@@ -352,6 +353,7 @@ fn pre_cancelled_message_dialog_returns_without_opening_a_window() {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -386,6 +388,7 @@ fn pre_cancelled_type_text_returns_without_sending_native_input() {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -420,6 +423,7 @@ fn message_dialog_is_rejected_without_an_interactive_provider() {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -1020,6 +1024,7 @@ fn asset_sound_requires_package_context_before_audio_io() {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -1053,6 +1058,7 @@ fn windows_process_title_actions_handle_missing_windows_safely() {
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };

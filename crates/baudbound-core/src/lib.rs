@@ -833,6 +833,7 @@ impl RunnerCore {
         let runtime_resources = || {
             let resources = RuntimeExecutionResources::new(&core_action_handler)
                 .with_package_path(staged_package.path.clone())
+                .with_workspace_path(store.script_workspace(&installed.id))
                 .with_package_bytes(Arc::clone(&staged_package.bytes))
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)

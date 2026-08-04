@@ -411,25 +411,27 @@ fn resolve_action_path(
     if path.is_absolute() || contains_parent_component(path) {
         return Ok(ActionPath::Ambient(path.to_path_buf()));
     }
+    // A bounded relative path is only bounded if a workspace exists to bound it
+    // to. Falling back to ambient authority here would resolve the path against
+    // the process working directory while the package still declares a limited
+    // permission, so this fails closed instead.
     let Some(workspace) = script_workspace(context) else {
-        return Ok(ActionPath::Ambient(path.to_path_buf()));
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!(
+                "cannot resolve the bounded relative path {configured_path:?} because no script \
+                 workspace is available for this run"
+            ),
+        });
     };
-    fs::create_dir_all(&workspace).map_err(|source| RuntimeActionError::Failed {
-        action_type: request.action_type.clone(),
-        message: format!(
-            "failed to create script workspace {}: {source}",
-            workspace.display()
-        ),
-    })?;
-    let directory = Dir::open_ambient_dir(&workspace, ambient_authority()).map_err(|source| {
-        RuntimeActionError::Failed {
+    let directory =
+        open_workspace_directory(&workspace).map_err(|source| RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
             message: format!(
                 "failed to open script workspace {}: {source}",
                 workspace.display()
             ),
-        }
-    })?;
+        })?;
     if matches!(intent, PathIntent::Existing) {
         directory
             .metadata(path)
@@ -459,14 +461,59 @@ fn contains_parent_component(path: &Path) -> bool {
 }
 
 fn script_workspace(context: &RuntimeContext) -> Option<PathBuf> {
-    let package_path = context.package_path.as_ref()?;
-    let scripts_directory = package_path.parent()?;
-    let runner_home = scripts_directory.parent()?;
-    Some(
-        runner_home
-            .join("workspaces")
-            .join(&context.identity.script_id),
-    )
+    context.workspace_path.clone()
+}
+
+/// Opens the script workspace without following a symbolic link at its root.
+///
+/// `cap-std` confines everything below the directory handle, but the handle
+/// itself is obtained with ambient authority. Opening a symlinked workspace
+/// root would therefore relocate the whole sandbox, so the root is created and
+/// verified before it is used.
+fn open_workspace_directory(workspace: &Path) -> io::Result<Dir> {
+    if let Some(parent) = workspace.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    match fs::create_dir(workspace) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+
+    let metadata = fs::symlink_metadata(workspace)?;
+    if metadata.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "script workspace is a symbolic link",
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "script workspace is not a directory",
+        ));
+    }
+    verify_workspace_owner(&metadata)?;
+
+    Dir::open_ambient_dir(workspace, ambient_authority())
+}
+
+#[cfg(unix)]
+fn verify_workspace_owner(metadata: &fs::Metadata) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    if metadata.uid() != rustix::process::getuid().as_raw() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "script workspace is owned by another user",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn verify_workspace_owner(_metadata: &fs::Metadata) -> io::Result<()> {
+    Ok(())
 }
 
 fn ensure_destination_available(

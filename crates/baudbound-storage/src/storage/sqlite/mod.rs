@@ -552,6 +552,10 @@ fn restrict_database_permissions(_path: &Path) -> Result<(), StorageError> {
 }
 
 impl ScriptStore for SqliteRunnerStore {
+    fn script_workspace(&self, script_id: &str) -> PathBuf {
+        self.root.join("workspaces").join(script_id)
+    }
+
     fn append_run_record(&self, record: StoredRunRecord) -> Result<(), StorageError> {
         let logs_json =
             serde_json::to_string(&record.logs).map_err(|source| StorageError::Json {

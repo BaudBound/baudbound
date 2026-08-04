@@ -3,33 +3,30 @@ use std::fs;
 use serde_json::json;
 
 use super::{
-    TestHttpServer, execute, execute_with_handler, execute_with_package_path,
-    private_network_handler,
+    TestHttpServer, execute, execute_with_handler, execute_with_workspace, private_network_handler,
 };
 use crate::{ActionLimits, HeadlessActionHandler};
 
+/// Unit-level check that a bounded path stays inside the workspace it is given.
+///
+/// This covers the resolver only. Which workspace the execution path actually
+/// supplies is covered by an integration test in `baudbound-core`, because that
+/// is the wiring this test cannot observe.
 #[test]
 fn limited_relative_paths_use_the_script_workspace() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let package_path = directory.path().join("scripts").join("script-1.bbs");
+    let workspace = directory.path().join("workspaces").join("script-1");
 
-    execute_with_package_path(
+    execute_with_workspace(
         "action.file.write",
         json!({"path": "output/result.txt", "content": "workspace"}),
-        package_path,
+        workspace.clone(),
     )
     .expect("limited write should succeed");
 
     assert_eq!(
-        fs::read_to_string(
-            directory
-                .path()
-                .join("workspaces")
-                .join("script-1")
-                .join("output")
-                .join("result.txt")
-        )
-        .expect("workspace output should exist"),
+        fs::read_to_string(workspace.join("output").join("result.txt"))
+            .expect("workspace output should exist"),
         "workspace"
     );
 }
@@ -40,17 +37,16 @@ fn limited_paths_reject_symbolic_link_workspace_escapes() {
     use std::os::unix::fs::symlink;
 
     let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let package_path = directory.path().join("scripts").join("script-1.bbs");
     let workspace = directory.path().join("workspaces").join("script-1");
     let outside = directory.path().join("outside");
     fs::create_dir_all(&workspace).expect("workspace should be created");
     fs::create_dir_all(&outside).expect("outside directory should be created");
     symlink(&outside, workspace.join("escape")).expect("symlink should be created");
 
-    let error = execute_with_package_path(
+    let error = execute_with_workspace(
         "action.file.write",
         json!({"path": "escape/result.txt", "content": "blocked"}),
-        package_path,
+        workspace,
     )
     .expect_err("workspace symlink escape must fail");
 
@@ -66,6 +62,58 @@ fn limited_paths_reject_symbolic_link_workspace_escapes() {
         "unexpected symlink rejection: {error}"
     );
     assert!(!outside.join("result.txt").exists());
+}
+
+/// The workspace root itself must not be a symbolic link.
+///
+/// `cap-std` confines everything below the directory handle, but the handle is
+/// obtained with ambient authority. A symlink at the root would relocate the
+/// entire sandbox before `cap-std` is involved, so the previous test cannot
+/// catch it.
+#[cfg(unix)]
+#[test]
+fn limited_paths_reject_a_symbolic_link_workspace_root() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let workspace = directory.path().join("workspaces").join("script-1");
+    let outside = directory.path().join("attacker-controlled");
+    fs::create_dir_all(workspace.parent().expect("workspace has a parent"))
+        .expect("workspace parent should be created");
+    fs::create_dir_all(&outside).expect("outside directory should be created");
+    symlink(&outside, &workspace).expect("workspace root symlink should be created");
+
+    let error = execute_with_workspace(
+        "action.file.write",
+        json!({"path": "result.txt", "content": "blocked"}),
+        workspace,
+    )
+    .expect_err("a symlinked workspace root must fail");
+
+    assert!(
+        format!("{error}").contains("symbolic link"),
+        "unexpected workspace root rejection: {error}"
+    );
+    assert!(
+        !outside.join("result.txt").exists(),
+        "a symlinked workspace root must not redirect writes outside the runner home"
+    );
+}
+
+/// A bounded relative path with no workspace must fail rather than fall back to
+/// ambient authority, which would resolve it against the process directory.
+#[test]
+fn limited_paths_without_a_workspace_fail_closed() {
+    let error = execute(
+        "action.file.write",
+        json!({"path": "result.txt", "content": "blocked"}),
+    )
+    .expect_err("a bounded path without a workspace must fail");
+
+    assert!(
+        format!("{error}").contains("no script workspace is available"),
+        "unexpected missing-workspace rejection: {error}"
+    );
 }
 
 #[test]

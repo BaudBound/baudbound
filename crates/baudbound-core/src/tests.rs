@@ -78,8 +78,11 @@ fn limited_relative_writes_resolve_inside_the_runner_home_workspace() {
     let script_id = "workspace-anchor-probe";
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let package_path = temporary_directory.path().join("workspace-anchor.bbs");
-    fs::write(&package_path, create_workspace_write_test_package(script_id))
-        .expect("workspace anchor package should be written");
+    fs::write(
+        &package_path,
+        create_workspace_write_test_package(script_id),
+    )
+    .expect("workspace anchor package should be written");
 
     let store = test_store(&temporary_directory);
     let core = RunnerCore::default();

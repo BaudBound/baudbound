@@ -557,6 +557,15 @@ pub enum StorageError {
 }
 
 pub trait ScriptStore: Send + Sync {
+    /// Directory that bounded relative paths for `script_id` resolve inside.
+    ///
+    /// The storage layer owns the runner home layout, so it is the only place
+    /// that decides where a script workspace lives. Callers must not derive
+    /// this location from a package path: packages execute from a staged copy
+    /// in a temporary directory, so walking up from one lands outside the
+    /// runner home entirely.
+    fn script_workspace(&self, script_id: &str) -> PathBuf;
+
     fn append_run_record(&self, record: StoredRunRecord) -> Result<(), StorageError>;
     fn approve_script(
         &self,

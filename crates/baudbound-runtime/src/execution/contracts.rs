@@ -52,8 +52,20 @@ pub struct RuntimeContext {
     pub identity: RunIdentity,
     #[serde(skip, default)]
     pub package_bytes: Option<Arc<[u8]>>,
+    /// Location of the package archive being executed.
+    ///
+    /// This is a staged copy rather than the installed package, so it must not
+    /// be used to derive any other location. Use `workspace_path` for the
+    /// script workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_path: Option<PathBuf>,
+    /// Directory that bounded relative file paths resolve inside.
+    ///
+    /// Supplied explicitly by the caller that owns the runner home. Deriving it
+    /// from `package_path` produced a workspace under the system temp directory
+    /// once packages began executing from a staged copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_path: Option<PathBuf>,
     pub trigger_payload: Value,
     pub variables: BTreeMap<String, Value>,
 }
@@ -271,6 +283,7 @@ impl RuntimeActionHandler for UnsupportedActionHandler {
 pub struct RuntimeExecutionResources<'a> {
     pub(super) package_bytes: Option<Arc<[u8]>>,
     pub(super) package_path: Option<PathBuf>,
+    pub(super) workspace_path: Option<PathBuf>,
     pub(super) action_handler: &'a dyn RuntimeActionHandler,
     pub(super) cancellation: RuntimeCancellationToken,
     pub(super) state_store: Option<&'a dyn RuntimeStateStore>,
@@ -326,6 +339,7 @@ impl<'a> RuntimeExecutionResources<'a> {
         Self {
             package_bytes: None,
             package_path: None,
+            workspace_path: None,
             action_handler,
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
@@ -341,6 +355,16 @@ impl<'a> RuntimeExecutionResources<'a> {
     #[must_use]
     pub fn with_package_path(mut self, package_path: PathBuf) -> Self {
         self.package_path = Some(package_path);
+        self
+    }
+
+    /// Sets the directory that bounded relative file paths resolve inside.
+    ///
+    /// The caller must own this location. It is never derived from the package
+    /// path, which points at a staged copy in a temporary directory.
+    #[must_use]
+    pub fn with_workspace_path(mut self, workspace_path: PathBuf) -> Self {
+        self.workspace_path = Some(workspace_path);
         self
     }
 

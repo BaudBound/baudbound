@@ -31,7 +31,10 @@ fn storage_files_are_not_readable_by_other_users() {
         }))
         .expect("service status should write");
 
-    let database = temporary_directory.path().join("runner").join("runner.sqlite3");
+    let database = temporary_directory
+        .path()
+        .join("runner")
+        .join("runner.sqlite3");
     assert!(database.is_file(), "database should exist after opening");
 
     let mut offenders = Vec::new();

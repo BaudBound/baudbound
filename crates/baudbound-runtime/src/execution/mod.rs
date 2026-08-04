@@ -87,6 +87,7 @@ impl<'a> RuntimeExecutor<'a> {
                 identity,
                 package_bytes: resources.package_bytes,
                 package_path: resources.package_path,
+                workspace_path: resources.workspace_path,
                 trigger_payload,
                 variables: initial_state.variables,
             },

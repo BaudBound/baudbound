@@ -1074,10 +1074,17 @@ fn execute_with_trigger_payload(
     execute_with_handler(&handler, action_type, config, trigger_payload)
 }
 
-fn execute_with_package_path(
+/// Runs an action against an explicit script workspace.
+///
+/// The workspace is supplied directly rather than derived from a package path.
+/// An earlier version of this helper built the workspace by walking up from a
+/// package path in the installed layout, which meant the tests could not
+/// observe that the execution path supplies a staged path from a temporary
+/// directory instead.
+fn execute_with_workspace(
     action_type: &str,
     config: Value,
-    package_path: std::path::PathBuf,
+    workspace_path: std::path::PathBuf,
 ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
     let handler = HeadlessActionHandler::default();
     let context = RuntimeContext {
@@ -1088,7 +1095,8 @@ fn execute_with_package_path(
             trigger_node_id: "trigger-1".to_owned(),
         },
         package_bytes: None,
-        package_path: Some(package_path),
+        package_path: None,
+        workspace_path: Some(workspace_path),
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -1116,6 +1124,7 @@ fn execute_with_cancellation(
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
     };
@@ -1144,6 +1153,7 @@ fn execute_with_handler(
         },
         package_bytes: None,
         package_path: None,
+        workspace_path: None,
         trigger_payload,
         variables: Default::default(),
     };
