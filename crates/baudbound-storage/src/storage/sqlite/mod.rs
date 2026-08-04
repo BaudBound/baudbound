@@ -75,6 +75,16 @@ impl SqliteRunnerStore {
                 path: parent.to_path_buf(),
                 source,
             })?;
+            // Restrict the directory before opening the database. SQLite
+            // creates its write-ahead log and shared-memory sidecars itself,
+            // after this point and with the process umask, so restricting only
+            // the database file leaves those readable. They carry the same
+            // recently written pages, including the runner control token.
+            //
+            // Only an explicit parent is restricted. A bare database file name
+            // resolves its root to the working directory, which the storage
+            // layer does not own and must not modify.
+            restrict_runner_home_permissions(parent)?;
         }
 
         let root = path
@@ -527,6 +537,32 @@ impl SqliteRunnerStore {
         let connection = self.connection()?;
         resolve_script(&connection, &self.path, reference)
     }
+}
+
+/// Restricts the runner home so no other user can traverse into it.
+///
+/// This covers every file the storage layer creates, including the files
+/// SQLite creates for itself later, without having to enumerate them.
+#[cfg(unix)]
+fn restrict_runner_home_permissions(root: &Path) -> Result<(), StorageError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(root)
+        .map_err(|source| StorageError::Io {
+            path: root.to_path_buf(),
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(root, permissions).map_err(|source| StorageError::Io {
+        path: root.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_runner_home_permissions(_root: &Path) -> Result<(), StorageError> {
+    Ok(())
 }
 
 #[cfg(unix)]
