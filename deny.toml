@@ -1,12 +1,46 @@
 [advisories]
 db-urls = ["https://github.com/RustSec/advisory-db"]
 git-fetch-with-cli = true
-ignore = []
 maximum-db-staleness = "P1D"
-unmaintained = "workspace"
+unmaintained = "all"
 unsound = "workspace"
 unused-ignored-advisory = "deny"
 yanked = "deny"
+
+# Unmaintained advisories are scoped to the whole graph rather than to workspace
+# members. Unmaintained crates are transitive by nature, so limiting the check to
+# workspace members meant it could never fire.
+#
+# Every entry below is an unmaintained notice rather than a vulnerability, and
+# every one reaches the graph through Tauri's Linux desktop stack. None can be
+# removed by changing a direct BaudBound dependency. Re-check each on the review
+# date, and drop the entry once the upstream chain moves.
+#
+# Owner: NATroutter
+# Review by: 2026-11-04
+ignore = [
+    # proc-macro-error, a build-time proc macro reached through
+    # glib-macros -> glib -> gtk -> tray-icon -> tauri.
+    "RUSTSEC-2024-0370",
+    # gtk-rs GTK3 bindings reached through tray-icon and wry. Tauri v2 still
+    # targets GTK3 on Linux, so these leave when Tauri moves.
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    # unic-* Unicode crates reached through urlpattern -> tauri-utils.
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]
 
 [licenses]
 allow = [
