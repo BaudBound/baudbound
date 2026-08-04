@@ -89,7 +89,7 @@ pub(crate) fn open_application_action(
     let application = required_string(request, "application")?;
     let arguments = config_string_array(request, "arguments")?;
 
-    let mut command = Command::new(&application);
+    let mut command = Command::new(resolve_program(request, &application)?);
     command
         .args(&arguments)
         .stdin(Stdio::null())
@@ -168,7 +168,7 @@ pub(crate) fn run_process_action(
     let arguments = config_string_array(request, "arguments")?;
     let working_directory = config_string(&request.config, "workingDirectory").unwrap_or_default();
 
-    let mut command = Command::new(&executable);
+    let mut command = Command::new(resolve_program(request, &executable)?);
     command.args(&arguments);
     if !working_directory.trim().is_empty() {
         command.current_dir(&working_directory);
@@ -275,6 +275,89 @@ fn process_result(
         ]),
         sensitive_output_keys: Default::default(),
     }
+}
+
+/// Chooses the program a launch action passes to the operating system.
+///
+/// A name containing no separator is resolved against `PATH` on Windows rather
+/// than handed to `CreateProcessW` as a bare name. That call searches the
+/// working directory before `PATH`, so combined with a script-controlled
+/// `workingDirectory` a planted binary would be preferred over the intended
+/// one. Bare names such as `git` keep working, and a path with a separator is
+/// passed through untouched because the author already chose a location.
+///
+/// Unix is unchanged: `execvp` searches `PATH` and does not implicitly include
+/// the working directory.
+fn resolve_program(
+    request: &RuntimeActionRequest,
+    program: &str,
+) -> Result<std::ffi::OsString, RuntimeActionError> {
+    #[cfg(windows)]
+    {
+        use std::path::Path;
+
+        let has_separator = program.contains('/') || program.contains('\\');
+        if !has_separator && !Path::new(program).is_absolute() {
+            return match resolve_windows_path_program(program) {
+                Some(resolved) => Ok(resolved.into_os_string()),
+                None => Err(RuntimeActionError::Failed {
+                    action_type: request.action_type.clone(),
+                    message: format!(
+                        "{program} was not found on PATH. Use an explicit path such as \
+                         .\\{program} or a full path to run a program from a specific directory."
+                    ),
+                }),
+            };
+        }
+    }
+
+    let _ = request;
+    Ok(std::ffi::OsString::from(program))
+}
+
+/// Finds an executable on `PATH`, honouring `PATHEXT` and skipping empty entries.
+///
+/// An empty `PATH` entry means the working directory on Windows, so those are
+/// skipped deliberately.
+#[cfg(windows)]
+fn resolve_windows_path_program(program: &str) -> Option<std::path::PathBuf> {
+    use std::path::Path;
+
+    let path_value = std::env::var_os("PATH")?;
+    let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned());
+    let extensions = extensions
+        .split(';')
+        .map(str::trim)
+        .filter(|extension| !extension.is_empty())
+        .collect::<Vec<_>>();
+    let already_executable = Path::new(program).extension().is_some_and(|extension| {
+        extensions.iter().any(|candidate| {
+            candidate
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(&extension.to_string_lossy())
+        })
+    });
+
+    for directory in std::env::split_paths(&path_value) {
+        if directory.as_os_str().is_empty() {
+            continue;
+        }
+        if already_executable {
+            let candidate = directory.join(program);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            continue;
+        }
+        for extension in &extensions {
+            let candidate = directory.join(format!("{program}{extension}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
 }
 
 fn platform_shell_command(command: &str) -> Command {

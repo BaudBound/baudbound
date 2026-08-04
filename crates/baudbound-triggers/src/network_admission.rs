@@ -112,6 +112,7 @@ impl PreAuthRateLimiter {
         }
         let mut state = self.lock();
         prune_expired(&mut state, now, self.window);
+        evict_beyond_tracking_capacity(&mut state, address);
         if !limit_permits_next(self.global_limit, state.requests.len()) {
             return Err(PreAuthRateLimit::Global);
         }
@@ -132,6 +133,36 @@ impl PreAuthRateLimiter {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Largest number of distinct addresses tracked inside the current window.
+///
+/// Only the global request limit bounds this map. An operator who sets that
+/// limit to unlimited while keeping a per-address limit would otherwise let an
+/// attacker with a large address range grow it without bound for the window.
+const MAX_TRACKED_ADDRESSES: usize = 8_192;
+
+/// Drops the oldest requests so a new address can be tracked.
+///
+/// This bounds memory rather than throughput. Evicting an old record can only
+/// forget past requests, so it never rejects a request that the configured
+/// limits would have allowed.
+fn evict_beyond_tracking_capacity(state: &mut RateState, address: IpAddr) {
+    if state.by_address.len() < MAX_TRACKED_ADDRESSES || state.by_address.contains_key(&address) {
+        return;
+    }
+
+    while state.by_address.len() >= MAX_TRACKED_ADDRESSES {
+        let Some(record) = state.requests.pop_front() else {
+            break;
+        };
+        if let Some(count) = state.by_address.get_mut(&record.address) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                state.by_address.remove(&record.address);
+            }
+        }
     }
 }
 
@@ -213,6 +244,50 @@ mod tests {
             limiter.check_at(first, start + Duration::from_secs(60)),
             Ok(())
         );
+    }
+
+    #[test]
+    fn address_tracking_is_bounded_when_the_global_limit_is_unlimited() {
+        let start = Instant::now();
+        let limiter = PreAuthRateLimiter::new(
+            ResourceLimit::Unlimited,
+            ResourceLimit::limited(4),
+            Duration::from_secs(60),
+        );
+
+        for index in 0..(MAX_TRACKED_ADDRESSES as u32 + 512) {
+            let address = IpAddr::from(std::net::Ipv4Addr::from(index));
+            assert_eq!(limiter.check_at(address, start), Ok(()));
+        }
+
+        let state = limiter.lock();
+        assert!(
+            state.by_address.len() <= MAX_TRACKED_ADDRESSES,
+            "address tracking grew to {} entries",
+            state.by_address.len()
+        );
+        assert!(state.requests.len() <= MAX_TRACKED_ADDRESSES);
+    }
+
+    #[test]
+    fn eviction_never_rejects_a_request_the_limits_would_allow() {
+        let start = Instant::now();
+        let limiter = PreAuthRateLimiter::new(
+            ResourceLimit::Unlimited,
+            ResourceLimit::limited(2),
+            Duration::from_secs(60),
+        );
+        let caller = "192.0.2.1".parse().expect("address should parse");
+
+        // Fill the table past capacity with other addresses, then confirm the
+        // original caller is still admitted at its configured allowance.
+        assert_eq!(limiter.check_at(caller, start), Ok(()));
+        for index in 0..(MAX_TRACKED_ADDRESSES as u32 + 16) {
+            let address = IpAddr::from(std::net::Ipv4Addr::from(index));
+            let _ = limiter.check_at(address, start);
+        }
+
+        assert_eq!(limiter.check_at(caller, start), Ok(()));
     }
 
     #[test]

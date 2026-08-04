@@ -48,6 +48,34 @@ fn run_process_captures_working_directory_stdout_stderr_and_nonzero_exit() {
     );
 }
 
+/// A bare program name must not resolve out of the working directory.
+///
+/// `CreateProcessW` searches the working directory before `PATH`, so combined
+/// with a script-controlled `workingDirectory` a planted binary would be
+/// preferred over the intended one.
+#[cfg(windows)]
+#[test]
+fn run_process_does_not_prefer_a_planted_working_directory_binary() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let planted = directory.path().join("baudbound-planted-probe.cmd");
+    std::fs::write(&planted, "@echo planted\r\n").expect("planted binary should be written");
+
+    let error = execute(
+        "action.process.run",
+        json!({
+            "executable": "baudbound-planted-probe",
+            "arguments": [],
+            "workingDirectory": directory.path()
+        }),
+    )
+    .expect_err("a working directory binary must not be launched by bare name");
+
+    assert!(
+        error.to_string().contains("was not found on PATH"),
+        "a bare name must resolve against PATH only: {error}"
+    );
+}
+
 #[test]
 fn run_process_rejects_missing_executables_and_working_directories() {
     let executable_error = execute(
@@ -59,10 +87,14 @@ fn run_process_rejects_missing_executables_and_working_directories() {
         }),
     )
     .expect_err("missing executable must fail");
+    let executable_message = executable_error.to_string();
+    // On Windows a bare name is resolved against PATH before launching, so a
+    // missing program fails at resolution with an actionable message rather
+    // than at spawn. Unix still reports the spawn failure.
     assert!(
-        executable_error
-            .to_string()
-            .contains("failed to start process")
+        executable_message.contains("failed to start process")
+            || executable_message.contains("was not found on PATH"),
+        "unexpected missing executable error: {executable_message}"
     );
 
     let (executable, arguments) = successful_process_command();
