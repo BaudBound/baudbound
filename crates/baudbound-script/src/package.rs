@@ -17,6 +17,7 @@ mod limits;
 mod manifest;
 mod numeric;
 pub(crate) mod schema;
+mod structure;
 
 use color_match::validate_program_color_match_contract;
 use graph::validate_program_graph;
@@ -164,6 +165,7 @@ pub fn read_package_asset_reader<R: Read + Seek>(
     asset_reference: &str,
 ) -> Result<PackageAsset, PackageLoadError> {
     validate_archive_size(&mut reader)?;
+    structure::validate_archive_structure(&mut reader).map_err(PackageLoadError::Validation)?;
     let mut archive = ZipArchive::new(reader)?;
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
@@ -210,6 +212,7 @@ pub fn load_script_package_reader<R: Read + Seek>(
     mut reader: R,
 ) -> Result<ScriptPackage, PackageLoadError> {
     validate_archive_size(&mut reader)?;
+    structure::validate_archive_structure(&mut reader).map_err(PackageLoadError::Validation)?;
     let mut archive = ZipArchive::new(reader)?;
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
