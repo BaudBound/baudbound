@@ -1,19 +1,10 @@
-import { Activity, ListTree } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
-import type {
-  DashboardPayload,
-  TriggerDispatchActivity,
-  TriggerRegistrationStatus,
-} from "@/lib/runner-api";
-import { useDesktopTime } from "@/lib/time-format";
+import type { DashboardPayload, TriggerDispatchActivity, TriggerRegistrationStatus } from "@/lib/runner-api";
 import { useSortableRows } from "@/lib/table-sorting";
-import {
-  SerialReaderStatusPanel,
-  type SerialTriggerRegistration,
-} from "@/views/diagnostics/serial-reader-status";
+import { useDesktopTime } from "@/lib/time-format";
+import { SerialReaderStatusPanel, type SerialTriggerRegistration } from "@/views/diagnostics/serial-reader-status";
 
 type TriggerRow = TriggerRegistrationStatus & {
   activity: TriggerDispatchActivity | null;
@@ -23,10 +14,7 @@ type TriggerRow = TriggerRegistrationStatus & {
 
 type TriggerSortColumn = "health" | "node" | "script" | "target" | "type";
 
-const triggerSortSelectors: Record<
-  TriggerSortColumn,
-  (row: TriggerRow) => number | string
-> = {
+const triggerSortSelectors: Record<TriggerSortColumn, (row: TriggerRow) => number | string> = {
   health: (row) => {
     if (!row.activity || row.activity.total_dispatch_count === 0) return 0;
     return row.activity.failed_dispatch_count > 0 ? 2 : 1;
@@ -39,10 +27,7 @@ const triggerSortSelectors: Record<
 
 export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPayload }) {
   const rows = triggerRows(dashboard);
-  const { sortedRows, sortState, toggleSort } = useSortableRows(
-    rows,
-    triggerSortSelectors,
-  );
+  const { sortedRows, sortState, toggleSort } = useSortableRows(rows, triggerSortSelectors);
   const serialRows = rows.filter(
     (row): row is TriggerRow & SerialTriggerRegistration => row.runner_type === "serial.input",
   );
@@ -51,18 +36,15 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <ListTree className="size-4 text-muted-foreground" />
-            <CardTitle>Registered triggers</CardTitle>
-          </div>
+          <CardTitle>Registered triggers</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Triggers loaded automatically from enabled and approved scripts.
-            Run totals cover the current background runner session and reset when it restarts.
+            Triggers loaded automatically from enabled and approved scripts. Run totals cover the current background
+            runner session and reset when it restarts.
           </p>
         </div>
         <Badge variant="muted">{rows.length}</Badge>
       </CardHeader>
-      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+      <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
           <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No trigger registrations are currently loaded.
@@ -90,15 +72,10 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
             </thead>
             <tbody>
               {sortedRows.map((row) => (
-                <tr
-                  className="border-b border-border last:border-b-0"
-                  key={`${row.scriptId}:${row.node_id}`}
-                >
+                <tr className="border-b border-border last:border-b-0" key={`${row.scriptId}:${row.node_id}`}>
                   <td className="px-3 py-3" data-label="Script">
                     <div className="font-medium">{row.scriptName}</div>
-                    <div className="break-all font-mono text-xs text-muted-foreground">
-                      {row.scriptId}
-                    </div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{row.scriptId}</div>
                   </td>
                   <td className="px-3 py-3" data-label="Type">
                     <Badge variant="muted">{triggerDisplayName(row.runner_type)}</Badge>
@@ -117,9 +94,7 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
             </tbody>
           </table>
         )}
-        {serialRows.length > 0 ? (
-          <SerialReaderStatusPanel dashboard={dashboard} registrations={serialRows} />
-        ) : null}
+        {serialRows.length > 0 ? <SerialReaderStatusPanel dashboard={dashboard} registrations={serialRows} /> : null}
       </CardContent>
     </Card>
   );
@@ -131,16 +106,13 @@ function triggerRows(dashboard: DashboardPayload): TriggerRow[] {
     .flatMap((script) =>
       script.triggers.map((trigger) => ({
         ...trigger,
-        activity:
-          activityByTrigger[`${script.installed.id}::${trigger.node_id}`] ?? null,
+        activity: activityByTrigger[`${script.installed.id}::${trigger.node_id}`] ?? null,
         scriptId: script.installed.id,
         scriptName: script.installed.name,
       })),
     )
     .sort(
-      (left, right) =>
-        left.scriptName.localeCompare(right.scriptName) ||
-        left.node_id.localeCompare(right.node_id),
+      (left, right) => left.scriptName.localeCompare(right.scriptName) || left.node_id.localeCompare(right.node_id),
     );
 }
 
@@ -148,10 +120,7 @@ function TriggerHealth({ activity }: { activity: TriggerDispatchActivity | null 
   const { formatUnixSeconds } = useDesktopTime();
   if (!activity || activity.total_dispatch_count === 0) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Activity className="size-3.5" />
-        No runs
-      </div>
+      <div className="text-xs text-muted-foreground">No runs</div>
     );
   }
 
@@ -162,14 +131,11 @@ function TriggerHealth({ activity }: { activity: TriggerDispatchActivity | null 
         <Badge variant={failed ? "medium" : "good"}>
           {activity.successful_dispatch_count}/{activity.total_dispatch_count} successful
         </Badge>
-        {failed ? (
-          <Badge variant="destructive">{activity.failed_dispatch_count} failed</Badge>
-        ) : null}
+        {failed ? <Badge variant="destructive">{activity.failed_dispatch_count} failed</Badge> : null}
       </div>
       {activity.last_dispatch ? (
         <span className="text-muted-foreground">
-          Last {activity.last_dispatch.status} at{" "}
-          {formatUnixSeconds(activity.last_dispatch.completed_at_unix)}
+          Last {activity.last_dispatch.status} at {formatUnixSeconds(activity.last_dispatch.completed_at_unix)}
         </span>
       ) : null}
     </div>

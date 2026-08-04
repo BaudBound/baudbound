@@ -11,6 +11,7 @@ use std::{
 };
 
 use baudbound_actions::SerialConnectionRegistry;
+use baudbound_runtime::is_user_identifier;
 use serde::Serialize;
 use serde_json::json;
 
@@ -203,6 +204,13 @@ impl SerialInputSpec {
         connections: &SerialConnectionRegistry,
     ) -> Result<Self, TriggerError> {
         let device_id = required_config_string(registration, "deviceId")?;
+        if !is_user_identifier(&device_id) {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                "serial input deviceId may contain only ASCII letters, numbers, hyphens, and underscores"
+                    .to_owned(),
+            ));
+        }
         let device = connections.config(&device_id).ok_or_else(|| {
             TriggerError::Failed(
                 registration.node_id.clone(),

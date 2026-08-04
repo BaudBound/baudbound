@@ -1,5 +1,8 @@
 use base64::{Engine as _, engine::general_purpose};
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeActionResult};
+use baudbound_runtime::{
+    ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeActionResult,
+    compile_safe_regex,
+};
 use regex::Regex;
 use serde_json::{Map, Value};
 
@@ -7,6 +10,7 @@ use crate::{config_string, failed, value_kind, value_to_string};
 
 pub(crate) fn text_format_action(
     request: &RuntimeActionRequest,
+    max_generated_bytes: ResourceLimit,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let mut current = request
         .config
@@ -31,10 +35,15 @@ pub(crate) fn text_format_action(
                 action_type: request.action_type.clone(),
                 message: format!("text transform operation {} must be an object", index + 1),
             })?;
-        current = apply_operation(current, config).map_err(|error| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("text transform operation {} failed: {error}", index + 1),
-        })?;
+        current = apply_operation(current, config, max_generated_bytes)
+            .and_then(|value| {
+                ensure_generated_value(&value, max_generated_bytes)?;
+                Ok(value)
+            })
+            .map_err(|error| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!("text transform operation {} failed: {error}", index + 1),
+            })?;
     }
     let (text, items) = match current {
         Value::Array(items) => (String::new(), items),
@@ -46,10 +55,15 @@ pub(crate) fn text_format_action(
             ("text".to_owned(), Value::String(text)),
             ("items".to_owned(), Value::Array(items)),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
-fn apply_operation(current: Value, config: &Map<String, Value>) -> Result<Value, String> {
+fn apply_operation(
+    current: Value,
+    config: &Map<String, Value>,
+    max_generated_bytes: ResourceLimit,
+) -> Result<Value, String> {
     let operation =
         config_string(config, "operation").ok_or_else(|| "operation is required".to_owned())?;
     if operation == "template" {
@@ -69,13 +83,7 @@ fn apply_operation(current: Value, config: &Map<String, Value>) -> Result<Value,
         if delimiter.is_empty() {
             return Err("join delimiter is required".to_owned());
         }
-        return Ok(Value::String(
-            items
-                .iter()
-                .map(value_to_string)
-                .collect::<Vec<_>>()
-                .join(&delimiter),
-        ));
+        return join_values(&items, &delimiter, max_generated_bytes).map(Value::String);
     }
     let Value::String(input) = current else {
         return Err(format!(
@@ -98,18 +106,15 @@ fn apply_operation(current: Value, config: &Map<String, Value>) -> Result<Value,
             if search.is_empty() {
                 return Err("search text is required".to_owned());
             }
-            Ok(Value::String(input.replace(&search, &replacement)))
+            replace_text(&input, &search, &replacement, max_generated_bytes).map(Value::String)
         }
         "regex_replace" => {
             if search.is_empty() {
                 return Err("search text is required".to_owned());
             }
             validate_portable_regex(&search, &replacement)?;
-            Regex::new(&search)
-                .map(|regex| {
-                    Value::String(regex.replace_all(&input, replacement.as_str()).to_string())
-                })
-                .map_err(|source| format!("invalid regex pattern: {source}"))
+            let regex = compile_safe_regex(&search)?;
+            regex_replace_text(&regex, &input, &replacement, max_generated_bytes).map(Value::String)
         }
         "split" => {
             if delimiter.is_empty() {
@@ -131,29 +136,50 @@ fn apply_operation(current: Value, config: &Map<String, Value>) -> Result<Value,
             if pad.is_empty() {
                 return Err("pad text is required".to_owned());
             }
-            Ok(Value::String(pad_text(
+            pad_text(
                 &input,
                 required_usize(config, "targetLength")?,
                 &pad,
                 true,
-            )))
+                max_generated_bytes,
+            )
+            .map(Value::String)
         }
         "pad_end" => {
             if pad.is_empty() {
                 return Err("pad text is required".to_owned());
             }
-            Ok(Value::String(pad_text(
+            pad_text(
                 &input,
                 required_usize(config, "targetLength")?,
                 &pad,
                 false,
-            )))
+                max_generated_bytes,
+            )
+            .map(Value::String)
         }
-        "url_encode" => Ok(Value::String(encode_uri_component(&input))),
+        "url_encode" => {
+            ensure_estimated_size(
+                u64::try_from(input.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(3),
+                max_generated_bytes,
+            )?;
+            Ok(Value::String(encode_uri_component(&input)))
+        }
         "url_decode" => decode_uri_component(&input).map(Value::String),
-        "base64_encode" => Ok(Value::String(
-            general_purpose::STANDARD.encode(input.as_bytes()),
-        )),
+        "base64_encode" => {
+            let input_bytes = u64::try_from(input.len()).unwrap_or(u64::MAX);
+            let encoded_bytes = input_bytes
+                .checked_add(2)
+                .and_then(|value| value.checked_div(3))
+                .and_then(|value| value.checked_mul(4))
+                .ok_or_else(|| "base64 output size overflowed".to_owned())?;
+            ensure_estimated_size(encoded_bytes, max_generated_bytes)?;
+            Ok(Value::String(
+                general_purpose::STANDARD.encode(input.as_bytes()),
+            ))
+        }
         "base64_decode" => {
             let bytes = general_purpose::STANDARD
                 .decode(input.trim())
@@ -308,18 +334,162 @@ fn capitalize_words(input: &str) -> String {
     result
 }
 
-fn pad_text(input: &str, target_length: usize, pad: &str, start: bool) -> String {
+fn pad_text(
+    input: &str,
+    target_length: usize,
+    pad: &str,
+    start: bool,
+    limit: ResourceLimit,
+) -> Result<String, String> {
     let current_length = input.chars().count();
     if current_length >= target_length || pad.is_empty() {
-        return input.to_owned();
+        return Ok(input.to_owned());
     }
 
     let missing = target_length - current_length;
-    let repeated = pad.chars().cycle().take(missing).collect::<String>();
+    let mut repeated = String::new();
+    for character in pad.chars().cycle().take(missing) {
+        push_bounded_char(&mut repeated, character, limit)?;
+    }
+    let total = u64::try_from(repeated.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(input.len()).unwrap_or(u64::MAX));
+    ensure_estimated_size(total, limit)?;
     if start {
-        format!("{repeated}{input}")
+        repeated.push_str(input);
+        Ok(repeated)
     } else {
-        format!("{input}{repeated}")
+        let mut result = String::with_capacity(input.len().saturating_add(repeated.len()));
+        result.push_str(input);
+        result.push_str(&repeated);
+        Ok(result)
+    }
+}
+
+fn join_values(items: &[Value], delimiter: &str, limit: ResourceLimit) -> Result<String, String> {
+    let mut result = String::new();
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            push_bounded_str(&mut result, delimiter, limit)?;
+        }
+        push_bounded_str(&mut result, &value_to_string(item), limit)?;
+    }
+    Ok(result)
+}
+
+fn replace_text(
+    input: &str,
+    search: &str,
+    replacement: &str,
+    limit: ResourceLimit,
+) -> Result<String, String> {
+    let mut result = String::new();
+    let mut previous_end = 0;
+    for (start, matched) in input.match_indices(search) {
+        push_bounded_str(&mut result, &input[previous_end..start], limit)?;
+        push_bounded_str(&mut result, replacement, limit)?;
+        previous_end = start.saturating_add(matched.len());
+    }
+    push_bounded_str(&mut result, &input[previous_end..], limit)?;
+    Ok(result)
+}
+
+fn regex_replace_text(
+    regex: &Regex,
+    input: &str,
+    replacement: &str,
+    limit: ResourceLimit,
+) -> Result<String, String> {
+    let mut result = String::new();
+    let mut previous_end = 0;
+    for captures in regex.captures_iter(input) {
+        let Some(matched) = captures.get(0) else {
+            continue;
+        };
+        push_bounded_str(&mut result, &input[previous_end..matched.start()], limit)?;
+        let mut expanded = String::new();
+        captures.expand(replacement, &mut expanded);
+        push_bounded_str(&mut result, &expanded, limit)?;
+        previous_end = matched.end();
+    }
+    push_bounded_str(&mut result, &input[previous_end..], limit)?;
+    Ok(result)
+}
+
+fn push_bounded_char(
+    output: &mut String,
+    character: char,
+    limit: ResourceLimit,
+) -> Result<(), String> {
+    let next = u64::try_from(output.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::from(character.len_utf8() as u32));
+    ensure_estimated_size(next, limit)?;
+    output.push(character);
+    Ok(())
+}
+
+fn push_bounded_str(output: &mut String, value: &str, limit: ResourceLimit) -> Result<(), String> {
+    let next = u64::try_from(output.len())
+        .unwrap_or(u64::MAX)
+        .checked_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+        .ok_or_else(|| "generated text size overflowed".to_owned())?;
+    ensure_estimated_size(next, limit)?;
+    output.push_str(value);
+    Ok(())
+}
+
+fn ensure_estimated_size(bytes: u64, limit: ResourceLimit) -> Result<(), String> {
+    if limit.is_exceeded_by(bytes) {
+        Err(format!(
+            "generated output exceeds the configured {limit} byte limit"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_generated_value(value: &Value, limit: ResourceLimit) -> Result<(), String> {
+    if let Value::String(text) = value {
+        return ensure_estimated_size(u64::try_from(text.len()).unwrap_or(u64::MAX), limit);
+    }
+    let Some(limit) = limit.value() else {
+        return Ok(());
+    };
+    let mut writer = GeneratedSizeWriter {
+        bytes: 0,
+        exceeded: false,
+        limit,
+    };
+    match serde_json::to_writer(&mut writer, value) {
+        Ok(()) => Ok(()),
+        Err(_) if writer.exceeded => Err(format!(
+            "generated output exceeds the configured {limit} byte limit"
+        )),
+        Err(source) => Err(format!("generated output could not be measured: {source}")),
+    }
+}
+
+struct GeneratedSizeWriter {
+    bytes: u64,
+    exceeded: bool,
+    limit: u64,
+}
+
+impl std::io::Write for GeneratedSizeWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .saturating_add(u64::try_from(buffer.len()).unwrap_or(u64::MAX));
+        if self.bytes > self.limit {
+            self.exceeded = true;
+            return Err(std::io::Error::other("generated output limit exceeded"));
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

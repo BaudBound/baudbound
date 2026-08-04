@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Manifest, Program};
+use crate::{Manifest, Program, is_user_identifier};
 use semver::Version;
 use url::Url;
 
@@ -167,18 +167,11 @@ fn validate_repository_url(value: &str, errors: &mut Vec<String>) {
     if value.is_empty() {
         return;
     }
-    match Url::parse(value) {
-        Ok(url)
-            if url.scheme() == "https"
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.fragment().is_none()
-                && url.path_segments().and_then(Iterator::last) == Some("repository.json") => {}
-        _ => errors.push(
-            "manifest repository_url must be an HTTPS URL without credentials or a fragment and must end in repository.json"
+    if crate::validate_public_https_repository_url(value).is_err() {
+        errors.push(
+            "manifest repository_url must be a public HTTPS URL without credentials, a query string, or a fragment and must end in repository.json"
                 .to_owned(),
-        ),
+        );
     }
 }
 
@@ -457,9 +450,9 @@ pub(super) fn validate_manifest_variable_operations(
 }
 
 fn validate_name(kind: &str, name: &str, errors: &mut Vec<String>) {
-    if !is_variable_identifier(name) {
+    if !is_user_identifier(name) {
         errors.push(format!(
-            "manifest {kind} {name:?} must start with a letter or underscore and contain only letters, numbers, or underscores"
+            "manifest {kind} {name:?} may contain only ASCII letters, numbers, hyphens, and underscores"
         ));
     }
     if name.starts_with("system_") || name.starts_with("manifest_") {
@@ -541,14 +534,6 @@ fn validate_list_item_type(value_type: &str, item_type: Option<&str>) -> Option<
     }
 }
 
-fn is_variable_identifier(value: &str) -> bool {
-    let mut bytes = value.bytes();
-    bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,7 +541,7 @@ mod tests {
     #[test]
     fn validates_manifest_default_variables() {
         let manifest = manifest_with_variables(serde_json::json!([{
-            "name": "counter",
+            "name": "Counter-2_primary",
             "scope": "persistent",
             "type": "number",
             "description": "Retained counter",
@@ -570,7 +555,7 @@ mod tests {
     fn validates_typed_script_setting_defaults() {
         let manifest = manifest_with_settings(serde_json::json!([
             {
-                "name": "endpoint",
+                "name": "API-endpoint_2",
                 "type": "string",
                 "description": "Service endpoint",
                 "required": true,

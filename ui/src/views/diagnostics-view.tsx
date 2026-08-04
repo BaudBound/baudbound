@@ -1,37 +1,22 @@
-import {
-  AlertTriangle,
-  CheckCircle2,
-  CircleDashed,
-  Cpu,
-  FolderCog,
-  HardDrive,
-  LogIn,
-  MonitorCog,
-  ShieldCheck,
-  Stethoscope,
-} from "lucide-react";
-import type { ReactNode } from "react";
-
 import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCount } from "@/lib/count-format";
+import { doctorStatus, type DoctorCheckState, type DoctorStatus } from "@/lib/doctor-status";
 import type { DashboardPayload, NativeDoctorCheck } from "@/lib/runner-api";
 import { TriggerRegistrationPanel } from "@/views/diagnostics/trigger-registration-panel";
 
-type CheckState = "ok" | "warn" | "idle";
-
 type DoctorCheck = {
   detail: string;
-  icon: ReactNode;
   label: string;
-  state: CheckState;
+  state: DoctorCheckState;
 };
 
 export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) {
   const nativeDoctorChecks = dashboard.native_doctor_checks ?? [];
-  const checks = doctorChecks(dashboard);
-  const warningCount = checks.filter((check) => check.state === "warn").length;
+  const status = doctorStatus(dashboard);
+  const checks = doctorChecks(dashboard, status);
+  const warningCount = status.warningCount;
   const idleCount = checks.filter((check) => check.state === "idle").length;
   const unsupportedNativeCount = nativeDoctorChecks.filter(
     (check) => !check.available,
@@ -41,10 +26,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
     <div className="grid gap-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Stethoscope className="size-4 text-muted-foreground" />
-            <CardTitle>Doctor checks</CardTitle>
-          </div>
+          <CardTitle>Doctor checks</CardTitle>
           <Badge variant={warningCount > 0 ? "medium" : idleCount > 0 ? "muted" : "good"}>
             {warningCount > 0
               ? formatCount(warningCount, "warning")
@@ -62,10 +44,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Cpu className="size-4 text-muted-foreground" />
-            <CardTitle>Native desktop action support</CardTitle>
-          </div>
+          <CardTitle>Native desktop action support</CardTitle>
           <Badge variant={unsupportedNativeCount > 0 ? "medium" : "good"}>
             {unsupportedNativeCount > 0 ? `${unsupportedNativeCount} unsupported` : "Supported"}
           </Badge>
@@ -87,8 +66,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2">
-            <FolderCog className="size-4 text-muted-foreground" />
+          <CardHeader>
             <CardTitle>Paths</CardTitle>
           </CardHeader>
           <CardContent>
@@ -102,8 +80,7 @@ export function DiagnosticsView({ dashboard }: { dashboard: DashboardPayload }) 
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2">
-            <MonitorCog className="size-4 text-muted-foreground" />
+          <CardHeader>
             <CardTitle>Runtime facts</CardTitle>
           </CardHeader>
           <CardContent>
@@ -148,12 +125,9 @@ function DoctorCheckCard({ check }: { check: DoctorCheck }) {
   return (
     <div className="rounded-md border border-border bg-background p-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 gap-2">
-          <div className="mt-0.5 text-muted-foreground">{check.icon}</div>
-          <div className="min-w-0">
-            <div className="text-sm font-medium">{check.label}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{check.detail}</div>
-          </div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{check.label}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{check.detail}</div>
         </div>
         <Badge variant={checkVariant(check.state)}>{checkLabel(check.state)}</Badge>
       </div>
@@ -161,34 +135,19 @@ function DoctorCheckCard({ check }: { check: DoctorCheck }) {
   );
 }
 
-function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
+function doctorChecks(dashboard: DashboardPayload, status: DoctorStatus): DoctorCheck[] {
   const hasScripts = dashboard.runner.total_script_count > 0;
   const hasEnabledScripts = dashboard.runner.enabled_script_count > 0;
   const hasTargetRuntimes = dashboard.runner.supported_target_runtimes.length > 0;
   const hasRunRecords = dashboard.run_statistics.total > 0;
   const needsReview = dashboard.runner.problem_count > 0;
   const serialDevices = dashboard.serial_devices ?? [];
-  const scripts = dashboard.runner.scripts ?? [];
-  const configuredSerialDevices = new Set(
-    serialDevices.map((device) => device.device_id),
-  );
-  const referencedSerialDevices = new Set(
-    scripts.flatMap((script) =>
-      script.triggers
-        .filter((trigger) => trigger.action_type === "trigger.serial_input")
-        .map((trigger) => trigger.device_id)
-        .filter(isNonEmptyString),
-    ),
-  );
-  const missingSerialDevices = Array.from(referencedSerialDevices).filter(
-    (deviceId) => !configuredSerialDevices.has(deviceId),
-  );
   const serialDeviceDetail =
-    missingSerialDevices.length > 0
-      ? `Missing runner config for ${missingSerialDevices.join(", ")}.`
-      : referencedSerialDevices.size > 0
-        ? `${formatCount(referencedSerialDevices.size, "serial device ID")} ${
-            referencedSerialDevices.size === 1 ? "is" : "are"
+    status.missingSerialDeviceIds.length > 0
+      ? `Missing runner config for ${status.missingSerialDeviceIds.join(", ")}.`
+      : status.referencedSerialDeviceCount > 0
+        ? `${formatCount(status.referencedSerialDeviceCount, "serial device ID")} ${
+            status.referencedSerialDeviceCount === 1 ? "is" : "are"
           } referenced by installed scripts.`
         : serialDevices.length > 0
           ? `${formatCount(serialDevices.length, "local serial device configuration")} ${
@@ -206,21 +165,15 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
               ? "Launch at login is enabled and registered with the operating system."
               : "Launch at login is disabled."
             : "The configuration and operating system registration do not match. Save the configuration to repair the registration.",
-      icon: <LogIn className="size-4" />,
       label: "Launch at login",
-      state:
-        dashboard.launch_at_login_registered === null ||
-        dashboard.launch_at_login_desired !== dashboard.launch_at_login_registered
-          ? "warn"
-          : "ok",
+      state: status.states.launchAtLogin,
     },
     {
       detail: dashboard.desktop_background.running
         ? dashboard.desktop_background.message
         : "Listener triggers will not fire until the desktop background runner is started.",
-      icon: <MonitorCog className="size-4" />,
       label: "Desktop background runner",
-      state: dashboard.desktop_background.running ? "ok" : "idle",
+      state: status.states.desktopBackground,
     },
     {
       detail: hasScripts
@@ -228,9 +181,8 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
             dashboard.runner.total_script_count === 1 ? "was" : "were"
           } found.`
         : "Install a .bbs package before the runner can execute scripts.",
-      icon: <HardDrive className="size-4" />,
       label: "Installed scripts",
-      state: hasScripts ? "ok" : "idle",
+      state: status.states.installedScripts,
     },
     {
       detail: hasEnabledScripts
@@ -238,9 +190,8 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
             dashboard.runner.enabled_script_count === 1 ? "is" : "are"
           } enabled.`
         : "No scripts are enabled.",
-      icon: <CheckCircle2 className="size-4" />,
       label: "Enabled scripts",
-      state: hasEnabledScripts ? "ok" : "warn",
+      state: status.states.enabledScripts,
     },
     {
       detail: needsReview
@@ -248,28 +199,20 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
             dashboard.runner.problem_count === 1 ? "needs" : "need"
           } approval or package review.`
         : "No approval or package hash issues are visible.",
-      icon: <ShieldCheck className="size-4" />,
       label: "Security review",
-      state: needsReview ? "warn" : "ok",
+      state: status.states.securityReview,
     },
     {
       detail: hasTargetRuntimes
         ? dashboard.runner.supported_target_runtimes.join(", ")
         : "No target runtimes are currently reported.",
-      icon: <CircleDashed className="size-4" />,
       label: "Runtime support",
-      state: hasTargetRuntimes ? "ok" : "warn",
+      state: status.states.runtimeSupport,
     },
     {
       detail: serialDeviceDetail,
-      icon: <HardDrive className="size-4" />,
       label: "Serial device config",
-      state:
-        missingSerialDevices.length > 0
-          ? "warn"
-          : referencedSerialDevices.size > 0 || serialDevices.length > 0
-            ? "ok"
-            : "idle",
+      state: status.states.serialDeviceConfig,
     },
     {
       detail: hasRunRecords
@@ -277,25 +220,20 @@ function doctorChecks(dashboard: DashboardPayload): DoctorCheck[] {
             dashboard.run_statistics.total === 1 ? "is" : "are"
           } available.`
         : "Run history will appear after scripts execute.",
-      icon: <AlertTriangle className="size-4" />,
       label: "Run history",
-      state: hasRunRecords ? "ok" : "idle",
+      state: status.states.runHistory,
     },
   ];
 }
 
-function checkVariant(state: CheckState) {
+function checkVariant(state: DoctorCheckState) {
   if (state === "ok") return "good";
   if (state === "warn") return "medium";
   return "muted";
 }
 
-function checkLabel(state: CheckState) {
+function checkLabel(state: DoctorCheckState) {
   if (state === "ok") return "OK";
   if (state === "warn") return "Review";
   return "Idle";
-}
-
-function isNonEmptyString(value: string | null): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }

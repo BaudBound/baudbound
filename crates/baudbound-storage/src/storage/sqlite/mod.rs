@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fmt, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
@@ -26,6 +27,7 @@ mod schema;
 mod scoped_variables;
 mod script_updates;
 mod secrets;
+mod system_logs;
 mod update_cache;
 
 use conversions::{
@@ -97,6 +99,13 @@ impl SqliteRunnerStore {
             secret_cipher: Arc::new(RwLock::new(None)),
             variable_change_observer: Arc::new(RwLock::new(None)),
         })
+    }
+
+    fn sqlite_error(&self, source: rusqlite::Error) -> StorageError {
+        StorageError::Sqlite {
+            path: self.path.clone(),
+            source,
+        }
     }
 
     #[must_use]
@@ -1098,6 +1107,80 @@ impl ScriptStore for SqliteRunnerStore {
             updated_at_unix,
             value: value.clone(),
         })
+    }
+
+    fn replace_script_settings(
+        &self,
+        script_reference: &str,
+        values: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Vec<crate::StoredScriptSetting>, StorageError> {
+        let installed = self.resolve_reference(script_reference)?;
+        let updated_at_unix = current_unix_timestamp();
+        let updated_at_sqlite = u64_to_sqlite(updated_at_unix)?;
+        let serialized = values
+            .iter()
+            .map(|(name, value)| {
+                serde_json::to_string(value)
+                    .map(|value_json| (name, value, value_json))
+                    .map_err(|source| {
+                        StorageError::Operation(format!(
+                            "failed to serialize Script Setting {name:?}: {source}"
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM script_settings WHERE script_id = ?1",
+                params![installed.id],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO script_settings (script_id, name, value_json, updated_at_unix)
+                     VALUES (?1, ?2, ?3, ?4)",
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+            for (name, _, value_json) in &serialized {
+                statement
+                    .execute(params![installed.id, name, value_json, updated_at_sqlite])
+                    .map_err(|source| StorageError::Sqlite {
+                        path: self.path.clone(),
+                        source,
+                    })?;
+            }
+        }
+        self.request_trigger_reload_with_connection(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+
+        Ok(serialized
+            .into_iter()
+            .map(|(name, value, _)| crate::StoredScriptSetting {
+                name: name.clone(),
+                updated_at_unix,
+                value: value.clone(),
+            })
+            .collect())
     }
 
     fn remove_script_setting(

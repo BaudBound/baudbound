@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt};
 
 use chrono::DateTime;
 use jsonschema::Validator;
@@ -16,6 +16,50 @@ pub const SCRIPT_REPOSITORY_FORMAT_VERSION: u32 = 1;
 pub const MAX_REPOSITORY_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_REPOSITORY_SCRIPTS: usize = 1_000;
 pub const MAX_RELEASE_NOTES_BYTES: usize = 8_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicRepositoryUrl(Url);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicPackageUrl(Url);
+
+impl PublicRepositoryUrl {
+    pub fn parse(value: &str) -> Result<Self, ScriptRepositoryError> {
+        validate_anonymous_https_url(value, Some("repository.json")).map(Self)
+    }
+
+    #[must_use]
+    pub fn as_url(&self) -> &Url {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0.into()
+    }
+}
+
+impl fmt::Display for PublicRepositoryUrl {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl PublicPackageUrl {
+    pub fn parse(value: &str) -> Result<Self, ScriptRepositoryError> {
+        validate_anonymous_https_url(value, Some(".bbs")).map(Self)
+    }
+
+    #[must_use]
+    pub fn as_url(&self) -> &Url {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ScriptRepository {
@@ -207,12 +251,20 @@ impl ScriptRepository {
     }
 }
 
-pub fn validate_public_https_package_url(value: &str) -> Result<Url, ScriptRepositoryError> {
-    validate_public_https_url(value, Some(".bbs"))
+pub fn validate_public_https_package_url(
+    value: &str,
+) -> Result<PublicPackageUrl, ScriptRepositoryError> {
+    PublicPackageUrl::parse(value)
 }
 
-pub fn validate_public_https_repository_url(value: &str) -> Result<Url, ScriptRepositoryError> {
-    validate_public_https_url(value, Some("repository.json"))
+pub fn validate_public_https_repository_url(
+    value: &str,
+) -> Result<PublicRepositoryUrl, ScriptRepositoryError> {
+    PublicRepositoryUrl::parse(value)
+}
+
+pub fn validate_anonymous_public_https_url(value: &str) -> Result<Url, ScriptRepositoryError> {
+    validate_anonymous_https_url(value, None)
 }
 
 fn validate_release(
@@ -257,7 +309,7 @@ fn validate_release(
     }
     if validate_public_https_package_url(&release.package_url).is_err() {
         errors.push(format!(
-            "{prefix}.package_url must be a public HTTPS URL without credentials or a fragment and must end in .bbs"
+            "{prefix}.package_url must be a public HTTPS URL without credentials, a query string, or a fragment and must end in .bbs"
         ));
     }
 }
@@ -300,14 +352,14 @@ fn validate_optional_public_https_url(field: &str, value: &str, errors: &mut Vec
     if value.is_empty() {
         return;
     }
-    if value.len() > 2_048 || validate_public_https_url(value, None).is_err() {
+    if value.len() > 2_048 || validate_public_https_link_url(value).is_err() {
         errors.push(format!(
             "{field} must be a public HTTPS URL without credentials or a fragment"
         ));
     }
 }
 
-fn validate_public_https_url(
+fn validate_anonymous_https_url(
     value: &str,
     required_filename: Option<&str>,
 ) -> Result<Url, ScriptRepositoryError> {
@@ -330,7 +382,9 @@ fn validate_public_https_url(
         && url.host_str().is_some()
         && url.username().is_empty()
         && url.password().is_none()
+        && url.query().is_none()
         && url.fragment().is_none()
+        && !contains_encoded_url_delimiter(value)
         && filename_matches;
     if valid {
         Ok(url)
@@ -339,6 +393,32 @@ fn validate_public_https_url(
             "URL violates the public remote resource policy".to_owned(),
         ))
     }
+}
+
+fn validate_public_https_link_url(value: &str) -> Result<Url, ScriptRepositoryError> {
+    let url = Url::parse(value)
+        .map_err(|_| ScriptRepositoryError::Validation("URL is invalid".to_owned()))?;
+    if value.len() <= 2_048
+        && value == value.trim()
+        && url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+    {
+        Ok(url)
+    } else {
+        Err(ScriptRepositoryError::Validation(
+            "URL violates the public link policy".to_owned(),
+        ))
+    }
+}
+
+fn contains_encoded_url_delimiter(value: &str) -> bool {
+    let lowercase = value.to_ascii_lowercase();
+    ["%0a", "%0d", "%23", "%3f", "%40"]
+        .iter()
+        .any(|delimiter| lowercase.contains(delimiter))
 }
 
 fn contains_unsafe_text(value: &str) -> bool {
@@ -518,6 +598,34 @@ mod tests {
         let mut repository = valid_repository();
         repository.scripts = vec![repository.scripts[0].clone(); MAX_REPOSITORY_SCRIPTS + 1];
         assert!(validate_script_repository(&repository).is_err());
+    }
+
+    #[test]
+    fn public_remote_urls_reject_credentials_queries_fragments_and_encoded_delimiters() {
+        assert_eq!(
+            PublicRepositoryUrl::parse("https://EXAMPLE.com:443/repository.json")
+                .expect("canonical anonymous repository URL should parse")
+                .as_str(),
+            "https://example.com/repository.json"
+        );
+        for value in [
+            "https://user:password@example.com/repository.json",
+            "https://example.com/repository.json?token=secret",
+            "https://example.com/repository.json?",
+            "https://example.com/repository.json#release",
+            "https://example.com/repository.json%3Ftoken=secret",
+            " https://example.com/repository.json",
+        ] {
+            assert!(
+                PublicRepositoryUrl::parse(value).is_err(),
+                "{value:?} must be rejected"
+            );
+        }
+        assert!(PublicPackageUrl::parse("https://example.com/releases/example.bbs").is_ok());
+        assert!(
+            PublicPackageUrl::parse("https://example.com/releases/example.bbs?signature=x")
+                .is_err()
+        );
     }
 
     #[test]

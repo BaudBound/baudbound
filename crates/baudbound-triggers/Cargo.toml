@@ -11,6 +11,7 @@ rust-version.workspace = true
 [dependencies]
 baudbound-actions = { path = "../baudbound-actions", version = "2.0.0" }
 baudbound-runtime = { path = "../baudbound-runtime", version = "2.0.0" }
+getrandom.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
 serde.workspace = true

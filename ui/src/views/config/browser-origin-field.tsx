@@ -1,24 +1,10 @@
 import { X } from "lucide-react";
-import {
-  type ClipboardEvent,
-  type KeyboardEvent,
-  useId,
-  useState,
-} from "react";
+import { type ClipboardEvent, type KeyboardEvent, useId, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import {
-  BROWSER_ORIGIN_MAX_COUNT,
-  BROWSER_ORIGIN_MAX_LENGTH,
-} from "@/lib/input-limits";
+import { BROWSER_ORIGIN_MAX_COUNT, BROWSER_ORIGIN_MAX_LENGTH } from "@/lib/input-limits";
 
-export function BrowserOriginField({
-  onChange,
-  value,
-}: {
-  onChange: (value: string[]) => void;
-  value: string[];
-}) {
+export function BrowserOriginField({ onChange, value }: { onChange: (value: string[]) => void; value: string[] }) {
   const inputId = useId();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +53,7 @@ export function BrowserOriginField({
       <label className="text-xs text-muted-foreground" htmlFor={inputId}>
         Allowed browser origins
       </label>
-      <div
-        className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-border bg-[#080b12] px-2 py-1 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25"
-      >
+      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-border bg-[#080b12] px-2 py-1 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         {value.map((origin) => (
           <Badge className="h-6 max-w-full gap-1 px-2" key={origin} variant="muted">
             <span className="min-w-0 truncate font-mono" title={origin}>
@@ -88,7 +72,7 @@ export function BrowserOriginField({
         <input
           aria-describedby={`${inputId}-help${error ? ` ${inputId}-error` : ""}`}
           aria-invalid={Boolean(error)}
-          className="min-w-48 flex-1 bg-transparent px-1 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
           id={inputId}
           maxLength={BROWSER_ORIGIN_MAX_LENGTH}
           onBlur={() => {
@@ -110,8 +94,7 @@ export function BrowserOriginField({
         </span>
       ) : null}
       <span className="text-xs text-muted-foreground" id={`${inputId}-help`}>
-        Enter an exact HTTP or HTTPS origin, then press Enter or comma. Leave empty to block browser
-        clients.
+        Enter an exact HTTP or HTTPS origin, then press Enter or comma. Leave empty to block browser clients.
       </span>
     </div>
   );

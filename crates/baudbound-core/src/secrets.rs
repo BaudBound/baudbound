@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use baudbound_script::{ScriptPackage, SecretDeclaration, load_script_package};
+use baudbound_script::{ScriptPackage, SecretDeclaration};
 use baudbound_storage::{ScriptStore, SecretStatus};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{CoreError, RunnerCore};
+use crate::{CoreError, RunnerCore, load_verified_installed_package};
 
 pub const MAX_SECRET_INPUT_BYTES: usize = 1024 * 1024;
 
@@ -86,8 +86,7 @@ fn load_installed_package(
     store: &impl ScriptStore,
     reference: &str,
 ) -> Result<(baudbound_storage::InstalledScript, ScriptPackage), CoreError> {
-    let installed = store.verify_script_package_hash(reference)?;
-    let package = load_script_package(&installed.package_path)?;
+    let (installed, _staged_package, package) = load_verified_installed_package(store, reference)?;
     core.validate_package_compatibility(&package)?;
     Ok((installed, package))
 }

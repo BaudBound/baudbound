@@ -7,8 +7,8 @@ import { SummaryCard } from "@/components/summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCount } from "@/lib/count-format";
-import type { DashboardPayload } from "@/lib/runner-api";
 import { runStatusPresentation } from "@/lib/run-inspection";
+import type { DashboardPayload } from "@/lib/runner-api";
 import { approvalLabel, isApprovalCurrent } from "@/lib/status-format";
 import { useDesktopTime } from "@/lib/time-format";
 
@@ -16,21 +16,19 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
   const { formatUnixSeconds } = useDesktopTime();
   const latestRuns = dashboard.recent_runs.slice(0, 5);
   const scriptsNeedingReview = dashboard.runner.scripts.filter(
-    (script) =>
-      script.installed.enabled &&
-      (!isApprovalCurrent(script.approval_status) || script.package_error),
+    (script) => script.installed.enabled && (!isApprovalCurrent(script.approval_status) || script.package_error),
   );
 
   return (
-    <div className="grid gap-4">
-      <div className="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+    <div className="grid min-w-0 max-w-full gap-4 overflow-hidden">
+      <div className="grid min-w-0 grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <SummaryCard label="Installed" value={dashboard.runner.total_script_count} />
         <SummaryCard label="Enabled" value={dashboard.runner.enabled_script_count} />
         <SummaryCard label="Triggers" value={dashboard.runner.trigger_count} />
         <SummaryCard label="Problems" value={dashboard.runner.problem_count} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(22.5rem,0.9fr)]">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>Runner overview</CardTitle>
@@ -38,8 +36,8 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
               {dashboard.desktop_background.running ? "Active" : "Stopped"}
             </Badge>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <CardContent className="grid min-w-0 gap-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <OverviewTile
                 detail={dashboard.desktop_background.message}
                 icon={<Activity className="size-4" />}
@@ -60,10 +58,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
             <Details
               rows={[
                 ["Storage", dashboard.storage_root],
-                [
-                  "Target runtimes",
-                  dashboard.runner.supported_target_runtimes.join(", "),
-                ],
+                ["Target runtimes", dashboard.runner.supported_target_runtimes.join(", ")],
               ]}
             />
           </CardContent>
@@ -72,9 +67,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>Review queue</CardTitle>
-            <Badge variant={scriptsNeedingReview.length > 0 ? "medium" : "good"}>
-              {scriptsNeedingReview.length}
-            </Badge>
+            <Badge variant={scriptsNeedingReview.length > 0 ? "medium" : "good"}>{scriptsNeedingReview.length}</Badge>
           </CardHeader>
           <CardContent>
             {scriptsNeedingReview.length === 0 ? (
@@ -86,18 +79,18 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
               <div className="grid gap-2">
                 {scriptsNeedingReview.slice(0, 5).map((script) => (
                   <div
-                    className="rounded-md border border-border bg-background px-3 py-2"
+                    className="min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-background px-3 py-2"
                     key={script.installed.id}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0 truncate text-sm font-medium">
-                        {script.installed.name}
-                      </div>
+                      <div className="min-w-0 truncate text-sm font-medium">{script.installed.name}</div>
                       <Badge variant="medium">{approvalLabel(script.approval_status)}</Badge>
                     </div>
-                    <div className="mt-1 flex gap-2 text-xs text-baud-amber">
+                    <div className="mt-1 flex min-w-0 items-start gap-2 text-xs text-baud-amber">
                       <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                      <span>{script.package_error ?? "Approval review is required."}</span>
+                      <span className="min-w-0 whitespace-pre-wrap break-all">
+                        {script.package_error ?? "Approval review is required."}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -128,18 +121,12 @@ export function DashboardView({ dashboard }: { dashboard: DashboardPayload }) {
                       {formatUnixSeconds(run.completed_at_unix)}
                     </div>
                     <div className="min-w-0">
-                      <div className="truncate font-medium">
-                        {scriptName(dashboard, run.script_id)}
-                      </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">
-                        {run.run_id}
-                      </div>
+                      <div className="truncate font-medium">{scriptName(dashboard, run.script_id)}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">{run.run_id}</div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <Badge variant={status.variant}>{status.label}</Badge>
-                      {status.hasErrors ? (
-                        <Badge variant="destructive">with errors</Badge>
-                      ) : null}
+                      {status.hasErrors ? <Badge variant="destructive">with errors</Badge> : null}
                     </div>
                   </div>
                 );
@@ -164,20 +151,17 @@ function OverviewTile({
   value: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-background p-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-background p-3">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         {icon}
         {label}
       </div>
-      <div className="mt-2 text-lg font-semibold">{value}</div>
-      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{detail}</div>
+      <div className="mt-2 min-w-0 break-all text-lg font-semibold">{value}</div>
+      <div className="mt-1 line-clamp-2 min-w-0 break-all text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
 
 function scriptName(dashboard: DashboardPayload, scriptId: string) {
-  return (
-    dashboard.runner.scripts.find((script) => script.installed.id === scriptId)?.installed.name ??
-    scriptId
-  );
+  return dashboard.runner.scripts.find((script) => script.installed.id === scriptId)?.installed.name ?? scriptId;
 }

@@ -5,8 +5,8 @@ use crate::runtime::{
 };
 
 use super::{
-    RunVariableScope, RuntimeActionError, RuntimeActionRequest, RuntimeError, RuntimeExecutor,
-    RuntimeNode, action_diagnostics::action_completion_message,
+    RunVariableScope, RuntimeActionError, RuntimeActionFailure, RuntimeActionRequest, RuntimeError,
+    RuntimeExecutor, RuntimeNode, action_diagnostics::action_completion_message,
 };
 
 impl RuntimeExecutor<'_> {
@@ -39,18 +39,21 @@ impl RuntimeExecutor<'_> {
         }
         let config = if node.action_type == "action.http" {
             resolve_http_request_config(&node.config, &self.context.variables).map_err(
-                |message| RuntimeError::Action {
-                    node_id: node.id.clone(),
-                    message,
-                },
+                |message| structured_http_runtime_error(node, "INVALID_REQUEST", message, false),
             )?
         } else {
             resolve_config_map(&node.config, &self.context.variables)
         };
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
-            |message| RuntimeError::Action {
-                node_id: node.id.clone(),
-                message,
+            |message| {
+                if node.action_type == "action.http" {
+                    structured_http_runtime_error(node, "INVALID_TIMEOUT", message, false)
+                } else {
+                    RuntimeError::Action {
+                        node_id: node.id.clone(),
+                        message,
+                    }
+                }
             },
         )?;
         let request = RuntimeActionRequest {
@@ -79,8 +82,34 @@ impl RuntimeExecutor<'_> {
                     message,
                 });
             }
+            Err(RuntimeActionError::StructuredFailure { failure, .. }) => {
+                return Err(RuntimeError::StructuredAction {
+                    node_id: node.id.clone(),
+                    failure,
+                });
+            }
         };
         self.ensure_not_cancelled()?;
+
+        for reference in &result.sensitive_output_keys {
+            let value = resolve_sensitive_output_reference(&result.output_data, reference)
+                .ok_or_else(|| RuntimeError::Action {
+                    node_id: node.id.clone(),
+                    message: format!(
+                        "action marked missing output reference {reference:?} as sensitive"
+                    ),
+                })?;
+            if !self.secret_values.iter().any(|existing| existing == value) {
+                self.secret_values.push(value.clone());
+            }
+            if !self
+                .transient_sensitive_values
+                .iter()
+                .any(|existing| existing == value)
+            {
+                self.transient_sensitive_values.push(value.clone());
+            }
+        }
 
         if node.action_type == "action.http" {
             self.log_http_response(node, &request.config, &result.output_data);
@@ -89,11 +118,18 @@ impl RuntimeExecutor<'_> {
         let completion_message =
             action_completion_message(&node.action_type, &request.config, &result.output_data);
         for (key, value) in result.output_data {
-            self.set_variable(
-                format!("{}.{}", node.id, key),
-                value,
-                RunVariableScope::NodeOutput,
-            )?;
+            let name = format!("{}.{}", node.id, key);
+            let explicitly_sensitive = result
+                .sensitive_output_keys
+                .iter()
+                .any(|reference| sensitive_output_root(reference) == key);
+            if explicitly_sensitive || self.value_contains_sensitive(&value) {
+                let transient =
+                    explicitly_sensitive || self.value_contains_transient_sensitive(&value);
+                self.set_sensitive_variable(name, value, RunVariableScope::NodeOutput, transient)?;
+            } else {
+                self.set_variable(name, value, RunVariableScope::NodeOutput)?;
+            }
         }
         if node.action_type == "action.webhook_response" {
             self.webhook_response_sent = true;
@@ -186,5 +222,82 @@ impl RuntimeExecutor<'_> {
             Some(node.id.clone()),
         );
         Ok(())
+    }
+}
+
+fn structured_http_runtime_error(
+    node: &RuntimeNode,
+    code: &'static str,
+    message: String,
+    retryable: bool,
+) -> RuntimeError {
+    RuntimeError::StructuredAction {
+        node_id: node.id.clone(),
+        failure: RuntimeActionFailure::new(code, "http", message, retryable),
+    }
+}
+
+fn resolve_sensitive_output_reference<'a>(
+    outputs: &'a serde_json::Map<String, serde_json::Value>,
+    reference: &str,
+) -> Option<&'a serde_json::Value> {
+    let mut segments = reference.split('.');
+    let root = segments.next()?;
+    let mut value = outputs.get(root)?;
+    for segment in segments {
+        if segment.is_empty() {
+            return None;
+        }
+        value = value.as_object()?.get(segment)?;
+    }
+    Some(value)
+}
+
+fn sensitive_output_root(reference: &str) -> &str {
+    reference
+        .split_once('.')
+        .map_or(reference, |(root, _)| root)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Map, json};
+
+    use super::{resolve_sensitive_output_reference, sensitive_output_root};
+
+    #[test]
+    fn resolves_nested_sensitive_output_references_without_widening_the_secret() {
+        let outputs = Map::from_iter([(
+            "values".to_owned(),
+            json!({"password":"secret-value","username":"Ada"}),
+        )]);
+
+        assert_eq!(
+            resolve_sensitive_output_reference(&outputs, "values.password"),
+            Some(&json!("secret-value"))
+        );
+        assert_eq!(sensitive_output_root("values.password"), "values");
+        assert_eq!(
+            resolve_sensitive_output_reference(&outputs, "values.username"),
+            Some(&json!("Ada"))
+        );
+    }
+
+    #[test]
+    fn rejects_missing_or_malformed_sensitive_output_references() {
+        let outputs = Map::from_iter([("values".to_owned(), json!({"password":"secret-value"}))]);
+
+        assert_eq!(
+            resolve_sensitive_output_reference(&outputs, "values.missing"),
+            None
+        );
+        assert_eq!(
+            resolve_sensitive_output_reference(&outputs, "values..password"),
+            None
+        );
+        assert_eq!(
+            resolve_sensitive_output_reference(&outputs, ".password"),
+            None
+        );
     }
 }

@@ -5,14 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use baudbound_runtime::{RuntimeActionError, RuntimeActionRequest, RuntimeCancellationToken};
+use baudbound_runtime::{
+    ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeCancellationToken,
+};
 use command_group::{CommandGroup, GroupChild};
 
 use crate::failed;
+use crate::resource_tracker::ProcessLaunchPermit;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
-const MAX_CAPTURED_STREAM_BYTES: usize = 8 * 1024 * 1024;
-
 pub(super) struct SupervisedOutput {
     pub(super) process_id: u32,
     pub(super) status: ExitStatus,
@@ -26,6 +27,8 @@ pub(super) fn run_command(
     cancellation: &RuntimeCancellationToken,
     timeout: Duration,
     description: &str,
+    max_output_bytes: ResourceLimit,
+    launch_permit: &mut ProcessLaunchPermit,
 ) -> Result<SupervisedOutput, RuntimeActionError> {
     let deadline =
         Instant::now()
@@ -45,6 +48,7 @@ pub(super) fn run_command(
         action_type: request.action_type.clone(),
         message: format!("failed to start {description}: {source}"),
     })?;
+    launch_permit.mark_spawned();
     let process_id = child.id();
     let stdout = match child.inner().stdout.take() {
         Some(stdout) => stdout,
@@ -54,14 +58,14 @@ pub(super) fn run_command(
         Some(stderr) => stderr,
         None => return cleanup_after_setup_error(&mut child, request, description, "stderr"),
     };
-    let stdout_reader = match spawn_reader(stdout, "stdout", request) {
+    let stdout_reader = match spawn_reader(stdout, "stdout", request, max_output_bytes) {
         Ok(reader) => reader,
         Err(error) => {
             let _ = terminate_group(&mut child, request, description);
             return Err(error);
         }
     };
-    let stderr_reader = match spawn_reader(stderr, "stderr", request) {
+    let stderr_reader = match spawn_reader(stderr, "stderr", request, max_output_bytes) {
         Ok(reader) => reader,
         Err(error) => {
             let _ = terminate_group(&mut child, request, description);
@@ -85,7 +89,7 @@ pub(super) fn run_command(
 
     match termination {
         Termination::Exited(status) => {
-            ensure_not_truncated(request, description, &stdout, &stderr)?;
+            ensure_not_truncated(request, description, &stdout, &stderr, max_output_bytes)?;
             Ok(SupervisedOutput {
                 process_id,
                 status,
@@ -195,6 +199,7 @@ fn spawn_reader<R>(
     mut reader: R,
     stream_name: &'static str,
     request: &RuntimeActionRequest,
+    max_output_bytes: ResourceLimit,
 ) -> Result<JoinHandle<io::Result<CapturedStream>>, RuntimeActionError>
 where
     R: Read + Send + 'static,
@@ -210,7 +215,10 @@ where
                 if count == 0 {
                     break;
                 }
-                let available = MAX_CAPTURED_STREAM_BYTES.saturating_sub(captured.len());
+                let available = max_output_bytes.value().map_or(count, |limit| {
+                    let captured_bytes = u64::try_from(captured.len()).unwrap_or(u64::MAX);
+                    usize::try_from(limit.saturating_sub(captured_bytes)).unwrap_or(usize::MAX)
+                });
                 let retained = available.min(count);
                 captured.extend_from_slice(&buffer[..retained]);
                 truncated |= retained < count;
@@ -248,13 +256,13 @@ fn ensure_not_truncated(
     description: &str,
     stdout: &CapturedStream,
     stderr: &CapturedStream,
+    max_output_bytes: ResourceLimit,
 ) -> Result<(), RuntimeActionError> {
     if stdout.truncated || stderr.truncated {
         return failed(
             request,
             format!(
-                "{description} output exceeded the {} MiB per-stream capture limit",
-                MAX_CAPTURED_STREAM_BYTES / (1024 * 1024)
+                "{description} output exceeded the configured {max_output_bytes} byte per-stream capture limit"
             ),
         );
     }

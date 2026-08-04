@@ -78,14 +78,11 @@ export function ScriptRow({
     <tr className="border-b border-border align-top last:border-b-0">
       <td className="px-3 py-3" data-label="Name">
         <div className="min-w-0">
-          <div className="font-medium">{script.installed.name}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{reference}</div>
-        </div>
-        {script.package_error ? (
-          <div className="mt-1 max-w-[360px] text-xs text-destructive">
-            {script.package_error}
+          <div className="truncate font-medium" title={script.installed.name}>{script.installed.name}</div>
+          <div className="mt-0.5 max-w-full truncate text-xs text-muted-foreground" title={reference}>
+            {reference}
           </div>
-        ) : null}
+        </div>
       </td>
       <td className="px-3 py-3" data-label="State">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -102,7 +99,7 @@ export function ScriptRow({
           {script.installed.risk_level}
         </Badge>
       </td>
-      <td className="hidden px-3 py-3 xl:table-cell" data-label="Hash">
+      <td className="hidden px-3 py-3 min-[1500px]:table-cell" data-label="Hash">
         {packageHashLabel(script.package_hash_status)}
       </td>
       <td className="px-3 py-3" data-label="Approval">
@@ -111,7 +108,7 @@ export function ScriptRow({
       <td className="px-3 py-3" data-label="Triggers">
         {script.triggers.length}
       </td>
-      <td className="hidden px-3 py-3 xl:table-cell" data-label="Target runtimes">
+      <td className="hidden px-3 py-3 min-[1500px]:table-cell" data-label="Target runtimes">
         {script.installed.target_runtime}
       </td>
       <td className="px-3 py-3" data-label="Update">
@@ -120,7 +117,7 @@ export function ScriptRow({
         </Badge>
       </td>
       <td className="px-3 py-3" data-label="Actions">
-        <div className="ml-auto flex w-56 justify-between max-[1280px]:ml-0">
+        <div className="ml-auto flex w-56 justify-between max-[1280px]:ml-0 max-[1280px]:max-w-full max-[1280px]:flex-wrap max-[1280px]:justify-start max-[1280px]:gap-1.5">
           {runControl === "stop" ? (
             <Button
               aria-label={`Stop ${script.installed.name}`}

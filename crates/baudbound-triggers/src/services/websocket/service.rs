@@ -7,12 +7,14 @@ use std::{
         mpsc::SyncSender,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use crate::{
-    NetworkTriggerAuthenticator, TriggerError, TriggerEvent, TriggerRegistration,
-    TriggerServiceDiagnostics,
+    ConnectionGate, NetworkTriggerAuthenticator, PreAuthRateLimiter, TriggerError, TriggerEvent,
+    TriggerRegistration, TriggerServiceDiagnostics,
 };
+use baudbound_runtime::ResourceLimit;
 
 use super::{
     listener::{WebSocketListenerContext, run_listener},
@@ -23,6 +25,7 @@ use super::{
 pub struct WebSocketService {
     bound_address: Option<SocketAddr>,
     config: Option<WebSocketServiceConfig>,
+    generation: String,
     handle: Option<JoinHandle<()>>,
     registry: Arc<WebSocketConnectionRegistry>,
     route_count: usize,
@@ -36,6 +39,10 @@ pub struct WebSocketServiceConfig {
     pub bind: String,
     pub max_connections: usize,
     pub max_message_bytes: usize,
+    pub max_unauthenticated_connections: ResourceLimit,
+    pub pre_auth_requests_per_minute_global: ResourceLimit,
+    pub pre_auth_requests_per_minute_per_address: ResourceLimit,
+    pub handshake_timeout_ms: ResourceLimit,
     pub port: u16,
 }
 
@@ -51,6 +58,7 @@ impl WebSocketService {
         Self {
             bound_address: None,
             config: None,
+            generation: String::new(),
             handle: None,
             registry,
             route_count: 0,
@@ -118,12 +126,23 @@ impl WebSocketService {
         })?;
 
         let running = Arc::new(AtomicBool::new(true));
+        let generation = random_generation()?;
         let shared_routes = Arc::new(RwLock::new(routes));
         let allow_browser_origins = Arc::new(config.allow_browser_origins.clone());
         let route_count = shared_routes
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .len();
+        let authenticated_connections = Arc::new(ConnectionGate::new(ResourceLimit::limited(
+            u64::try_from(config.max_connections).unwrap_or(u64::MAX),
+        )));
+        let unauthenticated_connections =
+            Arc::new(ConnectionGate::new(config.max_unauthenticated_connections));
+        let pre_auth_rate_limiter = Arc::new(PreAuthRateLimiter::per_minute(
+            config.pre_auth_requests_per_minute_global,
+            config.pre_auth_requests_per_minute_per_address,
+        ));
+        let listener_generation = generation.clone();
         let handle = thread::Builder::new()
             .name("baudbound-websocket-listener".to_owned())
             .spawn({
@@ -135,13 +154,20 @@ impl WebSocketService {
                         listener,
                         WebSocketListenerContext {
                             allow_browser_origins,
+                            authenticated_connections,
                             authenticator,
-                            max_connections: config.max_connections,
+                            handshake_timeout: config
+                                .handshake_timeout_ms
+                                .value()
+                                .map(Duration::from_millis),
+                            generation: Arc::<str>::from(listener_generation),
                             max_message_bytes: config.max_message_bytes,
+                            pre_auth_rate_limiter,
                             registry,
                             routes,
                             running,
                             sender,
+                            unauthenticated_connections,
                         },
                     );
                 }
@@ -156,6 +182,7 @@ impl WebSocketService {
         Ok(Self {
             bound_address: Some(bound_address),
             config: Some(config),
+            generation,
             handle: Some(handle),
             registry,
             route_count,
@@ -167,7 +194,7 @@ impl WebSocketService {
     fn replace_routes(&mut self, routes: Vec<WebSocketRoute>) {
         let valid_keys = routes
             .iter()
-            .map(WebSocketRoute::key)
+            .map(|route| route.key(&self.generation))
             .collect::<BTreeSet<_>>();
         self.route_count = routes.len();
         *self
@@ -205,9 +232,10 @@ impl WebSocketService {
                 self.route_count,
                 if self.route_count == 1 { "" } else { "s" },
                 self.registry.connection_count(),
-                self.config
-                    .as_ref()
-                    .map_or(0, |config| config.max_connections),
+                self.config.as_ref().map_or_else(
+                    || "0".to_owned(),
+                    |config| config.max_connections.to_string()
+                ),
             ),
         }
     }
@@ -233,4 +261,14 @@ impl Drop for WebSocketService {
 
 fn config_error(message: &str) -> TriggerError {
     TriggerError::Failed("trigger.websocket".to_owned(), message.to_owned())
+}
+
+fn random_generation() -> Result<String, TriggerError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|source| {
+        config_error(&format!(
+            "failed to generate WebSocket service generation: {source}"
+        ))
+    })?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }

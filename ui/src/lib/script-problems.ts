@@ -10,6 +10,7 @@ import {
 export type ScriptProblemSeverity = "error" | "warning";
 
 export type ScriptProblem = {
+  advancedDetail?: string;
   detail: string;
   id: string;
   severity: ScriptProblemSeverity;
@@ -41,7 +42,9 @@ export function scriptProblems(script: ScriptStatus): ScriptProblem[] {
 
   if (script.package_error) {
     problems.push({
-      detail: script.package_error,
+      advancedDetail: script.package_error,
+      detail:
+        "The runner could not validate or prepare this installed package, so the script cannot run. Correct the package and reinstall it.",
       id: "package-error",
       severity: "error",
       title: "Package cannot be loaded",
@@ -51,8 +54,10 @@ export function scriptProblems(script: ScriptStatus): ScriptProblem[] {
   const hashProblem = packageHashProblem(script.package_hash_status);
   if (hashProblem) problems.push(hashProblem);
 
-  const approvalProblem = approvalStatusProblem(script.approval_status);
-  if (approvalProblem) problems.push(approvalProblem);
+  if (!script.package_error) {
+    const approvalProblem = approvalStatusProblem(script.approval_status);
+    if (approvalProblem) problems.push(approvalProblem);
+  }
 
   if (!script.installed.enabled) {
     problems.push({
@@ -63,7 +68,11 @@ export function scriptProblems(script: ScriptStatus): ScriptProblem[] {
     });
   }
 
-  if (script.installed.enabled && script.triggers.length === 0) {
+  if (
+    !script.package_error &&
+    script.installed.enabled &&
+    script.triggers.length === 0
+  ) {
     problems.push({
       detail: "This script is enabled but has no active trigger registrations for the current runner.",
       id: "no-triggers",

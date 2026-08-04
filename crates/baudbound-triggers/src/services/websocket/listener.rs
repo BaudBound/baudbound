@@ -4,14 +4,16 @@ use std::{
     net::{Shutdown, TcpListener, TcpStream},
     sync::{
         Arc, RwLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::SyncSender,
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
-use crate::{NetworkTriggerAuthenticator, TriggerEvent};
+use crate::{
+    ConnectionGate, NetworkTriggerAuthenticator, PreAuthRateLimit, PreAuthRateLimiter, TriggerEvent,
+};
 
 use super::{
     connection::{WebSocketConnectionContext, handle_connection},
@@ -24,27 +26,36 @@ const ACCEPT_ERROR_BACKOFF: Duration = Duration::from_millis(250);
 
 pub(super) struct WebSocketListenerContext {
     pub(super) allow_browser_origins: Arc<BTreeSet<String>>,
+    pub(super) authenticated_connections: Arc<ConnectionGate>,
     pub(super) authenticator: Arc<dyn NetworkTriggerAuthenticator>,
-    pub(super) max_connections: usize,
+    pub(super) handshake_timeout: Option<Duration>,
+    pub(super) generation: Arc<str>,
     pub(super) max_message_bytes: usize,
+    pub(super) pre_auth_rate_limiter: Arc<PreAuthRateLimiter>,
     pub(super) registry: Arc<WebSocketConnectionRegistry>,
     pub(super) routes: Arc<RwLock<Vec<WebSocketRoute>>>,
     pub(super) running: Arc<AtomicBool>,
     pub(super) sender: SyncSender<TriggerEvent>,
+    pub(super) unauthenticated_connections: Arc<ConnectionGate>,
 }
 
 pub(super) fn run_listener(listener: TcpListener, context: WebSocketListenerContext) {
-    let active_connections = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::new();
     while context.running.load(Ordering::Acquire) {
         reap_finished(&mut handles);
         match listener.accept() {
             Ok((stream, remote_address)) => {
-                let Some(permit) = ConnectionPermit::acquire(
-                    Arc::clone(&active_connections),
-                    context.max_connections,
-                ) else {
-                    reject_at_capacity(stream);
+                if let Err(limit) = context.pre_auth_rate_limiter.check(remote_address.ip()) {
+                    reject_rate_limited(stream, limit);
+                    continue;
+                }
+                let Some(permit) = context.unauthenticated_connections.try_acquire() else {
+                    reject_http(
+                        stream,
+                        503,
+                        "Service Unavailable",
+                        "WebSocket pre-authentication limit reached.",
+                    );
                     continue;
                 };
                 let spawn_result = thread::Builder::new()
@@ -52,7 +63,12 @@ pub(super) fn run_listener(listener: TcpListener, context: WebSocketListenerCont
                     .spawn({
                         let connection_context = WebSocketConnectionContext {
                             allow_browser_origins: Arc::clone(&context.allow_browser_origins),
+                            authenticated_connections: Arc::clone(
+                                &context.authenticated_connections,
+                            ),
                             authenticator: Arc::clone(&context.authenticator),
+                            handshake_timeout: context.handshake_timeout,
+                            generation: Arc::clone(&context.generation),
                             max_message_bytes: context.max_message_bytes,
                             registry: Arc::clone(&context.registry),
                             routes: Arc::clone(&context.routes),
@@ -60,8 +76,7 @@ pub(super) fn run_listener(listener: TcpListener, context: WebSocketListenerCont
                             sender: context.sender.clone(),
                         };
                         move || {
-                            let _permit = permit;
-                            handle_connection(stream, remote_address, connection_context);
+                            handle_connection(stream, remote_address, connection_context, permit);
                         }
                     });
                 match spawn_result {
@@ -100,31 +115,19 @@ fn reap_finished(handles: &mut Vec<JoinHandle<()>>) {
     }
 }
 
-struct ConnectionPermit {
-    active: Arc<AtomicUsize>,
+fn reject_rate_limited(stream: TcpStream, limit: PreAuthRateLimit) {
+    let body = match limit {
+        PreAuthRateLimit::Address => {
+            "WebSocket pre-authentication rate limit reached for this address."
+        }
+        PreAuthRateLimit::Global => "WebSocket pre-authentication rate limit reached.",
+    };
+    reject_http(stream, 429, "Too Many Requests", body);
 }
 
-impl ConnectionPermit {
-    fn acquire(active: Arc<AtomicUsize>, maximum: usize) -> Option<Self> {
-        active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                (current < maximum).then_some(current + 1)
-            })
-            .ok()?;
-        Some(Self { active })
-    }
-}
-
-impl Drop for ConnectionPermit {
-    fn drop(&mut self) {
-        self.active.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-fn reject_at_capacity(mut stream: TcpStream) {
-    let body = "WebSocket connection limit reached.";
+fn reject_http(mut stream: TcpStream, status: u16, reason: &str, body: &str) {
     let response = format!(
-        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes());

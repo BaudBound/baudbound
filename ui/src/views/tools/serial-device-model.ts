@@ -1,11 +1,7 @@
 import type { SerialDeviceSettings, SerialPortScanResult } from "@/lib/runner-api";
 
 export function normalizeSerialDeviceId(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return value.replace(/[^A-Za-z0-9_-]/g, "");
 }
 
 export function serialDeviceSettingsFromPort(

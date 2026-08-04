@@ -3,18 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
-import type { RunLogEntry } from "@/lib/runner-api";
 import { countLogsByLevel, filterLogs, logLevels } from "@/lib/run-inspection";
+import type { RunLogEntry } from "@/lib/runner-api";
 import { useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 import { visibleText } from "@/lib/visible-text";
@@ -23,10 +17,7 @@ const allLevels = "all";
 
 type RunLogSortColumn = "level" | "message" | "node" | "time" | "type";
 
-const runLogSortSelectors: Record<
-  RunLogSortColumn,
-  (log: RunLogEntry) => number | string
-> = {
+const runLogSortSelectors: Record<RunLogSortColumn, (log: RunLogEntry) => number | string> = {
   level: (log) => log.level,
   message: (log) => log.message,
   node: (log) => log.node_id ?? "",
@@ -50,14 +41,8 @@ export function RunLogPanel({
   const logViewportRef = useRef<HTMLDivElement>(null);
   const levelCounts = useMemo(() => countLogsByLevel(logs), [logs]);
   const levels = useMemo(() => logLevels(logs), [logs]);
-  const filteredLogs = useMemo(
-    () => filterLogs(logs, { level: levelFilter, query }),
-    [levelFilter, logs, query],
-  );
-  const { sortedRows: visibleLogs, sortState, toggleSort } = useSortableRows(
-    filteredLogs,
-    runLogSortSelectors,
-  );
+  const filteredLogs = useMemo(() => filterLogs(logs, { level: levelFilter, query }), [levelFilter, logs, query]);
+  const { sortedRows: visibleLogs, sortState, toggleSort } = useSortableRows(filteredLogs, runLogSortSelectors);
 
   useEffect(() => {
     const viewport = logViewportRef.current;
@@ -69,9 +54,7 @@ export function RunLogPanel({
   if (logs.length === 0) {
     return (
       <div className="grid gap-3">
-        {followOutputControl ? (
-          <FollowOutputControl checked={followOutput} onChange={setFollowOutput} />
-        ) : null}
+        {followOutputControl ? <FollowOutputControl checked={followOutput} onChange={setFollowOutput} /> : null}
         <EmptyState>{emptyMessage}</EmptyState>
       </div>
     );
@@ -100,9 +83,7 @@ export function RunLogPanel({
             ))}
           </SelectContent>
         </Select>
-        {followOutputControl ? (
-          <FollowOutputControl checked={followOutput} onChange={setFollowOutput} />
-        ) : null}
+        {followOutputControl ? <FollowOutputControl checked={followOutput} onChange={setFollowOutput} /> : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -117,7 +98,7 @@ export function RunLogPanel({
         <EmptyState>No log entries match the current filters.</EmptyState>
       ) : (
         <div
-          className="max-h-[380px] overflow-auto rounded-md border border-border p-0 max-[1280px]:border-0"
+          className="max-h-[380px] overflow-x-hidden overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0"
           ref={logViewportRef}
         >
           <table className="responsive-table w-full border-collapse text-sm">
@@ -147,10 +128,7 @@ export function RunLogPanel({
                   className="border-b border-border align-top last:border-b-0"
                   key={`${index}-${log.level}-${log.node_id ?? "run"}-${log.message}`}
                 >
-                  <td
-                    className="px-3 py-2 font-mono text-xs text-muted-foreground"
-                    data-label="#"
-                  >
+                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="#">
                     {index + 1}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2" data-label="Time">
@@ -159,22 +137,14 @@ export function RunLogPanel({
                   <td className="px-3 py-2" data-label="Level">
                     <Badge variant={logLevelVariant(log.level)}>{log.level}</Badge>
                   </td>
-                  <td
-                    className="px-3 py-2 font-mono text-xs text-muted-foreground"
-                    data-label="Node"
-                  >
+                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Node">
                     {log.node_id ?? "-"}
                   </td>
-                  <td
-                    className="px-3 py-2 font-mono text-xs text-muted-foreground"
-                    data-label="Type"
-                  >
+                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Type">
                     {log.action_type ?? "-"}
                   </td>
                   <td className="px-3 py-2" data-label="Message">
-                    <span className="break-words font-mono text-xs">
-                      {visibleText(log.message)}
-                    </span>
+                    <span className="break-words font-mono text-xs">{visibleText(log.message)}</span>
                   </td>
                 </tr>
               ))}
@@ -186,20 +156,10 @@ export function RunLogPanel({
   );
 }
 
-function FollowOutputControl({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
+function FollowOutputControl({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2 whitespace-nowrap text-sm">
-      <Switch
-        aria-label="Follow live output"
-        checked={checked}
-        onCheckedChange={onChange}
-      />
+      <Switch aria-label="Follow live output" checked={checked} onCheckedChange={onChange} />
       Follow output
     </label>
   );

@@ -398,7 +398,7 @@ mod tests {
         };
         let limits = RuntimeOutputLimits {
             max_log_entry_bytes: 128,
-            max_runtime_variable_bytes: 4096,
+            max_runtime_variable_bytes: baudbound_runtime::ResourceLimit::limited(4096),
             max_retained_variable_bytes: 256,
             max_run_log_bytes: 1024,
             max_run_record_bytes: 2048,

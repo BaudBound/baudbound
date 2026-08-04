@@ -67,7 +67,6 @@ export function StartupSecretUnlockDialog({
           Storage password
           <div className="relative w-full">
             <Input
-              autoComplete="current-password"
               autoFocus
               className="secret-value-input w-full pr-10"
               maxLength={1024}

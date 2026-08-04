@@ -1,8 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,6 +69,7 @@ export function ScriptUpdateCheckDialog({
   open: boolean;
   runAction: DashboardAction;
 }) {
+  const { notify } = useSystemLog();
   const [rows, setRows] = useState<CheckRow[]>([]);
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const initialized = useRef(false);
@@ -141,10 +142,27 @@ export function ScriptUpdateCheckDialog({
     if (!open || completionReported.current || eligibleCount === 0) return;
     if (completedCount !== eligibleCount) return;
     completionReported.current = true;
-    toast.success(
+    notify.success(
       `Update checks finished. ${availableRows.length} available, ${currentCount} current, ${failedCount} failed.`,
+      {
+        details: [
+          { label: "Available updates", value: String(availableRows.length) },
+          { label: "Current scripts", value: String(currentCount) },
+          { label: "Failed checks", value: String(failedCount) },
+        ],
+        source: "Script updates",
+        title: "Update checks complete",
+      },
     );
-  }, [availableRows.length, completedCount, currentCount, eligibleCount, failedCount, open]);
+  }, [
+    availableRows.length,
+    completedCount,
+    currentCount,
+    eligibleCount,
+    failedCount,
+    notify,
+    open,
+  ]);
 
   function retry(scriptId: string) {
     const row = rows.find((candidate) => candidate.script.installed.id === scriptId);

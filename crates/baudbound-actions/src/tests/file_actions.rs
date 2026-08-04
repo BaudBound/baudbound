@@ -99,7 +99,7 @@ fn read_file_rejects_files_over_the_configured_limit() {
     let path = directory.path().join("large.txt");
     fs::write(&path, "12345").expect("fixture should be written");
     let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
-        max_file_read_bytes: 4,
+        max_file_read_bytes: baudbound_runtime::ResourceLimit::limited(4),
         ..ActionLimits::default()
     });
 
@@ -140,6 +140,41 @@ fn write_file_rejects_invalid_modes_and_directory_targets() {
     )
     .expect_err("writing to a directory must fail");
     assert!(directory_error.to_string().contains("failed to open"));
+}
+
+#[test]
+fn repeated_file_writes_respect_the_exact_cumulative_run_budget() {
+    const WRITES: usize = 1_000;
+
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let path = directory.path().join("repeated.txt");
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_file_write_bytes_per_run: baudbound_runtime::ResourceLimit::limited(WRITES as u64),
+        ..ActionLimits::default()
+    });
+
+    for _ in 0..WRITES {
+        execute_with_handler(
+            &handler,
+            "action.file.write",
+            json!({"path": path, "mode": "append", "content": "x"}),
+            serde_json::Value::Null,
+        )
+        .expect("a write within the cumulative run budget should succeed");
+    }
+    let error = execute_with_handler(
+        &handler,
+        "action.file.write",
+        json!({"path": path, "mode": "append", "content": "x"}),
+        serde_json::Value::Null,
+    )
+    .expect_err("the first byte beyond the cumulative run budget must fail");
+
+    assert!(error.to_string().contains("1000 byte file-write limit"));
+    assert_eq!(
+        fs::metadata(path).expect("output should exist").len(),
+        WRITES as u64
+    );
 }
 
 #[test]
@@ -369,7 +404,7 @@ fn oversized_download_preserves_destination_and_removes_temporary_file() {
     let server =
         TestHttpServer::start("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nresponse-too-large");
     let handler = private_network_handler().with_limits(ActionLimits {
-        max_file_download_bytes: 4,
+        max_file_download_bytes: baudbound_runtime::ResourceLimit::limited(4),
         ..ActionLimits::default()
     });
 

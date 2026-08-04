@@ -74,6 +74,8 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
+        self.record_executed_step()?;
+
         let node = self.graph.node(node_id)?.clone();
         match node.action_type.as_str() {
             "control.color_match" => {
@@ -182,13 +184,12 @@ impl RuntimeExecutor<'_> {
         node: &RuntimeNode,
         failure: ExpectedNodeFailure<'_>,
     ) -> Result<(), RuntimeError> {
-        let details = Map::from_iter([
-            (
-                "action_type".to_owned(),
-                Value::String(node.action_type.clone()),
-            ),
-            ("node_id".to_owned(), Value::String(node.id.clone())),
-        ]);
+        let mut details = failure.details.cloned().unwrap_or_default();
+        details.insert(
+            "action_type".to_owned(),
+            Value::String(node.action_type.clone()),
+        );
+        details.insert("node_id".to_owned(), Value::String(node.id.clone()));
         let error = Value::Object(Map::from_iter([
             (
                 "message".to_owned(),
@@ -199,7 +200,7 @@ impl RuntimeExecutor<'_> {
                 "type".to_owned(),
                 Value::String(failure.error_type.to_owned()),
             ),
-            ("retryable".to_owned(), Value::Bool(false)),
+            ("retryable".to_owned(), Value::Bool(failure.retryable)),
             ("details".to_owned(), Value::Object(details)),
         ]));
         self.set_variable(
@@ -231,6 +232,8 @@ impl RuntimeExecutor<'_> {
             });
             return Ok(());
         }
+
+        self.record_loop_iteration()?;
 
         self.log_loop_iteration(
             node_id,
@@ -324,6 +327,8 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
+        self.record_loop_iteration()?;
+
         let next_index = index.saturating_add(1);
         self.log_loop_iteration(
             node_id,
@@ -361,6 +366,8 @@ impl RuntimeExecutor<'_> {
             });
             return Ok(());
         }
+
+        self.record_loop_iteration()?;
 
         let item_variable = format!("{node_id}.item");
         let index_variable = format!("{node_id}.index");
@@ -430,9 +437,11 @@ fn condition_row_count(node: &RuntimeNode) -> usize {
 
 #[derive(Debug, Clone, Copy)]
 struct ExpectedNodeFailure<'a> {
-    code: &'static str,
-    error_type: &'static str,
+    code: &'a str,
+    error_type: &'a str,
     message: &'a str,
+    retryable: bool,
+    details: Option<&'a Map<String, Value>>,
 }
 
 impl<'a> ExpectedNodeFailure<'a> {
@@ -449,23 +458,37 @@ impl<'a> ExpectedNodeFailure<'a> {
                     code,
                     error_type,
                     message,
+                    retryable: false,
+                    details: None,
                 })
             }
+            RuntimeError::StructuredAction { failure, .. } => Some(Self {
+                code: failure.code(),
+                error_type: failure.error_type(),
+                message: failure.message(),
+                retryable: failure.retryable(),
+                details: Some(failure.details()),
+            }),
             RuntimeError::Calculation { message, .. } => Some(Self {
                 code: "CALCULATION_FAILED",
                 error_type: "validation",
                 message,
+                retryable: false,
+                details: None,
             }),
             RuntimeError::VariableOperation { message, .. } => Some(Self {
                 code: "VARIABLE_OPERATION_FAILED",
                 error_type: "validation",
                 message,
+                retryable: false,
+                details: None,
             }),
             RuntimeError::InvalidGraph(_)
             | RuntimeError::ControlFlow { .. }
             | RuntimeError::UnsupportedStep { .. }
             | RuntimeError::State(_)
             | RuntimeError::Redacted(_)
+            | RuntimeError::ResourceLimitExceeded { .. }
             | RuntimeError::Cancelled => None,
         }
     }

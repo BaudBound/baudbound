@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use baudbound_runtime::ResourceLimit;
 use serde_json::json;
 
 use crate::{
@@ -119,58 +120,95 @@ impl ScheduleService {
     }
 
     pub fn due_events(&mut self, now: Instant, timestamp: SystemTime) -> Vec<TriggerEvent> {
-        let timestamp_unix = unix_timestamp(timestamp);
-        self.schedules
-            .values_mut()
-            .filter_map(|schedule| {
-                (now >= schedule.next_due).then(|| {
-                    let missed_intervals = advance_schedule(schedule, now);
-                    TriggerEvent {
-                        action_type: schedule.registration.action_type.clone(),
-                        node_id: schedule.registration.node_id.clone(),
-                        payload: json!({
-                            "interval_seconds": schedule_number_payload(
-                                schedule.spec.interval.as_secs_f64()
-                            ),
-                            "missed_intervals": missed_intervals,
-                            "schedule": {
-                                "every": schedule_number_payload(schedule.spec.every),
-                                "unit": schedule.spec.unit,
-                            },
-                            "scheduled_at_unix": timestamp_unix,
-                        }),
-                        script_id: schedule.registration.script_id.clone(),
-                    }
-                })
-            })
-            .collect()
+        self.due_events_with_limit(now, timestamp, ResourceLimit::Unlimited)
+            .events
+    }
+
+    pub fn due_events_with_limit(
+        &mut self,
+        now: Instant,
+        timestamp: SystemTime,
+        limit: ResourceLimit,
+    ) -> DueScheduleBatch {
+        let mut events = Vec::new();
+        let dispatch = self.for_each_due_event_with_limit(now, timestamp, limit, |event| {
+            events.push(event);
+        });
+        DueScheduleBatch {
+            deferred: dispatch.deferred,
+            events,
+        }
+    }
+
+    pub fn for_each_due_event_with_limit(
+        &mut self,
+        now: Instant,
+        timestamp: SystemTime,
+        limit: ResourceLimit,
+        mut emit: impl FnMut(TriggerEvent),
+    ) -> DueScheduleDispatch {
+        let mut emitted = 0_u64;
+        while emitted
+            .checked_add(1)
+            .is_some_and(|next| limit.permits(next))
+        {
+            let Some(id) = self
+                .schedules
+                .iter()
+                .filter(|(_, schedule)| schedule.next_due <= now)
+                .min_by_key(|(_, schedule)| schedule.next_due)
+                .map(|(id, _)| id.clone())
+            else {
+                break;
+            };
+            let schedule = self
+                .schedules
+                .get_mut(&id)
+                .expect("selected schedule must remain registered");
+            let scheduled_at = timestamp
+                .checked_sub(now.saturating_duration_since(schedule.next_due))
+                .unwrap_or(timestamp);
+            emit(TriggerEvent {
+                action_type: schedule.registration.action_type.clone(),
+                node_id: schedule.registration.node_id.clone(),
+                payload: json!({
+                    "interval_seconds": schedule_number_payload(
+                        schedule.spec.interval.as_secs_f64()
+                    ),
+                    "schedule": {
+                        "every": schedule_number_payload(schedule.spec.every),
+                        "unit": schedule.spec.unit,
+                    },
+                    "scheduled_at_unix": unix_timestamp(scheduled_at),
+                }),
+                script_id: schedule.registration.script_id.clone(),
+            });
+            emitted = emitted
+                .checked_add(1)
+                .expect("schedule emission count was checked before dispatch");
+            schedule.next_due = schedule
+                .next_due
+                .checked_add(schedule.spec.interval)
+                .unwrap_or_else(|| now.checked_add(schedule.spec.interval).unwrap_or(now));
+        }
+        let deferred = self
+            .schedules
+            .values()
+            .any(|schedule| schedule.next_due <= now);
+        DueScheduleDispatch { deferred, emitted }
     }
 }
 
-fn advance_schedule(schedule: &mut ScheduleTask, now: Instant) -> u64 {
-    let overdue = now.saturating_duration_since(schedule.next_due);
-    let missed_intervals = overdue.as_nanos() / schedule.spec.interval.as_nanos();
-    let advance_intervals = missed_intervals.saturating_add(1);
-    let advance = duration_from_nanos(
-        schedule
-            .spec
-            .interval
-            .as_nanos()
-            .saturating_mul(advance_intervals),
-    );
-    schedule.next_due = schedule
-        .next_due
-        .checked_add(advance)
-        .or_else(|| now.checked_add(schedule.spec.interval))
-        .unwrap_or(now);
-    u64::try_from(missed_intervals).unwrap_or(u64::MAX)
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct DueScheduleDispatch {
+    pub deferred: bool,
+    pub emitted: u64,
 }
 
-fn duration_from_nanos(nanos: u128) -> Duration {
-    const NANOS_PER_SECOND: u128 = 1_000_000_000;
-    let seconds = u64::try_from(nanos / NANOS_PER_SECOND).unwrap_or(u64::MAX);
-    let subsecond_nanos = (nanos % NANOS_PER_SECOND) as u32;
-    Duration::new(seconds, subsecond_nanos)
+#[derive(Debug)]
+pub struct DueScheduleBatch {
+    pub events: Vec<TriggerEvent>,
+    pub deferred: bool,
 }
 
 fn schedule_number_payload(value: f64) -> serde_json::Value {

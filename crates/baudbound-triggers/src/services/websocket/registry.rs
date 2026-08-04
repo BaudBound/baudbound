@@ -1,10 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Shutdown, TcpStream},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 
 use baudbound_actions::WebSocketMessageSink;
@@ -18,10 +15,16 @@ struct RegisteredConnection {
     socket: Arc<Mutex<WebSocket<TcpStream>>>,
 }
 
-#[derive(Default)]
 pub struct WebSocketConnectionRegistry {
     connections: Mutex<BTreeMap<String, Arc<RegisteredConnection>>>,
-    next_connection_id: AtomicU64,
+}
+
+impl Default for WebSocketConnectionRegistry {
+    fn default() -> Self {
+        Self {
+            connections: Mutex::new(BTreeMap::new()),
+        }
+    }
 }
 
 impl std::fmt::Debug for WebSocketConnectionRegistry {
@@ -48,23 +51,23 @@ impl WebSocketConnectionRegistry {
             .get_ref()
             .try_clone()
             .map_err(|source| format!("failed to prepare WebSocket shutdown handle: {source}"))?;
-        let sequence = self
-            .next_connection_id
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                value.checked_add(1)
-            })
-            .map_err(|_| "WebSocket connection id space is exhausted".to_owned())?;
-        let connection_id = format!("ws-{sequence:016x}");
         let connection = Arc::new(RegisteredConnection {
             route_key,
             shutdown_stream,
             socket: Arc::new(Mutex::new(websocket)),
         });
-        self.connections
+        let mut connections = self
+            .connections
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(connection_id.clone(), connection);
-        Ok(connection_id)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for _ in 0..4 {
+            let connection_id = random_connection_id()?;
+            if !connections.contains_key(&connection_id) {
+                connections.insert(connection_id.clone(), Arc::clone(&connection));
+                return Ok(connection_id);
+            }
+        }
+        Err("failed to allocate a unique WebSocket connection id".to_owned())
     }
 
     pub(super) fn socket(&self, connection_id: &str) -> Option<Arc<Mutex<WebSocket<TcpStream>>>> {
@@ -128,10 +131,24 @@ impl WebSocketConnectionRegistry {
 }
 
 impl WebSocketMessageSink for WebSocketConnectionRegistry {
-    fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String> {
+    fn send_text(
+        &self,
+        script_id: &str,
+        trigger_node_id: &str,
+        connection_id: &str,
+        message: &str,
+    ) -> Result<usize, String> {
         let socket = self
-            .socket(connection_id)
-            .ok_or_else(|| format!("unknown WebSocket connection id {connection_id:?}"))?;
+            .connections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(connection_id)
+            .filter(|connection| {
+                connection.route_key.script_id == script_id
+                    && connection.route_key.node_id == trigger_node_id
+            })
+            .map(|connection| Arc::clone(&connection.socket))
+            .ok_or_else(|| "WebSocket connection is not available to this run".to_owned())?;
         let result = socket
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -142,4 +159,17 @@ impl WebSocketMessageSink for WebSocketConnectionRegistry {
         }
         Ok(message.len())
     }
+}
+
+fn random_connection_id() -> Result<String, String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|source| format!("failed to generate WebSocket connection id: {source}"))?;
+    let mut id = String::with_capacity(3 + bytes.len() * 2);
+    id.push_str("ws-");
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut id, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    Ok(id)
 }

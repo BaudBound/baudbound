@@ -215,6 +215,15 @@ pub(super) fn action_completion_message(
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len)
         ),
+        "action.form_dialog" => format!(
+            "Completed form dialog {}. Selected button: {}; submitted values: {}.",
+            quoted(config.get("title")),
+            quoted(output_value(output, "button")),
+            output
+                .get("values")
+                .and_then(Value::as_object)
+                .map_or(0, Map::len)
+        ),
         "action.value.convert" => format!(
             "Converted value to {}. Result: {}.",
             quoted(output_or_config(

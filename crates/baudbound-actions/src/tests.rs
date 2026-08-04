@@ -32,11 +32,20 @@ struct FakeWebSocketSink {
 }
 
 impl WebSocketMessageSink for FakeWebSocketSink {
-    fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String> {
+    fn send_text(
+        &self,
+        script_id: &str,
+        trigger_node_id: &str,
+        connection_id: &str,
+        message: &str,
+    ) -> Result<usize, String> {
         self.sent
             .lock()
             .expect("fake sink lock should not be poisoned")
-            .push((connection_id.to_owned(), message.to_owned()));
+            .push((
+                format!("{script_id}:{trigger_node_id}:{connection_id}"),
+                message.to_owned(),
+            ));
         Ok(message.len())
     }
 }
@@ -63,6 +72,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("beep"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -74,6 +84,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("clipboard_set"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -88,6 +99,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
                 ("handled".to_owned(), json!("clipboard_get")),
                 ("text".to_owned(), json!("clipboard text")),
             ]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -99,7 +111,19 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("message_box"))]),
+            sensitive_output_keys: Default::default(),
         })
+    }
+
+    fn form_dialog(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<baudbound_runtime::RuntimeActionResult, baudbound_runtime::RuntimeActionError> {
+        self.record(request);
+        Ok(baudbound_runtime::RuntimeActionResult::new(Map::from_iter(
+            [("handled".to_owned(), json!("form_dialog"))],
+        )))
     }
 
     fn notification(
@@ -110,6 +134,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("notification"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -121,6 +146,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("sound_play"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -132,6 +158,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("keyboard"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -143,6 +170,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("keyboard_type_text"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -154,6 +182,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("mouse_click"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -165,6 +194,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("mouse_move"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -176,6 +206,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("pixel_get"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -187,6 +218,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("active_window"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -198,6 +230,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
         self.record(request);
         Ok(baudbound_runtime::RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), json!("window.focus"))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -212,6 +245,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
                 "handled".to_owned(),
                 json!("process_status_by_window_title"),
             )]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
@@ -226,6 +260,7 @@ impl DesktopActionAdapter for FakeDesktopAdapter {
                 "handled".to_owned(),
                 json!("kill_process_by_window_title"),
             )]),
+            sensitive_output_keys: Default::default(),
         })
     }
 }
@@ -468,7 +503,7 @@ fn websocket_write_uses_configured_sink() {
             .lock()
             .expect("fake sink lock should not be poisoned")
             .as_slice(),
-        &[("conn-1".to_owned(), "hello".to_owned())]
+        &[("script-1:trigger-1:conn-1".to_owned(), "hello".to_owned())]
     );
 }
 
@@ -534,6 +569,23 @@ fn desktop_action_handler_routes_desktop_actions_to_adapter() {
             .as_slice(),
         &["action.notification".to_owned()]
     );
+}
+
+#[test]
+fn desktop_action_handler_routes_interactive_dialogs_to_adapter() {
+    let handler = DesktopActionHandler::new(
+        HeadlessActionHandler::default(),
+        FakeDesktopAdapter::default(),
+    );
+
+    for (action_type, expected) in [
+        ("action.message_box", "message_box"),
+        ("action.form_dialog", "form_dialog"),
+    ] {
+        let result = execute_with_handler(&handler, action_type, json!({}), Value::Null)
+            .expect("interactive dialog should route to the desktop adapter");
+        assert_eq!(result.output_data.get("handled"), Some(&json!(expected)));
+    }
 }
 
 #[test]
@@ -845,6 +897,51 @@ fn rejects_open_application_with_invalid_arguments() {
 }
 
 #[test]
+fn process_policy_is_enforced_immediately_before_process_actions() {
+    let denied = HeadlessActionHandler::default().with_security_policy(ActionSecurityPolicy {
+        allow_process_execution: false,
+        ..ActionSecurityPolicy::default()
+    });
+    for (action_type, config) in [
+        (
+            "action.application.open",
+            json!({"application": "must-not-start", "arguments": []}),
+        ),
+        (
+            "action.process.run",
+            json!({"executable": "must-not-start", "arguments": [], "workingDirectory": ""}),
+        ),
+        (
+            "action.shell",
+            json!({"command": "must-not-start", "timeoutSeconds": "60"}),
+        ),
+    ] {
+        let error = execute_with_handler(&denied, action_type, config, Value::Null)
+            .expect_err("process policy must reject before spawn");
+        assert!(
+            error
+                .to_string()
+                .contains("allow_dangerous_permissions is false"),
+            "unexpected error for {action_type}: {error}"
+        );
+    }
+
+    let shell_denied =
+        HeadlessActionHandler::default().with_security_policy(ActionSecurityPolicy {
+            allow_shell_commands: false,
+            ..ActionSecurityPolicy::default()
+        });
+    let error = execute_with_handler(
+        &shell_denied,
+        "action.shell",
+        json!({"command": "must-not-start", "timeoutSeconds": "60"}),
+        Value::Null,
+    )
+    .expect_err("shell policy must reject before spawn");
+    assert!(error.to_string().contains("allow_shell_commands is false"));
+}
+
+#[test]
 fn reads_current_process_status() {
     let current_executable = std::env::current_exe().expect("current exe should resolve");
     let process_name = current_executable
@@ -964,6 +1061,7 @@ fn execute(
 fn private_network_handler() -> HeadlessActionHandler {
     HeadlessActionHandler::default().with_security_policy(ActionSecurityPolicy {
         allow_private_http_requests: true,
+        ..ActionSecurityPolicy::default()
     })
 }
 
@@ -989,6 +1087,7 @@ fn execute_with_package_path(
             script_id: "script-1".to_owned(),
             trigger_node_id: "trigger-1".to_owned(),
         },
+        package_bytes: None,
         package_path: Some(package_path),
         trigger_payload: Value::Null,
         variables: Default::default(),
@@ -1015,6 +1114,7 @@ fn execute_with_cancellation(
             script_id: "script-1".to_owned(),
             trigger_node_id: "trigger-1".to_owned(),
         },
+        package_bytes: None,
         package_path: None,
         trigger_payload: Value::Null,
         variables: Default::default(),
@@ -1042,6 +1142,7 @@ fn execute_with_handler(
             script_id: "script-1".to_owned(),
             trigger_node_id: "trigger-1".to_owned(),
         },
+        package_bytes: None,
         package_path: None,
         trigger_payload,
         variables: Default::default(),

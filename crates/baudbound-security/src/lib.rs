@@ -2,6 +2,7 @@
 
 mod blacklist;
 mod capabilities;
+mod network;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -22,6 +23,10 @@ pub use capabilities::{
     calculate_program_capabilities_with_declarations, calculate_program_capabilities_with_secrets,
     validate_program_capabilities, validate_program_capabilities_with_declarations,
     validate_program_capabilities_with_secrets,
+};
+pub use network::{
+    all_network_addresses_are_public, is_https_downgrade, is_public_network_address,
+    same_http_origin,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -132,6 +137,7 @@ struct PathPermissionRule {
 enum PathAccess {
     Delete,
     Read,
+    Watch,
     Write,
 }
 
@@ -277,6 +283,7 @@ pub fn calculate_program_permissions_with_declarations(
                 ),
                 (PathAccess::Delete, Some("file.delete.any"))
                     | (PathAccess::Read, Some("file.read"))
+                    | (PathAccess::Watch, Some("file.watch.limited"))
                     | (PathAccess::Write, Some("file.write.limited"))
             )
         });
@@ -425,6 +432,8 @@ fn permission_for_path(access: &PathAccess, path: &str) -> PermissionGrant {
         (PathAccess::Delete, true) => ("file.delete.any", RiskLevel::Dangerous),
         (PathAccess::Read, false) => ("file.read", RiskLevel::Medium),
         (PathAccess::Read, true) => ("file.read.any", RiskLevel::Dangerous),
+        (PathAccess::Watch, false) => ("file.watch.limited", RiskLevel::Medium),
+        (PathAccess::Watch, true) => ("file.watch.any", RiskLevel::Dangerous),
         (PathAccess::Write, false) => ("file.write.limited", RiskLevel::High),
         (PathAccess::Write, true) => ("file.write.any", RiskLevel::Dangerous),
     };

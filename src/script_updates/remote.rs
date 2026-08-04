@@ -1,14 +1,22 @@
 use std::{
     collections::BTreeSet,
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+    net::{SocketAddr, ToSocketAddrs},
     time::Duration,
 };
 
+use baudbound_script::{
+    validate_anonymous_public_https_url, validate_public_https_package_url,
+    validate_public_https_repository_url,
+};
+use baudbound_security::all_network_addresses_are_public;
 use reqwest::{
     StatusCode,
-    blocking::{Client, Response},
-    header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION},
+    blocking::{Client, Request, Response},
+    header::{
+        AUTHORIZATION, COOKIE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION,
+        PROXY_AUTHORIZATION,
+    },
 };
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
@@ -75,7 +83,9 @@ pub(crate) struct RepositoryFetchModified {
 pub(crate) enum RemoteFetchError {
     #[error("the remote URL is invalid")]
     InvalidUrl,
-    #[error("remote URLs must use HTTPS and cannot contain credentials or fragments")]
+    #[error(
+        "remote URLs must use HTTPS and cannot contain credentials, query strings, or fragments"
+    )]
     UnsafeUrl,
     #[error("the remote URL does not name the expected {0:?} file")]
     InvalidPath(RemoteResourceKind),
@@ -87,6 +97,8 @@ pub(crate) enum RemoteFetchError {
     InvalidRedirect,
     #[error("the remote server returned too many redirects")]
     TooManyRedirects,
+    #[error("the remote server returned a redirect loop")]
+    RedirectLoop,
     #[error("the remote server returned HTTP {0}")]
     HttpStatus(StatusCode),
     #[error("the remote request failed")]
@@ -232,6 +244,7 @@ impl RemoteFetchService {
     ) -> Result<(Response, RemoteProvenance), RemoteFetchError> {
         let original_url = url.clone();
         let mut redirect_urls = Vec::new();
+        let mut visited_urls = BTreeSet::from([url.as_str().to_owned()]);
         for redirect_count in 0..=MAX_REDIRECTS {
             if let Some(blacklist) = crate::blacklist::global() {
                 blacklist
@@ -241,16 +254,15 @@ impl RemoteFetchService {
             let addresses = resolve_public_addresses(&url)?;
             let host = url.host_str().ok_or(RemoteFetchError::InvalidUrl)?;
             let client = pinned_client(host, &addresses)?;
-            let mut request = client.get(url.clone());
-            if redirect_count == 0 {
-                if let Some(etag) = etag {
-                    request = request.header(IF_NONE_MATCH, etag);
-                }
-                if let Some(last_modified) = last_modified {
-                    request = request.header(IF_MODIFIED_SINCE, last_modified);
-                }
-            }
-            let response = request.send().map_err(|_| RemoteFetchError::Request)?;
+            let request = build_anonymous_request(
+                &client,
+                url.clone(),
+                (redirect_count == 0).then_some(etag).flatten(),
+                (redirect_count == 0).then_some(last_modified).flatten(),
+            )?;
+            let response = client
+                .execute(request)
+                .map_err(|_| RemoteFetchError::Request)?;
             if response.status().is_redirection() {
                 if redirect_count == MAX_REDIRECTS {
                     return Err(RemoteFetchError::TooManyRedirects);
@@ -260,10 +272,14 @@ impl RemoteFetchService {
                     .get(LOCATION)
                     .and_then(|value| value.to_str().ok())
                     .ok_or(RemoteFetchError::InvalidRedirect)?;
-                url = url
+                let redirect_url = url
                     .join(location)
                     .map_err(|_| RemoteFetchError::InvalidRedirect)?;
-                validate_transport_url(&url)?;
+                validate_transport_url(&redirect_url)?;
+                if !visited_urls.insert(redirect_url.as_str().to_owned()) {
+                    return Err(RemoteFetchError::RedirectLoop);
+                }
+                url = redirect_url;
                 redirect_urls.push(url.clone());
                 continue;
             }
@@ -298,26 +314,23 @@ fn header_value(response: &Response, name: reqwest::header::HeaderName) -> Optio
 }
 
 fn validate_url(value: &str, kind: RemoteResourceKind) -> Result<Url, RemoteFetchError> {
-    let url = Url::parse(value).map_err(|_| RemoteFetchError::InvalidUrl)?;
-    validate_parsed_url(&url, kind)?;
+    let url = match kind {
+        RemoteResourceKind::Package => {
+            validate_public_https_package_url(value).map(|url| url.as_url().clone())
+        }
+        RemoteResourceKind::Repository => {
+            validate_public_https_repository_url(value).map(|url| url.as_url().clone())
+        }
+    }
+    .map_err(|_| RemoteFetchError::UnsafeUrl)?;
+    kind.validate_path(&url)?;
     Ok(url)
 }
 
-fn validate_parsed_url(url: &Url, kind: RemoteResourceKind) -> Result<(), RemoteFetchError> {
-    validate_transport_url(url)?;
-    kind.validate_path(url)
-}
-
 fn validate_transport_url(url: &Url) -> Result<(), RemoteFetchError> {
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(RemoteFetchError::UnsafeUrl);
-    }
-    Ok(())
+    validate_anonymous_public_https_url(url.as_str())
+        .map(|_| ())
+        .map_err(|_| RemoteFetchError::UnsafeUrl)
 }
 
 fn resolve_public_addresses(url: &Url) -> Result<Vec<SocketAddr>, RemoteFetchError> {
@@ -334,7 +347,7 @@ fn resolve_public_addresses(url: &Url) -> Result<Vec<SocketAddr>, RemoteFetchErr
     if addresses.is_empty() {
         return Err(RemoteFetchError::Resolve);
     }
-    if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+    if !all_network_addresses_are_public(addresses.iter().map(|address| address.ip())) {
         return Err(RemoteFetchError::RestrictedDestination);
     }
     Ok(addresses)
@@ -344,11 +357,37 @@ fn pinned_client(host: &str, addresses: &[SocketAddr]) -> Result<Client, RemoteF
     Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
+        .https_only(true)
+        .no_proxy()
+        .referer(false)
         .redirect(reqwest::redirect::Policy::none())
         .resolve_to_addrs(host, addresses)
         .user_agent(concat!("BaudBound/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|_| RemoteFetchError::Request)
+}
+
+fn build_anonymous_request(
+    client: &Client,
+    url: Url,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> Result<Request, RemoteFetchError> {
+    let mut request = client.get(url);
+    if let Some(etag) = etag {
+        request = request.header(IF_NONE_MATCH, etag);
+    }
+    if let Some(last_modified) = last_modified {
+        request = request.header(IF_MODIFIED_SINCE, last_modified);
+    }
+    let request = request.build().map_err(|_| RemoteFetchError::Request)?;
+    if [AUTHORIZATION, PROXY_AUTHORIZATION, COOKIE]
+        .iter()
+        .any(|name| request.headers().contains_key(name))
+    {
+        return Err(RemoteFetchError::UnsafeUrl);
+    }
+    Ok(request)
 }
 
 fn read_bounded(
@@ -400,49 +439,6 @@ fn ensure_continues(
     }
 }
 
-fn is_public_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => is_public_ipv4(address),
-        IpAddr::V6(address) => is_public_ipv6(address),
-    }
-}
-
-fn is_public_ipv4(address: Ipv4Addr) -> bool {
-    let octets = address.octets();
-    !(address.is_unspecified()
-        || address.is_loopback()
-        || address.is_private()
-        || address.is_link_local()
-        || address.is_multicast()
-        || address.is_broadcast()
-        || octets[0] == 0
-        || octets[0] >= 240
-        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
-        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
-        || (octets[0] == 198 && (18..=19).contains(&octets[1]))
-        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
-        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113))
-}
-
-fn is_public_ipv6(address: Ipv6Addr) -> bool {
-    if let Some(mapped) = address.to_ipv4_mapped() {
-        return is_public_ipv4(mapped);
-    }
-    let segments = address.segments();
-    !(address.is_unspecified()
-        || address.is_loopback()
-        || address.is_multicast()
-        || segments[0] == 0
-        || segments[0] == 0x0064 && segments[1] == 0xff9b
-        || (segments[0] & 0xfe00) == 0xfc00
-        || (segments[0] & 0xffc0) == 0xfe80
-        || (segments[0] & 0xffc0) == 0xfec0
-        || segments[0] == 0x2002
-        || (segments[0] == 0x2001 && segments[1] <= 0x01ff)
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,7 +457,7 @@ mod tests {
                 "https://example.com/releases/test.bbs?token=value",
                 RemoteResourceKind::Package
             )
-            .is_ok()
+            .is_err()
         );
         assert!(validate_url("http://example.com/test.bbs", RemoteResourceKind::Package).is_err());
         assert!(
@@ -488,13 +484,19 @@ mod tests {
     }
 
     #[test]
-    fn allows_safe_redirect_targets_without_requiring_the_original_file_name() {
+    fn redirects_remain_anonymous_without_requiring_the_original_file_name() {
+        assert!(
+            validate_transport_url(
+                &Url::parse("https://objects.example.com/download/opaque-id").unwrap()
+            )
+            .is_ok()
+        );
         assert!(
             validate_transport_url(
                 &Url::parse("https://objects.example.com/download/opaque-id?signature=value")
                     .unwrap()
             )
-            .is_ok()
+            .is_err()
         );
         assert!(
             validate_transport_url(&Url::parse("http://example.com/download").unwrap()).is_err()
@@ -525,12 +527,18 @@ mod tests {
             "2002:c0a8:0101::1",
             "2001:db8::1",
         ] {
-            assert!(!is_public_ip(
-                address.parse().expect("test address should parse")
-            ));
+            assert!(!all_network_addresses_are_public([address
+                .parse()
+                .expect("test address should parse")]));
         }
-        assert!(is_public_ip("1.1.1.1".parse().unwrap()));
-        assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
+        assert!(all_network_addresses_are_public([
+            "1.1.1.1".parse().unwrap(),
+            "2606:4700:4700::1111".parse().unwrap(),
+        ]));
+        assert!(!all_network_addresses_are_public([
+            "1.1.1.1".parse().unwrap(),
+            "127.0.0.1".parse().unwrap(),
+        ]));
     }
 
     #[test]
@@ -561,5 +569,21 @@ mod tests {
             result,
             Err(RemoteFetchError::TooLarge { limit: 4 })
         ));
+    }
+
+    #[test]
+    fn production_repository_requests_never_include_credentials() {
+        let client = pinned_client("example.com", &["1.1.1.1:443".parse().unwrap()]).unwrap();
+        let request = build_anonymous_request(
+            &client,
+            Url::parse("https://example.com/repository.json").unwrap(),
+            Some("repository-etag"),
+            Some("Tue, 04 Aug 2026 10:00:00 GMT"),
+        )
+        .unwrap();
+        assert!(!request.headers().contains_key(AUTHORIZATION));
+        assert!(!request.headers().contains_key(PROXY_AUTHORIZATION));
+        assert!(!request.headers().contains_key(COOKIE));
+        assert_eq!(request.headers()[IF_NONE_MATCH], "repository-etag");
     }
 }

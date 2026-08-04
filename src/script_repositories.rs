@@ -266,7 +266,11 @@ pub(crate) fn prepare_repository_script_with_progress(
 pub(crate) fn list_repositories(
     store: &SqliteRunnerStore,
 ) -> Result<Vec<RepositorySource>, ScriptRepositoryServiceError> {
-    store.list_repository_sources().map_err(storage_error)
+    let repositories = store.list_repository_sources().map_err(storage_error)?;
+    for repository in &repositories {
+        ensure_canonical_repository_url(&repository.url)?;
+    }
+    Ok(repositories)
 }
 
 pub(crate) fn query_scripts(
@@ -274,8 +278,11 @@ pub(crate) fn query_scripts(
     query: &RepositoryScriptQuery,
 ) -> Result<PaginatedRecords<RepositoryScriptSummary>, ScriptRepositoryServiceError> {
     let mut query = query.clone();
+    let repositories = store.list_repository_sources().map_err(storage_error)?;
+    for repository in &repositories {
+        ensure_canonical_repository_url(&repository.url)?;
+    }
     if let Some(blacklist) = crate::blacklist::global() {
-        let repositories = store.list_repository_sources().map_err(storage_error)?;
         let exclusions =
             blacklist.catalog_exclusions(repositories.into_iter().map(|source| source.url));
         query.excluded_repository_urls = exclusions.repository_urls;
@@ -330,6 +337,7 @@ pub(crate) fn script_details(
 fn ensure_repository_distribution_allowed(
     repository_url: &str,
 ) -> Result<(), ScriptRepositoryServiceError> {
+    ensure_canonical_repository_url(repository_url)?;
     let Some(blacklist) = crate::blacklist::global() else {
         return Ok(());
     };
@@ -341,7 +349,7 @@ fn ensure_repository_distribution_allowed(
     let decision = blacklist.repository_decision(repository_url);
     if decision.blocks_distribution() {
         return Err(ScriptRepositoryServiceError::Download(format!(
-            "this repository is restricted by the Official blacklist: {}",
+            "this repository is restricted by the blacklist: {}",
             decision
                 .entries
                 .iter()
@@ -349,6 +357,19 @@ fn ensure_repository_distribution_allowed(
                 .collect::<Vec<_>>()
                 .join(", ")
         )));
+    }
+    Ok(())
+}
+
+fn ensure_canonical_repository_url(
+    repository_url: &str,
+) -> Result<(), ScriptRepositoryServiceError> {
+    let parsed = validate_public_https_repository_url(repository_url)
+        .map_err(|error| ScriptRepositoryServiceError::Url(error.to_string()))?;
+    if parsed.as_str() != repository_url {
+        return Err(ScriptRepositoryServiceError::Url(
+            "repository URLs must use their canonical public anonymous form".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -479,10 +500,9 @@ enum DownloadedRepository {
 }
 
 fn normalize_repository_url(url: &str) -> Result<String, ScriptRepositoryServiceError> {
-    let mut url = validate_public_https_repository_url(url.trim())
+    let url = validate_public_https_repository_url(url)
         .map_err(|error| ScriptRepositoryServiceError::Url(error.to_string()))?;
-    url.set_fragment(None);
-    Ok(url.to_string())
+    Ok(url.into_string())
 }
 
 fn storage_error(error: impl ToString) -> ScriptRepositoryServiceError {

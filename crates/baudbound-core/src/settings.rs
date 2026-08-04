@@ -2,15 +2,14 @@ use std::collections::BTreeMap;
 
 use baudbound_runtime::RuntimeScriptSettings;
 use baudbound_script::{
-    ScriptPackage, ScriptSettingDeclaration, load_script_package,
-    validate_script_setting_value_limits,
+    ScriptPackage, ScriptSettingDeclaration, validate_script_setting_value_limits,
 };
 use baudbound_storage::{ScriptStore, StoredScriptSetting};
 use baudbound_triggers::normalize_windows_hotkey;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::{CoreError, RunnerCore};
+use crate::{CoreError, RunnerCore, load_verified_installed_package};
 
 pub const MAX_SCRIPT_SETTING_INPUT_BYTES: usize = 1024 * 1024;
 
@@ -66,6 +65,40 @@ pub(crate) fn set_installed_script_setting_from_text(
     let value = parse_setting_value(declaration, input)?;
     let stored = store.set_script_setting(reference, name, &value)?;
     Ok(merge_status(declaration, Some(&stored)))
+}
+
+pub(crate) fn save_installed_script_settings_from_text(
+    core: &RunnerCore,
+    store: &impl ScriptStore,
+    reference: &str,
+    inputs: &BTreeMap<String, String>,
+) -> Result<Vec<InstalledScriptSettingStatus>, CoreError> {
+    let (_, package) = load_installed_package(core, store, reference)?;
+    let declarations = package
+        .manifest
+        .settings
+        .iter()
+        .map(|setting| (setting.name.as_str(), setting))
+        .collect::<BTreeMap<_, _>>();
+    let mut values = BTreeMap::new();
+    for (name, input) in inputs {
+        let declaration = declarations.get(name.as_str()).ok_or_else(|| {
+            CoreError::InvalidSetting(format!("{name:?} is not declared by this script"))
+        })?;
+        values.insert(name.clone(), parse_setting_value(declaration, input)?);
+    }
+
+    let stored = store
+        .replace_script_settings(reference, &values)?
+        .into_iter()
+        .map(|setting| (setting.name.clone(), setting))
+        .collect::<BTreeMap<_, _>>();
+    Ok(package
+        .manifest
+        .settings
+        .iter()
+        .map(|declaration| merge_status(declaration, stored.get(&declaration.name)))
+        .collect())
 }
 
 pub(crate) fn remove_installed_script_setting(
@@ -132,8 +165,7 @@ fn load_installed_package(
     store: &impl ScriptStore,
     reference: &str,
 ) -> Result<(baudbound_storage::InstalledScript, ScriptPackage), CoreError> {
-    let installed = store.verify_script_package_hash(reference)?;
-    let package = load_script_package(&installed.package_path)?;
+    let (installed, _staged_package, package) = load_verified_installed_package(store, reference)?;
     core.validate_package_compatibility(&package)?;
     Ok((installed, package))
 }

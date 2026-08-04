@@ -23,12 +23,8 @@ export function ServiceView({
   runAction: DashboardAction;
 }) {
   return (
-    <div className="grid gap-4">
-      <ServiceControlPanel
-        busyActions={busyActions}
-        dashboard={dashboard}
-        runAction={runAction}
-      />
+    <div className="grid min-w-0 max-w-full gap-4">
+      <ServiceControlPanel busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
 
       <ServiceRuntimePanel dashboard={dashboard} />
     </div>
@@ -47,10 +43,8 @@ function ServiceControlPanel({
   const { formatUnixSeconds } = useDesktopTime();
   const desktopRunner = dashboard.desktop_background;
   const desktopRunnerIsRunning = desktopRunner.state === "running";
-  const desktopRunnerIsStopping =
-    desktopRunner.state === "stopping" || busyActions.has("background-stop");
-  const desktopRunnerRunning =
-    desktopRunnerIsRunning || desktopRunnerIsStopping;
+  const desktopRunnerIsStopping = desktopRunner.state === "stopping" || busyActions.has("background-stop");
+  const desktopRunnerRunning = desktopRunnerIsRunning || desktopRunnerIsStopping;
   const startBlocker = dashboard.desktop_background_start_blocker;
 
   return (
@@ -59,22 +53,20 @@ function ServiceControlPanel({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-sm font-medium">Desktop background runner</div>
-            <Badge variant={desktopRunnerRunning ? "good" : "muted"}>
-              {desktopRunner.state}
-            </Badge>
+            <Badge variant={desktopRunnerRunning ? "good" : "muted"}>{desktopRunner.state}</Badge>
           </div>
           <div className="text-xs text-muted-foreground">
-            Runs trigger listeners inside this desktop app. Closing the service loop stops
-            schedules, webhooks, serial input, and other triggers that rely on listeners.
+            Runs trigger listeners inside this desktop app. Closing the service loop stops schedules, webhooks, serial
+            input, and other triggers that rely on listeners.
           </div>
-          <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
-              <Activity className="size-4" />
-              <span>{desktopRunner.message}</span>
+          <div className="mt-3 grid min-w-0 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+            <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
+              <Activity className="size-4 shrink-0" />
+              <span className="min-w-0 break-all">{desktopRunner.message}</span>
             </div>
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
-              <Clock3 className="size-4" />
-              <span>
+            <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
+              <Clock3 className="size-4 shrink-0" />
+              <span className="min-w-0 break-all">
                 {desktopRunner.started_at_unix
                   ? `Started ${formatUnixSeconds(desktopRunner.started_at_unix)}`
                   : desktopRunner.stopped_at_unix
@@ -85,15 +77,11 @@ function ServiceControlPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 lg:flex lg:justify-end">
+        <div className="grid min-w-0 grid-cols-3 gap-2 lg:flex lg:justify-end">
           <span className="w-full lg:w-auto" title={startBlocker ?? undefined}>
             <Button
               className="w-full lg:w-auto"
-              disabled={
-                desktopRunnerRunning ||
-                Boolean(startBlocker) ||
-                busyActions.has("background-start")
-              }
+              disabled={desktopRunnerRunning || Boolean(startBlocker) || busyActions.has("background-start")}
               onClick={() => runAction("background-start", () => startBackgroundRunner())}
               variant="secondary"
             >
@@ -103,11 +91,7 @@ function ServiceControlPanel({
           </span>
           <Button
             className="w-full lg:w-auto"
-            disabled={
-              !desktopRunnerIsRunning ||
-              desktopRunnerIsStopping ||
-              busyActions.has("background-reload")
-            }
+            disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping || busyActions.has("background-reload")}
             onClick={() => runAction("background-reload", () => reloadBackgroundRunner())}
             variant="outline"
           >

@@ -21,6 +21,10 @@ impl RuntimeExecutor<'_> {
                 report.variable_scopes.remove(&format!("{name}{suffix}"));
             }
         }
+        for name in &self.transient_sensitive_variable_names {
+            report.variables.remove(name);
+            report.variable_scopes.remove(name);
+        }
         for value in report.variables.values_mut() {
             self.redact_value(value);
         }
@@ -31,28 +35,44 @@ impl RuntimeExecutor<'_> {
     }
 
     fn redact_value(&self, value: &mut Value) {
-        if self.secret_values.iter().any(|secret| secret == value) {
-            *value = Value::String("[REDACTED]".to_owned());
-            return;
-        }
-        match value {
-            Value::String(text) => *text = self.redact_text(text),
-            Value::Array(values) => {
-                for value in values {
-                    self.redact_value(value);
-                }
-            }
-            Value::Object(values) => {
-                for value in values.values_mut() {
-                    self.redact_value(value);
-                }
-            }
-            Value::Null | Value::Bool(_) | Value::Number(_) => {}
-        }
+        redact_value_with_secrets(value, &self.secret_values);
+    }
+
+    pub(super) fn value_contains_transient_sensitive(&self, value: &Value) -> bool {
+        let mut redacted = value.clone();
+        redact_value_with_secrets(&mut redacted, &self.transient_sensitive_values);
+        redacted != *value
     }
 
     pub(super) fn redact_text(&self, text: &str) -> String {
         redact_secret_text(text, &self.secret_values)
+    }
+
+    pub(super) fn value_contains_sensitive(&self, value: &Value) -> bool {
+        let mut redacted = value.clone();
+        self.redact_value(&mut redacted);
+        redacted != *value
+    }
+}
+
+fn redact_value_with_secrets(value: &mut Value, secret_values: &[Value]) {
+    if secret_values.iter().any(|secret| secret == value) {
+        *value = Value::String("[REDACTED]".to_owned());
+        return;
+    }
+    match value {
+        Value::String(text) => *text = redact_secret_text(text, secret_values),
+        Value::Array(values) => {
+            for value in values {
+                redact_value_with_secrets(value, secret_values);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                redact_value_with_secrets(value, secret_values);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 

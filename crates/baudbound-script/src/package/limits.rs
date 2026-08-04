@@ -3,15 +3,18 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 const PACKAGE_LIMITS_JSON: &str = include_str!("../../../../contracts/package-limits.json");
-const PACKAGE_LIMITS_VERSION: u32 = 1;
+const PACKAGE_LIMITS_VERSION: u32 = 2;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct PackageLimits {
     pub expansion_ratio_minimum_bytes: u64,
     pub max_asset_bytes: u64,
+    pub max_archive_bytes: u64,
     pub max_entry_count: usize,
     pub max_expansion_ratio: u64,
     pub max_metadata_bytes: u64,
+    pub max_path_bytes: usize,
+    pub max_path_depth: usize,
     pub max_total_uncompressed_bytes: u64,
     version: u32,
 }
@@ -27,8 +30,11 @@ pub(super) fn package_limits() -> &'static PackageLimits {
         );
         assert!(
             limits.max_entry_count > 0
+                && limits.max_archive_bytes >= limits.max_total_uncompressed_bytes
                 && limits.max_metadata_bytes > 0
                 && limits.max_asset_bytes > 0
+                && limits.max_path_bytes > 0
+                && limits.max_path_depth > 0
                 && limits.max_total_uncompressed_bytes >= limits.max_asset_bytes
                 && limits.max_expansion_ratio > 0,
             "embedded package limits must be positive and internally consistent"

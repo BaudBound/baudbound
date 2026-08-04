@@ -1,4 +1,4 @@
-import type { ActionPayload } from "@/lib/runner-api";
+import type { ActionPayload, SystemLogDetail } from "@/lib/runner-api";
 
 export type TabId =
   | "dashboard"
@@ -8,7 +8,6 @@ export type TabId =
   | "tools"
   | "runs"
   | "logs"
-  | "monitor"
   | "variables"
   | "service"
   | "config"
@@ -16,8 +15,12 @@ export type TabId =
   | "about";
 
 export type Notice = {
+  details?: SystemLogDetail[];
+  error?: unknown;
   kind: "error" | "success";
   message: string;
+  source?: string;
+  title?: string;
 };
 
 export type DashboardAction = (

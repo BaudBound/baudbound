@@ -171,6 +171,73 @@ pub struct PaginatedRecords<T> {
     pub total: usize,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SystemLogDetail {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemLogSeverity {
+    Error,
+    Info,
+    Success,
+    Warning,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct NewSystemLog {
+    pub details: Vec<SystemLogDetail>,
+    pub message: String,
+    pub severity: SystemLogSeverity,
+    pub source: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct StoredSystemLog {
+    pub details: Vec<SystemLogDetail>,
+    pub id: String,
+    pub message: String,
+    pub severity: SystemLogSeverity,
+    pub source: String,
+    pub timestamp_unix_ms: u64,
+    pub title: String,
+    pub unread: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemLogSort {
+    Message,
+    Severity,
+    Source,
+    #[default]
+    Time,
+    Title,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SystemLogQuery {
+    pub direction: SortDirection,
+    pub limit: usize,
+    pub offset: usize,
+    pub search: String,
+    pub severity: Option<SystemLogSeverity>,
+    pub sort: SystemLogSort,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SystemLogSummary {
+    pub total: usize,
+    pub unread: usize,
+    pub unread_errors: usize,
+    pub unread_info: usize,
+    pub unread_successes: usize,
+    pub unread_warnings: usize,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RepositorySource {
     pub description: String,
@@ -590,6 +657,11 @@ pub trait ScriptStore: Send + Sync {
         name: &str,
         value: &serde_json::Value,
     ) -> Result<StoredScriptSetting, StorageError>;
+    fn replace_script_settings(
+        &self,
+        script_reference: &str,
+        values: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Vec<StoredScriptSetting>, StorageError>;
     fn remove_script_setting(
         &self,
         script_reference: &str,

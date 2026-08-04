@@ -6,13 +6,14 @@ use baudbound_runtime::{
 mod audio;
 mod clipboard;
 mod config;
-mod dialogs;
+pub(crate) mod dialogs;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]
 mod keyboard;
 #[cfg(windows)]
 mod mouse;
+mod package_assets;
 mod process;
 mod screen;
 pub(crate) mod screen_tools;
@@ -25,7 +26,10 @@ mod windows_desktop;
 
 use audio::{run_beep, run_sound_play};
 use clipboard::{run_clipboard_get, run_clipboard_set};
-use dialogs::{run_message_box, run_notification};
+use dialogs::{
+    SharedDesktopDialogProvider, UnavailableDesktopDialogProvider, run_form_dialog,
+    run_message_box, run_notification,
+};
 #[cfg(windows)]
 use keyboard::{run_keyboard, run_keyboard_type_text};
 #[cfg(windows)]
@@ -35,10 +39,31 @@ use screen::{run_active_window, run_pixel_get, run_window_focus};
 #[cfg(not(windows))]
 use unsupported_input::{run_keyboard, run_keyboard_type_text, run_mouse_click, run_mouse_move};
 
-#[derive(Debug, Default)]
 pub struct SystemDesktopActionAdapter {
+    dialog_provider: SharedDesktopDialogProvider,
     #[cfg(windows)]
     input_state: input::NativeInputState,
+}
+
+impl Default for SystemDesktopActionAdapter {
+    fn default() -> Self {
+        Self {
+            dialog_provider: std::sync::Arc::new(UnavailableDesktopDialogProvider),
+            #[cfg(windows)]
+            input_state: input::NativeInputState::default(),
+        }
+    }
+}
+
+impl SystemDesktopActionAdapter {
+    #[must_use]
+    pub(crate) fn with_dialog_provider(dialog_provider: SharedDesktopDialogProvider) -> Self {
+        Self {
+            dialog_provider,
+            #[cfg(windows)]
+            input_state: input::NativeInputState::default(),
+        }
+    }
 }
 
 impl DesktopActionAdapter for SystemDesktopActionAdapter {
@@ -84,7 +109,15 @@ impl DesktopActionAdapter for SystemDesktopActionAdapter {
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
-        run_message_box(request, context)
+        run_message_box(request, context, self.dialog_provider.as_ref())
+    }
+
+    fn form_dialog(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        run_form_dialog(request, context, self.dialog_provider.as_ref())
     }
 
     fn notification(

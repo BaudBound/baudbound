@@ -272,7 +272,7 @@ fn shutdown_waits_until_execution_workers_have_exited() {
 
     assert_eq!(finished.load(Ordering::SeqCst), 1);
     assert!(executor.workers.is_empty());
-    assert!(executor.sender.is_none());
+    assert!(!executor.accepting);
 }
 
 fn wait_for_completions(executor: &mut TriggerExecutor, count: usize) -> Vec<TriggerCompletion> {

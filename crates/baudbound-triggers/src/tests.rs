@@ -438,6 +438,22 @@ fn parses_serial_input_trigger_config() {
 }
 
 #[test]
+fn rejects_serial_input_ids_outside_the_shared_identifier_contract() {
+    let registration = serial_input_registration(json!({
+        "deviceId": "main/device"
+    }));
+    let connections = SerialConnectionRegistry::new([serial_device_config()]);
+
+    let error = SerialInputSpec::from_registration(&registration, &connections)
+        .expect_err("unsafe serial device ID must fail registration");
+
+    assert!(
+        error.to_string().contains("deviceId may contain only"),
+        "{error}"
+    );
+}
+
+#[test]
 fn groups_serial_input_triggers_by_logical_device() {
     let connections = SerialConnectionRegistry::new([serial_device_config()]);
     let mut second = serial_input_registration(json!({ "deviceId": "main-device" }));
@@ -595,6 +611,40 @@ fn matches_webhook_request_and_builds_payload() {
     assert_eq!(dispatch.event.payload["json"]["status"], "ok");
     assert_eq!(dispatch.fallback_response.status_code, 200);
     assert_eq!(dispatch.response_timeout, Duration::from_millis(250));
+}
+
+#[test]
+fn webhook_hook_names_accept_the_shared_identifier_character_set() {
+    let service = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "Deploy-Hook_2"
+    }))])
+    .expect("portable webhook hook name should register");
+
+    assert!(
+        service
+            .dispatch_for_request(&WebhookRequest {
+                body: String::new(),
+                headers: BTreeMap::new(),
+                method: "POST".to_owned(),
+                path_and_query: "/events/Deploy-Hook_2".to_owned(),
+            })
+            .is_some()
+    );
+}
+
+#[test]
+fn rejects_webhook_hook_names_outside_the_shared_identifier_contract() {
+    let error = WebhookService::from_registrations([webhook_registration(json!({
+        "method": "POST",
+        "hookName": "deploy/hook"
+    }))])
+    .expect_err("unsafe webhook hook name must fail registration");
+
+    assert!(
+        error.to_string().contains("hookName may contain only"),
+        "{error}"
+    );
 }
 
 #[test]

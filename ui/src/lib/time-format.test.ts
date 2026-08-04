@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createDesktopTimeFormatter } from "@/lib/time-format";
+import { createDesktopTimeFormatter, datetimeInTimeZoneToIso } from "@/lib/time-format";
 
 const sample = new Date(Date.UTC(2026, 6, 17, 13, 5, 9));
 
@@ -31,6 +31,18 @@ describe("desktop time formatting", () => {
     expect(formatter.formatUnixSeconds(sample.getTime() / 1_000)).toBe(
       formatter.formatUnixMilliseconds(sample.getTime()),
     );
+  });
+
+  it("converts a local date-time in an explicit timezone to an ISO instant", () => {
+    expect(datetimeInTimeZoneToIso("2026-08-03T12:30:00", "Europe/Helsinki")).toBe(
+      "2026-08-03T09:30:00.000Z",
+    );
+  });
+
+  it("rejects invalid date-times, timezones, and daylight-saving gaps", () => {
+    expect(datetimeInTimeZoneToIso("2026-02-30T12:30:00", "Europe/Helsinki")).toBeNull();
+    expect(datetimeInTimeZoneToIso("2026-08-03T12:30:00", "Not/A_Timezone")).toBeNull();
+    expect(datetimeInTimeZoneToIso("2026-03-29T03:30:00", "Europe/Helsinki")).toBeNull();
   });
 
   it("keeps desktop timestamp presentation behind the shared formatter", () => {

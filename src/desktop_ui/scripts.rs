@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Result, anyhow};
 use baudbound_storage::ScriptStore;
 use serde::Deserialize;
@@ -6,17 +8,23 @@ use tauri::State;
 
 use super::{
     ActionPayload, DesktopUiState,
-    command_guard::{SensitiveOperation, SensitiveOperationGuard},
+    command_guard::{ScriptSettingDigest, SensitiveOperation, SensitiveOperationGuard},
     consume_sensitive_operation, current_core, run_locked_action,
 };
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct SetScriptSettingRequest {
-    reference: String,
+pub(super) struct SaveScriptSettingInput {
     name: String,
     value: String,
     value_digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SaveScriptSettingsRequest {
+    reference: String,
+    settings: Vec<SaveScriptSettingInput>,
 }
 
 #[tauri::command]
@@ -145,35 +153,54 @@ pub(super) fn set_script_enabled<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-pub(super) fn set_script_setting<R: tauri::Runtime>(
+pub(super) fn save_script_settings<R: tauri::Runtime>(
     confirmation_id: String,
     guard: State<'_, SensitiveOperationGuard>,
-    request: SetScriptSettingRequest,
+    request: SaveScriptSettingsRequest,
     state: State<'_, DesktopUiState>,
     window: tauri::WebviewWindow<R>,
 ) -> Result<ActionPayload, String> {
+    let reviewed_settings = request
+        .settings
+        .iter()
+        .map(|setting| ScriptSettingDigest {
+            name: setting.name.clone(),
+            value_digest: setting.value_digest.clone(),
+        })
+        .collect::<Vec<_>>();
     consume_sensitive_operation(
         &confirmation_id,
-        &SensitiveOperation::SetScriptSetting {
+        &SensitiveOperation::SaveScriptSettings {
             reference: request.reference.clone(),
-            name: request.name.clone(),
-            value_digest: request.value_digest.clone(),
+            settings: reviewed_settings,
         },
         &guard,
         &state,
         &window,
     )?;
-    verify_setting_value_digest(&request.value, &request.value_digest)?;
+
+    let mut values = BTreeMap::new();
+    for setting in request.settings {
+        verify_setting_value_digest(&setting.value, &setting.value_digest)?;
+        if values.insert(setting.name.clone(), setting.value).is_some() {
+            return Err(format!(
+                "Script Setting {:?} appears more than once",
+                setting.name
+            ));
+        }
+    }
+    let configured_count = values.len();
     run_locked_action(&state, || {
-        current_core(&state)?.set_installed_script_setting_from_text(
+        current_core(&state)?.save_installed_script_settings_from_text(
             &state.store,
             &request.reference,
-            &request.name,
-            &request.value,
+            &values,
         )?;
         Ok(format!(
-            "Configured {} for {}.",
-            request.name, request.reference
+            "Saved Script Settings for {}. {} configured value{}.",
+            request.reference,
+            configured_count,
+            if configured_count == 1 { "" } else { "s" }
         ))
     })
 }
@@ -209,75 +236,6 @@ mod tests {
                 .contains("changed after it was reviewed")
         );
     }
-}
-
-#[tauri::command]
-pub(super) fn unset_script_setting<R: tauri::Runtime>(
-    confirmation_id: String,
-    guard: State<'_, SensitiveOperationGuard>,
-    reference: String,
-    name: String,
-    state: State<'_, DesktopUiState>,
-    window: tauri::WebviewWindow<R>,
-) -> Result<ActionPayload, String> {
-    consume_sensitive_operation(
-        &confirmation_id,
-        &SensitiveOperation::UnsetScriptSetting {
-            reference: reference.clone(),
-            name: name.clone(),
-        },
-        &guard,
-        &state,
-        &window,
-    )?;
-    run_locked_action(&state, || {
-        let removed = current_core(&state)?.remove_installed_script_setting(
-            &state.store,
-            &reference,
-            &name,
-        )?;
-        Ok(if removed {
-            format!("Reset {name} to its package default for {reference}.")
-        } else {
-            format!("{name} did not have a configured override for {reference}.")
-        })
-    })
-}
-
-#[tauri::command]
-pub(super) fn reset_script_settings<R: tauri::Runtime>(
-    confirmation_id: String,
-    guard: State<'_, SensitiveOperationGuard>,
-    reference: String,
-    state: State<'_, DesktopUiState>,
-    window: tauri::WebviewWindow<R>,
-) -> Result<ActionPayload, String> {
-    consume_sensitive_operation(
-        &confirmation_id,
-        &SensitiveOperation::ResetScriptSettings {
-            reference: reference.clone(),
-        },
-        &guard,
-        &state,
-        &window,
-    )?;
-    run_locked_action(&state, || {
-        let core = current_core(&state)?;
-        let configured = core
-            .list_installed_script_settings(&state.store, &reference)?
-            .into_iter()
-            .filter(|setting| setting.configured)
-            .map(|setting| setting.name)
-            .collect::<Vec<_>>();
-        for name in &configured {
-            core.remove_installed_script_setting(&state.store, &reference, name)?;
-        }
-        Ok(format!(
-            "Reset {} configured Script Setting override{} for {reference}.",
-            configured.len(),
-            if configured.len() == 1 { "" } else { "s" }
-        ))
-    })
 }
 
 #[tauri::command]

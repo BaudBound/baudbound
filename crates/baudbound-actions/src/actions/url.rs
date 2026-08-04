@@ -51,5 +51,6 @@ pub(crate) fn parse_url_action(
                 Value::String(parsed.fragment().unwrap_or_default().to_owned()),
             ),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }

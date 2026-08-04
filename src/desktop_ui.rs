@@ -21,6 +21,7 @@ mod config;
 mod coordinate_picker;
 mod dashboard;
 mod desktop_config;
+mod desktop_dialog;
 mod history;
 mod lifecycle;
 mod manual_runs;
@@ -29,7 +30,9 @@ mod repositories;
 mod scripts;
 mod secret_vault;
 mod security;
+mod system_logs;
 mod tools;
+mod webview_policy;
 
 use active_runs::ActiveRunRegistry;
 use background::DesktopRunnerSupervisor;
@@ -48,19 +51,30 @@ macro_rules! desktop_command_handler {
             scripts::clear_run_history,
             scripts::clear_run_logs,
             scripts::reset_stored_variables,
-            scripts::reset_script_settings,
             packages::check_script_update,
             packages::check_script_updates,
             packages::cancel_remote_script_package_preparation,
             prepare_sensitive_operation,
             dashboard_state,
+            desktop_dialog::fetch_desktop_dialog,
+            desktop_dialog::fetch_desktop_dialog_console,
+            desktop_dialog::fetch_desktop_dialog_console_window_state,
+            desktop_dialog::select_desktop_dialog_paths,
             history::export_logs,
             history::export_runs,
             history::export_variables,
             history::query_logs,
             history::query_runs,
             history::variable_inventory,
+            system_logs::clear_system_logs,
+            system_logs::export_system_logs,
+            system_logs::get_system_log,
+            system_logs::mark_system_logs_read,
+            system_logs::query_system_logs,
+            system_logs::record_system_log,
+            system_logs::system_log_summary,
             coordinate_picker::cancel_coordinate_picker,
+            desktop_dialog::cancel_desktop_dialog,
             tools::discover_monitors,
             packages::import_script_package,
             packages::install_remote_script_package,
@@ -99,8 +113,7 @@ macro_rules! desktop_command_handler {
             security::rotate_network_trigger_token,
             packages::select_package_file,
             scripts::set_script_enabled,
-            scripts::set_script_setting,
-            scripts::unset_script_setting,
+            scripts::save_script_settings,
             scripts::set_script_automatic_update_checks,
             repositories::set_script_repository_enabled,
             security::set_personal_repository_block,
@@ -111,6 +124,8 @@ macro_rules! desktop_command_handler {
             should_check_for_update,
             start_trigger_monitor,
             stop_trigger_monitor,
+            desktop_dialog::submit_desktop_dialog,
+            desktop_dialog::set_desktop_dialog_console_fullscreen,
             clear_trigger_monitor,
             trigger_monitor_state,
             record_update_check,
@@ -144,6 +159,21 @@ fn desktop_command_is_allowed(window_label: &str, command: &str) -> bool {
                 command,
                 "select_coordinate_picker" | "cancel_coordinate_picker"
             ))
+        || (window_label.starts_with("desktop-dialog-")
+            && matches!(
+                command,
+                "fetch_desktop_dialog"
+                    | "select_desktop_dialog_paths"
+                    | "submit_desktop_dialog"
+                    | "cancel_desktop_dialog"
+            ))
+        || (window_label == "desktop-dialog-console"
+            && matches!(
+                command,
+                "fetch_desktop_dialog_console"
+                    | "fetch_desktop_dialog_console_window_state"
+                    | "set_desktop_dialog_console_fullscreen"
+            ))
 }
 
 pub fn run_desktop_ui(
@@ -164,8 +194,16 @@ pub fn run_desktop_ui(
         tracing::warn!(%error, "failed to register the official script repository");
     }
     let active_runs = Arc::new(ActiveRunRegistry::default());
+    let dialog_broker = Arc::new(desktop_dialog::DesktopDialogBroker::default());
     let trigger_monitor = TriggerMonitor::default();
     let core = core.with_run_observer(Arc::clone(&active_runs));
+    let action_handler = Arc::new(baudbound_actions::DesktopActionHandler::new(
+        core.headless_action_handler(),
+        crate::desktop_actions::SystemDesktopActionAdapter::with_dialog_provider(
+            dialog_broker.clone(),
+        ),
+    ));
+    let core = core.with_action_handler(action_handler);
     let serial_connections = core.serial_connections();
     let background_options = desktop_background_options(
         &runner_config,
@@ -174,6 +212,8 @@ pub fn run_desktop_ui(
         serial_connections,
         trigger_monitor.clone(),
     );
+    let dialog_options =
+        desktop_dialog::DesktopDialogOptions::from_desktop_settings(&runner_config.desktop);
     let background_runner = DesktopRunnerSupervisor::default();
     let secret_vault = secret_vault::SecretVaultController::new(runner_home);
     let password_unlock_required = secret_vault.snapshot().mode
@@ -189,7 +229,8 @@ pub fn run_desktop_ui(
         "--gui".to_owned(),
         "--autostart".to_owned(),
     ];
-    tauri::Builder::default()
+    let dialog_broker_after_run = Arc::clone(&dialog_broker);
+    let result = tauri::Builder::default()
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("BaudBound")
@@ -200,6 +241,7 @@ pub fn run_desktop_ui(
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(coordinate_picker::CoordinatePickerState::default())
+        .manage(Arc::clone(&dialog_broker))
         .manage(SensitiveOperationGuard::default())
         .manage(crate::script_updates::RemotePreparationRegistry::default())
         .manage(crate::script_updates::RemotePackageReviews::default())
@@ -209,6 +251,7 @@ pub fn run_desktop_ui(
             background_runner: background_runner.clone(),
             blacklist,
             config_path,
+            dialog_broker: Arc::clone(&dialog_broker),
             login_startup_registered: Mutex::new(None),
             runner_config: Mutex::new(runner_config),
             core: Arc::new(Mutex::new(core)),
@@ -222,6 +265,9 @@ pub fn run_desktop_ui(
             deferred_background_start: AtomicBool::new(defer_background_start_for_secret_vault),
         })
         .setup(move |app| {
+            dialog_broker
+                .connect(app.handle().clone(), dialog_options)
+                .map_err(|error| anyhow!(error))?;
             app.state::<DesktopUiState>()
                 .active_runs
                 .connect_event_sink(app.handle().clone());
@@ -241,11 +287,7 @@ pub fn run_desktop_ui(
                     }
                 }));
             desktop_config::reconcile_autostart_registration(app.handle());
-            lifecycle::configure_desktop_lifecycle(
-                app,
-                launched_from_autostart,
-                password_unlock_required,
-            )?;
+            lifecycle::configure_desktop_lifecycle(app)?;
             let state = app.state::<DesktopUiState>();
             let variable_event_app = app.handle().clone();
             state.store.set_variable_change_observer(move |change| {
@@ -269,16 +311,32 @@ pub fn run_desktop_ui(
             if !defer_background_start_for_secret_vault {
                 desktop_config::start_configured_background_runner(app.handle());
             }
-            if let Some(window) = app.get_webview_window("main") {
-                window
-                    .set_title("BaudBound")
-                    .map_err(|source| anyhow!("failed to set window title: {source}"))?;
-            }
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| anyhow!("the main runner window was not created"))?;
+            window
+                .set_title("BaudBound")
+                .map_err(|source| anyhow!("failed to set window title: {source}"))?;
+            let app_after_policy = app.handle().clone();
+            webview_policy::enforce_private_input_policy(&window, move |result| match result {
+                Ok(()) => lifecycle::apply_initial_window_visibility(
+                    &app_after_policy,
+                    launched_from_autostart,
+                    password_unlock_required,
+                ),
+                Err(error) => {
+                    tracing::error!(%error, "failed to secure the runner webview input policy");
+                    app_after_policy.exit(1);
+                }
+            })
+            .map_err(|error| anyhow!(error))?;
             Ok(())
         })
         .invoke_handler(secured_desktop_command_handler())
         .run(tauri::generate_context!())
-        .map_err(|source| anyhow!("desktop UI failed: {source}"))
+        .map_err(|source| anyhow!("desktop UI failed: {source}"));
+    dialog_broker_after_run.disconnect();
+    result
 }
 
 fn should_defer_background_start(
@@ -306,6 +364,7 @@ pub(super) struct DesktopUiState {
     background_runner: DesktopRunnerSupervisor,
     blacklist: Arc<crate::blacklist::BlacklistService>,
     config_path: PathBuf,
+    dialog_broker: Arc<desktop_dialog::DesktopDialogBroker>,
     login_startup_registered: Mutex<Option<bool>>,
     runner_config: Mutex<RunnerConfig>,
     core: Arc<Mutex<RunnerCore>>,

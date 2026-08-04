@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use baudbound_script::is_user_identifier;
+
 use crate::{
     RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeStateStore, RuntimeVariableScope,
 };
@@ -106,7 +108,7 @@ pub(super) fn load_or_initialize_persistent_default(
 }
 
 fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
-    if !is_variable_identifier(&variable.name)
+    if !is_user_identifier(&variable.name)
         || variable.name.starts_with("system_")
         || variable.name.starts_with("manifest_")
     {
@@ -192,12 +194,4 @@ fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) 
         }),
         _ => false,
     }
-}
-
-fn is_variable_identifier(value: &str) -> bool {
-    let mut bytes = value.bytes();
-    bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }

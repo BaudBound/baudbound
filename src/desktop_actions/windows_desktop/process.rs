@@ -20,7 +20,7 @@ pub(in crate::desktop_actions) fn process_status_by_window_title(
         .map_or_else(process_not_found_output, |handle| {
             process_status_output(handle, true)
         });
-    Ok(RuntimeActionResult { output_data })
+    Ok(RuntimeActionResult::new(output_data))
 }
 
 pub(in crate::desktop_actions) fn kill_process_by_window_title(
@@ -55,7 +55,7 @@ pub(in crate::desktop_actions) fn kill_process_by_window_title(
     }
 
     output_data.insert("killed".to_owned(), Value::Bool(true));
-    Ok(RuntimeActionResult { output_data })
+    Ok(RuntimeActionResult::new(output_data))
 }
 
 fn process_status_output(handle: HWND, running: bool) -> Map<String, Value> {

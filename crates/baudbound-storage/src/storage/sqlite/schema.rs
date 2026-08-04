@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 16;
+pub const CURRENT_SCHEMA_VERSION: i64 = 17;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -365,6 +365,38 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                     PRIMARY KEY (script_id, name)
                 );
                 PRAGMA user_version = 16;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    if version < 17 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                CREATE TABLE system_logs (
+                    id TEXT PRIMARY KEY,
+                    timestamp_unix_ms INTEGER NOT NULL,
+                    severity TEXT NOT NULL
+                        CHECK (severity IN ('success', 'info', 'warning', 'error')),
+                    source TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1))
+                );
+                CREATE INDEX system_logs_time_index
+                    ON system_logs(timestamp_unix_ms DESC, id DESC);
+                CREATE INDEX system_logs_unread_index
+                    ON system_logs(unread, timestamp_unix_ms DESC);
+                CREATE INDEX system_logs_severity_index
+                    ON system_logs(severity, timestamp_unix_ms DESC);
+                PRAGMA user_version = 17;
                 COMMIT;
                 "#,
             )

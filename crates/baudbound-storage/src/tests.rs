@@ -874,6 +874,60 @@ fn script_settings_round_trip_and_request_trigger_reloads() {
 }
 
 #[test]
+fn replacing_script_settings_is_atomic_and_removes_omitted_values() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    import_test_script(&store, &temporary_directory);
+    store
+        .consume_trigger_reload_request()
+        .expect("import reload request should be consumed");
+    store
+        .set_script_setting("script-1", "Removed", &serde_json::json!("old"))
+        .expect("initial setting should store");
+    store
+        .consume_trigger_reload_request()
+        .expect("initial setting reload request should be consumed");
+
+    let values = BTreeMap::from([
+        ("Count".to_owned(), serde_json::json!(3)),
+        (
+            "Endpoint".to_owned(),
+            serde_json::json!("https://example.com"),
+        ),
+    ]);
+    let stored = store
+        .replace_script_settings("script-1", &values)
+        .expect("settings should be replaced");
+
+    assert_eq!(
+        stored
+            .iter()
+            .map(|setting| (setting.name.as_str(), &setting.value))
+            .collect::<Vec<_>>(),
+        vec![
+            ("Count", &serde_json::json!(3)),
+            ("Endpoint", &serde_json::json!("https://example.com")),
+        ]
+    );
+    assert_eq!(
+        store
+            .list_script_settings("script-1")
+            .expect("replacement settings should list"),
+        stored
+    );
+    assert!(
+        store
+            .consume_trigger_reload_request()
+            .expect("replacement should request one trigger reload")
+    );
+    assert!(
+        !store
+            .consume_trigger_reload_request()
+            .expect("replacement should not request another trigger reload")
+    );
+}
+
+#[test]
 fn removing_a_script_removes_its_stored_settings() {
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let store = open_store(&temporary_directory);
@@ -998,6 +1052,143 @@ fn paginates_and_searches_run_history_and_logs() {
     assert_eq!(logs.items[0].run_id, "run-1");
     assert_eq!(logs.items[0].script_name, "Script One");
     assert_eq!(logs.items[0].log_index, 0);
+}
+
+#[test]
+fn stores_queries_and_marks_structured_system_logs() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let first = store
+        .append_system_log(NewSystemLog {
+            details: vec![SystemLogDetail {
+                label: "Operation".to_owned(),
+                value: "Connect websocket".to_owned(),
+            }],
+            message: "The socket could not be opened.".to_owned(),
+            severity: SystemLogSeverity::Error,
+            source: "Network".to_owned(),
+            title: "Connection failed".to_owned(),
+        })
+        .expect("system log should append");
+    store
+        .append_system_log(NewSystemLog {
+            details: Vec::new(),
+            message: "Runner configuration was saved.".to_owned(),
+            severity: SystemLogSeverity::Success,
+            source: "Configuration".to_owned(),
+            title: "Configuration saved".to_owned(),
+        })
+        .expect("second system log should append");
+    store
+        .append_system_log(NewSystemLog {
+            details: Vec::new(),
+            message: "The runner is approaching a configured limit.".to_owned(),
+            severity: SystemLogSeverity::Warning,
+            source: "Runtime".to_owned(),
+            title: "Limit warning".to_owned(),
+        })
+        .expect("warning system log should append");
+    store
+        .append_system_log(NewSystemLog {
+            details: Vec::new(),
+            message: "The runner started.".to_owned(),
+            severity: SystemLogSeverity::Info,
+            source: "Runtime".to_owned(),
+            title: "Runner started".to_owned(),
+        })
+        .expect("informational system log should append");
+
+    assert_eq!(
+        store
+            .find_system_log(&first.id)
+            .expect("system log lookup should succeed"),
+        Some(first.clone())
+    );
+    let result = store
+        .query_system_logs(&SystemLogQuery {
+            direction: SortDirection::Descending,
+            limit: 50,
+            offset: 0,
+            search: "websocket".to_owned(),
+            severity: Some(SystemLogSeverity::Error),
+            sort: SystemLogSort::Time,
+        })
+        .expect("system logs should query");
+    assert_eq!(result.total, 1);
+    assert_eq!(result.items[0].id, first.id);
+    assert_eq!(
+        store
+            .system_log_summary()
+            .expect("system log summary should load"),
+        SystemLogSummary {
+            total: 4,
+            unread: 4,
+            unread_errors: 1,
+            unread_info: 1,
+            unread_successes: 1,
+            unread_warnings: 1,
+        }
+    );
+
+    assert_eq!(
+        store
+            .mark_system_logs_read()
+            .expect("system logs should become read"),
+        4
+    );
+    assert_eq!(
+        store
+            .system_log_summary()
+            .expect("updated summary should load")
+            .unread,
+        0
+    );
+    assert_eq!(
+        store.clear_system_logs().expect("system logs should clear"),
+        4
+    );
+    assert_eq!(
+        store
+            .system_log_summary()
+            .expect("cleared summary should load")
+            .total,
+        0
+    );
+}
+
+#[test]
+fn validates_and_bounds_system_log_storage() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = open_store(&temporary_directory);
+    let invalid = store
+        .append_system_log(NewSystemLog {
+            details: Vec::new(),
+            message: "x".repeat(8 * 1024 + 1),
+            severity: SystemLogSeverity::Info,
+            source: "Test".to_owned(),
+            title: "Oversized".to_owned(),
+        })
+        .expect_err("oversized system logs must be rejected");
+    assert!(invalid.to_string().contains("system log message"));
+
+    for index in 0..1_001 {
+        store
+            .append_system_log(NewSystemLog {
+                details: Vec::new(),
+                message: format!("Retained log {index}"),
+                severity: SystemLogSeverity::Info,
+                source: "Retention test".to_owned(),
+                title: "Retention".to_owned(),
+            })
+            .expect("bounded system log should append");
+    }
+    assert_eq!(
+        store
+            .system_log_summary()
+            .expect("retained summary should load")
+            .total,
+        1_000
+    );
 }
 
 #[test]

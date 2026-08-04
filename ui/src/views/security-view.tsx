@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw, ShieldCheck, ShieldAlert } from "lucide-react";
+import { ExternalLink, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { StatusSummaryCard } from "@/components/status-summary-card";
@@ -6,37 +6,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
+import type { DashboardAction } from "@/lib/app-types";
+import { openExternalUrl } from "@/lib/external-url";
 import {
-  checkOfficialBlacklist,
   type BlacklistSeverity,
+  checkOfficialBlacklist,
   type DashboardPayload,
   type ScriptStatus,
 } from "@/lib/runner-api";
-import { openExternalUrl } from "@/lib/external-url";
-import { useDesktopTime } from "@/lib/time-format";
-import type { DashboardAction } from "@/lib/app-types";
-import {
-  approvalIssueDescription,
-  approvalLabel,
-  approvalVariant,
-  isApprovalCurrent,
-} from "@/lib/status-format";
+import { approvalIssueDescription, approvalLabel, approvalVariant, isApprovalCurrent } from "@/lib/status-format";
 import { useSortableRows } from "@/lib/table-sorting";
+import { useDesktopTime } from "@/lib/time-format";
 import { SecretManagementPanel } from "@/views/secret-management-panel";
 import { NetworkTriggerSecurityPanel } from "@/views/security/network-trigger-security-panel";
 
-type SecuritySortColumn =
-  | "approval"
-  | "issues"
-  | "package"
-  | "permissions"
-  | "risk"
-  | "script";
+type SecuritySortColumn = "approval" | "issues" | "package" | "permissions" | "risk" | "script";
 
-const securitySortSelectors: Record<
-  SecuritySortColumn,
-  (script: ScriptStatus) => number | string
-> = {
+const securitySortSelectors: Record<SecuritySortColumn, (script: ScriptStatus) => number | string> = {
   approval: (script) => approvalLabel(script.approval_status),
   issues: (script) => securityIssue(script) ?? "",
   package: (script) => script.installed.package_file_name,
@@ -58,13 +44,8 @@ export function SecurityView({
 }) {
   const scripts = dashboard.runner.scripts;
   const { formatUnixSeconds } = useDesktopTime();
-  const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
-    scripts,
-    securitySortSelectors,
-  );
-  const attention = scripts.filter(
-    (script) => script.installed.enabled && scriptNeedsAttention(script),
-  );
+  const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(scripts, securitySortSelectors);
+  const attention = scripts.filter((script) => script.installed.enabled && scriptNeedsAttention(script));
   const networkAuth = Object.values(dashboard.trigger_auth_statuses).flat();
   const unprotectedNetworkTriggers = networkAuth.filter((auth) => !auth.auth_enabled).length;
   const blacklist = dashboard.blacklist;
@@ -105,7 +86,7 @@ export function SecurityView({
           <CardHeader>
             <CardTitle>Script security review</CardTitle>
           </CardHeader>
-          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+          <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
             <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -134,9 +115,7 @@ export function SecurityView({
                   <tr className="border-b border-border last:border-b-0" key={script.installed.id}>
                     <td className="px-3 py-3" data-label="Script">
                       <div className="font-medium">{script.installed.name}</div>
-                      <div className="font-mono text-xs text-muted-foreground">
-                        {script.installed.id}
-                      </div>
+                      <div className="font-mono text-xs text-muted-foreground">{script.installed.id}</div>
                     </td>
                     <td className="px-3 py-3" data-label="Approval">
                       <Badge variant={approvalVariant(script.approval_status)}>
@@ -144,9 +123,7 @@ export function SecurityView({
                       </Badge>
                     </td>
                     <td className="px-3 py-3" data-label="Risk">
-                      <Badge variant={riskVariant(script.installed.risk_level)}>
-                        {script.installed.risk_level}
-                      </Badge>
+                      <Badge variant={riskVariant(script.installed.risk_level)}>{script.installed.risk_level}</Badge>
                     </td>
                     <td className="px-3 py-3" data-label="Permissions">
                       {script.declared_permissions.length > 0 ? (
@@ -191,7 +168,7 @@ export function SecurityView({
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle>Official blacklist</CardTitle>
+            <CardTitle>Blacklist</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
               {blacklist.fetched_at_unix
                 ? `Last checked ${formatUnixSeconds(blacklist.fetched_at_unix)}`
@@ -200,17 +177,11 @@ export function SecurityView({
           </div>
           <Button
             disabled={busyActions.has("check-blacklist")}
-            onClick={() =>
-              void runAction("check-blacklist", checkOfficialBlacklist)
-            }
+            onClick={() => void runAction("check-blacklist", checkOfficialBlacklist)}
             size="sm"
             variant="outline"
           >
-            <RefreshCw
-              className={
-                busyActions.has("check-blacklist") ? "animate-spin" : ""
-              }
-            />
+            <RefreshCw className={busyActions.has("check-blacklist") ? "animate-spin" : ""} />
             Check now
           </Button>
         </CardHeader>
@@ -222,17 +193,11 @@ export function SecurityView({
             <Badge variant={blacklist.stale ? "medium" : "muted"}>
               {blacklist.stale ? "Cache stale" : "Cache current"}
             </Badge>
-            <Badge variant="muted">
-              {blacklist.active_entry_count} active entries
-            </Badge>
+            <Badge variant="muted">{blacklist.active_entry_count} active entries</Badge>
           </div>
-          {blacklist.last_error ? (
-            <p className="text-sm text-baud-amber">{blacklist.last_error}</p>
-          ) : null}
+          {blacklist.last_error ? <p className="text-sm text-baud-amber">{blacklist.last_error}</p> : null}
           {incidentEntries.length === 0 ? (
-            <EmptyState>
-              No installed scripts are affected by the Official blacklist.
-            </EmptyState>
+            <EmptyState>No installed scripts are affected by the blacklist.</EmptyState>
           ) : (
             <div className="grid gap-2">
               {incidentEntries.map(({ entry, incident }) => (
@@ -242,36 +207,22 @@ export function SecurityView({
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">
-                        {entry?.title ?? incident.title}
-                      </span>
-                      <Badge variant={blacklistVariant(incident.severity)}>
-                        {blacklistLabel(incident.severity)}
-                      </Badge>
+                      <span className="font-medium">{entry?.title ?? incident.title}</span>
+                      <Badge variant={blacklistVariant(incident.severity)}>{blacklistLabel(incident.severity)}</Badge>
                     </div>
-                    <p className="mt-1 text-muted-foreground">
-                      {entry?.reason ?? incident.reason}
-                    </p>
+                    <p className="mt-1 text-muted-foreground">{entry?.reason ?? incident.reason}</p>
                     {entry ? (
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span>Scope {entry.scope}</span>
                         <span>Published {entry.published_at}</span>
                         {entry.scope === "domain" ? (
-                          <span>
-                            {entry.subdomains
-                              ? "Includes subdomains"
-                              : "Exact domain only"}
-                          </span>
+                          <span>{entry.subdomains ? "Includes subdomains" : "Exact domain only"}</span>
                         ) : null}
-                        {entry.scope === "publisher" ? (
-                          <span>{entry.target}</span>
-                        ) : null}
+                        {entry.scope === "publisher" ? <span>{entry.target}</span> : null}
                       </div>
                     ) : null}
                     {incident.script_id ? (
-                      <p className="mt-1 font-mono text-xs text-muted-foreground">
-                        Script {incident.script_id}
-                      </p>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">Script {incident.script_id}</p>
                     ) : null}
                     {incident.repository_url ? (
                       <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
@@ -281,11 +232,7 @@ export function SecurityView({
                   </div>
                   {entry?.advisory_url || incident.advisory_url ? (
                     <Button
-                      onClick={() =>
-                        void openExternalUrl(
-                          entry?.advisory_url ?? incident.advisory_url,
-                        )
-                      }
+                      onClick={() => void openExternalUrl(entry?.advisory_url ?? incident.advisory_url)}
                       size="sm"
                       variant="outline"
                     >
@@ -298,9 +245,8 @@ export function SecurityView({
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Low entries are advisories. Medium entries block distribution. High
-            entries quarantine installed scripts. Critical entries also request
-            cancellation of active runs.
+            Low entries are advisories. Medium entries block distribution. High entries quarantine installed scripts.
+            Critical entries also request cancellation of active runs.
           </p>
         </CardContent>
       </Card>
@@ -312,11 +258,7 @@ export function SecurityView({
         runAction={runAction}
       />
 
-      <SecretManagementPanel
-        busyActions={busyActions}
-        dashboard={dashboard}
-        runAction={runAction}
-      />
+      <SecretManagementPanel busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
     </div>
   );
 }

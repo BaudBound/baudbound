@@ -96,7 +96,17 @@ impl RuntimeExecutor<'_> {
                 value_type.as_deref(),
                 current,
             )?;
-            self.set_variable(name.clone(), value.clone(), RunVariableScope::Runtime)?;
+            if self.value_contains_sensitive(&value) {
+                let transient = self.value_contains_transient_sensitive(&value);
+                self.set_sensitive_variable(
+                    name.clone(),
+                    value.clone(),
+                    RunVariableScope::Runtime,
+                    transient,
+                )?;
+            } else {
+                self.set_variable(name.clone(), value.clone(), RunVariableScope::Runtime)?;
+            }
             value
         };
 
@@ -142,6 +152,12 @@ impl RuntimeExecutor<'_> {
             }
             let next = self
                 .calculate_variable_operation_value(node, name, operation, value_type, current)?;
+            if self.value_contains_sensitive(&next) {
+                return Err(RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: "sensitive form dialog output is transient and cannot be stored in persistent or global variables".to_owned(),
+                });
+            }
             if store
                 .compare_and_set_variable(
                     scope,

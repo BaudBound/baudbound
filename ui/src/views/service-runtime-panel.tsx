@@ -1,14 +1,8 @@
-import { HeartPulse, ListChecks, MonitorCog, RadioTower, Workflow } from "lucide-react";
-import type { ReactNode } from "react";
-
 import { Details } from "@/components/details";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DashboardPayload, ServiceStatusService } from "@/lib/runner-api";
-import {
-  desktopRuntimeHealth,
-  type RuntimeHealth,
-} from "@/lib/service-health";
+import { desktopRuntimeHealth, type RuntimeHealth } from "@/lib/service-health";
 import { useDesktopTime } from "@/lib/time-format";
 
 export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload }) {
@@ -19,7 +13,7 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
   const activity = serviceStatus?.activity;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+    <div className="grid min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <Card>
         <CardHeader>
           <CardTitle>Desktop runner loop</CardTitle>
@@ -42,21 +36,15 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
               ],
             ]}
             health={desktop}
-            icon={<MonitorCog className="size-4 text-muted-foreground" />}
             title="Desktop background"
           />
 
-          <div className="rounded-md border border-border bg-card/60 p-3">
+          <div className="min-w-0 max-w-full rounded-md border border-border bg-card/60 p-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <HeartPulse className="size-4 text-muted-foreground" />
-                <div className="truncate text-sm font-medium">Listener heartbeat</div>
-              </div>
-              <Badge variant={serviceHealth.ok ? "good" : "medium"}>
-                {serviceHealth.health}
-              </Badge>
+              <div className="truncate text-sm font-medium">Listener heartbeat</div>
+              <Badge variant={serviceHealth.ok ? "good" : "medium"}>{serviceHealth.health}</Badge>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">{serviceHealth.reason}</p>
+            <p className="mt-2 min-w-0 break-all text-xs text-muted-foreground">{serviceHealth.reason}</p>
             <div className="mt-3">
               <Details
                 rows={[
@@ -84,34 +72,21 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
             </div>
           </div>
 
-          <div className="rounded-md border border-border bg-card/60 p-3">
+          <div className="min-w-0 max-w-full rounded-md border border-border bg-card/60 p-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <Workflow className="size-4 text-muted-foreground" />
-                <div className="truncate text-sm font-medium">Trigger dispatch activity</div>
-              </div>
+              <div className="truncate text-sm font-medium">Trigger dispatch activity</div>
               <Badge variant={activity?.failed_dispatch_count ? "medium" : "muted"}>
                 {activity?.total_dispatch_count ?? 0} dispatched
               </Badge>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <ServiceFact
-                label="Completed or attempted"
-                value={(activity?.total_dispatch_count ?? 0).toString()}
-              />
-              <ServiceFact
-                label="Failed"
-                value={(activity?.failed_dispatch_count ?? 0).toString()}
-              />
+              <ServiceFact label="Completed or attempted" value={(activity?.total_dispatch_count ?? 0).toString()} />
+              <ServiceFact label="Failed" value={(activity?.failed_dispatch_count ?? 0).toString()} />
             </div>
             {activity?.last_dispatch ? (
               <div className="mt-3 rounded-md border border-border bg-background p-3 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant={
-                      activity.last_dispatch.status === "completed" ? "good" : "destructive"
-                    }
-                  >
+                  <Badge variant={activity.last_dispatch.status === "completed" ? "good" : "destructive"}>
                     {activity.last_dispatch.status}
                   </Badge>
                   <span className="text-muted-foreground">
@@ -141,10 +116,7 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <RadioTower className="size-4 text-muted-foreground" />
-            <CardTitle>Trigger listener services</CardTitle>
-          </div>
+          <CardTitle>Trigger listener services</CardTitle>
           <Badge variant={serviceStatus?.active_service_count ? "good" : "muted"}>
             {serviceStatus?.active_service_count ?? 0} active
           </Badge>
@@ -170,24 +142,20 @@ export function ServiceRuntimePanel({ dashboard }: { dashboard: DashboardPayload
 function ListenerServiceRow({ service }: { service: ServiceStatusService }) {
   const diagnostics = service.diagnostics;
   const state = diagnostics?.state ?? (service.active ? "active" : service.enabled ? "waiting" : "disabled");
-  const badgeVariant =
-    state === "active" ? "good" : state === "stopped" || state === "waiting" ? "medium" : "muted";
+  const badgeVariant = state === "active" ? "good" : state === "stopped" || state === "waiting" ? "medium" : "muted";
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+    <div className="grid min-w-0 max-w-full gap-3 rounded-md border border-border bg-background p-3 text-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <ListChecks className="size-4 text-muted-foreground" />
           <div className="font-medium">{serviceName(service.name)}</div>
           <Badge variant={badgeVariant}>{state}</Badge>
         </div>
-        <div className="mt-1 break-words text-xs text-muted-foreground">{service.target}</div>
+        <div className="mt-1 break-all text-xs text-muted-foreground">{service.target}</div>
         {diagnostics?.summary ? (
-          <div className="mt-1 break-words text-xs text-muted-foreground">
-            {diagnostics.summary}
-          </div>
+          <div className="mt-1 break-all text-xs text-muted-foreground">{diagnostics.summary}</div>
         ) : null}
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-3 md:min-w-52">
+      <div className="grid max-w-full grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-3 md:w-72">
         <ServiceFact label="Enabled" value={service.enabled ? "yes" : "no"} />
         <ServiceFact label="Running" value={diagnostics?.running ? "yes" : "no"} />
         <ServiceFact label="Registrations" value={service.registrations.toString()} />
@@ -198,9 +166,9 @@ function ListenerServiceRow({ service }: { service: ServiceStatusService }) {
 
 function ServiceFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-border bg-card px-2 py-1">
-      <div>{label}</div>
-      <div className="font-medium text-foreground">{value}</div>
+    <div className="min-w-0 rounded border border-border bg-card px-2 py-1">
+      <div className="whitespace-nowrap">{label}</div>
+      <div className="break-all font-medium text-foreground">{value}</div>
     </div>
   );
 }
@@ -208,24 +176,19 @@ function ServiceFact({ label, value }: { label: string; value: string }) {
 function RuntimeTile({
   detailRows,
   health,
-  icon,
   title,
 }: {
   detailRows: Array<[string, string]>;
   health: RuntimeHealth;
-  icon: ReactNode;
   title: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-card/60 p-3">
+    <div className="min-w-0 max-w-full rounded-md border border-border bg-card/60 p-3">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {icon}
-          <div className="truncate text-sm font-medium">{title}</div>
-        </div>
+        <div className="truncate text-sm font-medium">{title}</div>
         <Badge variant={runtimeBadgeVariant(health.state)}>{health.label}</Badge>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">{health.detail}</p>
+      <p className="mt-2 min-w-0 break-all text-xs text-muted-foreground">{health.detail}</p>
       <div className="mt-3">
         <Details rows={detailRows} />
       </div>

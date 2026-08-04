@@ -5,7 +5,7 @@ use std::{
 };
 
 use baudbound_runtime::{
-    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+    ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
 use cap_std::{
     ambient_authority,
@@ -14,6 +14,7 @@ use cap_std::{
 use serde_json::{Map, Number, Value};
 
 use crate::actions::{bounded_io, network::send_download_request};
+use crate::resource_tracker::FileWriteBudget;
 use crate::{
     ActionSecurityPolicy, config_bool, config_string, failed, required_string, timeout_duration,
 };
@@ -25,7 +26,7 @@ use move_file::move_file;
 pub(crate) fn read_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
-    max_read_bytes: u64,
+    max_read_bytes: ResourceLimit,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let encoding = config_string(&request.config, "encoding").unwrap_or_else(|| "utf-8".to_owned());
@@ -43,7 +44,7 @@ pub(crate) fn read_file_action(
     if !metadata.is_file {
         return failed(request, format!("{path} is not a regular file"));
     }
-    if metadata.len > max_read_bytes {
+    if max_read_bytes.is_exceeded_by(metadata.len) {
         return failed(
             request,
             format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
@@ -73,13 +74,15 @@ pub(crate) fn read_file_action(
             ("content".to_owned(), Value::String(content)),
             ("bytes".to_owned(), Value::Number(Number::from(bytes.len()))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 pub(crate) fn download_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
-    max_download_bytes: u64,
+    max_download_bytes: ResourceLimit,
     policy: &ActionSecurityPolicy,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let url = required_string(request, "url")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -99,7 +102,7 @@ pub(crate) fn download_file_action(
     }
     if response
         .content_length()
-        .is_some_and(|length| length > max_download_bytes)
+        .is_some_and(|length| max_download_bytes.is_exceeded_by(length))
     {
         return failed(
             request,
@@ -113,10 +116,16 @@ pub(crate) fn download_file_action(
             message: format!("failed to create temporary download file: {source}"),
         })?;
     let download_result = (|| {
-        let bytes = bounded_io::copy(&mut response, &mut temporary_file, max_download_bytes)
-            .map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!("failed to download {url}: {source}"),
+        let mut writer = AccountedWriter {
+            inner: &mut temporary_file,
+            budget: write_budget,
+        };
+        let bytes =
+            bounded_io::copy(&mut response, &mut writer, max_download_bytes).map_err(|source| {
+                RuntimeActionError::Failed {
+                    action_type: request.action_type.clone(),
+                    message: format!("failed to download {url}: {source}"),
+                }
             })?;
         temporary_file
             .sync_all()
@@ -146,12 +155,14 @@ pub(crate) fn download_file_action(
             ("url".to_owned(), Value::String(url)),
             ("bytes".to_owned(), Value::Number(Number::from(bytes))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn write_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let content = config_string(&request.config, "content").unwrap_or_default();
@@ -164,6 +175,7 @@ pub(crate) fn write_file_action(
         "overwrite" => WriteMode::Overwrite,
         other => return failed(request, format!("unsupported file write mode {other}")),
     };
+    account_file_write(request, write_budget, content.len())?;
     let mut file =
         path_buf
             .open_write(write_mode, false)
@@ -186,12 +198,14 @@ pub(crate) fn write_file_action(
                 Value::Number(Number::from(content.len())),
             ),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn copy_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -201,6 +215,19 @@ pub(crate) fn copy_file_action(
         resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
+    let source_bytes = source
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {source_path}: {source}"),
+        })?
+        .len;
+    write_budget
+        .account(source_bytes)
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })?;
     ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
@@ -222,12 +249,14 @@ pub(crate) fn copy_file_action(
             ),
             ("bytes".to_owned(), Value::Number(Number::from(bytes))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn move_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -237,6 +266,19 @@ pub(crate) fn move_file_action(
         resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
+    let source_bytes = source
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {source_path}: {source}"),
+        })?
+        .len;
+    write_budget
+        .account(source_bytes)
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })?;
     ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
@@ -255,6 +297,7 @@ pub(crate) fn move_file_action(
                 Value::String(destination_path),
             ),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -283,6 +326,7 @@ pub(crate) fn delete_file_action(
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([("path".to_owned(), Value::String(path))]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -309,6 +353,46 @@ struct ActionMetadata {
 enum ActionFile {
     Ambient(fs::File),
     Limited(cap_std::fs::File),
+}
+
+struct AccountedWriter<'a, W> {
+    inner: &'a mut W,
+    budget: &'a mut FileWriteBudget,
+}
+
+impl<W: Write> Write for AccountedWriter<'_, W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let requested = u64::try_from(buffer.len()).unwrap_or(u64::MAX);
+        self.budget.account(requested).map_err(io::Error::other)?;
+        match self.inner.write(buffer) {
+            Ok(written) => {
+                self.budget
+                    .release(requested.saturating_sub(u64::try_from(written).unwrap_or(u64::MAX)));
+                Ok(written)
+            }
+            Err(source) => {
+                self.budget.release(requested);
+                Err(source)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn account_file_write(
+    request: &RuntimeActionRequest,
+    budget: &mut FileWriteBudget,
+    bytes: usize,
+) -> Result<(), RuntimeActionError> {
+    budget
+        .account(u64::try_from(bytes).unwrap_or(u64::MAX))
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })
 }
 
 #[derive(Clone, Copy)]

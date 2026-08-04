@@ -1,7 +1,7 @@
 import { Plus, RefreshCcw } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ export function SerialScanner({
   configuredDeviceIds: Set<string>;
   runAction: DashboardAction;
 }) {
+  const { notify } = useSystemLog();
   const [isScanning, setIsScanning] = useState(false);
   const [ports, setPorts] = useState<SerialPortScanResult[]>([]);
   const [selectedPort, setSelectedPort] = useState<SerialPortScanResult | null>(null);
@@ -30,9 +31,16 @@ export function SerialScanner({
     try {
       const results = await scanSerialPorts();
       setPorts(results);
-      toast.success(`Found ${results.length} serial port${results.length === 1 ? "" : "s"}.`);
+      notify.success(
+        `Found ${results.length} serial port${results.length === 1 ? "" : "s"}.`,
+        { source: "Serial device scanner", title: "Serial scan complete" },
+      );
     } catch (error) {
-      toast.error(String(error));
+      notify.error("Connected serial ports could not be scanned.", {
+        error,
+        source: "Serial device scanner",
+        title: "Serial scan failed",
+      });
     } finally {
       setIsScanning(false);
     }

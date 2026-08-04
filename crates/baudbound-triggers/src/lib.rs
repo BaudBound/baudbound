@@ -1,5 +1,6 @@
 //! Trigger adapter contracts for runner implementations.
 
+mod network_admission;
 mod services;
 
 use std::{
@@ -13,11 +14,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub use network_admission::{
+    ConnectionGate, ConnectionPermit, PreAuthRateLimit, PreAuthRateLimiter,
+};
 pub use services::{
-    FileWatchService, HotkeyService, NativeHotkeyService, ProcessStartedService, ScheduleService,
-    SerialDeviceConfig, SerialInputService, SerialReaderStatus, StartupService,
+    DueScheduleBatch, FileWatchService, HotkeyService, NativeHotkeyService, ProcessStartedService,
+    ScheduleService, SerialDeviceConfig, SerialInputService, SerialReaderStatus, StartupService,
     WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig, WebhookDispatch,
-    WebhookRequest, WebhookResponse, WebhookService, normalize_windows_hotkey,
+    WebhookRequest, WebhookResponse, WebhookRouteTarget, WebhookService, normalize_windows_hotkey,
 };
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]

@@ -28,6 +28,63 @@ pub(crate) struct ScreenPixel {
 }
 
 #[cfg(any(windows, test))]
+#[derive(Debug)]
+pub(crate) struct ScreenSnapshot {
+    bounds: MonitorBounds,
+    pixels: Vec<u32>,
+}
+
+#[cfg(any(windows, test))]
+impl ScreenSnapshot {
+    fn new(bounds: MonitorBounds, pixels: Vec<u32>) -> Result<Self, String> {
+        let expected_len = usize::try_from(bounds.width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(bounds.height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .ok_or_else(|| {
+                "screen snapshot dimensions exceed the supported memory range".to_owned()
+            })?;
+        if pixels.len() != expected_len {
+            return Err(format!(
+                "screen snapshot contains {} pixels but its bounds require {expected_len}",
+                pixels.len()
+            ));
+        }
+        Ok(Self { bounds, pixels })
+    }
+
+    pub(crate) fn sample(&self, x: i32, y: i32) -> Result<ScreenPixel, String> {
+        if !self.bounds.contains(x, y) {
+            return Err(format!(
+                "screen coordinate ({x}, {y}) is outside the captured desktop bounds"
+            ));
+        }
+
+        let column = usize::try_from(i64::from(x) - i64::from(self.bounds.left))
+            .map_err(|_| "screen snapshot column is outside the supported range".to_owned())?;
+        let row = usize::try_from(i64::from(y) - i64::from(self.bounds.top))
+            .map_err(|_| "screen snapshot row is outside the supported range".to_owned())?;
+        let width = usize::try_from(self.bounds.width)
+            .map_err(|_| "screen snapshot width is outside the supported range".to_owned())?;
+        let index = row
+            .checked_mul(width)
+            .and_then(|offset| offset.checked_add(column))
+            .ok_or_else(|| "screen snapshot pixel index overflowed".to_owned())?;
+        let bgra = *self.pixels.get(index).ok_or_else(|| {
+            "screen snapshot pixel index is outside the captured image".to_owned()
+        })?;
+        Ok(ScreenPixel::from_rgb(
+            ((bgra >> 16) & 0xff) as u8,
+            ((bgra >> 8) & 0xff) as u8,
+            (bgra & 0xff) as u8,
+        ))
+    }
+}
+
+#[cfg(any(windows, test))]
 impl ScreenPixel {
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
         Self {
@@ -82,8 +139,8 @@ pub(crate) fn sample_pixel(x: i32, y: i32) -> Result<ScreenPixel, String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn flush_desktop_composition() -> Result<(), String> {
-    windows::flush_desktop_composition()
+pub(crate) fn capture_snapshot(bounds: MonitorBounds) -> Result<ScreenSnapshot, String> {
+    windows::capture_snapshot(bounds)
 }
 
 #[cfg(windows)]
@@ -110,7 +167,7 @@ fn checked_offset(axis: &str, current: i32, offset: i32) -> Result<i32, String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{ScreenPixel, checked_offset};
+    use super::{MonitorBounds, ScreenPixel, ScreenSnapshot, checked_offset};
 
     #[test]
     fn relative_coordinate_arithmetic_rejects_i32_overflow() {
@@ -132,5 +189,28 @@ mod tests {
                 red: 0x12,
             }
         );
+    }
+
+    #[test]
+    fn screen_snapshot_maps_signed_desktop_coordinates_and_bgra_channels() {
+        let bounds = MonitorBounds::new(-1, 4, 1, 6).expect("bounds should be valid");
+        let snapshot = ScreenSnapshot::new(bounds, vec![0x0012_3456, 0x00AB_CDEF, 0, 0])
+            .expect("snapshot should be valid");
+
+        assert_eq!(
+            snapshot.sample(-1, 4).expect("pixel should exist").hex,
+            "#123456"
+        );
+        assert_eq!(
+            snapshot.sample(0, 4).expect("pixel should exist").hex,
+            "#ABCDEF"
+        );
+        assert!(snapshot.sample(1, 4).is_err());
+    }
+
+    #[test]
+    fn screen_snapshot_rejects_incomplete_pixel_buffers() {
+        let bounds = MonitorBounds::new(0, 0, 2, 2).expect("bounds should be valid");
+        assert!(ScreenSnapshot::new(bounds, vec![0; 3]).is_err());
     }
 }

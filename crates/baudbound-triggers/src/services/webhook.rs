@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use baudbound_runtime::RunReport;
+use baudbound_runtime::{RunReport, is_user_identifier};
 use serde_json::{Value, json};
 
 use crate::{
@@ -17,6 +17,12 @@ pub struct WebhookDispatch {
     pub fallback_response: WebhookResponse,
     pub response_timeout: Duration,
     pub wait_for_response: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebhookRouteTarget {
+    pub node_id: String,
+    pub script_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +98,19 @@ impl WebhookService {
     }
 
     #[must_use]
+    pub fn route_target(&self, method: &str, path_and_query: &str) -> Option<WebhookRouteTarget> {
+        let method = method.to_ascii_uppercase();
+        let (path, _) = split_path_and_query(path_and_query);
+        self.routes
+            .iter()
+            .find(|route| route.method == method && route.path == path)
+            .map(|route| WebhookRouteTarget {
+                node_id: route.registration.node_id.clone(),
+                script_id: route.registration.script_id.clone(),
+            })
+    }
+
+    #[must_use]
     pub fn response_for_report(
         &self,
         dispatch: &WebhookDispatch,
@@ -130,6 +149,13 @@ impl WebhookRoute {
                     "webhook trigger must define hookName".to_owned(),
                 )
             })?;
+        if !is_user_identifier(hook_name) {
+            return Err(TriggerError::Failed(
+                registration.node_id.clone(),
+                "webhook hookName may contain only ASCII letters, numbers, hyphens, and underscores"
+                    .to_owned(),
+            ));
+        }
         let method = registration
             .config
             .get("method")

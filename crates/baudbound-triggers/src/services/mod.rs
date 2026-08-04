@@ -10,8 +10,10 @@ pub(crate) mod websocket;
 pub use file_watch::FileWatchService;
 pub use hotkey::{HotkeyService, NativeHotkeyService, normalize_windows_hotkey};
 pub use process_started::ProcessStartedService;
-pub use schedule::ScheduleService;
+pub use schedule::{DueScheduleBatch, ScheduleService};
 pub use serial_input::{SerialDeviceConfig, SerialInputService, SerialReaderStatus};
 pub use startup::StartupService;
-pub use webhook::{WebhookDispatch, WebhookRequest, WebhookResponse, WebhookService};
+pub use webhook::{
+    WebhookDispatch, WebhookRequest, WebhookResponse, WebhookRouteTarget, WebhookService,
+};
 pub use websocket::{WebSocketConnectionRegistry, WebSocketService, WebSocketServiceConfig};

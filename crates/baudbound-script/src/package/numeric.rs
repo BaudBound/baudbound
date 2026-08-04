@@ -472,7 +472,7 @@ mod tests {
         }
 
         assert_eq!(
-            tested_fields, 19,
+            tested_fields, 21,
             "matrix must cover every declared root config numeric field"
         );
     }

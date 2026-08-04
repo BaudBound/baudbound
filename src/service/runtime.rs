@@ -260,8 +260,12 @@ pub fn serve_triggers_with_control(
         }
         dispatched_any_event |= record_trigger_completions(&mut trigger_executor, &mut status);
 
-        dispatched_any_event |=
-            dispatch_due_schedules(&mut services.schedules, &mut trigger_executor, &mut status);
+        dispatched_any_event |= dispatch_due_schedules(
+            &mut services.schedules,
+            &mut trigger_executor,
+            &mut status,
+            options.max_schedule_catch_up_events_per_poll,
+        );
         dispatched_any_event |= dispatch_hotkey_stdin_events(
             &services.hotkey_service,
             &hotkey_receiver,

@@ -21,7 +21,8 @@ pub(super) async fn check_script_update<R: tauri::Runtime>(
     let package_limit = current_runner_config(&state)
         .map_err(|error| error.to_string())?
         .limits
-        .max_file_download_bytes as u64;
+        .max_file_download_bytes
+        .value_or_max();
     let reference_for_check = reference.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         crate::script_updates::check_script_update(&store, package_limit, &reference_for_check)
@@ -58,7 +59,8 @@ pub(super) async fn check_script_updates<R: tauri::Runtime>(
     let package_limit = current_runner_config(&state)
         .map_err(|error| error.to_string())?
         .limits
-        .max_file_download_bytes as u64;
+        .max_file_download_bytes
+        .value_or_max();
     let references_for_check = references.clone();
     let results = tauri::async_runtime::spawn_blocking(move || {
         crate::script_updates::check_script_updates(&store, package_limit, &references_for_check)
@@ -302,7 +304,8 @@ pub(super) async fn prepare_remote_script_package<R: tauri::Runtime>(
     let package_limit = current_runner_config(&state)
         .map_err(|error| error.to_string())?
         .limits
-        .max_file_download_bytes as u64;
+        .max_file_download_bytes
+        .value_or_max();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         let mut progress = |progress| {
             if preparation.is_cancelled() {
@@ -350,7 +353,8 @@ pub(super) async fn prepare_discovered_script_update<R: tauri::Runtime>(
     let package_limit = current_runner_config(&state)
         .map_err(|error| error.to_string())?
         .limits
-        .max_file_download_bytes as u64;
+        .max_file_download_bytes
+        .value_or_max();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         let mut progress = |progress| {
             if preparation.is_cancelled() {

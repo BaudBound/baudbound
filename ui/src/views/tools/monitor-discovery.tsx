@@ -1,8 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { Crosshair, Monitor, RefreshCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import {
 const coordinatePickerEvent = "coordinate-picker-finished";
 
 export function MonitorDiscovery() {
+  const { notify } = useSystemLog();
   const [isScanning, setIsScanning] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
   const [pickerListenerReady, setPickerListenerReady] = useState(false);
@@ -37,11 +38,20 @@ export function MonitorDiscovery() {
       setIsPicking(false);
       if (event.payload.status === "selected") {
         setPickerResult(event.payload.result);
-        toast.success("Screen coordinate selected.");
+        notify.success("A screen coordinate was selected.", {
+          source: "Screen coordinate tools",
+          title: "Coordinate selected",
+        });
       } else if (event.payload.status === "cancelled") {
-        toast.info("Coordinate selection cancelled.");
+        notify.info("Coordinate selection was cancelled.", {
+          source: "Screen coordinate tools",
+          title: "Selection cancelled",
+        });
       } else {
-        toast.error(event.payload.message);
+        notify.error(event.payload.message, {
+          source: "Screen coordinate tools",
+          title: "Coordinate selection failed",
+        });
       }
     })
       .then((unlisten) => {
@@ -52,13 +62,19 @@ export function MonitorDiscovery() {
         removeListener = unlisten;
         setPickerListenerReady(true);
       })
-      .catch((error) => toast.error(`Could not initialize the coordinate picker: ${String(error)}`));
+      .catch((error) => {
+        notify.error("The coordinate picker event listener could not be initialized.", {
+          error,
+          source: "Screen coordinate tools",
+          title: "Coordinate picker unavailable",
+        });
+      });
 
     return () => {
       disposed = true;
       removeListener?.();
     };
-  }, []);
+  }, [notify]);
 
   async function scanMonitors() {
     setIsScanning(true);
@@ -66,12 +82,17 @@ export function MonitorDiscovery() {
       const discovery = await discoverMonitors();
       setResult(discovery);
       if (discovery.supported) {
-        toast.success(
+        notify.success(
           `Found ${discovery.monitors.length} monitor${discovery.monitors.length === 1 ? "" : "s"}.`,
+          { source: "Screen coordinate tools", title: "Monitor detection complete" },
         );
       }
     } catch (error) {
-      toast.error(String(error));
+      notify.error("Connected monitors could not be detected.", {
+        error,
+        source: "Screen coordinate tools",
+        title: "Monitor detection failed",
+      });
     } finally {
       setIsScanning(false);
     }
@@ -83,7 +104,11 @@ export function MonitorDiscovery() {
       await startCoordinatePicker();
     } catch (error) {
       setIsPicking(false);
-      toast.error(String(error));
+      notify.error("The screen coordinate picker could not be opened.", {
+        error,
+        source: "Screen coordinate tools",
+        title: "Could not open coordinate picker",
+      });
     }
   }
 

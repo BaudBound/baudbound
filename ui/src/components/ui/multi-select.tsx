@@ -45,11 +45,7 @@ export function MultiSelect({
   }
 
   return (
-    <div
-      className={cn("relative", className)}
-      data-slot="multi-select"
-      ref={rootRef}
-    >
+    <div className={cn("relative", className)} data-slot="multi-select" ref={rootRef}>
       <Button
         aria-expanded={open}
         className="h-auto min-h-9 w-full justify-between whitespace-normal px-2 py-1.5"
@@ -93,7 +89,7 @@ export function MultiSelect({
 
       {open ? (
         <div className="absolute left-0 right-0 z-50 mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg">
-          <div className="max-h-72 overflow-auto p-1">
+          <div className="max-h-72 overflow-x-hidden overflow-y-auto p-1">
             {options.map((option) => {
               const selected = value.includes(option.value);
               return (

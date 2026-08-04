@@ -5,6 +5,9 @@ use std::sync::{
 };
 
 #[cfg(windows)]
+use crate::desktop_actions::screen_tools::ScreenSnapshot;
+
+#[cfg(windows)]
 pub(in crate::desktop_ui) struct CoordinatePickerState {
     active: Mutex<Option<PickerSession>>,
     next_session_id: AtomicU64,
@@ -43,9 +46,24 @@ impl CoordinatePickerState {
             .map_err(|_| "coordinate picker session identifiers are exhausted".to_owned())?;
         *active = Some(PickerSession {
             id: session_id.clone(),
+            snapshot: None,
             window_labels: Vec::new(),
         });
         Ok(session_id)
+    }
+
+    pub(super) fn set_snapshot(
+        &self,
+        session_id: &str,
+        snapshot: ScreenSnapshot,
+    ) -> Result<(), String> {
+        let mut active = self.lock_active()?;
+        let session = active
+            .as_mut()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| "the coordinate picker session is no longer active".to_owned())?;
+        session.snapshot = Some(snapshot);
+        Ok(())
     }
 
     pub(super) fn set_windows(
@@ -96,6 +114,7 @@ impl CoordinatePickerState {
 #[derive(Debug)]
 pub(super) struct PickerSession {
     pub(super) id: String,
+    pub(super) snapshot: Option<ScreenSnapshot>,
     pub(super) window_labels: Vec<String>,
 }
 

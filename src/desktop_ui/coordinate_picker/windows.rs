@@ -20,7 +20,21 @@ pub(super) fn start<R: Runtime>(
         return Err("Windows did not report any connected monitors for the picker.".to_owned());
     }
 
+    let virtual_bounds = discovery
+        .virtual_bounds
+        .ok_or_else(|| "Windows did not report virtual desktop bounds for the picker".to_owned())?;
     let session_id = state.reserve()?;
+    let snapshot = match screen_tools::capture_snapshot(virtual_bounds) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            state.clear(&session_id);
+            return Err(error);
+        }
+    };
+    if let Err(error) = state.set_snapshot(&session_id, snapshot) {
+        state.clear(&session_id);
+        return Err(error);
+    }
     let creation = create_windows(app, &session_id, &discovery.monitors);
     let (window_labels, focus_label) = match creation {
         Ok(created) => created,
@@ -56,7 +70,7 @@ pub(super) fn select<R: Runtime>(
     session_id: &str,
 ) -> Result<(), String> {
     let session = state.take(session_id)?;
-    let selection = capture_selection(app, &session);
+    let selection = capture_selection(&session);
     destroy_windows(app, &session);
     restore_main_window(app);
 
@@ -172,31 +186,20 @@ fn show_windows<R: Runtime>(
         .map_err(|error| format!("failed to focus the coordinate picker: {error}"))
 }
 
-fn capture_selection<R: Runtime>(
-    app: &AppHandle<R>,
-    session: &PickerSession,
-) -> Result<CoordinatePickerResult, String> {
+fn capture_selection(session: &PickerSession) -> Result<CoordinatePickerResult, String> {
     let (x, y) = screen_tools::cursor_position()?;
     let monitor = screen_tools::validate_coordinate(x, y)?;
-    hide_windows(app, session)?;
-    screen_tools::flush_desktop_composition()?;
-    let color = screen_tools::sample_pixel(x, y)?;
+    let color = session
+        .snapshot
+        .as_ref()
+        .ok_or_else(|| "the coordinate picker desktop snapshot is unavailable".to_owned())?
+        .sample(x, y)?;
     Ok(CoordinatePickerResult {
         color,
         monitor,
         x,
         y,
     })
-}
-
-fn hide_windows<R: Runtime>(app: &AppHandle<R>, session: &PickerSession) -> Result<(), String> {
-    for label in &session.window_labels {
-        app.get_webview_window(label)
-            .ok_or_else(|| format!("coordinate picker overlay {label:?} disappeared"))?
-            .hide()
-            .map_err(|error| format!("failed to hide a coordinate picker overlay: {error}"))?;
-    }
-    Ok(())
 }
 
 fn destroy_windows<R: Runtime>(app: &AppHandle<R>, session: &PickerSession) {

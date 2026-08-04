@@ -48,7 +48,7 @@ export function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-[min(calc(100vw-2rem),460px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-2xl outline-none",
+          "fixed left-1/2 top-1/2 z-50 grid min-w-0 max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] w-[min(calc(100vw-2rem),460px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-2xl outline-none",
           className,
         )}
         data-slot="dialog-content"
@@ -77,13 +77,16 @@ export function DialogContent({
 }
 
 export function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("grid gap-1.5 pr-8", className)} {...props} />;
+  return <div className={cn("grid min-w-0 gap-1.5 pr-8", className)} {...props} />;
 }
 
 export function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end", className)}
+      className={cn(
+        "flex min-w-0 max-w-full flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:flex-wrap sm:justify-end",
+        className,
+      )}
       {...props}
     />
   );

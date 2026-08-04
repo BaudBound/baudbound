@@ -300,9 +300,15 @@ fn build_trigger_services(
             WebSocketServiceConfig {
                 allow_browser_origins: options.websocket_allow_browser_origins.clone(),
                 bind: options.websocket_bind.clone(),
+                handshake_timeout_ms: options.websocket_handshake_timeout_ms,
                 max_connections: options.max_websocket_connections,
                 max_message_bytes: options.max_websocket_message_bytes,
+                max_unauthenticated_connections: options.websocket_max_unauthenticated_connections,
                 port: options.websocket_port,
+                pre_auth_requests_per_minute_global: options
+                    .websocket_pre_auth_requests_per_minute_global,
+                pre_auth_requests_per_minute_per_address: options
+                    .websocket_pre_auth_requests_per_minute_per_address,
             },
             trigger_sender.clone(),
             Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store)),

@@ -3,10 +3,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use baudbound_runtime::{RuntimeActionError, RuntimeCancellationToken};
+use baudbound_runtime::{ResourceLimit, RuntimeActionError, RuntimeCancellationToken};
 use serde_json::{Value, json};
 
-use super::{execute, execute_with_cancellation};
+use super::{execute, execute_with_cancellation, execute_with_handler};
+use crate::{ActionLimits, HeadlessActionHandler};
 
 #[test]
 fn run_process_rejects_string_arguments() {
@@ -215,6 +216,52 @@ fn shell_command_drains_stdout_and_stderr_without_pipe_deadlock() {
 }
 
 #[test]
+fn process_output_limit_fails_after_draining_both_streams() {
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_process_output_bytes: ResourceLimit::limited(4),
+        ..ActionLimits::default()
+    });
+    let error = execute_with_handler(
+        &handler,
+        "action.shell",
+        json!({"command": output_limit_shell_command(), "timeoutSeconds": 5}),
+        Value::Null,
+    )
+    .expect_err("process output over the configured limit must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("configured 4 byte per-stream capture limit")
+    );
+}
+
+#[test]
+fn repeated_process_launches_release_the_active_process_permit() {
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_processes_per_script: ResourceLimit::limited(1),
+        max_process_launches_per_minute: ResourceLimit::Unlimited,
+        ..ActionLimits::default()
+    });
+    let (executable, arguments) = successful_process_command();
+
+    for _ in 0..32 {
+        let result = execute_with_handler(
+            &handler,
+            "action.process.run",
+            json!({
+                "executable": executable,
+                "arguments": arguments,
+                "workingDirectory": ""
+            }),
+            Value::Null,
+        )
+        .expect("a completed process must release the single active-process slot");
+        assert_eq!(result.output_data.get("success"), Some(&json!(true)));
+    }
+}
+
+#[test]
 fn process_and_shell_reject_invalid_timeouts() {
     for timeout in [json!(0), json!(86_401), json!("not-a-number")] {
         let error = execute(
@@ -301,6 +348,16 @@ fn successful_shell_command() -> &'static str {
 #[cfg(not(windows))]
 fn successful_shell_command() -> &'static str {
     "true"
+}
+
+#[cfg(windows)]
+fn output_limit_shell_command() -> &'static str {
+    "echo 12345 & echo abcde 1>&2"
+}
+
+#[cfg(not(windows))]
+fn output_limit_shell_command() -> &'static str {
+    "printf 12345; printf abcde >&2"
 }
 
 #[cfg(not(windows))]

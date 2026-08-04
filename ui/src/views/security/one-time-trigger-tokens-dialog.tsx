@@ -1,6 +1,6 @@
 import { Copy, KeyRound } from "lucide-react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,12 +20,20 @@ export function OneTimeTriggerTokensDialog({
   onDone: () => void;
   tokens: GeneratedTriggerToken[];
 }) {
+  const { notify } = useSystemLog();
   async function copy(value: string, message: string) {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(message);
+      notify.success(message, {
+        source: "Network trigger security",
+        title: "Token copied",
+      });
     } catch (error) {
-      toast.error(`Could not copy token: ${String(error)}`);
+      notify.error("The network trigger token could not be copied.", {
+        error,
+        source: "Network trigger security",
+        title: "Could not copy token",
+      });
     }
   }
 

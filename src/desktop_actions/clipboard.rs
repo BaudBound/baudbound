@@ -17,6 +17,7 @@ pub(super) fn run_clipboard_set(
             ("bytes".to_owned(), Value::Number(Number::from(value.len()))),
             ("value".to_owned(), Value::String(value)),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -29,5 +30,6 @@ pub(super) fn run_clipboard_get(
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([("text".to_owned(), Value::String(text))]),
+        sensitive_output_keys: Default::default(),
     })
 }

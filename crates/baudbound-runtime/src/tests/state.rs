@@ -6,7 +6,8 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    RunIdentity, RunVariableScope, RuntimeCancellationToken, RuntimeDefaultVariable,
+    RunIdentity, RunVariableScope, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
+    RuntimeActionResult, RuntimeCancellationToken, RuntimeContext, RuntimeDefaultVariable,
     RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver,
     RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
     UnsupportedActionHandler, VersionedRuntimeVariable, execute_manual_program_with_state,
@@ -125,6 +126,118 @@ impl From<RuntimeVariableScope> for RuntimeVariableScopeKey {
             RuntimeVariableScope::Persistent => Self::Persistent,
             RuntimeVariableScope::Global => Self::Global,
         }
+    }
+}
+
+#[derive(Debug)]
+struct SensitiveFormDialogHandler;
+
+impl RuntimeActionHandler for SensitiveFormDialogHandler {
+    fn execute_action(
+        &self,
+        _request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        Ok(RuntimeActionResult::new(serde_json::Map::from_iter([
+            (
+                "values".to_owned(),
+                json!({"password":"must-not-persist","username":"Ada"}),
+            ),
+            ("submitted".to_owned(), json!(true)),
+        ]))
+        .with_sensitive_output_path("values", ["password"]))
+    }
+}
+
+#[test]
+fn sensitive_action_outputs_cannot_be_written_to_persistent_or_global_state() {
+    for scope in ["persistent", "global"] {
+        let store = TestStateStore::default();
+        let program = json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-form-dialog",
+                            "action_type": "action.form_dialog",
+                            "type": "action",
+                            "action": "form_dialog",
+                            "config": {"title": "Credentials", "fields": []},
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-user-log",
+                            "action_type": "action.log",
+                            "type": "action",
+                            "config": {"level": "info", "message": "username={{n-form-dialog.values.username}}"},
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-store",
+                            "action_type": "runtime.set_variable",
+                            "type": "set_variable",
+                            "config": {
+                                "name": "stored_password",
+                                "operation": "set",
+                                "scope": scope,
+                                "valueType": "string",
+                                "value": "{{n-form-dialog.values.password}}"
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-form-dialog", "target_handle": "input"},
+                        {"execution_order": 0, "source": "n-form-dialog", "source_handle": "success", "target": "n-user-log", "target_handle": "input"},
+                        {"execution_order": 0, "source": "n-user-log", "source_handle": "out", "target": "n-store", "target_handle": "input"}
+                    ]
+                }
+            }
+        });
+        let resources =
+            RuntimeExecutionResources::new(&SensitiveFormDialogHandler).with_state(&store, &[]);
+
+        let report =
+            execute_manual_program_with_state(&program, "script-sensitive-state", resources)
+                .expect("a fallible state write should complete through its failed output");
+
+        assert!(
+            report
+                .variables
+                .get("n-store.error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .contains("sensitive form dialog output is transient")
+        );
+        assert!(!report.variables.contains_key("n-form-dialog.values"));
+        assert!(
+            report
+                .logs
+                .iter()
+                .any(|entry| entry.message == "username=Ada")
+        );
+        assert!(
+            report
+                .logs
+                .iter()
+                .all(|entry| !entry.message.contains("must-not-persist"))
+        );
+        assert!(
+            store
+                .variables
+                .lock()
+                .expect("variable lock should work")
+                .is_empty()
+        );
     }
 }
 
@@ -383,6 +496,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
         values: json!({
             "enabled": true,
             "endpoint": "https://example.test/api",
+            "release-channel_2": "stable",
             "retries": 3
         }),
     };
@@ -391,7 +505,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
             "runtime",
             "set",
             json!("ok"),
-            "{{settings.endpoint}} retries={{settings.retries}} enabled={{settings.enabled}}",
+            "{{settings.endpoint}} retries={{settings.retries}} enabled={{settings.enabled}} channel={{settings.release-channel_2}}",
         ),
         "script-1",
         state_resources(&store, &[]).with_script_settings(&settings),
@@ -403,6 +517,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
         Some(&json!({
             "enabled": true,
             "endpoint": "https://example.test/api",
+            "release-channel_2": "stable",
             "retries": 3
         }))
     );
@@ -410,12 +525,9 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
         report.variable_scopes.get("settings"),
         Some(&RunVariableScope::Setting)
     );
-    assert!(
-        report
-            .logs
-            .iter()
-            .any(|entry| { entry.message == "https://example.test/api retries=3 enabled=true" })
-    );
+    assert!(report.logs.iter().any(|entry| {
+        entry.message == "https://example.test/api retries=3 enabled=true channel=stable"
+    }));
 }
 
 #[test]

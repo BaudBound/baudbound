@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -9,8 +9,8 @@ use baudbound_core::{RunnerCore, TriggerRegistration};
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::{
-    NetworkTriggerAuthenticationError, NetworkTriggerAuthenticator, NetworkTriggerKind,
-    WebhookDispatch, WebhookResponse, WebhookService,
+    NetworkTriggerAuthenticator, NetworkTriggerKind, WebhookDispatch, WebhookResponse,
+    WebhookService,
 };
 
 use crate::console;
@@ -27,14 +27,12 @@ use super::{
 mod http;
 mod listener;
 
-use http::{preflight_response, with_cors_origin};
-use listener::{IncomingWebhook, WebhookListener, WebhookResponseSender};
+use http::with_cors_origin;
+use listener::{IncomingWebhook, WebhookListener, WebhookListenerConfig, WebhookResponseSender};
 
 const COMPLETION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 pub(super) struct WebhookHost {
-    allow_browser_origins: BTreeSet<String>,
-    authenticator: Arc<dyn NetworkTriggerAuthenticator>,
     executor: TriggerExecutor,
     listener: WebhookListener,
     pending: BTreeMap<u64, PendingWebhookResponse>,
@@ -66,36 +64,11 @@ impl WebhookHost {
     }
 
     fn accept_request(&mut self, incoming: IncomingWebhook) {
-        let IncomingWebhook { parsed, response } = incoming;
-        if let Some(preflight) = preflight_response(&parsed, &self.allow_browser_origins) {
-            response.send(preflight);
-            return;
-        }
-
-        if let Some(origin) = parsed.origin.as_deref()
-            && !self.allow_browser_origins.contains(origin)
-        {
-            response.send(browser_origin_denied_response());
-            return;
-        }
-
-        let Some(dispatch) = self.service.dispatch_for_request(&parsed.request) else {
-            response.send(route_not_found_response());
-            return;
-        };
-
-        if let Err(error) = self.authenticator.authenticate(
-            &dispatch.event.script_id,
-            &dispatch.event.node_id,
-            NetworkTriggerKind::Webhook,
-            parsed.token.as_deref(),
-        ) {
-            response.send(with_cors_origin(
-                authentication_error_response(error),
-                parsed.origin.as_deref(),
-            ));
-            return;
-        }
+        let IncomingWebhook {
+            dispatch,
+            origin,
+            response,
+        } = incoming;
 
         console::info(format_args!(
             "Queueing webhook trigger {} for script {}",
@@ -117,7 +90,7 @@ impl WebhookHost {
             self.pending.insert(
                 job_id,
                 PendingWebhookResponse {
-                    cors_origin: parsed.origin,
+                    cors_origin: origin,
                     deadline: Instant::now() + dispatch.response_timeout,
                     dispatch,
                     response,
@@ -126,7 +99,7 @@ impl WebhookHost {
         } else {
             response.send(with_cors_origin(
                 dispatch.fallback_response,
-                parsed.origin.as_deref(),
+                origin.as_deref(),
             ));
         }
     }
@@ -240,17 +213,48 @@ pub(super) fn build_webhook_host(
         return Ok(None);
     }
 
+    let address = format!("{}:{}", options.webhook_bind, options.webhook_port);
+    let listener_config = WebhookListenerConfig {
+        bind_address: address.clone(),
+        body_read_progress_timeout_ms: options.webhook_body_read_progress_timeout_ms,
+        body_read_timeout_ms: options.webhook_body_read_timeout_ms,
+        header_read_timeout_ms: options.webhook_header_read_timeout_ms,
+        max_body_bytes: options.max_webhook_body_bytes,
+        max_connections: options.max_webhook_connections,
+        max_header_bytes: options.webhook_max_header_bytes,
+        max_unauthenticated_connections: options.webhook_max_unauthenticated_connections,
+        pre_auth_requests_per_minute_global: options.webhook_pre_auth_requests_per_minute_global,
+        pre_auth_requests_per_minute_per_address: options
+            .webhook_pre_auth_requests_per_minute_per_address,
+        pre_auth_timeout_ms: options.webhook_pre_auth_timeout_ms,
+    };
+    let authenticator: Arc<dyn NetworkTriggerAuthenticator> =
+        Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store));
     if let Some(mut host) = previous_webhook_host {
-        host.allow_browser_origins = options.webhook_allow_browser_origins.clone();
+        let listener_restarted = !host.listener.matches_configuration(&listener_config);
+        host.listener
+            .restart(
+                listener_config,
+                service.clone(),
+                Arc::clone(&authenticator),
+                options.webhook_allow_browser_origins.clone(),
+            )
+            .map_err(|error| anyhow!("failed to reload webhook listener on {address}: {error}"))?;
+        if listener_restarted {
+            console::info(format_args!(
+                "Reloaded webhook listener on http://{}.",
+                host.listener.local_addr()
+            ));
+        }
         host.service = service;
         return Ok(Some(host));
     }
 
-    let address = format!("{}:{}", options.webhook_bind, options.webhook_port);
     let listener = WebhookListener::bind(
-        &address,
-        options.max_webhook_connections,
-        options.max_webhook_body_bytes,
+        listener_config,
+        service.clone(),
+        Arc::clone(&authenticator),
+        options.webhook_allow_browser_origins.clone(),
     )
     .map_err(|error| anyhow!("failed to bind webhook listener on {address}: {error}"))?;
     let listening_address = listener.local_addr();
@@ -261,8 +265,6 @@ pub(super) fn build_webhook_host(
         listening_address
     ));
     Ok(Some(WebhookHost {
-        allow_browser_origins: options.webhook_allow_browser_origins.clone(),
-        authenticator: Arc::new(RunnerNetworkTriggerAuthenticator::new(core, store)),
         executor: TriggerExecutor::new(
             core,
             store,
@@ -275,29 +277,6 @@ pub(super) fn build_webhook_host(
         pending: BTreeMap::new(),
         service,
     }))
-}
-
-fn route_not_found_response() -> WebhookResponse {
-    text_response(404, "Webhook route not found.")
-}
-
-fn browser_origin_denied_response() -> WebhookResponse {
-    text_response(403, "Browser origin is not allowed.")
-}
-
-fn authentication_error_response(error: NetworkTriggerAuthenticationError) -> WebhookResponse {
-    match error {
-        NetworkTriggerAuthenticationError::MissingToken => {
-            text_response(401, "Webhook Bearer authorization is required.")
-        }
-        NetworkTriggerAuthenticationError::InvalidToken => {
-            text_response(403, "Webhook token is invalid.")
-        }
-        NetworkTriggerAuthenticationError::Unavailable(error) => {
-            tracing::error!("webhook authentication state is unavailable: {error}");
-            text_response(503, "Webhook authentication is unavailable.")
-        }
-    }
 }
 
 fn overloaded_response() -> WebhookResponse {
