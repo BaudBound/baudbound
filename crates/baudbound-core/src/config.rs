@@ -1334,7 +1334,6 @@ fn contains_unsafe_text(value: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
     /// The written template and the `Default` impl must not drift apart.
     ///
     /// `SecurityPolicySettings` carries `#[serde(default)]`, so a config file
