@@ -105,7 +105,7 @@ fn validate_integer(value: &Value) -> Result<(), String> {
         .as_i64()
         .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
         .ok_or_else(|| "expected integer, found a number outside the safe range".to_owned())?;
-    if whole.abs() > MAX_SAFE_INTEGER {
+    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&whole) {
         return Err("expected integer, found a number outside the safe range".to_owned());
     }
     Ok(())
@@ -234,5 +234,22 @@ mod tests {
                 "{name} was deleted and must not parse"
             );
         }
+    }
+
+    #[test]
+    fn integer_range_check_handles_i64_min_without_overflow() {
+        assert!(validate_value(&serde_json::json!(i64::MIN), ValueType::Integer).is_err());
+        assert!(validate_value(&serde_json::json!(MAX_SAFE_INTEGER), ValueType::Integer).is_ok());
+        assert!(validate_value(&serde_json::json!(-MAX_SAFE_INTEGER), ValueType::Integer).is_ok());
+        assert!(
+            validate_value(&serde_json::json!(MAX_SAFE_INTEGER + 1), ValueType::Integer).is_err()
+        );
+        assert!(
+            validate_value(
+                &serde_json::json!(-MAX_SAFE_INTEGER - 1),
+                ValueType::Integer
+            )
+            .is_err()
+        );
     }
 }
