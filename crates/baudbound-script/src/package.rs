@@ -112,6 +112,8 @@ pub enum PackageLoadError {
     SchemaContract(String),
     #[error("program.json does not match the runner schema: {0}")]
     ProgramSchema(String),
+    #[error("program.json declares unknown value type {0}")]
+    UnknownValueType(String),
     #[error("manifest.json does not match the runner schema: {0}")]
     ManifestSchema(String),
     #[error("embedded node port contract is invalid: {0}")]
@@ -709,6 +711,25 @@ mod tests {
             .expect_err("invalid secret declaration should fail");
             assert!(error.to_string().contains(expected), "{error}");
         }
+    }
+
+    #[test]
+    fn rejects_a_package_declaring_a_deleted_type() {
+        let mut program: serde_json::Value =
+            serde_json::from_str(TEST_PROGRAM).expect("test program should parse");
+        program["entry"]["trigger"]["runtime_outputs"] = serde_json::json!([{
+            "name": "count",
+            "type": "number",
+            "description": "A count."
+        }]);
+        let program = serde_json::to_string(&program).expect("program should serialize");
+
+        let error = load_script_package_reader(Cursor::new(
+            create_test_package_with_manifest_and_program(TEST_MANIFEST, &program, &[]),
+        ))
+        .expect_err("a deleted type must be rejected");
+
+        assert!(error.to_string().contains("number"), "{error}");
     }
 
     #[test]
