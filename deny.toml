@@ -4,7 +4,12 @@ git-fetch-with-cli = true
 maximum-db-staleness = "P1D"
 unmaintained = "all"
 unsound = "workspace"
-unused-ignored-advisory = "deny"
+# Warn rather than deny because the ignore list below is inherently target
+# specific. The GTK entries only appear in the Linux graph, so denying an unused
+# ignore fails the Windows target for entries that are legitimately absent
+# there. Stale entries still surface as warnings, and the dated review below is
+# the real control against them accumulating.
+unused-ignored-advisory = "warn"
 yanked = "deny"
 
 # Unmaintained advisories are scoped to the whole graph rather than to workspace
