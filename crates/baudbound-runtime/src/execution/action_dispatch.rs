@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use crate::runtime::{
     config_string, duration_from_amount, evaluate_calculation_expression, number_from_value,
     number_value, render_template, resolve_config_map, resolve_http_request_config,
     value_to_string,
 };
+use crate::{ValueType, validate_value};
 
 use super::{
     RunVariableScope, RuntimeActionError, RuntimeActionFailure, RuntimeActionRequest, RuntimeError,
@@ -44,6 +47,11 @@ impl RuntimeExecutor<'_> {
         } else {
             resolve_config_map(&node.config, &self.context.variables)
         };
+        // No action type declares non-numeric typed config fields yet, so
+        // this always validates against an empty map today. The call site
+        // stays in place so the boundary takes effect the moment such a
+        // declaration exists, without another pass over the dispatch code.
+        validate_typed_config(&node.id, &config, &BTreeMap::new())?;
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| {
                 if node.action_type == "action.http" {
@@ -166,6 +174,9 @@ impl RuntimeExecutor<'_> {
 
     fn execute_delay(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
         let config = resolve_config_map(&node.config, &self.context.variables);
+        // Delay's fields are all numeric and stay under `NumericKind`; see
+        // the comment on the call above in `execute_external_action`.
+        validate_typed_config(&node.id, &config, &BTreeMap::new())?;
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::Action {
                 node_id: node.id.clone(),
@@ -223,6 +234,33 @@ impl RuntimeExecutor<'_> {
         );
         Ok(())
     }
+}
+
+/// Validates a resolved config map against the types its fields require.
+///
+/// Runs after template resolution and before the action executes, so a type
+/// error stops the run before any side effect occurs. Numeric fields are
+/// deliberately excluded from `field_types`: they are validated by
+/// `NumericKind` in `baudbound_script::validate_resolved_numeric_config`,
+/// which accepts a whole number through a float field (for example a literal
+/// `440` in `beep.frequencyHz`), a leniency `ValueType::Float` does not share.
+pub(crate) fn validate_typed_config(
+    node_id: &str,
+    config: &serde_json::Map<String, serde_json::Value>,
+    field_types: &BTreeMap<String, ValueType>,
+) -> Result<(), RuntimeError> {
+    for (field, value_type) in field_types {
+        let Some(value) = config.get(field) else {
+            continue;
+        };
+        if let Err(reason) = validate_value(value, *value_type) {
+            return Err(RuntimeError::Type {
+                node_id: node_id.to_owned(),
+                message: format!("field \"{field}\" {reason}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn structured_http_runtime_error(

@@ -550,6 +550,74 @@ fn rejects_a_non_object_script_settings_snapshot() {
     );
 }
 
+#[test]
+fn declared_default_variables_reject_a_wrong_typed_value() {
+    let error = build_initial_state_with_default("retries", "integer", json!("three"))
+        .expect_err("a wrong-typed default must be rejected");
+
+    assert!(
+        matches!(error, crate::RuntimeError::Type { .. }),
+        "a type mismatch must stop the run as a type error rather than any other failure: {error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("retries"),
+        "message names the variable: {message}"
+    );
+    assert!(
+        message.contains("integer"),
+        "message names the type: {message}"
+    );
+}
+
+#[test]
+fn declared_default_variables_accept_a_correctly_typed_integer_value() {
+    let report = build_initial_state_with_default("retries", "integer", json!(3))
+        .expect("a correctly typed integer default should be accepted");
+
+    assert_eq!(report.variables.get("retries"), Some(&json!(3)));
+}
+
+#[test]
+fn a_resolved_config_value_must_satisfy_its_field_type() {
+    let mut field_types = std::collections::BTreeMap::new();
+    field_types.insert("amount".to_owned(), crate::ValueType::Integer);
+    let mut config = serde_json::Map::new();
+    config.insert("amount".to_owned(), json!(3.7));
+
+    let error = crate::execution::validate_typed_config("n-delay", &config, &field_types)
+        .expect_err("a fractional value must not satisfy an integer field");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("amount"),
+        "message names the field: {message}"
+    );
+    assert!(
+        message.contains("integer"),
+        "message names the type: {message}"
+    );
+}
+
+fn build_initial_state_with_default(
+    name: &str,
+    value_type: &str,
+    value: Value,
+) -> Result<crate::RunReport, crate::RuntimeError> {
+    let store = TestStateStore::default();
+    let defaults = [default_variable(
+        name,
+        RuntimeDefaultVariableScope::Runtime,
+        value_type,
+        value,
+    )];
+    execute_manual_program_with_state(
+        &variable_program("runtime", "increment", json!(1), "done"),
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+}
+
 fn state_resources<'a>(
     store: &'a TestStateStore,
     secrets: &'a [RuntimeSecretDeclaration],

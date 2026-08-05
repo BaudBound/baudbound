@@ -1,9 +1,9 @@
-use crate::RuntimeVariableScope;
 use crate::runtime::{
     coerce_variable_value, config_string, empty_value_for_type, number_from_value, number_value,
     remove_object_field, required_config_string, resolve_config_value, resolve_template_value,
     set_object_field, validate_variable_name, value_kind,
 };
+use crate::{RuntimeVariableScope, ValueType, validate_value};
 use serde_json::{Map, Value};
 
 use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
@@ -198,7 +198,21 @@ impl RuntimeExecutor<'_> {
                 } else {
                     self.resolve_variable_input(node.config.get("value"))
                 };
-                let value = coerce_variable_value(node, raw_value, value_type)?;
+                // Coercion is lenient (a numeric string is accepted for an
+                // integer field, an integer widens into a float field), so a
+                // coercion failure does not necessarily mean the value is the
+                // wrong type. Re-check the pre-coercion value against the
+                // shared vocabulary before giving up, so a genuine type
+                // mismatch is reported as a type error naming the variable
+                // rather than the coercion function's generic message.
+                let value = match coerce_variable_value(node, raw_value.clone(), value_type) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        reject_wrong_type(node, name, value_type, &raw_value)?;
+                        return Err(error);
+                    }
+                };
+                reject_wrong_type(node, name, value_type, &value)?;
                 validate_declared_value(node, value_type, item_type.as_deref(), &value)?;
                 Ok(value)
             }
@@ -631,6 +645,29 @@ fn capitalize(value: &str) -> String {
 
 fn diagnostic_value(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
+}
+
+/// Rejects a `set` value that violates the type declared for the variable,
+/// stopping the run rather than routing to the node's failed output: a value
+/// that never satisfied its declared type was never a valid program to begin
+/// with. Declared type names outside the shared `ValueType` vocabulary (the
+/// retired names such as `number` or `file_path`) are left to
+/// `validate_declared_value`, which still handles them.
+fn reject_wrong_type(
+    node: &RuntimeNode,
+    name: &str,
+    declared_type: &str,
+    value: &Value,
+) -> Result<(), RuntimeError> {
+    if let Ok(declared) = declared_type.parse::<ValueType>()
+        && let Err(reason) = validate_value(value, declared)
+    {
+        return Err(RuntimeError::Type {
+            node_id: node.id.clone(),
+            message: format!("variable \"{name}\" {reason}"),
+        });
+    }
+    Ok(())
 }
 
 fn validate_declared_value(

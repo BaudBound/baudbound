@@ -19,6 +19,10 @@ const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
     "datetime",
     "duration",
     "file_path",
+    "integer",
+    "float",
+    "color",
+    "keyboard_key",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
     "string",
@@ -160,6 +164,12 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
 
 fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
+        // The types introduced by the type rework are validated against the
+        // shared `ValueType` vocabulary once the default is placed into the
+        // initial state (see `initial_state.rs`), rather than duplicating
+        // that logic here. Accepting the type name at this stage only
+        // confirms it is a recognized declaration.
+        "integer" | "float" | "color" | "keyboard_key" => true,
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
         "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
         "number" => value.is_number(),

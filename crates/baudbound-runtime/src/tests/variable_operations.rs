@@ -678,8 +678,42 @@ fn incrementing_an_absent_variable_produces_an_integer() {
 }
 
 #[test]
+fn setting_a_variable_rejects_a_value_of_the_wrong_type() {
+    let error = run_set_variable_with_declared_type(
+        "counter",
+        "integer",
+        serde_json::json!("not a number"),
+    )
+    .expect_err("a wrong-typed value must be rejected");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("counter"),
+        "message names the variable: {message}"
+    );
+    assert!(
+        message.contains("integer"),
+        "message names the type: {message}"
+    );
+}
+
+fn run_set_variable_with_declared_type(
+    name: &str,
+    value_type: &str,
+    value: Value,
+) -> Result<crate::RunReport, crate::RuntimeError> {
+    execute(
+        vec![variable_node("n-set", name, "set", value_type, value)],
+        linear_edges(&["n-set"]),
+    )
+}
+
+#[test]
 fn setting_an_integer_variable_rejects_a_fractional_value() {
-    let report = execute(
+    // A type mismatch on `set` is a program error: it stops the run rather
+    // than taking the node's failed output, because the program was never
+    // runnable with this value. See `setting_a_variable_rejects_a_value_of_the_wrong_type`.
+    let error = execute(
         vec![variable_node(
             "n-set",
             "count",
@@ -689,22 +723,15 @@ fn setting_an_integer_variable_rejects_a_fractional_value() {
         )],
         linear_edges(&["n-set"]),
     )
-    .expect("the run completes and the node takes its failed outcome");
+    .expect_err("a fractional value must be rejected by the integer type and stop the run");
 
+    let message = error.to_string();
     assert!(
-        report
-            .logs
-            .iter()
-            .any(|log| log.level == "error" && log.message.contains("expected integer")),
-        "a fractional value must be rejected by the integer type, logs: {:?}",
-        report
-            .logs
-            .iter()
-            .map(|log| &log.message)
-            .collect::<Vec<_>>()
+        message.contains("expected integer"),
+        "a fractional value must be rejected by the integer type: {message}"
     );
     assert!(
-        report.variables.get("count").is_none(),
-        "the rejected value must not be stored"
+        message.contains("count"),
+        "message names the variable: {message}"
     );
 }

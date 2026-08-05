@@ -8,7 +8,7 @@ use crate::runtime::{
 };
 use crate::{
     RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
 };
 
 use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
@@ -152,6 +152,7 @@ pub(super) fn load_initial_state(
         .iter()
         .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
     {
+        reject_wrong_type_default(variable)?;
         insert_initial_variable(
             &mut variables,
             &mut variable_scopes,
@@ -165,6 +166,7 @@ pub(super) fn load_initial_state(
             .iter()
             .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent)
         {
+            reject_wrong_type_default(variable)?;
             let value = load_or_initialize_persistent_default(store, script_id, variable)?;
             insert_initial_variable(
                 &mut variables,
@@ -225,6 +227,24 @@ pub(super) fn load_initial_state(
         variable_scopes,
         variables,
     })
+}
+
+/// Rejects a declared default whose value violates its declared type,
+/// against the shared `ValueType` vocabulary. `node_id` is empty because a
+/// declared default belongs to the package rather than to a node. A type
+/// name outside the ten-type vocabulary (the retired vocabulary such as
+/// `number` or `file_path`) does not parse into a `ValueType` and is left to
+/// `validate_default_variable`, which already accepts it.
+fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
+    if let Ok(declared) = variable.value_type.parse::<ValueType>()
+        && let Err(reason) = validate_value(&variable.value, declared)
+    {
+        return Err(RuntimeError::Type {
+            node_id: String::new(),
+            message: format!("default variable \"{}\" {reason}", variable.name),
+        });
+    }
+    Ok(())
 }
 
 fn insert_initial_variable(
