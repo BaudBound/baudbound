@@ -50,6 +50,23 @@ pub(crate) fn coerce_variable_value(
                     message: format!("expected number, found {}", value_kind(&value)),
                 })
         }
+        // An integer must not be widened to f64 here. `Number::from_f64` always
+        // produces the float variant, which would make every integer variable a
+        // float the moment it was set.
+        "integer" => integer_from_value(&value)
+            .map(|whole| Value::Number(whole.into()))
+            .ok_or_else(|| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("expected integer, found {}", value_kind(&value)),
+            }),
+        "float" => number_from_value(Some(&value))
+            .and_then(Number::from_f64)
+            .map(Value::Number)
+            .ok_or_else(|| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("expected float, found {}", value_kind(&value)),
+            }),
+        "color" => Ok(Value::String(value_to_string(&value))),
         "boolean" => match value {
             Value::Bool(value) => Ok(Value::Bool(value)),
             Value::String(value) if value.trim().eq_ignore_ascii_case("true") => {
@@ -331,6 +348,22 @@ fn coerce_json_container(
                 value_kind(&value)
             ),
         })
+    }
+}
+
+/// Reads a value as a whole number without going through `f64`.
+///
+/// A fractional number is rejected rather than truncated, because `integer` and
+/// `float` are disjoint types and silently dropping a fraction would be an
+/// invisible conversion between them. A string is accepted only when it parses
+/// as a whole number, matching the string handling in `number_from_value`.
+pub(crate) fn integer_from_value(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
+        Value::String(value) => value.trim().parse::<i64>().ok(),
+        _ => None,
     }
 }
 

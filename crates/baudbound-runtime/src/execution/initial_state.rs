@@ -44,7 +44,9 @@ pub(super) fn load_initial_state(
         let operation = required_config_string(node, "operation")?;
         let value_type = match operation.as_str() {
             "set" => Some(required_config_string(node, "valueType")?),
-            "increment" => Some("number".to_owned()),
+            // Increment does not pin a numeric type: it operates on whichever
+            // numeric type the variable was declared with, and preserves it.
+            "increment" => None,
             "toggle_boolean" => Some("boolean".to_owned()),
             "append_list" | "remove_list_items" => Some("list".to_owned()),
             "set_object_field" | "remove_object_field" | "merge_object" => {

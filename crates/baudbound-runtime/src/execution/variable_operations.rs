@@ -210,17 +210,37 @@ impl RuntimeExecutor<'_> {
                         message: "increment value must resolve to a finite number".to_owned(),
                     }
                 })?;
-                let current = match current {
-                    Some(current) => number_from_value(Some(&current)).ok_or_else(|| {
-                        RuntimeError::VariableOperation {
+                if let Some(current) = current.as_ref()
+                    && number_from_value(Some(current)).is_none()
+                {
+                    return Err(RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: format!(
+                            "increment requires existing variable {name} to be a finite number"
+                        ),
+                    });
+                }
+
+                // An integer stays an integer. Routing every increment through
+                // f64 would turn a counter into a float on its first step, and
+                // a float renders with a decimal, so `3` would become `3.0`.
+                if let (Some(current_whole), Some(increment_whole)) = (
+                    integer_operand(current.as_ref()),
+                    integer_operand(Some(&increment_value)),
+                ) {
+                    return current_whole
+                        .checked_add(increment_whole)
+                        .map(|sum| Value::Number(sum.into()))
+                        .ok_or_else(|| RuntimeError::VariableOperation {
                             node_id: node.id.clone(),
-                            message: format!(
-                                "increment requires existing variable {name} to be a finite number"
-                            ),
-                        }
-                    })?,
-                    None => 0.0,
-                };
+                            message: format!("increment overflowed the range of variable {name}"),
+                        });
+                }
+
+                let current = current
+                    .as_ref()
+                    .and_then(|current| number_from_value(Some(current)))
+                    .unwrap_or(0.0);
                 number_value(node, current + increment)
             }
             "toggle_boolean" => {
@@ -570,6 +590,23 @@ fn validate_list_append(
     Ok(())
 }
 
+/// Reads a value as a whole-number operand for `increment`.
+///
+/// Returns `None` when the value is not an integer, which sends the increment
+/// down the float path. Only serde_json's integer variants qualify: a float
+/// stays a float even when its value is whole, and a numeric string such as
+/// `"42"` is not a number at all. An absent variable counts as integer zero so
+/// that a fresh counter starts as an integer.
+fn integer_operand(value: Option<&Value>) -> Option<i64> {
+    match value {
+        None => Some(0),
+        Some(Value::Number(number)) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
+        Some(_) => None,
+    }
+}
+
 fn list_item_kind(value: &Value) -> Option<&'static str> {
     match value {
         Value::String(_) => Some("string"),
@@ -622,6 +659,12 @@ fn validate_declared_value(
                     .and_then(Value::as_str)
                     .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok())
         }),
+        // The types introduced by the type rework are checked by the shared
+        // validator so that a declared variable and a validated boundary can
+        // never disagree about what the type means.
+        "integer" | "float" | "color" | "keyboard_key" => value_type
+            .parse::<crate::ValueType>()
+            .is_ok_and(|declared| crate::validate_value(value, declared).is_ok()),
         "duration" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(Value::as_str) == Some("duration")
                 && object

@@ -578,3 +578,133 @@ fn assert_metadata(
         Some(&json!(is_empty))
     );
 }
+
+#[test]
+fn integer_variables_stay_integers_through_increment() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("an integer variable should increment");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value, &json!(3));
+    assert!(
+        value.as_i64().is_some(),
+        "an incremented integer must stay an integer variant, found {value}"
+    );
+}
+
+#[test]
+fn float_variables_stay_floats_through_increment() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "ratio", "set", "float", json!(2.5)),
+            variable_node("n-increment", "ratio", "increment", "float", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a float variable should increment");
+
+    let value = report.variables.get("ratio").expect("ratio should be set");
+    assert_eq!(value.as_f64(), Some(3.5));
+    assert!(
+        value.as_i64().is_none(),
+        "a float must not become an integer, found {value}"
+    );
+}
+
+#[test]
+fn a_whole_float_does_not_become_an_integer_when_incremented() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "ratio", "set", "float", json!(2.0)),
+            variable_node("n-increment", "ratio", "increment", "float", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a whole float should increment");
+
+    let value = report.variables.get("ratio").expect("ratio should be set");
+    assert_eq!(value.as_f64(), Some(3.0));
+    assert!(
+        value.as_i64().is_none(),
+        "a whole float must stay a float, found {value}"
+    );
+}
+
+#[test]
+fn a_fractional_increment_turns_an_integer_into_a_float() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(0.5)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a fractional increment should widen the value");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value.as_f64(), Some(2.5));
+    assert!(
+        value.as_i64().is_none(),
+        "a fractional result must be a float, found {value}"
+    );
+}
+
+#[test]
+fn incrementing_an_absent_variable_produces_an_integer() {
+    let report = execute(
+        vec![variable_node(
+            "n-increment",
+            "fresh",
+            "increment",
+            "integer",
+            json!(1),
+        )],
+        linear_edges(&["n-increment"]),
+    )
+    .expect("incrementing an absent variable should start from zero");
+
+    let value = report.variables.get("fresh").expect("fresh should be set");
+    assert_eq!(value, &json!(1));
+    assert!(
+        value.as_i64().is_some(),
+        "a fresh counter must be an integer, found {value}"
+    );
+}
+
+#[test]
+fn setting_an_integer_variable_rejects_a_fractional_value() {
+    let report = execute(
+        vec![variable_node(
+            "n-set",
+            "count",
+            "set",
+            "integer",
+            json!(1.5),
+        )],
+        linear_edges(&["n-set"]),
+    )
+    .expect("the run completes and the node takes its failed outcome");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.level == "error" && log.message.contains("expected integer")),
+        "a fractional value must be rejected by the integer type, logs: {:?}",
+        report
+            .logs
+            .iter()
+            .map(|log| &log.message)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        report.variables.get("count").is_none(),
+        "the rejected value must not be stored"
+    );
+}

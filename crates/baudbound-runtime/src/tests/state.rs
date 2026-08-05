@@ -291,8 +291,8 @@ fn runtime_default_resets_before_each_run() {
     )
     .expect("second run should execute");
 
-    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
-    assert_eq!(second.variables.get("counter"), Some(&json!(11.0)));
+    assert_eq!(first.variables.get("counter"), Some(&json!(11)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(11)));
 }
 
 #[test]
@@ -319,8 +319,8 @@ fn persistent_default_initializes_once_then_retains_changes() {
     )
     .expect("second run should execute");
 
-    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
-    assert_eq!(second.variables.get("counter"), Some(&json!(12.0)));
+    assert_eq!(first.variables.get("counter"), Some(&json!(11)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(12)));
 }
 
 #[test]
