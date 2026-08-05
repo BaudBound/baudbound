@@ -601,7 +601,7 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
     .expect("repeat should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
-    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
+    assert!(report.logs.iter().any(|log| log.message == "counter=3.0"));
 }
 
 #[test]
@@ -726,7 +726,7 @@ fn continue_loop_skips_the_remaining_repeat_body() {
             .iter()
             .all(|log| log.message != "must not execute")
     );
-    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
+    assert!(report.logs.iter().any(|log| log.message == "counter=3.0"));
 }
 
 #[test]
@@ -780,7 +780,7 @@ fn break_loop_exits_repeat_and_follows_done() {
     .expect("break loop should exit the repeat");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(2.0)));
-    assert!(report.logs.iter().any(|log| log.message == "counter=2"));
+    assert!(report.logs.iter().any(|log| log.message == "counter=2.0"));
 }
 
 #[test]
@@ -839,7 +839,7 @@ fn break_loop_only_exits_the_innermost_loop() {
         report
             .logs
             .iter()
-            .any(|log| log.message == "outer=2, inner=2")
+            .any(|log| log.message == "outer=2.0, inner=2.0")
     );
 }
 
@@ -923,7 +923,7 @@ fn executes_while_until_condition_fails() {
         report
             .logs
             .iter()
-            .any(|log| log.message == "while counter=3")
+            .any(|log| log.message == "while counter=3.0")
     );
 }
 
@@ -1052,7 +1052,7 @@ fn calculates_expression_and_exposes_result_reference() {
         report.variable_scopes.get("n-calc.result"),
         Some(&RunVariableScope::NodeOutput)
     );
-    assert!(report.logs.iter().any(|log| log.message == "result=10"));
+    assert!(report.logs.iter().any(|log| log.message == "result=10.0"));
 }
 
 #[test]

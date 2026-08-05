@@ -372,7 +372,17 @@ fn number_to_display_string(number: &Number) -> String {
 
     number
         .as_f64()
-        .map(|value| ryu_js::Buffer::new().format(value).to_owned())
+        .map(|value| {
+            let rendered = ryu_js::Buffer::new().format(value).to_owned();
+            // ryu-js follows JavaScript, which prints 42.0 as "42". A float must
+            // stay visibly a float, otherwise the separation from integer
+            // disappears the moment a value is used in text.
+            if rendered.contains(['.', 'e', 'E', 'n']) {
+                rendered
+            } else {
+                format!("{rendered}.0")
+            }
+        })
         .unwrap_or_else(|| number.to_string())
 }
 
@@ -397,15 +407,38 @@ mod tests {
     fn formats_numbers_like_editor_text_templates() {
         for (value, expected) in [
             (json!(1), "1"),
-            (json!(1.0), "1"),
+            (json!(1.0), "1.0"),
             (json!(1.5), "1.5"),
-            (json!(-0.0), "0"),
-            (json!(-42.0), "-42"),
+            (json!(-0.0), "0.0"),
+            (json!(-42.0), "-42.0"),
             (json!(1e-7), "1e-7"),
-            (json!(1e20), "100000000000000000000"),
+            (json!(1e20), "100000000000000000000.0"),
             (json!(1e21), "1e+21"),
         ] {
             assert_eq!(value_to_string(&value), expected);
         }
+    }
+}
+
+#[cfg(test)]
+mod float_rendering_tests {
+    use super::value_to_string;
+
+    #[test]
+    fn whole_floats_render_with_a_decimal() {
+        let float: serde_json::Value = serde_json::from_str("42.0").expect("float parses");
+        assert_eq!(value_to_string(&float), "42.0");
+    }
+
+    #[test]
+    fn fractional_floats_render_unchanged() {
+        let float: serde_json::Value = serde_json::from_str("3.7").expect("float parses");
+        assert_eq!(value_to_string(&float), "3.7");
+    }
+
+    #[test]
+    fn integers_render_without_a_decimal() {
+        let integer: serde_json::Value = serde_json::from_str("42").expect("integer parses");
+        assert_eq!(value_to_string(&integer), "42");
     }
 }
