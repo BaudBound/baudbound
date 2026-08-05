@@ -245,7 +245,8 @@ mod tests {
     fn accepts_typed_default_variables_exported_by_the_editor() {
         let cases = [
             ("string", json!("value")),
-            ("number", json!(42)),
+            ("integer", json!(42)),
+            ("float", json!(42.5)),
             ("boolean", json!(false)),
             ("object", json!({ "key": "value" })),
             ("list", json!(["value"])),
@@ -257,7 +258,8 @@ mod tests {
                 "duration",
                 json!({"type": "duration", "unit": "seconds", "value": 3}),
             ),
-            ("file_path", json!("/tmp/value")),
+            ("color", json!("#ff8800")),
+            ("keyboard_key", json!("Ctrl+S")),
         ];
 
         for (variable_type, value) in cases {
