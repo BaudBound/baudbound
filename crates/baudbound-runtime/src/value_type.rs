@@ -150,11 +150,14 @@ fn validate_keyboard_key(value: &Value) -> Result<(), String> {
         );
     }
 
+    let contract = key_contract_tokens();
     let mut seen = std::collections::HashSet::new();
     for part in parts {
         let normalized = normalize_key_token(part);
-        let canonical = known_key_tokens()
+        let canonical = contract
+            .modifiers
             .get(&normalized)
+            .or_else(|| contract.keys.get(&normalized))
             .ok_or_else(|| format!("expected keyboard key, {part} is not a known key"))?;
         if !seen.insert(canonical.clone()) {
             return Err(format!(
@@ -177,11 +180,20 @@ fn normalize_key_token(token: &str) -> String {
         .collect()
 }
 
-/// Maps every normalized modifier/key token (canonical names and aliases) to
-/// its canonical name, mirroring `windows-key-contract.ts`.
-fn known_key_tokens() -> &'static std::collections::HashMap<String, String> {
-    static TOKENS: std::sync::OnceLock<std::collections::HashMap<String, String>> =
-        std::sync::OnceLock::new();
+/// Normalized modifier and key tokens (canonical names and aliases) mapped to
+/// their canonical names, kept as two separate tables mirroring
+/// `windows-key-contract.ts`'s `modifierAliases` and `keyAliases` maps.
+struct KeyContractTokens {
+    modifiers: std::collections::HashMap<String, String>,
+    keys: std::collections::HashMap<String, String>,
+}
+
+/// Builds the token tables the same way `windows-key-contract.ts` does:
+/// modifiers and keys are looked up separately, with modifiers taking
+/// precedence, so a collision between the two sides can never silently
+/// change which one wins.
+fn key_contract_tokens() -> &'static KeyContractTokens {
+    static TOKENS: std::sync::OnceLock<KeyContractTokens> = std::sync::OnceLock::new();
     TOKENS.get_or_init(|| {
         #[derive(serde::Deserialize)]
         struct KeyContract {
@@ -201,17 +213,24 @@ fn known_key_tokens() -> &'static std::collections::HashMap<String, String> {
         ))
         .expect("embedded keyboard key contract must be valid JSON");
 
-        let mut tokens = std::collections::HashMap::new();
-        for entry in contract.modifiers.into_iter().chain(contract.keys) {
-            tokens.insert(
-                normalize_key_token(&entry.canonical),
-                entry.canonical.clone(),
-            );
-            for alias in &entry.aliases {
-                tokens.insert(normalize_key_token(alias), entry.canonical.clone());
+        let build_table = |entries: Vec<KeyEntry>| {
+            let mut table = std::collections::HashMap::new();
+            for entry in entries {
+                table.insert(
+                    normalize_key_token(&entry.canonical),
+                    entry.canonical.clone(),
+                );
+                for alias in &entry.aliases {
+                    table.insert(normalize_key_token(alias), entry.canonical.clone());
+                }
             }
+            table
+        };
+
+        KeyContractTokens {
+            modifiers: build_table(contract.modifiers),
+            keys: build_table(contract.keys),
         }
-        tokens
     })
 }
 
@@ -311,6 +330,20 @@ mod tests {
 
         assert!(validate_value(&valid, ValueType::KeyboardKey).is_ok());
         assert!(validate_value(&invalid, ValueType::KeyboardKey).is_err());
+    }
+
+    #[test]
+    fn modifier_and_key_tokens_do_not_collide() {
+        let contract = key_contract_tokens();
+        let colliding: Vec<&String> = contract
+            .modifiers
+            .keys()
+            .filter(|token| contract.keys.contains_key(*token))
+            .collect();
+        assert!(
+            colliding.is_empty(),
+            "modifier and key tokens must not collide, found: {colliding:?}"
+        );
     }
 
     #[test]
