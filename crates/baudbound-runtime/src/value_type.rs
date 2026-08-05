@@ -141,10 +141,78 @@ fn validate_keyboard_key(value: &Value) -> Result<(), String> {
     let Some(text) = value.as_str() else {
         return Err(format!("expected keyboard key, found {}", describe(value)));
     };
-    if text.trim().is_empty() {
-        return Err("expected keyboard key, found an empty value".to_owned());
+
+    let parts: Vec<&str> = text.split(['+', '-']).map(str::trim).collect();
+    if parts.is_empty() || parts.iter().any(|part| part.is_empty()) {
+        return Err(
+            "expected keyboard key, key expression must contain at least one supported key"
+                .to_owned(),
+        );
     }
+
+    let mut seen = std::collections::HashSet::new();
+    for part in parts {
+        let normalized = normalize_key_token(part);
+        let canonical = known_key_tokens()
+            .get(&normalized)
+            .ok_or_else(|| format!("expected keyboard key, {part} is not a known key"))?;
+        if !seen.insert(canonical.clone()) {
+            return Err(format!(
+                "expected keyboard key, key expression contains {canonical} more than once"
+            ));
+        }
+    }
+
     Ok(())
+}
+
+/// Normalizes a single key-expression token the same way the editor does:
+/// trim, lowercase, then drop spaces and underscores.
+fn normalize_key_token(token: &str) -> String {
+    token
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| *c != ' ' && *c != '_')
+        .collect()
+}
+
+/// Maps every normalized modifier/key token (canonical names and aliases) to
+/// its canonical name, mirroring `windows-key-contract.ts`.
+fn known_key_tokens() -> &'static std::collections::HashMap<String, String> {
+    static TOKENS: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+        std::sync::OnceLock::new();
+    TOKENS.get_or_init(|| {
+        #[derive(serde::Deserialize)]
+        struct KeyContract {
+            modifiers: Vec<KeyEntry>,
+            keys: Vec<KeyEntry>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct KeyEntry {
+            canonical: String,
+            #[serde(default)]
+            aliases: Vec<String>,
+        }
+
+        let contract: KeyContract = serde_json::from_str(include_str!(
+            "../../../contracts/runner/windows-keyboard-keys.json"
+        ))
+        .expect("embedded keyboard key contract must be valid JSON");
+
+        let mut tokens = std::collections::HashMap::new();
+        for entry in contract.modifiers.into_iter().chain(contract.keys) {
+            tokens.insert(
+                normalize_key_token(&entry.canonical),
+                entry.canonical.clone(),
+            );
+            for alias in &entry.aliases {
+                tokens.insert(normalize_key_token(alias), entry.canonical.clone());
+            }
+        }
+        tokens
+    })
 }
 
 fn validate_tagged(value: &Value, tag: &str, fields: &[&str]) -> Result<(), String> {
@@ -234,6 +302,15 @@ mod tests {
                 "{name} was deleted and must not parse"
             );
         }
+    }
+
+    #[test]
+    fn keyboard_keys_must_exist_in_the_shared_contract() {
+        let valid = serde_json::json!("F5");
+        let invalid = serde_json::json!("NotARealKey");
+
+        assert!(validate_value(&valid, ValueType::KeyboardKey).is_ok());
+        assert!(validate_value(&invalid, ValueType::KeyboardKey).is_err());
     }
 
     #[test]
