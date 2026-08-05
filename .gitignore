@@ -26,8 +26,14 @@ yarn-debug.log*
 Thumbs.db
 .idea/
 .vscode/
-/plan/
 /examples/
+
+# Planning notes live outside the repositories
+/plan/
+/!plans/
+*-PLAN.md
+*_plan.md
+*-plan.md
 
 # BaudBound local runtime data
 *.db
