@@ -1,4 +1,4 @@
-import { Clock3, Download, LogIn, Play, Power, X } from "lucide-react";
+import { BellRing, Clock3, Download, LogIn, Monitor, Pin, Play, Power, Timer, X } from "lucide-react";
 
 import { NumericField } from "@/components/numeric-field";
 import type { NumericFieldContract } from "@/components/numeric-field-model";
@@ -73,16 +73,20 @@ export function SharedConfiguration({
               }
             />
             <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 px-4 py-3.5 max-sm:grid-cols-1">
-              <span>
-                <label className="block text-sm font-medium" htmlFor="update-check-interval">
-                  Check interval
-                </label>
-                <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                  Minimum hours between repository refreshes and enabled automatic checks.
+              <div className="flex min-w-0 items-center gap-3">
+                <Timer className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <label className="block text-sm font-medium" htmlFor="update-check-interval">
+                    Check interval
+                  </label>
+                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                    Minimum hours between repository refreshes and enabled automatic checks.
+                  </span>
                 </span>
-              </span>
+              </div>
               <NumericField
                 ariaLabel="Check interval"
+                className="max-sm:ml-7"
                 contract={updateIntervalContract}
                 id="update-check-interval"
                 onChange={(draft) => {
@@ -177,6 +181,39 @@ export function DesktopConfiguration({
           />
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Dialog windows</CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y divide-border p-0">
+          <SettingRow
+            checked={config.desktop.dialog_console_enabled}
+            description="Keep one dialog window open so incoming form and message dialogs replace its content."
+            icon={Monitor}
+            id="dialog-console-enabled"
+            label="Dialog console mode"
+            onChange={(checked) => updateDesktop("dialog_console_enabled", checked)}
+          />
+          <SettingRow
+            checked={config.desktop.dialog_console_always_on_top}
+            description="Pin the dialog console above other windows while console mode is enabled."
+            disabled={!config.desktop.dialog_console_enabled}
+            icon={Pin}
+            id="dialog-console-always-on-top"
+            label="Keep dialog console on top"
+            onChange={(checked) => updateDesktop("dialog_console_always_on_top", checked)}
+          />
+          <SettingRow
+            checked={config.desktop.dialog_console_focus_on_request}
+            description="Focus the dialog console when an automation asks for input."
+            disabled={!config.desktop.dialog_console_enabled}
+            icon={BellRing}
+            id="dialog-console-focus-on-request"
+            label="Focus dialog console on request"
+            onChange={(checked) => updateDesktop("dialog_console_focus_on_request", checked)}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -199,9 +236,9 @@ function SettingRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5 max-sm:grid-cols-1">
-      <div className="flex min-w-0 items-start gap-3">
-        <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 max-sm:grid-cols-1">
+      <div className="flex min-w-0 items-center gap-3">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <label className="text-sm font-medium" htmlFor={id}>{label}</label>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
@@ -227,8 +264,8 @@ function TimeFormatRow({
 }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5 max-sm:grid-cols-1">
-      <div className="flex min-w-0 items-start gap-3">
-        <Clock3 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="flex min-w-0 items-center gap-3">
+        <Clock3 className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <div className="text-sm font-medium">Clock format</div>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">

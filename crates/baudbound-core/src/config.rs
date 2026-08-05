@@ -6,6 +6,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use baudbound_runtime::ResourceLimit;
+use baudbound_script::is_user_identifier;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
@@ -14,10 +16,22 @@ pub const DEFAULT_WEBHOOK_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBHOOK_PORT: u16 = 43891;
 pub const DEFAULT_WEBHOOK_MAX_BODY_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_WEBHOOK_MAX_CONNECTIONS: usize = 128;
+pub const DEFAULT_WEBHOOK_MAX_UNAUTHENTICATED_CONNECTIONS: u64 = 32;
+pub const DEFAULT_WEBHOOK_PRE_AUTH_REQUESTS_PER_MINUTE_GLOBAL: u64 = 600;
+pub const DEFAULT_WEBHOOK_PRE_AUTH_REQUESTS_PER_MINUTE_PER_ADDRESS: u64 = 60;
+pub const DEFAULT_WEBHOOK_HEADER_READ_TIMEOUT_MS: u64 = 10_000;
+pub const DEFAULT_WEBHOOK_PRE_AUTH_TIMEOUT_MS: u64 = 5_000;
+pub const DEFAULT_WEBHOOK_BODY_READ_PROGRESS_TIMEOUT_MS: u64 = 10_000;
+pub const DEFAULT_WEBHOOK_BODY_READ_TIMEOUT_MS: u64 = 30_000;
+pub const DEFAULT_WEBHOOK_MAX_HEADER_BYTES: u64 = 32 * 1024;
 pub const DEFAULT_WEBSOCKET_BIND: &str = "127.0.0.1";
 pub const DEFAULT_WEBSOCKET_PORT: u16 = 43892;
 pub const DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_WEBSOCKET_MAX_CONNECTIONS: usize = 128;
+pub const DEFAULT_WEBSOCKET_MAX_UNAUTHENTICATED_CONNECTIONS: u64 = 32;
+pub const DEFAULT_WEBSOCKET_PRE_AUTH_REQUESTS_PER_MINUTE_GLOBAL: u64 = 600;
+pub const DEFAULT_WEBSOCKET_PRE_AUTH_REQUESTS_PER_MINUTE_PER_ADDRESS: u64 = 60;
+pub const DEFAULT_WEBSOCKET_HANDSHAKE_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_TRIGGER_RELOAD_SECONDS: u64 = 2;
 pub const DEFAULT_RUN_HISTORY_MAX_RECORDS: usize = 10_000;
 pub const DEFAULT_RUN_HISTORY_MAX_AGE_DAYS: u64 = 30;
@@ -27,6 +41,18 @@ pub const DEFAULT_MAX_RUNTIME_VARIABLE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_RETAINED_VARIABLE_BYTES: usize = 256 * 1024;
 pub const DEFAULT_MAX_RUN_LOG_BYTES: usize = 2 * 1024 * 1024;
 pub const DEFAULT_MAX_RUN_RECORD_BYTES: usize = 8 * 1024 * 1024;
+pub const DEFAULT_MAX_GENERATED_TEXT_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_MAX_PROCESS_OUTPUT_BYTES: u64 = 8 * 1024 * 1024;
+pub const DEFAULT_MAX_ACTIVE_RUNS_GLOBAL: u64 = 16;
+pub const DEFAULT_MAX_ACTIVE_RUNS_PER_SCRIPT: u64 = 1;
+pub const DEFAULT_MAX_QUEUED_ACTIVATIONS_PER_SCRIPT: u64 = 64;
+pub const DEFAULT_MAX_SCHEDULE_CATCH_UP_EVENTS_PER_POLL: u64 = 1_000;
+pub const DEFAULT_MAX_STEPS_PER_RUN: u64 = 1_000_000;
+pub const DEFAULT_MAX_RUN_DURATION_MS: u64 = 3_600_000;
+pub const DEFAULT_MAX_LOOP_ITERATIONS_PER_RUN: u64 = 1_000_000;
+pub const DEFAULT_MAX_PROCESSES_PER_SCRIPT: u64 = 4;
+pub const DEFAULT_MAX_PROCESS_LAUNCHES_PER_MINUTE: u64 = 120;
+pub const DEFAULT_MAX_FILE_WRITE_BYTES_PER_RUN: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
 pub const DEFAULT_SERIAL_BAUD_RATE: u32 = 9_600;
 pub const DEFAULT_SERIAL_DTR_ON_OPEN: &str = "deasserted";
@@ -62,6 +88,7 @@ const MAX_TRIGGER_RELOAD_SECONDS: u64 = 86_400;
 const MAX_UPDATE_CHECK_INTERVAL_HOURS: u64 = 8_760;
 const MAX_NETWORK_CONNECTIONS: usize = 10_000;
 const MAX_EXTERNAL_DATA_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const MAX_SAFE_CONFIG_INTEGER: u64 = 9_007_199_254_740_991;
 pub use baudbound_actions::{
     DEFAULT_MAX_FILE_DOWNLOAD_BYTES, DEFAULT_MAX_FILE_READ_BYTES, DEFAULT_MAX_HTTP_RESPONSE_BYTES,
 };
@@ -191,25 +218,75 @@ impl RunnerConfig {
                 self.limits.max_file_read_bytes,
             ),
         ] {
-            if value == 0 || value > MAX_EXTERNAL_DATA_BYTES {
-                return Err(RunnerConfigError::Validate {
-                    path: path.to_path_buf(),
-                    message: format!("{setting} must be between 1 and {MAX_EXTERNAL_DATA_BYTES}"),
-                });
-            }
+            validate_resource_limit(path, setting, value, 1, MAX_EXTERNAL_DATA_BYTES)?;
         }
+
+        for (setting, value) in [
+            (
+                "limits.max_generated_text_bytes",
+                self.limits.max_generated_text_bytes,
+            ),
+            (
+                "limits.max_process_output_bytes",
+                self.limits.max_process_output_bytes,
+            ),
+            (
+                "limits.max_file_write_bytes_per_run",
+                self.limits.max_file_write_bytes_per_run,
+            ),
+        ] {
+            validate_resource_limit(path, setting, value, 1, MAX_SAFE_CONFIG_INTEGER)?;
+        }
+        for (setting, value) in [
+            (
+                "limits.max_active_runs_global",
+                self.limits.max_active_runs_global,
+            ),
+            (
+                "limits.max_active_runs_per_script",
+                self.limits.max_active_runs_per_script,
+            ),
+            (
+                "limits.max_queued_activations_per_script",
+                self.limits.max_queued_activations_per_script,
+            ),
+            (
+                "limits.max_schedule_catch_up_events_per_poll",
+                self.limits.max_schedule_catch_up_events_per_poll,
+            ),
+            ("limits.max_steps_per_run", self.limits.max_steps_per_run),
+            (
+                "limits.max_run_duration_ms",
+                self.limits.max_run_duration_ms,
+            ),
+            (
+                "limits.max_loop_iterations_per_run",
+                self.limits.max_loop_iterations_per_run,
+            ),
+            (
+                "limits.max_processes_per_script",
+                self.limits.max_processes_per_script,
+            ),
+            (
+                "limits.max_process_launches_per_minute",
+                self.limits.max_process_launches_per_minute,
+            ),
+        ] {
+            validate_resource_limit(path, setting, value, 1, MAX_SAFE_CONFIG_INTEGER)?;
+        }
+        validate_resource_limit(
+            path,
+            "limits.max_runtime_variable_bytes",
+            self.limits.max_runtime_variable_bytes,
+            u64::try_from(MIN_RUNTIME_VARIABLE_BYTES).expect("minimum fits in u64"),
+            u64::try_from(MAX_RUNTIME_VARIABLE_BYTES).expect("maximum fits in u64"),
+        )?;
         for (setting, value, minimum, maximum) in [
             (
                 "limits.max_log_entry_bytes",
                 self.limits.max_log_entry_bytes,
                 MIN_LOG_ENTRY_BYTES,
                 MAX_LOG_ENTRY_BYTES,
-            ),
-            (
-                "limits.max_runtime_variable_bytes",
-                self.limits.max_runtime_variable_bytes,
-                MIN_RUNTIME_VARIABLE_BYTES,
-                MAX_RUNTIME_VARIABLE_BYTES,
             ),
             (
                 "limits.max_retained_variable_bytes",
@@ -281,6 +358,45 @@ impl RunnerConfig {
                 ),
             });
         }
+        for (setting, value) in [
+            (
+                "webhooks.max_unauthenticated_connections",
+                self.webhooks.max_unauthenticated_connections,
+            ),
+            (
+                "webhooks.pre_auth_requests_per_minute_global",
+                self.webhooks.pre_auth_requests_per_minute_global,
+            ),
+            (
+                "webhooks.pre_auth_requests_per_minute_per_address",
+                self.webhooks.pre_auth_requests_per_minute_per_address,
+            ),
+            (
+                "webhooks.header_read_timeout_ms",
+                self.webhooks.header_read_timeout_ms,
+            ),
+            (
+                "webhooks.pre_auth_timeout_ms",
+                self.webhooks.pre_auth_timeout_ms,
+            ),
+            (
+                "webhooks.body_read_progress_timeout_ms",
+                self.webhooks.body_read_progress_timeout_ms,
+            ),
+            (
+                "webhooks.body_read_timeout_ms",
+                self.webhooks.body_read_timeout_ms,
+            ),
+        ] {
+            validate_resource_limit(path, setting, value, 1, MAX_SAFE_CONFIG_INTEGER)?;
+        }
+        validate_resource_limit(
+            path,
+            "webhooks.max_header_bytes",
+            self.webhooks.max_header_bytes,
+            8 * 1024,
+            MAX_EXTERNAL_DATA_BYTES,
+        )?;
         validate_browser_origins(
             path,
             "webhooks.allow_browser_origins",
@@ -294,6 +410,26 @@ impl RunnerConfig {
                     "websockets.max_connections must be between 1 and {MAX_NETWORK_CONNECTIONS}"
                 ),
             });
+        }
+        for (setting, value) in [
+            (
+                "websockets.max_unauthenticated_connections",
+                self.websockets.max_unauthenticated_connections,
+            ),
+            (
+                "websockets.pre_auth_requests_per_minute_global",
+                self.websockets.pre_auth_requests_per_minute_global,
+            ),
+            (
+                "websockets.pre_auth_requests_per_minute_per_address",
+                self.websockets.pre_auth_requests_per_minute_per_address,
+            ),
+            (
+                "websockets.handshake_timeout_ms",
+                self.websockets.handshake_timeout_ms,
+            ),
+        ] {
+            validate_resource_limit(path, setting, value, 1, MAX_SAFE_CONFIG_INTEGER)?;
         }
         if self.websockets.max_message_bytes == 0
             || u64::try_from(self.websockets.max_message_bytes)
@@ -387,6 +523,19 @@ time_format = "24-hour"
 max_http_response_bytes = 10485760
 max_file_download_bytes = 104857600
 max_file_read_bytes = 10485760
+max_generated_text_bytes = 67108864
+max_process_output_bytes = 8388608
+max_active_runs_global = 16
+max_active_runs_per_script = 1
+max_queued_activations_per_script = 64
+max_schedule_catch_up_events_per_poll = 1000
+queue_overflow_strategy = "reject_newest"
+max_steps_per_run = 1000000
+max_run_duration_ms = 3600000
+max_loop_iterations_per_run = 1000000
+max_processes_per_script = 4
+max_process_launches_per_minute = 120
+max_file_write_bytes_per_run = 1073741824
 max_log_entry_bytes = 16384
 max_runtime_variable_bytes = 16777216
 max_run_log_bytes = 2097152
@@ -395,10 +544,13 @@ max_run_record_bytes = 8388608
 
 [security.policy]
 # Approval decides whether a specific package is trusted.
-# These settings independently restrict which trusted packages may run.
-allow_shell_commands = true
-allow_dangerous_permissions = true
-allow_public_network_listeners = true
+# These settings independently decide which capabilities are available at all.
+# They ship disabled. Enable one when a script you trust needs it, either here
+# or from Settings in the desktop app. Approving a package is not enough on its
+# own while the matching setting is false.
+allow_shell_commands = false
+allow_dangerous_permissions = false
+allow_public_network_listeners = false
 allow_private_http_requests = false
 
 [updates]
@@ -410,6 +562,9 @@ launch_at_login = false
 start_background_runner_on_launch = false
 start_minimized_to_tray = false
 keep_running_on_close = true
+dialog_console_enabled = false
+dialog_console_always_on_top = false
+dialog_console_focus_on_request = true
 
 [triggers]
 schedules_enabled = true
@@ -450,6 +605,14 @@ bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
 max_connections = 128
+max_unauthenticated_connections = 32
+pre_auth_requests_per_minute_global = 600
+pre_auth_requests_per_minute_per_address = 60
+header_read_timeout_ms = 10000
+pre_auth_timeout_ms = 5000
+body_read_progress_timeout_ms = 10000
+body_read_timeout_ms = 30000
+max_header_bytes = 32768
 allow_browser_origins = []
 allow_unauthenticated_public_bind = false
 
@@ -458,6 +621,10 @@ bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
 max_connections = 128
+max_unauthenticated_connections = 32
+pre_auth_requests_per_minute_global = 600
+pre_auth_requests_per_minute_per_address = 60
+handshake_timeout_ms = 5000
 allow_browser_origins = []
 allow_unauthenticated_public_bind = false
 "#
@@ -500,11 +667,24 @@ impl TimeFormat {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct LimitSettings {
-    pub max_file_download_bytes: u64,
-    pub max_file_read_bytes: u64,
-    pub max_http_response_bytes: u64,
+    pub max_file_download_bytes: ResourceLimit,
+    pub max_file_read_bytes: ResourceLimit,
+    pub max_http_response_bytes: ResourceLimit,
+    pub max_generated_text_bytes: ResourceLimit,
+    pub max_process_output_bytes: ResourceLimit,
+    pub max_active_runs_global: ResourceLimit,
+    pub max_active_runs_per_script: ResourceLimit,
+    pub max_queued_activations_per_script: ResourceLimit,
+    pub max_schedule_catch_up_events_per_poll: ResourceLimit,
+    pub queue_overflow_strategy: QueueOverflowStrategy,
+    pub max_steps_per_run: ResourceLimit,
+    pub max_run_duration_ms: ResourceLimit,
+    pub max_loop_iterations_per_run: ResourceLimit,
+    pub max_processes_per_script: ResourceLimit,
+    pub max_process_launches_per_minute: ResourceLimit,
+    pub max_file_write_bytes_per_run: ResourceLimit,
     pub max_log_entry_bytes: usize,
-    pub max_runtime_variable_bytes: usize,
+    pub max_runtime_variable_bytes: ResourceLimit,
     pub max_retained_variable_bytes: usize,
     pub max_run_log_bytes: usize,
     pub max_run_record_bytes: usize,
@@ -513,16 +693,50 @@ pub struct LimitSettings {
 impl Default for LimitSettings {
     fn default() -> Self {
         Self {
-            max_file_download_bytes: DEFAULT_MAX_FILE_DOWNLOAD_BYTES,
-            max_file_read_bytes: DEFAULT_MAX_FILE_READ_BYTES,
-            max_http_response_bytes: DEFAULT_MAX_HTTP_RESPONSE_BYTES,
+            max_file_download_bytes: ResourceLimit::limited(DEFAULT_MAX_FILE_DOWNLOAD_BYTES),
+            max_file_read_bytes: ResourceLimit::limited(DEFAULT_MAX_FILE_READ_BYTES),
+            max_http_response_bytes: ResourceLimit::limited(DEFAULT_MAX_HTTP_RESPONSE_BYTES),
+            max_generated_text_bytes: ResourceLimit::limited(DEFAULT_MAX_GENERATED_TEXT_BYTES),
+            max_process_output_bytes: ResourceLimit::limited(DEFAULT_MAX_PROCESS_OUTPUT_BYTES),
+            max_active_runs_global: ResourceLimit::limited(DEFAULT_MAX_ACTIVE_RUNS_GLOBAL),
+            max_active_runs_per_script: ResourceLimit::limited(DEFAULT_MAX_ACTIVE_RUNS_PER_SCRIPT),
+            max_queued_activations_per_script: ResourceLimit::limited(
+                DEFAULT_MAX_QUEUED_ACTIVATIONS_PER_SCRIPT,
+            ),
+            max_schedule_catch_up_events_per_poll: ResourceLimit::limited(
+                DEFAULT_MAX_SCHEDULE_CATCH_UP_EVENTS_PER_POLL,
+            ),
+            queue_overflow_strategy: QueueOverflowStrategy::default(),
+            max_steps_per_run: ResourceLimit::limited(DEFAULT_MAX_STEPS_PER_RUN),
+            max_run_duration_ms: ResourceLimit::limited(DEFAULT_MAX_RUN_DURATION_MS),
+            max_loop_iterations_per_run: ResourceLimit::limited(
+                DEFAULT_MAX_LOOP_ITERATIONS_PER_RUN,
+            ),
+            max_processes_per_script: ResourceLimit::limited(DEFAULT_MAX_PROCESSES_PER_SCRIPT),
+            max_process_launches_per_minute: ResourceLimit::limited(
+                DEFAULT_MAX_PROCESS_LAUNCHES_PER_MINUTE,
+            ),
+            max_file_write_bytes_per_run: ResourceLimit::limited(
+                DEFAULT_MAX_FILE_WRITE_BYTES_PER_RUN,
+            ),
             max_log_entry_bytes: DEFAULT_MAX_LOG_ENTRY_BYTES,
-            max_runtime_variable_bytes: DEFAULT_MAX_RUNTIME_VARIABLE_BYTES,
+            max_runtime_variable_bytes: ResourceLimit::limited(
+                u64::try_from(DEFAULT_MAX_RUNTIME_VARIABLE_BYTES)
+                    .expect("default runtime variable limit fits in u64"),
+            ),
             max_retained_variable_bytes: DEFAULT_MAX_RETAINED_VARIABLE_BYTES,
             max_run_log_bytes: DEFAULT_MAX_RUN_LOG_BYTES,
             max_run_record_bytes: DEFAULT_MAX_RUN_RECORD_BYTES,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueOverflowStrategy {
+    DropOldest,
+    #[default]
+    RejectNewest,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -541,12 +755,19 @@ pub struct SecurityPolicySettings {
 }
 
 impl Default for SecurityPolicySettings {
+    /// Capabilities ship disabled and are enabled deliberately.
+    ///
+    /// These values must stay identical to the `[security.policy]` block in
+    /// [`RunnerConfig::template_toml`]. The struct carries `#[serde(default)]`,
+    /// so a config file that omits a key falls back here rather than to the
+    /// template, and a disagreement would give a fresh install and an upgraded
+    /// install different security behaviour from the same visible config.
     fn default() -> Self {
         Self {
-            allow_dangerous_permissions: true,
+            allow_dangerous_permissions: false,
             allow_private_http_requests: false,
-            allow_public_network_listeners: true,
-            allow_shell_commands: true,
+            allow_public_network_listeners: false,
+            allow_shell_commands: false,
         }
     }
 }
@@ -570,6 +791,9 @@ impl Default for UpdateSettings {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct DesktopSettings {
+    pub dialog_console_always_on_top: bool,
+    pub dialog_console_enabled: bool,
+    pub dialog_console_focus_on_request: bool,
     pub keep_running_on_close: bool,
     pub launch_at_login: bool,
     pub start_background_runner_on_launch: bool,
@@ -579,6 +803,9 @@ pub struct DesktopSettings {
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
+            dialog_console_always_on_top: false,
+            dialog_console_enabled: false,
+            dialog_console_focus_on_request: true,
             keep_running_on_close: true,
             launch_at_login: false,
             start_background_runner_on_launch: false,
@@ -701,6 +928,14 @@ pub struct WebhookSettings {
     pub bind: String,
     pub max_body_bytes: usize,
     pub max_connections: usize,
+    pub max_unauthenticated_connections: ResourceLimit,
+    pub pre_auth_requests_per_minute_global: ResourceLimit,
+    pub pre_auth_requests_per_minute_per_address: ResourceLimit,
+    pub header_read_timeout_ms: ResourceLimit,
+    pub pre_auth_timeout_ms: ResourceLimit,
+    pub body_read_progress_timeout_ms: ResourceLimit,
+    pub body_read_timeout_ms: ResourceLimit,
+    pub max_header_bytes: ResourceLimit,
     pub port: u16,
 }
 
@@ -712,6 +947,22 @@ impl Default for WebhookSettings {
             bind: DEFAULT_WEBHOOK_BIND.to_owned(),
             max_body_bytes: DEFAULT_WEBHOOK_MAX_BODY_BYTES,
             max_connections: DEFAULT_WEBHOOK_MAX_CONNECTIONS,
+            max_unauthenticated_connections: ResourceLimit::limited(
+                DEFAULT_WEBHOOK_MAX_UNAUTHENTICATED_CONNECTIONS,
+            ),
+            pre_auth_requests_per_minute_global: ResourceLimit::limited(
+                DEFAULT_WEBHOOK_PRE_AUTH_REQUESTS_PER_MINUTE_GLOBAL,
+            ),
+            pre_auth_requests_per_minute_per_address: ResourceLimit::limited(
+                DEFAULT_WEBHOOK_PRE_AUTH_REQUESTS_PER_MINUTE_PER_ADDRESS,
+            ),
+            header_read_timeout_ms: ResourceLimit::limited(DEFAULT_WEBHOOK_HEADER_READ_TIMEOUT_MS),
+            pre_auth_timeout_ms: ResourceLimit::limited(DEFAULT_WEBHOOK_PRE_AUTH_TIMEOUT_MS),
+            body_read_progress_timeout_ms: ResourceLimit::limited(
+                DEFAULT_WEBHOOK_BODY_READ_PROGRESS_TIMEOUT_MS,
+            ),
+            body_read_timeout_ms: ResourceLimit::limited(DEFAULT_WEBHOOK_BODY_READ_TIMEOUT_MS),
+            max_header_bytes: ResourceLimit::limited(DEFAULT_WEBHOOK_MAX_HEADER_BYTES),
             port: DEFAULT_WEBHOOK_PORT,
         }
     }
@@ -725,6 +976,10 @@ pub struct WebSocketSettings {
     pub bind: String,
     pub max_connections: usize,
     pub max_message_bytes: usize,
+    pub max_unauthenticated_connections: ResourceLimit,
+    pub pre_auth_requests_per_minute_global: ResourceLimit,
+    pub pre_auth_requests_per_minute_per_address: ResourceLimit,
+    pub handshake_timeout_ms: ResourceLimit,
     pub port: u16,
 }
 
@@ -736,6 +991,16 @@ impl Default for WebSocketSettings {
             bind: DEFAULT_WEBSOCKET_BIND.to_owned(),
             max_connections: DEFAULT_WEBSOCKET_MAX_CONNECTIONS,
             max_message_bytes: DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES,
+            max_unauthenticated_connections: ResourceLimit::limited(
+                DEFAULT_WEBSOCKET_MAX_UNAUTHENTICATED_CONNECTIONS,
+            ),
+            pre_auth_requests_per_minute_global: ResourceLimit::limited(
+                DEFAULT_WEBSOCKET_PRE_AUTH_REQUESTS_PER_MINUTE_GLOBAL,
+            ),
+            pre_auth_requests_per_minute_per_address: ResourceLimit::limited(
+                DEFAULT_WEBSOCKET_PRE_AUTH_REQUESTS_PER_MINUTE_PER_ADDRESS,
+            ),
+            handshake_timeout_ms: ResourceLimit::limited(DEFAULT_WEBSOCKET_HANDSHAKE_TIMEOUT_MS),
             port: DEFAULT_WEBSOCKET_PORT,
         }
     }
@@ -774,14 +1039,9 @@ fn validate_serial_device(
         message: format!("serial device {device_id:?} {message}"),
     };
 
-    if device_id.is_empty()
-        || device_id.len() > MAX_SERIAL_DEVICE_ID_LENGTH
-        || !device_id.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-    {
+    if device_id.len() > MAX_SERIAL_DEVICE_ID_LENGTH || !is_user_identifier(device_id) {
         return Err(invalid(format!(
-            "ID must contain 1 to {MAX_SERIAL_DEVICE_ID_LENGTH} lowercase letters, numbers, underscores, or hyphens"
+            "ID must contain 1 to {MAX_SERIAL_DEVICE_ID_LENGTH} ASCII letters, numbers, hyphens, or underscores"
         )));
     }
     validate_bounded_text(
@@ -981,6 +1241,27 @@ fn validate_bind_address(path: &Path, setting: &str, value: &str) -> Result<(), 
     Ok(())
 }
 
+fn validate_resource_limit(
+    path: &Path,
+    setting: &str,
+    value: ResourceLimit,
+    minimum: u64,
+    maximum: u64,
+) -> Result<(), RunnerConfigError> {
+    let Some(value) = value.value() else {
+        return Ok(());
+    };
+    if (minimum..=maximum).contains(&value) {
+        return Ok(());
+    }
+    Err(RunnerConfigError::Validate {
+        path: path.to_path_buf(),
+        message: format!(
+            "{setting} must be \"unlimited\" or an integer between {minimum} and {maximum}"
+        ),
+    })
+}
+
 fn validate_target_runtimes(path: &Path, values: &[String]) -> Result<(), RunnerConfigError> {
     const ALLOWED: [&str; 4] = [
         "Linux Headless",
@@ -1053,6 +1334,32 @@ fn contains_unsafe_text(value: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The written template and the `Default` impl must not drift apart.
+    ///
+    /// `SecurityPolicySettings` carries `#[serde(default)]`, so a config file
+    /// that omits a key falls back to the `Default` impl rather than to the
+    /// template. If the two disagree, a fresh install and an upgraded install
+    /// get different security behaviour from the same visible config.
+    #[test]
+    fn template_security_policy_matches_the_default_impl() {
+        let temporary_directory = tempfile::tempdir().expect("temp dir");
+        let config_path = temporary_directory.path().join("runner.toml");
+        let template = RunnerConfig::from_toml(RunnerConfig::template_toml(), &config_path)
+            .expect("template should parse");
+
+        assert_eq!(template.security.policy, SecurityPolicySettings::default());
+    }
+
+    #[test]
+    fn security_policy_capabilities_are_disabled_until_enabled() {
+        let policy = SecurityPolicySettings::default();
+
+        assert!(!policy.allow_dangerous_permissions);
+        assert!(!policy.allow_shell_commands);
+        assert!(!policy.allow_public_network_listeners);
+        assert!(!policy.allow_private_http_requests);
+    }
+
     #[test]
     fn missing_config_uses_safe_defaults() {
         let temporary_directory = tempfile::tempdir().expect("temp dir");
@@ -1085,7 +1392,7 @@ mod tests {
         );
         assert_eq!(
             config.limits.max_http_response_bytes,
-            DEFAULT_MAX_HTTP_RESPONSE_BYTES
+            ResourceLimit::limited(DEFAULT_MAX_HTTP_RESPONSE_BYTES)
         );
         assert!(
             !config_path.exists(),
@@ -1111,7 +1418,7 @@ mod tests {
         assert!(contents.contains("[triggers]"));
         assert!(contents.contains("hotkeys_enabled = true"));
         assert!(contents.contains("[security.policy]"));
-        assert!(contents.contains("allow_shell_commands = true"));
+        assert!(contents.contains("allow_shell_commands = false"));
     }
 
     #[test]
@@ -1410,6 +1717,17 @@ mod tests {
     }
 
     #[test]
+    fn serial_device_ids_accept_the_shared_identifier_character_set() {
+        let config = RunnerConfig::from_toml(
+            "[serial.devices.Main-Controller_2]\nport = \"COM3\"",
+            "runner.toml",
+        )
+        .expect("portable serial device ID should parse");
+
+        assert!(config.serial.devices.contains_key("Main-Controller_2"));
+    }
+
+    #[test]
     fn serial_framing_settings_round_trip_through_toml() {
         let mut config = RunnerConfig::default();
         config.serial.devices.insert(
@@ -1558,10 +1876,13 @@ mod tests {
         );
         assert!(!config.desktop.launch_at_login);
         assert!(config.desktop.keep_running_on_close);
+        assert!(!config.desktop.dialog_console_enabled);
+        assert!(!config.desktop.dialog_console_always_on_top);
+        assert!(config.desktop.dialog_console_focus_on_request);
         assert_eq!(config.webhooks.port, DEFAULT_WEBHOOK_PORT);
         assert_eq!(
             config.limits.max_file_download_bytes,
-            DEFAULT_MAX_FILE_DOWNLOAD_BYTES
+            ResourceLimit::limited(DEFAULT_MAX_FILE_DOWNLOAD_BYTES)
         );
         assert_eq!(config.websockets.port, DEFAULT_WEBSOCKET_PORT);
         assert_eq!(

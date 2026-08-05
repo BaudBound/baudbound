@@ -1,7 +1,7 @@
 import { Copy } from "lucide-react";
 import type { ReactNode } from "react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { Button } from "@/components/ui/button";
 import type { CoordinatePickerResult } from "@/lib/runner-api";
 
@@ -56,12 +56,20 @@ function ResultFact({
 }
 
 function CopyValueButton({ label, value }: { label: string; value: string }) {
+  const { notify } = useSystemLog();
   async function copy() {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(`${label.replace(/^Copy /, "")} copied.`);
+      notify.success(`${label.replace(/^Copy /, "")} copied.`, {
+        source: "Screen coordinate tools",
+        title: "Value copied",
+      });
     } catch (error) {
-      toast.error(`Could not copy the value: ${String(error)}`);
+      notify.error("The selected value could not be copied.", {
+        error,
+        source: "Screen coordinate tools",
+        title: "Could not copy value",
+      });
     }
   }
 

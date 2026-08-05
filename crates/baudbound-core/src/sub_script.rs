@@ -82,6 +82,7 @@ impl<S: ScriptStore> CoreRuntimeActionHandler<'_, S> {
                     Value::String(report.identity.trigger_node_id),
                 ),
             ]),
+            sensitive_output_keys: Default::default(),
         })
     }
 }

@@ -79,7 +79,13 @@ fn cancellation_stops_unbounded_control_flow_at_frame_boundaries() {
             }
         }),
         "script-1",
-        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_cancellation(token),
+        RuntimeExecutionResources::new(&UnsupportedActionHandler)
+            .with_cancellation(token)
+            .with_execution_policy(RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::Unlimited,
+                max_run_duration_ms: ResourceLimit::Unlimited,
+                max_loop_iterations_per_run: ResourceLimit::Unlimited,
+            }),
     )
     .expect_err("cancelled control flow must stop execution");
     cancel_thread
@@ -87,6 +93,47 @@ fn cancellation_stops_unbounded_control_flow_at_frame_boundaries() {
         .expect("cancellation thread should join");
 
     assert!(matches!(error, RuntimeError::Cancelled));
+}
+
+#[test]
+fn wall_clock_budget_interrupts_a_long_action_with_a_typed_error() {
+    let started = Instant::now();
+    let error = execute_manual_program_with_state(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-delay",
+                        "action_type": "action.delay",
+                        "type": "delay",
+                        "config": {"amount": 30, "unit": "seconds"},
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-delay")]
+                }
+            }
+        }),
+        "script-wall-clock-limit",
+        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_execution_policy(
+            RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::Unlimited,
+                max_run_duration_ms: ResourceLimit::limited(20),
+                max_loop_iterations_per_run: ResourceLimit::Unlimited,
+            },
+        ),
+    )
+    .expect_err("wall-clock budget must cancel the delay");
+
+    assert!(matches!(
+        error,
+        RuntimeError::ResourceLimitExceeded {
+            resource: "wall-clock duration in milliseconds",
+            limit: ResourceLimit::Limited(20)
+        }
+    ));
+    assert!(started.elapsed() < Duration::from_secs(1));
 }
 
 #[test]

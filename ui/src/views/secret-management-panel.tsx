@@ -1,8 +1,6 @@
 import {
   Eye,
   EyeOff,
-  HardDrive,
-  KeyRound,
   LoaderCircle,
   Lock,
   LockKeyhole,
@@ -164,9 +162,7 @@ export function SecretManagementPanel({
     <>
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HardDrive className="size-4 text-baud-blue" /> Secret storage
-          </CardTitle>
+          <CardTitle>Secret storage</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
           <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-background p-3">
@@ -265,9 +261,7 @@ export function SecretManagementPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="size-4 text-baud-amber" /> Script secrets
-          </CardTitle>
+          <CardTitle>Script secrets</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
           {storageMode === "operating_system" &&
@@ -410,7 +404,6 @@ export function SecretManagementPanel({
             Secret value
             <div className="relative w-full">
               <Input
-                autoComplete="new-password"
                 autoFocus
                 className="secret-value-input w-full pr-10"
                 maxLength={SECRET_INPUT_MAX_LENGTH}
@@ -457,7 +450,6 @@ export function SecretManagementPanel({
             Storage password
             <div className="relative w-full">
               <Input
-                autoComplete="current-password"
                 autoFocus
                 className="secret-value-input w-full pr-10"
                 maxLength={1024}
@@ -591,7 +583,6 @@ export function SecretManagementPanel({
                 <label className="grid gap-1.5 text-sm">
                   Password
                   <Input
-                    autoComplete="new-password"
                     autoFocus
                     className="secret-value-input"
                     maxLength={1024}
@@ -638,7 +629,6 @@ export function SecretManagementPanel({
                 <label className="grid gap-1.5 text-sm">
                   Confirm password
                   <Input
-                    autoComplete="new-password"
                     className="secret-value-input"
                     maxLength={1024}
                     type="password"

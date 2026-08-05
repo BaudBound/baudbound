@@ -42,6 +42,7 @@ pub(super) fn run_keyboard(
             ),
             ("key".to_owned(), Value::String(combo.expression.clone())),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -64,5 +65,6 @@ pub(super) fn run_keyboard_type_text(
             ),
             ("text".to_owned(), Value::String(text)),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }

@@ -1,6 +1,8 @@
+use baudbound_runtime::ResourceLimit;
 use serde_json::{Value, json};
 
-use super::execute;
+use super::{execute, execute_with_handler};
+use crate::{ActionLimits, HeadlessActionHandler};
 
 fn pipeline(input: Value, operations: Value) -> Value {
     json!({ "input": input, "operations": operations })
@@ -206,6 +208,108 @@ fn trims_safe_integer_fields_and_supports_numbered_regex_captures() {
         replaced.output_data.get("text"),
         Some(&json!("last, first"))
     );
+}
+
+#[test]
+fn generated_text_limit_is_enforced_without_hidden_clamping() {
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_generated_text_bytes: ResourceLimit::limited(4),
+        ..ActionLimits::default()
+    });
+    let error = execute_with_handler(
+        &handler,
+        "action.text.format",
+        pipeline(
+            json!("x"),
+            json!([{"id":"1","operation":"pad_end","targetLength":5,"pad":"y"}]),
+        ),
+        Value::Null,
+    )
+    .expect_err("generated text over the configured byte limit must fail");
+
+    assert!(error.to_string().contains("configured 4 byte limit"));
+
+    let unlimited = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_generated_text_bytes: ResourceLimit::Unlimited,
+        ..ActionLimits::default()
+    });
+    let result = execute_with_handler(
+        &unlimited,
+        "action.text.format",
+        pipeline(
+            json!("x"),
+            json!([{"id":"1","operation":"pad_end","targetLength":5,"pad":"y"}]),
+        ),
+        Value::Null,
+    )
+    .expect("unlimited generated text should not be clamped");
+    assert_eq!(result.output_data.get("text"), Some(&json!("xyyyy")));
+}
+
+#[test]
+fn multi_megabyte_text_generation_obeys_the_exact_configured_boundary() {
+    const MAXIMUM: usize = 4 * 1024 * 1024;
+
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_generated_text_bytes: ResourceLimit::limited(MAXIMUM as u64),
+        ..ActionLimits::default()
+    });
+    let result = execute_with_handler(
+        &handler,
+        "action.text.format",
+        pipeline(
+            json!("x"),
+            json!([{"id":"1","operation":"pad_end","targetLength":MAXIMUM,"pad":"y"}]),
+        ),
+        Value::Null,
+    )
+    .expect("text exactly at the configured boundary should succeed");
+    assert_eq!(result.output_data["text"].as_str().unwrap().len(), MAXIMUM);
+
+    let error = execute_with_handler(
+        &handler,
+        "action.text.format",
+        pipeline(
+            json!("x"),
+            json!([{"id":"1","operation":"pad_end","targetLength":MAXIMUM + 1,"pad":"y"}]),
+        ),
+        Value::Null,
+    )
+    .expect_err("text one byte beyond the configured boundary must fail");
+    assert!(error.to_string().contains("4194304 byte limit"));
+}
+
+#[test]
+fn shared_regex_replacement_fixtures_conform() {
+    let fixtures: Value =
+        serde_json::from_str(include_str!("../../../../contracts/regex-conformance.json"))
+            .expect("shared regex fixtures must be valid JSON");
+    let cases = fixtures
+        .get("replacement_cases")
+        .and_then(Value::as_array)
+        .expect("shared regex replacement cases must be an array");
+
+    for fixture in cases {
+        let name = fixture["name"].as_str().expect("fixture name must be text");
+        let result = execute(
+            "action.text.format",
+            pipeline(
+                fixture["input"].clone(),
+                json!([{
+                    "id": name,
+                    "operation": "regex_replace",
+                    "search": fixture["pattern"],
+                    "replacement": fixture["replacement"]
+                }]),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("{name} failed: {error}"));
+        assert_eq!(
+            result.output_data.get("text"),
+            Some(&fixture["output"]),
+            "{name}"
+        );
+    }
 }
 
 #[test]

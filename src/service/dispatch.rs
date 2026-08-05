@@ -4,6 +4,7 @@ use std::{
 };
 
 use baudbound_core::TriggerEvent;
+use baudbound_runtime::ResourceLimit;
 use baudbound_triggers::{HotkeyService, ScheduleService, StartupService};
 
 use super::{
@@ -64,16 +65,28 @@ pub(super) fn dispatch_due_schedules(
     schedules: &mut ScheduleService,
     executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
+    max_events: ResourceLimit,
 ) -> bool {
     let mut dispatched_any_event = false;
-    let events = schedules.due_events(Instant::now(), SystemTime::now());
-    for event in events {
-        dispatched_any_event = true;
-        console::info(format_args!(
-            "Dispatching schedule trigger {} for script {}",
-            event.node_id, event.script_id
-        ));
-        queue_trigger_event_from(executor, event, status, "schedule");
+    let dispatch = schedules.for_each_due_event_with_limit(
+        Instant::now(),
+        SystemTime::now(),
+        max_events,
+        |event| {
+            dispatched_any_event = true;
+            console::info(format_args!(
+                "Dispatching schedule trigger {} for script {}",
+                event.node_id, event.script_id
+            ));
+            queue_trigger_event_from(executor, event, status, "schedule");
+        },
+    );
+    if dispatch.deferred {
+        tracing::debug!(
+            limit = %max_events,
+            emitted = dispatch.emitted,
+            "schedule catch-up batch reached its configured per-poll limit"
+        );
     }
     dispatched_any_event
 }

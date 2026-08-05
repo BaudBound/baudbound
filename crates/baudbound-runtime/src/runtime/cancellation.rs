@@ -2,10 +2,12 @@ use std::{
     fmt,
     sync::{
         Arc, Condvar, Mutex, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
+
+use crossbeam_channel::{Receiver, Sender, bounded};
 
 #[derive(Clone, Default)]
 pub struct RuntimeCancellationToken {
@@ -17,6 +19,8 @@ struct CancellationState {
     cancelled: AtomicBool,
     changed: Condvar,
     children: Mutex<Vec<Weak<CancellationState>>>,
+    next_subscriber_id: AtomicU64,
+    subscribers: Mutex<Vec<(u64, Sender<()>)>>,
     wait_lock: Mutex<()>,
 }
 
@@ -70,6 +74,56 @@ impl RuntimeCancellationToken {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.is_cancelled()
     }
+
+    #[must_use]
+    pub fn subscribe(&self) -> RuntimeCancellationSubscription {
+        let (sender, receiver) = bounded(1);
+        let id = self
+            .inner
+            .next_subscriber_id
+            .fetch_add(1, Ordering::Relaxed);
+        let mut subscribers = self
+            .inner
+            .subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.is_cancelled() {
+            let _ = sender.send(());
+        } else {
+            subscribers.push((id, sender));
+        }
+        RuntimeCancellationSubscription {
+            id,
+            receiver,
+            state: Arc::downgrade(&self.inner),
+        }
+    }
+}
+
+pub struct RuntimeCancellationSubscription {
+    id: u64,
+    receiver: Receiver<()>,
+    state: Weak<CancellationState>,
+}
+
+impl RuntimeCancellationSubscription {
+    #[must_use]
+    pub fn receiver(&self) -> &Receiver<()> {
+        &self.receiver
+    }
+}
+
+impl Drop for RuntimeCancellationSubscription {
+    fn drop(&mut self) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let mut subscribers = state
+            .subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        subscribers.retain(|(id, _)| *id != self.id);
+    }
 }
 
 fn cancel_state(state: &Arc<CancellationState>) {
@@ -77,6 +131,15 @@ fn cancel_state(state: &Arc<CancellationState>) {
         return;
     }
     state.changed.notify_all();
+    {
+        let mut subscribers = state
+            .subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (_, subscriber) in subscribers.drain(..) {
+            let _ = subscriber.try_send(());
+        }
+    }
     let children = {
         let mut children = state
             .children
@@ -100,5 +163,53 @@ impl fmt::Debug for RuntimeCancellationToken {
             .debug_struct("RuntimeCancellationToken")
             .field("cancelled", &self.is_cancelled())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_subscriptions_unregister_immediately() {
+        let token = RuntimeCancellationToken::new();
+        let subscription = token.subscribe();
+        assert_eq!(
+            token
+                .inner
+                .subscribers
+                .lock()
+                .expect("lock should succeed")
+                .len(),
+            1
+        );
+
+        drop(subscription);
+
+        assert!(
+            token
+                .inner
+                .subscribers
+                .lock()
+                .expect("lock should succeed")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn cancellation_notifies_current_and_late_subscribers() {
+        let token = RuntimeCancellationToken::new();
+        let current = token.subscribe();
+
+        token.cancel();
+
+        current
+            .receiver()
+            .recv_timeout(Duration::from_millis(50))
+            .expect("current subscriber should be notified");
+        let late = token.subscribe();
+        late.receiver()
+            .recv_timeout(Duration::from_millis(50))
+            .expect("late subscriber should be notified immediately");
     }
 }

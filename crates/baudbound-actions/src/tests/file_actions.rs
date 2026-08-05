@@ -3,33 +3,30 @@ use std::fs;
 use serde_json::json;
 
 use super::{
-    TestHttpServer, execute, execute_with_handler, execute_with_package_path,
-    private_network_handler,
+    TestHttpServer, execute, execute_with_handler, execute_with_workspace, private_network_handler,
 };
 use crate::{ActionLimits, HeadlessActionHandler};
 
+/// Unit-level check that a bounded path stays inside the workspace it is given.
+///
+/// This covers the resolver only. Which workspace the execution path actually
+/// supplies is covered by an integration test in `baudbound-core`, because that
+/// is the wiring this test cannot observe.
 #[test]
 fn limited_relative_paths_use_the_script_workspace() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let package_path = directory.path().join("scripts").join("script-1.bbs");
+    let workspace = directory.path().join("workspaces").join("script-1");
 
-    execute_with_package_path(
+    execute_with_workspace(
         "action.file.write",
         json!({"path": "output/result.txt", "content": "workspace"}),
-        package_path,
+        workspace.clone(),
     )
     .expect("limited write should succeed");
 
     assert_eq!(
-        fs::read_to_string(
-            directory
-                .path()
-                .join("workspaces")
-                .join("script-1")
-                .join("output")
-                .join("result.txt")
-        )
-        .expect("workspace output should exist"),
+        fs::read_to_string(workspace.join("output").join("result.txt"))
+            .expect("workspace output should exist"),
         "workspace"
     );
 }
@@ -40,17 +37,16 @@ fn limited_paths_reject_symbolic_link_workspace_escapes() {
     use std::os::unix::fs::symlink;
 
     let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let package_path = directory.path().join("scripts").join("script-1.bbs");
     let workspace = directory.path().join("workspaces").join("script-1");
     let outside = directory.path().join("outside");
     fs::create_dir_all(&workspace).expect("workspace should be created");
     fs::create_dir_all(&outside).expect("outside directory should be created");
     symlink(&outside, workspace.join("escape")).expect("symlink should be created");
 
-    let error = execute_with_package_path(
+    let error = execute_with_workspace(
         "action.file.write",
         json!({"path": "escape/result.txt", "content": "blocked"}),
-        package_path,
+        workspace,
     )
     .expect_err("workspace symlink escape must fail");
 
@@ -66,6 +62,58 @@ fn limited_paths_reject_symbolic_link_workspace_escapes() {
         "unexpected symlink rejection: {error}"
     );
     assert!(!outside.join("result.txt").exists());
+}
+
+/// The workspace root itself must not be a symbolic link.
+///
+/// `cap-std` confines everything below the directory handle, but the handle is
+/// obtained with ambient authority. A symlink at the root would relocate the
+/// entire sandbox before `cap-std` is involved, so the previous test cannot
+/// catch it.
+#[cfg(unix)]
+#[test]
+fn limited_paths_reject_a_symbolic_link_workspace_root() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let workspace = directory.path().join("workspaces").join("script-1");
+    let outside = directory.path().join("attacker-controlled");
+    fs::create_dir_all(workspace.parent().expect("workspace has a parent"))
+        .expect("workspace parent should be created");
+    fs::create_dir_all(&outside).expect("outside directory should be created");
+    symlink(&outside, &workspace).expect("workspace root symlink should be created");
+
+    let error = execute_with_workspace(
+        "action.file.write",
+        json!({"path": "result.txt", "content": "blocked"}),
+        workspace,
+    )
+    .expect_err("a symlinked workspace root must fail");
+
+    assert!(
+        format!("{error}").contains("symbolic link"),
+        "unexpected workspace root rejection: {error}"
+    );
+    assert!(
+        !outside.join("result.txt").exists(),
+        "a symlinked workspace root must not redirect writes outside the runner home"
+    );
+}
+
+/// A bounded relative path with no workspace must fail rather than fall back to
+/// ambient authority, which would resolve it against the process directory.
+#[test]
+fn limited_paths_without_a_workspace_fail_closed() {
+    let error = execute(
+        "action.file.write",
+        json!({"path": "result.txt", "content": "blocked"}),
+    )
+    .expect_err("a bounded path without a workspace must fail");
+
+    assert!(
+        format!("{error}").contains("no script workspace is available"),
+        "unexpected missing-workspace rejection: {error}"
+    );
 }
 
 #[test]
@@ -99,7 +147,7 @@ fn read_file_rejects_files_over_the_configured_limit() {
     let path = directory.path().join("large.txt");
     fs::write(&path, "12345").expect("fixture should be written");
     let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
-        max_file_read_bytes: 4,
+        max_file_read_bytes: baudbound_runtime::ResourceLimit::limited(4),
         ..ActionLimits::default()
     });
 
@@ -140,6 +188,41 @@ fn write_file_rejects_invalid_modes_and_directory_targets() {
     )
     .expect_err("writing to a directory must fail");
     assert!(directory_error.to_string().contains("failed to open"));
+}
+
+#[test]
+fn repeated_file_writes_respect_the_exact_cumulative_run_budget() {
+    const WRITES: usize = 1_000;
+
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let path = directory.path().join("repeated.txt");
+    let handler = HeadlessActionHandler::default().with_limits(ActionLimits {
+        max_file_write_bytes_per_run: baudbound_runtime::ResourceLimit::limited(WRITES as u64),
+        ..ActionLimits::default()
+    });
+
+    for _ in 0..WRITES {
+        execute_with_handler(
+            &handler,
+            "action.file.write",
+            json!({"path": path, "mode": "append", "content": "x"}),
+            serde_json::Value::Null,
+        )
+        .expect("a write within the cumulative run budget should succeed");
+    }
+    let error = execute_with_handler(
+        &handler,
+        "action.file.write",
+        json!({"path": path, "mode": "append", "content": "x"}),
+        serde_json::Value::Null,
+    )
+    .expect_err("the first byte beyond the cumulative run budget must fail");
+
+    assert!(error.to_string().contains("1000 byte file-write limit"));
+    assert_eq!(
+        fs::metadata(path).expect("output should exist").len(),
+        WRITES as u64
+    );
 }
 
 #[test]
@@ -369,7 +452,7 @@ fn oversized_download_preserves_destination_and_removes_temporary_file() {
     let server =
         TestHttpServer::start("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nresponse-too-large");
     let handler = private_network_handler().with_limits(ActionLimits {
-        max_file_download_bytes: 4,
+        max_file_download_bytes: baudbound_runtime::ResourceLimit::limited(4),
         ..ActionLimits::default()
     });
 

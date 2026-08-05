@@ -103,9 +103,9 @@ export function AppUpdateDialog({
         ) : null}
 
         {state.phase === "error" ? (
-          <div className="flex items-start gap-3 rounded-md border border-destructive/25 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="flex min-w-0 max-w-full items-start gap-3 rounded-md border border-destructive/25 bg-destructive/10 p-3 text-sm text-destructive">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-            <span className="min-w-0 break-words">{state.error}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{state.error}</span>
           </div>
         ) : null}
 

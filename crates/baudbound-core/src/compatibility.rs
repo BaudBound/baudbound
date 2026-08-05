@@ -172,7 +172,6 @@ fn action_support(action_type: &str) -> Option<ActionSupport> {
 pub const WINDOWS_DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.keyboard",
     "action.keyboard.type_text",
-    "action.message_box",
     "action.mouse",
     "action.mouse.move",
     "action.pixel.get",
@@ -186,8 +185,10 @@ pub const DESKTOP_ONLY_ACTIONS: &[&str] = &[
     "action.beep",
     "action.clipboard.get",
     "action.clipboard.set",
+    "action.message_box",
     "action.notification",
     "action.sound.play",
+    "action.form_dialog",
 ];
 
 #[derive(Debug, Clone, Copy)]

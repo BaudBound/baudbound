@@ -6,6 +6,10 @@ use super::*;
 mod abuse_cases;
 #[path = "tests/capabilities.rs"]
 mod capabilities;
+#[path = "tests/filesystem_contract.rs"]
+mod filesystem_contract;
+#[path = "tests/path_classification.rs"]
+mod path_classification;
 
 #[test]
 fn validates_matching_permissions() {

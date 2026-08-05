@@ -128,8 +128,25 @@ fn dispatches_concurrent_clients_and_writes_to_the_originating_connections() {
         .find(|event| event.payload["query"]["source"] == "first")
         .and_then(|event| event.payload["connection_id"].as_str())
         .expect("first connection id should exist");
+    assert!(
+        registry
+            .send_text("script-2", "n-websocket", first_id, "cross-script-response")
+            .is_err(),
+        "a different script must not write to the connection"
+    );
+    assert!(
+        registry
+            .send_text(
+                "script-1",
+                "n-other-trigger",
+                first_id,
+                "cross-trigger-response"
+            )
+            .is_err(),
+        "a run from another trigger must not write to the connection"
+    );
     registry
-        .send_text(first_id, "server-response")
+        .send_text("script-1", "n-websocket", first_id, "server-response")
         .expect("server write should succeed");
     assert_eq!(
         first.read().expect("first client should receive response"),
@@ -147,7 +164,11 @@ fn dispatches_concurrent_clients_and_writes_to_the_originating_connections() {
     first.close(None).expect("first client should close");
     second.close(None).expect("second client should close");
     wait_for_connection_count(&registry, 0);
-    assert!(registry.send_text(first_id, "after-close").is_err());
+    assert!(
+        registry
+            .send_text("script-1", "n-websocket", first_id, "after-close")
+            .is_err()
+    );
     drop(service);
 }
 
@@ -405,9 +426,13 @@ fn service_config(max_connections: usize, max_message_bytes: usize) -> WebSocket
     WebSocketServiceConfig {
         allow_browser_origins: BTreeSet::new(),
         bind: "127.0.0.1".to_owned(),
+        handshake_timeout_ms: baudbound_runtime::ResourceLimit::limited(5_000),
         max_connections,
         max_message_bytes,
+        max_unauthenticated_connections: baudbound_runtime::ResourceLimit::limited(8),
         port: 0,
+        pre_auth_requests_per_minute_global: baudbound_runtime::ResourceLimit::limited(1_000),
+        pre_auth_requests_per_minute_per_address: baudbound_runtime::ResourceLimit::limited(1_000),
     }
 }
 

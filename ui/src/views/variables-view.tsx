@@ -1,11 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
 import { Download, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { CodeBlock } from "@/components/code-block";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,17 +13,18 @@ import { Input } from "@/components/ui/input";
 import { formatCount } from "@/lib/count-format";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
+  type DeclaredVariableRecord,
   exportVariables,
   getVariableInventory,
   resetStoredVariables,
-  type DeclaredVariableRecord,
-  type StoredVariableRecord,
   type StoredVariableChange,
+  type StoredVariableRecord,
   type VariableInventory,
 } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
 
 export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
+  const { notify } = useSystemLog();
   const [inventory, setInventory] = useState<VariableInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -33,14 +34,9 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<StoredVariableChange>(
-      "runner-variable-changed",
-      ({ payload }) => {
-        setInventory((current) =>
-          current ? applyVariableChange(current, payload) : current,
-        );
-      },
-    ).then((cleanup) => {
+    void listen<StoredVariableChange>("runner-variable-changed", ({ payload }) => {
+      setInventory((current) => (current ? applyVariableChange(current, payload) : current));
+    }).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
     });
@@ -69,24 +65,25 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
   if (error) return <EmptyState>Could not load variables: {error}</EmptyState>;
   if (!inventory) return <EmptyState>Loading variables...</EmptyState>;
   const query = search.trim().toLowerCase();
-  const stored = inventory.stored.filter((item) =>
-    matchesVariable(item, query),
-  );
-  const declared = inventory.declared.filter((item) =>
-    matchesVariable(item, query),
-  );
+  const stored = inventory.stored.filter((item) => matchesVariable(item, query));
+  const declared = inventory.declared.filter((item) => matchesVariable(item, query));
 
   async function exportInventory() {
     setExporting(true);
     try {
       const result = await exportVariables();
       if (!result.cancelled) {
-        toast.success(
-          `Exported ${formatCount(result.exported_count, "variable")} to ${result.file_name}.`,
-        );
+        notify.success(`Exported ${formatCount(result.exported_count, "variable")} to ${result.file_name}.`, {
+          source: "Variables",
+          title: "Variables exported",
+        });
       }
     } catch (reason) {
-      toast.error(`Could not export variables: ${String(reason)}`);
+      notify.error("The variables could not be exported.", {
+        error: reason,
+        source: "Variables",
+        title: "Variable export failed",
+      });
     } finally {
       setExporting(false);
     }
@@ -102,9 +99,16 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
         stored: sortStoredVariables(refreshed.stored),
       });
       setError(null);
-      toast.success(result.message);
+      notify.success(result.message, {
+        source: "Variables",
+        title: "Stored variables reset",
+      });
     } catch (reason) {
-      toast.error(`Could not reset stored variables: ${String(reason)}`);
+      notify.error("Stored variables could not be reset.", {
+        error: reason,
+        source: "Variables",
+        title: "Variable reset failed",
+      });
     } finally {
       setResetting(false);
     }
@@ -113,15 +117,7 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
   return (
     <>
       <div className="grid gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Input
-            aria-label="Search variables"
-            maxLength={SEARCH_INPUT_MAX_LENGTH}
-            className="min-w-56 flex-1"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search name, script, scope, type, description, or value"
-            value={search}
-          />
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <Button
             className="whitespace-nowrap"
             disabled={exporting}
@@ -143,6 +139,14 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
             Reset stored values
           </Button>
         </div>
+        <Input
+          aria-label="Search variables"
+          maxLength={SEARCH_INPUT_MAX_LENGTH}
+          className="min-w-0 w-full"
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search name, script, scope, type, description, or value"
+          value={search}
+        />
         {inventory.warnings.map((warning) => (
           <EmptyState key={warning}>{warning}</EmptyState>
         ))}
@@ -155,9 +159,7 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
         </VariableSection>
         <VariableSection title="Declared defaults">
           {declared.length === 0 ? (
-            <EmptyState>
-              No declared defaults match the current search.
-            </EmptyState>
+            <EmptyState>No declared defaults match the current search.</EmptyState>
           ) : (
             <DeclaredVariablesTable variables={declared} />
           )}
@@ -177,13 +179,7 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
   );
 }
 
-function VariableSection({
-  children,
-  title,
-}: {
-  children: React.ReactNode;
-  title: string;
-}) {
+function VariableSection({ children, title }: { children: React.ReactNode; title: string }) {
   return (
     <Card>
       <CardHeader>
@@ -194,11 +190,7 @@ function VariableSection({
   );
 }
 
-function StoredVariablesTable({
-  variables,
-}: {
-  variables: StoredVariableRecord[];
-}) {
+function StoredVariablesTable({ variables }: { variables: StoredVariableRecord[] }) {
   const { formatUnixSeconds } = useDesktopTime();
   return (
     <table className="responsive-table w-full border-collapse text-sm">
@@ -226,15 +218,11 @@ function StoredVariablesTable({
             <td className="px-3 py-3" data-label="Script">
               {variable.script_name ?? "All scripts"}
               {variable.script_id ? (
-                <div className="break-all font-mono text-xs text-muted-foreground">
-                  {variable.script_id}
-                </div>
+                <div className="break-all font-mono text-xs text-muted-foreground">{variable.script_id}</div>
               ) : null}
             </td>
             <td className="max-w-[420px] px-3 py-3" data-label="Value">
-              <CodeBlock className="max-h-40">
-                {jsonValue(variable.value)}
-              </CodeBlock>
+              <CodeBlock className="max-h-40">{jsonValue(variable.value)}</CodeBlock>
             </td>
             <td className="whitespace-nowrap px-3 py-3" data-label="Updated">
               {formatUnixSeconds(variable.updated_at_unix)}
@@ -246,11 +234,7 @@ function StoredVariablesTable({
   );
 }
 
-function DeclaredVariablesTable({
-  variables,
-}: {
-  variables: DeclaredVariableRecord[];
-}) {
+function DeclaredVariablesTable({ variables }: { variables: DeclaredVariableRecord[] }) {
   return (
     <table className="responsive-table w-full border-collapse text-sm">
       <thead>
@@ -265,10 +249,7 @@ function DeclaredVariablesTable({
       </thead>
       <tbody>
         {variables.map((variable) => (
-          <tr
-            className="border-b border-border align-top last:border-0"
-            key={`${variable.script_id}-${variable.name}`}
-          >
+          <tr className="border-b border-border align-top last:border-0" key={`${variable.script_id}-${variable.name}`}>
             <td className="px-3 py-3 font-mono text-xs" data-label="Name">
               {variable.name}
             </td>
@@ -280,19 +261,12 @@ function DeclaredVariablesTable({
             </td>
             <td className="px-3 py-3" data-label="Script">
               {variable.script_name}
-              <div className="break-all font-mono text-xs text-muted-foreground">
-                {variable.script_id}
-              </div>
+              <div className="break-all font-mono text-xs text-muted-foreground">{variable.script_id}</div>
             </td>
             <td className="max-w-[420px] px-3 py-3" data-label="Default value">
-              <CodeBlock className="max-h-40">
-                {jsonValue(variable.value)}
-              </CodeBlock>
+              <CodeBlock className="max-h-40">{jsonValue(variable.value)}</CodeBlock>
             </td>
-            <td
-              className="px-3 py-3 text-muted-foreground"
-              data-label="Description"
-            >
+            <td className="px-3 py-3 text-muted-foreground" data-label="Description">
               {variable.description || "No description"}
             </td>
           </tr>
@@ -306,10 +280,7 @@ function jsonValue(value: unknown) {
   return JSON.stringify(value, null, 2) ?? String(value);
 }
 
-function matchesVariable(
-  variable: StoredVariableRecord | DeclaredVariableRecord,
-  query: string,
-) {
+function matchesVariable(variable: StoredVariableRecord | DeclaredVariableRecord, query: string) {
   if (!query) return true;
   return [
     variable.name,
@@ -324,14 +295,9 @@ function matchesVariable(
     .includes(query);
 }
 
-function applyVariableChange(
-  inventory: VariableInventory,
-  change: StoredVariableChange,
-): VariableInventory {
+function applyVariableChange(inventory: VariableInventory, change: StoredVariableChange): VariableInventory {
   const keyMatches = (stored: StoredVariableRecord) =>
-    stored.scope === change.scope &&
-    stored.name === change.name &&
-    stored.script_id === change.script_id;
+    stored.scope === change.scope && stored.name === change.name && stored.script_id === change.script_id;
   if (change.deleted) {
     return {
       ...inventory,
@@ -340,9 +306,7 @@ function applyVariableChange(
   }
   const existing = inventory.stored.find(keyMatches);
   const scriptName =
-    existing?.script_name ??
-    (change.script_id ? inventory.script_names[change.script_id] : undefined) ??
-    null;
+    existing?.script_name ?? (change.script_id ? inventory.script_names[change.script_id] : undefined) ?? null;
   const { deleted: _, ...storedChange } = change;
   const next: StoredVariableRecord = {
     ...storedChange,
@@ -351,17 +315,12 @@ function applyVariableChange(
   return {
     ...inventory,
     stored: sortStoredVariables(
-      existing
-        ? inventory.stored.map((item) => (keyMatches(item) ? next : item))
-        : [...inventory.stored, next],
+      existing ? inventory.stored.map((item) => (keyMatches(item) ? next : item)) : [...inventory.stored, next],
     ),
   };
 }
 
-function mergeInventory(
-  loaded: VariableInventory,
-  current: VariableInventory | null,
-): VariableInventory {
+function mergeInventory(loaded: VariableInventory, current: VariableInventory | null): VariableInventory {
   if (!current) {
     return { ...loaded, stored: sortStoredVariables(loaded.stored) };
   }
@@ -388,9 +347,7 @@ function variableKey(variable: StoredVariableRecord) {
 
 function sortStoredVariables(variables: StoredVariableRecord[]) {
   return [...variables].sort((left, right) => {
-    const scriptOrder = (left.script_name ?? "").localeCompare(
-      right.script_name ?? "",
-    );
+    const scriptOrder = (left.script_name ?? "").localeCompare(right.script_name ?? "");
     return scriptOrder || left.name.localeCompare(right.name);
   });
 }

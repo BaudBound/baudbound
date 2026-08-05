@@ -6,7 +6,6 @@ import {
   Gauge,
   Info,
   MonitorCog,
-  RadioTower,
   ScrollText,
   ShieldCheck,
   Stethoscope,
@@ -44,7 +43,6 @@ export const navigationGroups: Array<{
       { icon: ShieldCheck, id: "security", label: "Security" },
       { icon: FileClock, id: "runs", label: "Runs" },
       { icon: ClipboardCheck, id: "logs", label: "Logs" },
-      { icon: RadioTower, id: "monitor", label: "Monitor" },
       { icon: Variable, id: "variables", label: "Variables" },
     ],
   },
@@ -75,7 +73,6 @@ export function pageTitle(activeTab: TabId) {
     dashboard: "Dashboard",
     diagnostics: "Doctor",
     logs: "Logs",
-    monitor: "Monitor",
     runs: "Runs",
     scripts: "Scripts",
     security: "Security",
@@ -105,7 +102,7 @@ export function pageSubtitle(
     return `${formatCount(count, "script")} ${count === 1 ? "needs" : "need"} attention`;
   }
   if (activeTab === "tools") {
-    return "Utilities for inspecting and configuring the local runner";
+    return "Live trigger monitoring and local runner utilities";
   }
   if (activeTab === "service") {
     return `Desktop runner: ${dashboard.desktop_background.state}`;
@@ -117,10 +114,7 @@ export function pageSubtitle(
     return formatCount(dashboard.run_statistics.total, "retained run record");
   }
   if (activeTab === "logs") {
-    return "Recent run output and action messages";
-  }
-  if (activeTab === "monitor") {
-    return "Live input from registered triggers";
+    return "Run output, action messages, and runner system events";
   }
   if (activeTab === "variables") {
     return "Stored values and defaults declared by installed scripts";

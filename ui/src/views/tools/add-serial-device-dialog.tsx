@@ -92,7 +92,7 @@ export function AddSerialDeviceDialog({
               <Input
                 autoFocus
                 maxLength={SERIAL_DEVICE_ID_MAX_LENGTH}
-                onChange={(event) => setDeviceId(event.target.value)}
+                onChange={(event) => setDeviceId(normalizeSerialDeviceId(event.target.value))}
                 onKeyDown={(event) => event.key === "Enter" && void addDevice()}
                 placeholder="main_controller"
                 value={deviceId}

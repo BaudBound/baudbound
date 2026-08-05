@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     fs::File,
-    io::{Read, Seek},
+    io::{Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -17,6 +17,7 @@ mod limits;
 mod manifest;
 mod numeric;
 pub(crate) mod schema;
+mod structure;
 
 use color_match::validate_program_color_match_contract;
 use graph::validate_program_graph;
@@ -160,9 +161,11 @@ pub fn read_package_asset(
 }
 
 pub fn read_package_asset_reader<R: Read + Seek>(
-    reader: R,
+    mut reader: R,
     asset_reference: &str,
 ) -> Result<PackageAsset, PackageLoadError> {
+    validate_archive_size(&mut reader)?;
+    structure::validate_archive_structure(&mut reader).map_err(PackageLoadError::Validation)?;
     let mut archive = ZipArchive::new(reader)?;
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
@@ -206,8 +209,10 @@ pub fn read_package_asset_reader<R: Read + Seek>(
 }
 
 pub fn load_script_package_reader<R: Read + Seek>(
-    reader: R,
+    mut reader: R,
 ) -> Result<ScriptPackage, PackageLoadError> {
+    validate_archive_size(&mut reader)?;
+    structure::validate_archive_structure(&mut reader).map_err(PackageLoadError::Validation)?;
     let mut archive = ZipArchive::new(reader)?;
     let entries = collect_package_entries(&mut archive)?;
     validate_package_entries(&entries)?;
@@ -239,6 +244,29 @@ pub fn load_script_package_reader<R: Read + Seek>(
     })
 }
 
+#[must_use]
+pub fn max_package_archive_bytes() -> u64 {
+    package_limits().max_archive_bytes
+}
+
+fn validate_archive_size<R: Seek>(reader: &mut R) -> Result<(), PackageLoadError> {
+    let start = reader.stream_position().map_err(PackageLoadError::Open)?;
+    let end = reader
+        .seek(SeekFrom::End(0))
+        .map_err(PackageLoadError::Open)?;
+    reader
+        .seek(SeekFrom::Start(start))
+        .map_err(PackageLoadError::Open)?;
+    let size = end.saturating_sub(start);
+    if size > package_limits().max_archive_bytes {
+        return Err(PackageLoadError::Validation(format!(
+            "package archive is {size} bytes; maximum is {} bytes",
+            package_limits().max_archive_bytes
+        )));
+    }
+    Ok(())
+}
+
 fn collect_package_entries<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
 ) -> Result<Vec<PackageEntry>, PackageLoadError> {
@@ -256,6 +284,7 @@ fn collect_package_entries<R: Read + Seek>(
 
     for index in 0..archive.len() {
         let file = archive.by_index(index)?;
+        validate_package_entry_path(file.name(), limits)?;
         if file.is_dir() {
             continue;
         }
@@ -301,6 +330,31 @@ fn collect_package_entries<R: Read + Seek>(
 
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(entries)
+}
+
+fn validate_package_entry_path(
+    path: &str,
+    limits: &limits::PackageLimits,
+) -> Result<(), PackageLoadError> {
+    if path.len() > limits.max_path_bytes {
+        return Err(PackageLoadError::Validation(format!(
+            "package entry path exceeds {} UTF-8 bytes",
+            limits.max_path_bytes
+        )));
+    }
+
+    let depth = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .count();
+    if depth > limits.max_path_depth {
+        return Err(PackageLoadError::Validation(format!(
+            "{path}: package entry path exceeds {} segments",
+            limits.max_path_depth
+        )));
+    }
+
+    Ok(())
 }
 
 fn validate_package_entries(entries: &[PackageEntry]) -> Result<(), PackageLoadError> {
@@ -548,6 +602,29 @@ mod tests {
     }
 
     #[test]
+    fn loads_package_with_color_runtime_variable_metadata() {
+        let mut program: serde_json::Value =
+            serde_json::from_str(TEST_PROGRAM).expect("test program should parse");
+        program["entry"]["program"]["runtime_context"]["variables"] = serde_json::json!([{
+            "name": "n-pixel.hex",
+            "token": "{{n-pixel.hex}}",
+            "type": "color",
+            "scope": "node_output",
+            "source": "node_output",
+            "read_only": true,
+            "description": "Pixel color as a hex string."
+        }]);
+        let program = serde_json::to_string(&program).expect("test program should serialize");
+
+        load_script_package_reader(Cursor::new(create_test_package_with_manifest_and_program(
+            TEST_MANIFEST,
+            &program,
+            &[],
+        )))
+        .expect("package with editor color metadata should load");
+    }
+
+    #[test]
     fn loads_valid_secret_declarations() {
         let manifest = r#"{
             "format_version": 1,
@@ -697,6 +774,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_archive_entry_paths_that_exceed_the_byte_limit() {
+        let path = format!("assets/{}.txt", "a".repeat(package_limits().max_path_bytes));
+        let bytes = create_single_file_archive(&path, b"data", CompressionMethod::Stored);
+
+        let error = load_script_package_reader(Cursor::new(bytes))
+            .expect_err("overlong package path must be rejected");
+        assert!(error.to_string().contains("UTF-8 bytes"), "{error}");
+    }
+
+    #[test]
+    fn rejects_archive_entry_paths_that_exceed_the_depth_limit() {
+        let path = format!(
+            "assets/{}/file.txt",
+            vec!["directory"; package_limits().max_path_depth].join("/")
+        );
+        let bytes = create_single_file_archive(&path, b"data", CompressionMethod::Stored);
+
+        let error = load_script_package_reader(Cursor::new(bytes))
+            .expect_err("over-deep package path must be rejected");
+        assert!(error.to_string().contains("segments"), "{error}");
+    }
+
+    #[test]
     fn rejects_oversized_metadata_before_allocating_it() {
         let oversized = vec![b' '; package_limits().max_metadata_bytes as usize + 1];
         let bytes =
@@ -743,59 +843,65 @@ mod tests {
             .into_inner()
     }
 
+    const TEST_MANIFEST: &str = r#"{
+		"format_version": 1,
+		"script_language_version": 1,
+		"id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
+		"name": "hello-log",
+		"version": "1.0.0",
+		"created_with": "BaudBound Test",
+		"created_at": "2026-01-01T00:00:00.000Z",
+		"minimum_runner_version": "0.1.0"
+	}"#;
+
+    const TEST_PROGRAM: &str = r#"{
+		"entry": {
+			"trigger": {
+				"id": "n-1",
+				"action_type": "trigger.manual",
+				"type": "manual",
+				"config": {},
+				"runtime_outputs": []
+			},
+			"triggers": [],
+			"program": {
+				"type": "block",
+				"execution_model": "directed_graph",
+				"runtime_context": {
+					"expression_reference": "{{node-id.data_name}}",
+					"template_reference": "{{node-id.data_name}}",
+					"variables": [],
+					"built_in_variables": {
+						"syntax": "{{variable_name}}",
+						"variables": []
+					},
+					"node_outputs": []
+				},
+				"steps": [],
+				"edges": []
+			}
+		}
+	}"#;
+
     fn create_test_package(extra_files: &[(&str, &str)]) -> Vec<u8> {
-        create_test_package_with_manifest(
-            r#"{
-					"format_version": 1,
-					"script_language_version": 1,
-					"id": "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7",
-					"name": "hello-log",
-					"version": "1.0.0",
-					"created_with": "BaudBound Test",
-					"created_at": "2026-01-01T00:00:00.000Z",
-					"minimum_runner_version": "0.1.0"
-				}"#,
-            extra_files,
-        )
+        create_test_package_with_manifest(TEST_MANIFEST, extra_files)
     }
 
     fn create_test_package_with_manifest(manifest: &str, extra_files: &[(&str, &str)]) -> Vec<u8> {
+        create_test_package_with_manifest_and_program(manifest, TEST_PROGRAM, extra_files)
+    }
+
+    fn create_test_package_with_manifest_and_program(
+        manifest: &str,
+        program: &str,
+        extra_files: &[(&str, &str)],
+    ) -> Vec<u8> {
         let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
 
         for (path, content) in [
             ("manifest.json", manifest),
-            (
-                "program.json",
-                r#"{
-					"entry": {
-						"trigger": {
-							"id": "n-1",
-							"action_type": "trigger.manual",
-							"type": "manual",
-							"config": {},
-							"runtime_outputs": []
-						},
-						"triggers": [],
-						"program": {
-							"type": "block",
-							"execution_model": "directed_graph",
-							"runtime_context": {
-								"expression_reference": "{{node-id.data_name}}",
-								"template_reference": "{{node-id.data_name}}",
-								"variables": [],
-								"built_in_variables": {
-									"syntax": "{{variable_name}}",
-									"variables": []
-								},
-								"node_outputs": []
-							},
-							"steps": [],
-							"edges": []
-						}
-					}
-				}"#,
-            ),
+            ("program.json", program),
             (
                 "permissions.json",
                 r#"{"declared_permissions": [], "risk_level": "low"}"#,

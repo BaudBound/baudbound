@@ -1,29 +1,15 @@
 import { listen } from "@tauri-apps/api/event";
-import {
-  CircleAlert,
-  Ban,
-  Database,
-  Eye,
-  ListFilter,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Ban, CircleAlert, Database, Eye, ListFilter, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { DetailDialog } from "@/components/detail-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { ExternalLink } from "@/components/external-link";
 import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -34,57 +20,51 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { DashboardAction } from "@/lib/app-types";
-import { useDesktopTime } from "@/lib/time-format";
-import {
-  compareSemanticVersions,
-  meetsMinimumRunnerVersion,
-  repositoryDisplayName,
-  repositoryScriptState,
-  repositoryUrlForDisplay,
-  type RepositoryScriptState,
-} from "@/lib/repository-browser";
-import {
-  addScriptRepository,
-  cancelRepositoryRequest,
-  getRepositoryScript,
-  getRepositoryScriptFilterOptions,
-  getRepositorySources,
-  prepareRepositoryScript,
-  previewScriptRepository,
-  queryRepositoryScripts,
-  refreshAllScriptRepositories,
-  refreshScriptRepository,
-  removeScriptRepository,
-  repositoryChangedEvent,
-  repositoryProgressEvent,
-  setScriptRepositoryEnabled,
-  setPersonalRepositoryBlock,
-  type DashboardPayload,
-  type RemotePackageReview,
-  type RepositoryRefreshProgress,
-  type RepositoryPreview,
-  type RepositoryScriptFilterOptions,
-  type RepositoryScriptQuery,
-  type RepositoryScriptRecord,
-  type RepositoryScriptSummary,
-  type RepositorySource,
-} from "@/lib/runner-api";
-import { RemotePackageDialog } from "@/views/remote-package-dialog";
 import {
   blacklistEntriesForRepositoryScript,
   blacklistEntriesForUrl,
   blacklistLabel,
   blacklistVariant,
 } from "@/lib/blacklist";
+import {
+  compareSemanticVersions,
+  meetsMinimumRunnerVersion,
+  type RepositoryScriptState,
+  repositoryDisplayName,
+  repositoryScriptState,
+  repositoryUrlForDisplay,
+} from "@/lib/repository-browser";
+import {
+  addScriptRepository,
+  cancelRepositoryRequest,
+  type DashboardPayload,
+  getRepositoryScript,
+  getRepositoryScriptFilterOptions,
+  getRepositorySources,
+  prepareRepositoryScript,
+  previewScriptRepository,
+  queryRepositoryScripts,
+  type RemotePackageReview,
+  type RepositoryPreview,
+  type RepositoryRefreshProgress,
+  type RepositoryScriptFilterOptions,
+  type RepositoryScriptQuery,
+  type RepositoryScriptRecord,
+  type RepositoryScriptSummary,
+  type RepositorySource,
+  refreshAllScriptRepositories,
+  refreshScriptRepository,
+  removeScriptRepository,
+  repositoryChangedEvent,
+  repositoryProgressEvent,
+  setPersonalRepositoryBlock,
+  setScriptRepositoryEnabled,
+} from "@/lib/runner-api";
+import { useDesktopTime } from "@/lib/time-format";
+import { RemotePackageDialog } from "@/views/remote-package-dialog";
 
 const pageSize = 50;
 
@@ -115,20 +95,18 @@ export function BrowseScriptsView({
   dashboard: DashboardPayload;
   runAction: DashboardAction;
 }) {
+  const { notify } = useSystemLog();
   const [repositories, setRepositories] = useState<RepositorySource[]>([]);
-  const [filterOptions, setFilterOptions] =
-    useState<RepositoryScriptFilterOptions>({
-      capabilities: [],
-      permissions: [],
-    });
+  const [filterOptions, setFilterOptions] = useState<RepositoryScriptFilterOptions>({
+    capabilities: [],
+    permissions: [],
+  });
   const [scripts, setScripts] = useState<RepositoryScriptSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
-  const [sort, setSort] =
-    useState<RepositoryScriptQuery["sort"]>("name");
+  const [sort, setSort] = useState<RepositoryScriptQuery["sort"]>("name");
   const [filters, setFilters] = useState<ScriptBrowserFilters>(defaultFilters);
-  const [filterDraft, setFilterDraft] =
-    useState<ScriptBrowserFilters>(defaultFilters);
+  const [filterDraft, setFilterDraft] = useState<ScriptBrowserFilters>(defaultFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -185,9 +163,15 @@ export function BrowseScriptsView({
   useEffect(() => {
     setLoading(true);
     Promise.all([loadRepositories(), loadFilterOptions(), loadScripts()])
-      .catch((error) => toast.error(`Could not load script repositories: ${String(error)}`))
+      .catch((error) => {
+        notify.error("The configured script repositories could not be loaded.", {
+          error,
+          source: "Script repositories",
+          title: "Could not load repositories",
+        });
+      })
       .finally(() => setLoading(false));
-  }, [loadFilterOptions, loadRepositories, loadScripts]);
+  }, [loadFilterOptions, loadRepositories, loadScripts, notify]);
 
   useEffect(() => {
     let unlistenChanged: (() => void) | undefined;
@@ -198,12 +182,11 @@ export function BrowseScriptsView({
     }).then((dispose) => {
       unlistenChanged = dispose;
     });
-    void listen<RepositoryRefreshProgress>(
-      repositoryProgressEvent,
-      ({ payload }) => setProgress(payload),
-    ).then((dispose) => {
-      unlistenProgress = dispose;
-    });
+    void listen<RepositoryRefreshProgress>(repositoryProgressEvent, ({ payload }) => setProgress(payload)).then(
+      (dispose) => {
+        unlistenProgress = dispose;
+      },
+    );
     return () => {
       unlistenChanged?.();
       unlistenProgress?.();
@@ -216,27 +199,16 @@ export function BrowseScriptsView({
 
   useEffect(() => {
     setFilters((current) => {
-      const repository = current.repository.filter((url) =>
-        repositories.some((source) => source.url === url),
-      );
-      return repository.length === current.repository.length
-        ? current
-        : { ...current, repository };
+      const repository = current.repository.filter((url) => repositories.some((source) => source.url === url));
+      return repository.length === current.repository.length ? current : { ...current, repository };
     });
   }, [repositories]);
 
   useEffect(() => {
     setFilters((current) => {
-      const permissions = current.permissions.filter((value) =>
-        filterOptions.permissions.includes(value),
-      );
-      const capabilities = current.capabilities.filter((value) =>
-        filterOptions.capabilities.includes(value),
-      );
-      if (
-        permissions.length === current.permissions.length &&
-        capabilities.length === current.capabilities.length
-      ) {
+      const permissions = current.permissions.filter((value) => filterOptions.permissions.includes(value));
+      const capabilities = current.capabilities.filter((value) => filterOptions.capabilities.includes(value));
+      if (permissions.length === current.permissions.length && capabilities.length === current.capabilities.length) {
         return current;
       }
       return { ...current, capabilities, permissions };
@@ -252,20 +224,21 @@ export function BrowseScriptsView({
     setRepositoryBusy((current) => new Set(current).add(id));
     try {
       await action(requestId);
-      await Promise.all([
-        loadRepositories(),
-        loadFilterOptions(),
-        loadScripts(),
-      ]);
-      toast.success(success);
+      await Promise.all([loadRepositories(), loadFilterOptions(), loadScripts()]);
+      notify.success(success, {
+        details: [{ label: "Operation ID", value: id }],
+        source: "Script repositories",
+        title: "Repository operation completed",
+      });
       return true;
     } catch (error) {
-      await Promise.all([
-        loadRepositories(),
-        loadFilterOptions(),
-        loadScripts(),
-      ]);
-      toast.error(String(error));
+      await Promise.all([loadRepositories(), loadFilterOptions(), loadScripts()]);
+      notify.error("The repository operation could not be completed.", {
+        details: [{ label: "Operation ID", value: id }],
+        error,
+        source: "Script repositories",
+        title: "Repository operation failed",
+      });
       return false;
     } finally {
       setRepositoryBusy((current) => {
@@ -283,11 +256,14 @@ export function BrowseScriptsView({
     const requestId = crypto.randomUUID();
     setRepositoryBusy((current) => new Set(current).add("preview"));
     try {
-      setRepositoryPreview(
-        await previewScriptRepository(requestId, url),
-      );
+      setRepositoryPreview(await previewScriptRepository(requestId, url));
     } catch (error) {
-      toast.error(`Could not preview the repository: ${String(error)}`);
+      notify.error("The repository could not be previewed.", {
+        details: [{ label: "Repository URL", value: url }],
+        error,
+        source: "Script repositories",
+        title: "Repository preview failed",
+      });
     } finally {
       setRepositoryBusy((current) => {
         const next = new Set(current);
@@ -302,11 +278,7 @@ export function BrowseScriptsView({
     if (!repositoryPreview) return;
     void runRepositoryAction(
       "add",
-      (requestId) =>
-        addScriptRepository(
-          requestId,
-          repositoryPreview.url,
-        ),
+      (requestId) => addScriptRepository(requestId, repositoryPreview.url),
       "Repository added.",
     ).then((succeeded) => {
       if (!succeeded) return;
@@ -335,16 +307,20 @@ export function BrowseScriptsView({
     const id = `package:${script.repository_url}:${script.script_id}`;
     setRepositoryBusy((current) => new Set(current).add(id));
     try {
-      const review = await prepareRepositoryScript(
-        script.repository_url,
-        script.script_id,
-        crypto.randomUUID(),
-      );
+      const review = await prepareRepositoryScript(script.repository_url, script.script_id, crypto.randomUUID());
       setPreparedReview(review);
       setPackageDialogOpen(true);
     } catch (error) {
       const message = String(error);
-      toast.error(`Could not prepare the package: ${message}`);
+      notify.error("The script package could not be prepared for review.", {
+        details: [
+          { label: "Repository URL", value: script.repository_url },
+          { label: "Script ID", value: script.script_id },
+        ],
+        error,
+        source: "Script repositories",
+        title: "Package preparation failed",
+      });
       if (message.includes("does not match the downloaded package")) {
         setMismatchIncident({ message, script });
       }
@@ -362,11 +338,17 @@ export function BrowseScriptsView({
     const id = `details:${script.repository_url}:${script.script_id}`;
     setRepositoryBusy((current) => new Set(current).add(id));
     try {
-      setDetailScript(
-        await getRepositoryScript(script.repository_url, script.script_id),
-      );
+      setDetailScript(await getRepositoryScript(script.repository_url, script.script_id));
     } catch (error) {
-      toast.error(`Could not load the script details: ${String(error)}`);
+      notify.error("The repository script details could not be loaded.", {
+        details: [
+          { label: "Repository URL", value: script.repository_url },
+          { label: "Script ID", value: script.script_id },
+        ],
+        error,
+        source: "Script repositories",
+        title: "Could not load script details",
+      });
     } finally {
       setRepositoryBusy((current) => {
         const next = new Set(current);
@@ -377,13 +359,7 @@ export function BrowseScriptsView({
   }
 
   const installedById = useMemo(
-    () =>
-      new Map(
-        dashboard.runner.scripts.map((script) => [
-          script.installed.id,
-          script,
-        ]),
-      ),
+    () => new Map(dashboard.runner.scripts.map((script) => [script.installed.id, script])),
     [dashboard.runner.scripts],
   );
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -398,10 +374,9 @@ export function BrowseScriptsView({
   const progressRepository = progress
     ? repositories.find((source) => source.url === progress.repository_url)
     : undefined;
-  const orphanPersonalBlocks =
-    dashboard.blacklist.personal_repository_blocks.filter(
-      (blockedUrl) => !repositories.some((source) => source.url === blockedUrl),
-    );
+  const orphanPersonalBlocks = dashboard.blacklist.personal_repository_blocks.filter(
+    (blockedUrl) => !repositories.some((source) => source.url === blockedUrl),
+  );
 
   return (
     <div className="grid gap-4">
@@ -416,11 +391,7 @@ export function BrowseScriptsView({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="muted">{total} results</Badge>
-              <Button
-                onClick={() => setManagementOpen(true)}
-                size="sm"
-                variant="outline"
-              >
+              <Button onClick={() => setManagementOpen(true)} size="sm" variant="outline">
                 <Database />
                 Repository management
               </Button>
@@ -428,7 +399,7 @@ export function BrowseScriptsView({
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Input
-              className="h-9 min-w-64 flex-1 py-0"
+              className="h-9 min-w-0 flex-1 py-0"
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search name, summary, author, tags, or description"
               value={search}
@@ -436,9 +407,7 @@ export function BrowseScriptsView({
             <div className="w-full sm:w-48">
               <FilterSelect
                 label="Sort scripts"
-                onValueChange={(value) =>
-                  setSort(value as RepositoryScriptQuery["sort"])
-                }
+                onValueChange={(value) => setSort(value as RepositoryScriptQuery["sort"])}
                 value={sort}
                 values={[
                   ["name", "Sort: Name"],
@@ -462,13 +431,21 @@ export function BrowseScriptsView({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-auto p-0 max-[1100px]:p-3">
+        <CardContent className="overflow-x-hidden p-0 max-[1100px]:p-3">
           {loading ? (
             <EmptyState>Loading repository scripts...</EmptyState>
           ) : scripts.length === 0 ? (
             <EmptyState>No scripts match the current filters.</EmptyState>
           ) : (
             <table className="responsive-table w-full border-collapse text-sm">
+              <colgroup className="max-[1280px]:hidden">
+                <col />
+                <col />
+                <col />
+                <col />
+                <col />
+                <col className="w-56" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <th className="px-4 py-2">Script</th>
@@ -485,8 +462,7 @@ export function BrowseScriptsView({
                   const installedMetadata = installedScript?.metadata;
                   const installed = script.installed || Boolean(installedScript);
                   const installedFromThisRepository =
-                    !installedMetadata ||
-                    installedMetadata.repository_url === script.repository_url;
+                    !installedMetadata || installedMetadata.repository_url === script.repository_url;
                   const targetCompatible = script.target_runtimes.some((runtime) =>
                     dashboard.runner.supported_target_runtimes.includes(runtime),
                   );
@@ -499,20 +475,14 @@ export function BrowseScriptsView({
                     ? compareSemanticVersions(script.version, installedMetadata.version)
                     : 1;
                   const updateAvailable =
-                    installed &&
-                    Boolean(installedMetadata) &&
-                    installedFromThisRepository &&
-                    versionComparison > 0;
+                    installed && Boolean(installedMetadata) && installedFromThisRepository && versionComparison > 0;
                   const mismatchNeedsRefresh =
-                    Boolean(script.information_mismatch) &&
-                    script.information_mismatch_refresh_required;
-                  const scriptBlacklistEntries =
-                    blacklistEntriesForRepositoryScript(
-                      dashboard.blacklist.entries,
-                      script,
-                    );
-                  const scriptBlacklistSeverity =
-                    highestBlacklistSeverity(scriptBlacklistEntries);
+                    Boolean(script.information_mismatch) && script.information_mismatch_refresh_required;
+                  const scriptBlacklistEntries = blacklistEntriesForRepositoryScript(
+                    dashboard.blacklist.entries,
+                    script,
+                  );
+                  const scriptBlacklistSeverity = highestBlacklistSeverity(scriptBlacklistEntries);
                   const scriptRestricted =
                     scriptBlacklistSeverity === "medium" ||
                     scriptBlacklistSeverity === "high" ||
@@ -521,9 +491,7 @@ export function BrowseScriptsView({
                     !mismatchNeedsRefresh &&
                     !scriptRestricted &&
                     compatible &&
-                    (!installed ||
-                      updateAvailable ||
-                      Boolean(script.information_mismatch));
+                    (!installed || updateAvailable || Boolean(script.information_mismatch));
                   const state = repositoryScriptState({
                     compatible,
                     informationMismatch: Boolean(script.information_mismatch),
@@ -531,12 +499,8 @@ export function BrowseScriptsView({
                     installedFromThisRepository,
                     updateAvailable,
                   });
-                  const packageBusy = repositoryBusy.has(
-                    `package:${script.repository_url}:${script.script_id}`,
-                  );
-                  const detailsBusy = repositoryBusy.has(
-                    `details:${script.repository_url}:${script.script_id}`,
-                  );
+                  const packageBusy = repositoryBusy.has(`package:${script.repository_url}:${script.script_id}`);
+                  const detailsBusy = repositoryBusy.has(`details:${script.repository_url}:${script.script_id}`);
                   return (
                     <tr
                       className="border-b border-border last:border-b-0"
@@ -546,21 +510,14 @@ export function BrowseScriptsView({
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{script.name}</span>
                           {scriptBlacklistSeverity ? (
-                            <Badge
-                              variant={blacklistVariant(scriptBlacklistSeverity)}
-                            >
+                            <Badge variant={blacklistVariant(scriptBlacklistSeverity)}>
                               {blacklistLabel(scriptBlacklistSeverity)}
                             </Badge>
                           ) : null}
                         </div>
-                        <div className="mt-1 max-w-xl text-xs text-muted-foreground">
-                          {script.summary}
-                        </div>
+                        <div className="mt-1 max-w-xl text-xs text-muted-foreground">{script.summary}</div>
                         {scriptBlacklistEntries.map((entry) => (
-                          <div
-                            className="mt-1 max-w-xl text-xs text-baud-amber"
-                            key={entry.id}
-                          >
+                          <div className="mt-1 max-w-xl text-xs text-baud-amber" key={entry.id}>
                             {entry.title}: {entry.reason}
                           </div>
                         ))}
@@ -582,7 +539,7 @@ export function BrowseScriptsView({
                         <RepositoryStateBadge className="mt-1" state={state} />
                       </td>
                       <td className="px-4 py-3" data-label="Actions">
-                        <div className="flex justify-end gap-2 max-[1280px]:justify-start">
+                        <div className="flex max-w-full flex-wrap justify-end gap-2 max-[1280px]:justify-start">
                           <Button
                             aria-label={`View ${script.name}`}
                             disabled={detailsBusy}
@@ -603,15 +560,15 @@ export function BrowseScriptsView({
                                 ? "The repository information did not match the downloaded package. Refresh the repository before trying again."
                                 : script.information_mismatch
                                   ? "Download the package again and verify it against the refreshed repository information."
-                                : !targetCompatible
-                                  ? "This script does not support a target runtime available on this runner."
-                                  : !versionCompatible
-                                    ? `This script requires BaudBound ${script.minimum_runner_version} or newer.`
-                                  : scriptRestricted
-                                    ? "This script is restricted by the Official blacklist."
-                                  : !canReview && installed
-                                    ? "This version is already installed or belongs to another repository."
-                                    : undefined
+                                  : !targetCompatible
+                                    ? "This script does not support a target runtime available on this runner."
+                                    : !versionCompatible
+                                      ? `This script requires BaudBound ${script.minimum_runner_version} or newer.`
+                                      : scriptRestricted
+                                        ? "This script is restricted by the Official blacklist."
+                                        : !canReview && installed
+                                          ? "This version is already installed or belongs to another repository."
+                                          : undefined
                             }
                           >
                             {script.information_mismatch
@@ -619,10 +576,10 @@ export function BrowseScriptsView({
                                 ? "Refresh required"
                                 : "Verify package"
                               : updateAvailable
-                              ? "Review update"
-                              : installed
-                                ? "Installed"
-                                : "Install"}
+                                ? "Review update"
+                                : installed
+                                  ? "Installed"
+                                  : "Install"}
                           </Button>
                         </div>
                       </td>
@@ -634,8 +591,7 @@ export function BrowseScriptsView({
           )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 text-xs text-muted-foreground">
             <span>
-              {total === 0 ? 0 : page * pageSize + 1} to{" "}
-              {Math.min(total, (page + 1) * pageSize)} of {total}
+              {total === 0 ? 0 : page * pageSize + 1} to {Math.min(total, (page + 1) * pageSize)} of {total}
             </span>
             <div className="flex gap-2">
               <Button
@@ -663,9 +619,7 @@ export function BrowseScriptsView({
         <DialogContent className="grid max-h-[85vh] w-[min(calc(100vw-2rem),960px)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Repository management</DialogTitle>
-            <DialogDescription>
-              Manage the script repositories available in the browser.
-            </DialogDescription>
+            <DialogDescription>Manage the script repositories available in the browser.</DialogDescription>
           </DialogHeader>
           <div className="grid content-start gap-2 overflow-y-auto pr-1">
             {repositories.length === 0 ? (
@@ -673,10 +627,7 @@ export function BrowseScriptsView({
             ) : (
               repositories.map((source) => {
                 const displayName = repositoryDisplayName(source);
-                const officialEntries = blacklistEntriesForUrl(
-                  dashboard.blacklist.entries,
-                  source.url,
-                );
+                const officialEntries = blacklistEntriesForUrl(dashboard.blacklist.entries, source.url);
                 const officialSeverity =
                   officialEntries
                     .map((entry) => entry.severity)
@@ -685,14 +636,9 @@ export function BrowseScriptsView({
                         ["low", "medium", "high", "critical"].indexOf(right) -
                         ["low", "medium", "high", "critical"].indexOf(left),
                     )[0] ?? null;
-                const personallyBlocked =
-                  dashboard.blacklist.personal_repository_blocks.includes(
-                    source.url,
-                  );
+                const personallyBlocked = dashboard.blacklist.personal_repository_blocks.includes(source.url);
                 const restricted =
-                  officialSeverity === "medium" ||
-                  officialSeverity === "high" ||
-                  officialSeverity === "critical";
+                  officialSeverity === "medium" || officialSeverity === "high" || officialSeverity === "critical";
                 return (
                   <div
                     className="grid items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm sm:grid-cols-[auto_minmax(0,1fr)_auto]"
@@ -701,18 +647,12 @@ export function BrowseScriptsView({
                     <Switch
                       aria-label={`Enable ${displayName}`}
                       checked={source.enabled}
-                      disabled={
-                        repositoryBusy.has(source.url) ||
-                        personallyBlocked ||
-                        restricted
-                      }
+                      disabled={repositoryBusy.has(source.url) || personallyBlocked || restricted}
                       onCheckedChange={(enabled) =>
                         void runRepositoryAction(
                           source.url,
                           () => setScriptRepositoryEnabled(source.url, enabled),
-                          enabled
-                            ? "Repository enabled."
-                            : "Repository disabled.",
+                          enabled ? "Repository enabled." : "Repository disabled.",
                         )
                       }
                       size="sm"
@@ -720,31 +660,18 @@ export function BrowseScriptsView({
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span className="truncate font-medium">{displayName}</span>
-                        {source.official ? (
-                          <Badge variant="good">Official</Badge>
-                        ) : null}
+                        {source.official ? <Badge variant="good">Official</Badge> : null}
                         {officialSeverity ? (
-                          <Badge variant={blacklistVariant(officialSeverity)}>
-                            {blacklistLabel(officialSeverity)}
-                          </Badge>
+                          <Badge variant={blacklistVariant(officialSeverity)}>{blacklistLabel(officialSeverity)}</Badge>
                         ) : null}
-                        {personallyBlocked ? (
-                          <Badge variant="muted">Blocked by you</Badge>
-                        ) : null}
-                        <Badge variant="muted">
-                          {source.script_count} scripts
-                        </Badge>
+                        {personallyBlocked ? <Badge variant="muted">Blocked by you</Badge> : null}
+                        <Badge variant="muted">{source.script_count} scripts</Badge>
                         {source.information_mismatch_count > 0 ? (
-                          <Badge variant="destructive">
-                            Information mismatch
-                          </Badge>
+                          <Badge variant="destructive">Information mismatch</Badge>
                         ) : null}
                       </div>
                       <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span
-                          className="min-w-0 truncate font-mono"
-                          title={repositoryUrlForDisplay(source.url)}
-                        >
+                        <span className="min-w-0 truncate font-mono" title={repositoryUrlForDisplay(source.url)}>
                           {repositoryUrlForDisplay(source.url)}
                         </span>
                         <span className="shrink-0">
@@ -754,10 +681,7 @@ export function BrowseScriptsView({
                         </span>
                       </div>
                       {source.last_error ? (
-                        <p
-                          className="mt-1 truncate text-xs text-baud-amber"
-                          title={source.last_error}
-                        >
+                        <p className="mt-1 truncate text-xs text-baud-amber" title={source.last_error}>
                           Refresh failed. Cached data is still available. {source.last_error}
                         </p>
                       ) : null}
@@ -768,30 +692,16 @@ export function BrowseScriptsView({
                         >
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium">{entry.title}</span>
-                            <Badge variant={blacklistVariant(entry.severity)}>
-                              {blacklistLabel(entry.severity)}
-                            </Badge>
+                            <Badge variant={blacklistVariant(entry.severity)}>{blacklistLabel(entry.severity)}</Badge>
                           </div>
-                          <p className="select-text text-muted-foreground">
-                            {entry.reason}
-                          </p>
+                          <p className="select-text text-muted-foreground">{entry.reason}</p>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                            <span>
-                              Published {entry.published_at}
-                            </span>
+                            <span>Published {entry.published_at}</span>
                             {entry.scope === "domain" ? (
-                              <span>
-                                {entry.subdomains
-                                  ? "Includes subdomains"
-                                  : "Exact domain only"}
-                              </span>
+                              <span>{entry.subdomains ? "Includes subdomains" : "Exact domain only"}</span>
                             ) : null}
-                            {entry.scope === "publisher" ? (
-                              <span>{entry.target}</span>
-                            ) : null}
-                            <ExternalLink href={entry.advisory_url}>
-                              Read advisory
-                            </ExternalLink>
+                            {entry.scope === "publisher" ? <span>{entry.target}</span> : null}
+                            <ExternalLink href={entry.advisory_url}>Read advisory</ExternalLink>
                           </div>
                         </div>
                       ))}
@@ -800,16 +710,11 @@ export function BrowseScriptsView({
                       <Button
                         aria-label={`Refresh ${displayName}`}
                         className="size-8 p-0"
-                        disabled={
-                          repositoryBusy.has(source.url) ||
-                          personallyBlocked ||
-                          restricted
-                        }
+                        disabled={repositoryBusy.has(source.url) || personallyBlocked || restricted}
                         onClick={() =>
                           void runRepositoryAction(
                             source.url,
-                            (requestId) =>
-                              refreshScriptRepository(requestId, source.url),
+                            (requestId) => refreshScriptRepository(requestId, source.url),
                             "Repository refreshed.",
                           )
                         }
@@ -817,11 +722,7 @@ export function BrowseScriptsView({
                         title="Refresh repository"
                         variant="outline"
                       >
-                        <RefreshCw
-                          className={
-                            repositoryBusy.has(source.url) ? "animate-spin" : ""
-                          }
-                        />
+                        <RefreshCw className={repositoryBusy.has(source.url) ? "animate-spin" : ""} />
                       </Button>
                       <Button
                         aria-label={`${personallyBlocked ? "Unblock" : "Block"} ${displayName}`}
@@ -829,19 +730,12 @@ export function BrowseScriptsView({
                         disabled={repositoryBusy.has(source.url)}
                         onClick={() => {
                           const action = `block-repository:${source.url}`;
-                          void runAction(action, () =>
-                            setPersonalRepositoryBlock(
-                              source.url,
-                              !personallyBlocked,
-                            ),
-                          ).then(() => void loadRepositories());
+                          void runAction(action, () => setPersonalRepositoryBlock(source.url, !personallyBlocked)).then(
+                            () => void loadRepositories(),
+                          );
                         }}
                         size="sm"
-                        title={
-                          personallyBlocked
-                            ? "Remove from your block list"
-                            : "Add to your block list"
-                        }
+                        title={personallyBlocked ? "Remove from your block list" : "Add to your block list"}
                         variant="outline"
                       >
                         <Ban />
@@ -898,18 +792,10 @@ export function BrowseScriptsView({
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
                 <span>
                   {refreshStageLabel(progress.stage)}{" "}
-                  {progressRepository
-                    ? repositoryDisplayName(progressRepository)
-                    : "repository"}
+                  {progressRepository ? repositoryDisplayName(progressRepository) : "repository"}
                 </span>
                 {!["startup", "automatic"].includes(progress.request_id) ? (
-                  <Button
-                    onClick={() =>
-                      void cancelRepositoryRequest(progress.request_id)
-                    }
-                    size="sm"
-                    variant="outline"
-                  >
+                  <Button onClick={() => void cancelRepositoryRequest(progress.request_id)} size="sm" variant="outline">
                     Cancel
                   </Button>
                 ) : null}
@@ -917,16 +803,8 @@ export function BrowseScriptsView({
             ) : null}
           </div>
           <DialogFooter>
-            <Button
-              disabled={repositoryBusy.has("refresh-all")}
-              onClick={refreshAll}
-              variant="outline"
-            >
-              <RefreshCw
-                className={
-                  repositoryBusy.has("refresh-all") ? "animate-spin" : ""
-                }
-              />
+            <Button disabled={repositoryBusy.has("refresh-all")} onClick={refreshAll} variant="outline">
+              <RefreshCw className={repositoryBusy.has("refresh-all") ? "animate-spin" : ""} />
               Refresh all
             </Button>
             <Button onClick={() => setAddOpen(true)}>
@@ -941,16 +819,12 @@ export function BrowseScriptsView({
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Script filters</DialogTitle>
-            <DialogDescription>
-              Choose which repository scripts appear in the browser.
-            </DialogDescription>
+            <DialogDescription>Choose which repository scripts appear in the browser.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
             <FilterField label="Repository">
               <MultiSelect
-                onChange={(repository) =>
-                  setFilterDraft((current) => ({ ...current, repository }))
-                }
+                onChange={(repository) => setFilterDraft((current) => ({ ...current, repository }))}
                 options={repositories.map((source) => ({
                   label: repositoryDisplayName(source),
                   value: source.url,
@@ -961,9 +835,7 @@ export function BrowseScriptsView({
             </FilterField>
             <FilterField label="Risk">
               <MultiSelect
-                onChange={(risk) =>
-                  setFilterDraft((current) => ({ ...current, risk }))
-                }
+                onChange={(risk) => setFilterDraft((current) => ({ ...current, risk }))}
                 options={[
                   { label: "Low risk", value: "low" },
                   { label: "Medium risk", value: "medium" },
@@ -976,9 +848,7 @@ export function BrowseScriptsView({
             </FilterField>
             <FilterField label="Installation state">
               <MultiSelect
-                onChange={(installed) =>
-                  setFilterDraft((current) => ({ ...current, installed }))
-                }
+                onChange={(installed) => setFilterDraft((current) => ({ ...current, installed }))}
                 options={[
                   { label: "Installed", value: "installed" },
                   { label: "Not installed", value: "not_installed" },
@@ -989,12 +859,11 @@ export function BrowseScriptsView({
             </FilterField>
             <FilterField label="Target runtime">
               <MultiSelect
-                onChange={(target) =>
-                  setFilterDraft((current) => ({ ...current, target }))
-                }
-                options={dashboard.runner.supported_target_runtimes.map(
-                  (runtime) => ({ label: runtime, value: runtime }),
-                )}
+                onChange={(target) => setFilterDraft((current) => ({ ...current, target }))}
+                options={dashboard.runner.supported_target_runtimes.map((runtime) => ({
+                  label: runtime,
+                  value: runtime,
+                }))}
                 placeholder="All targets"
                 value={filterDraft.target}
               />
@@ -1033,10 +902,7 @@ export function BrowseScriptsView({
             </FilterField>
           </div>
           <DialogFooter>
-            <Button
-              onClick={() => setFilterDraft(defaultFilters)}
-              variant="outline"
-            >
+            <Button onClick={() => setFilterDraft(defaultFilters)} variant="outline">
               Clear filters
             </Button>
             <Button onClick={() => setFiltersOpen(false)} variant="outline">
@@ -1065,12 +931,12 @@ export function BrowseScriptsView({
           <DialogHeader>
             <DialogTitle>Add script repository</DialogTitle>
             <DialogDescription>
-              Enter a public HTTPS address ending in repository.json. Adding it contacts that server and stores the validated script list locally.
+              Enter a public HTTPS address ending in repository.json. Adding it contacts that server and stores the
+              validated script list locally.
             </DialogDescription>
           </DialogHeader>
           <Input
             autoCapitalize="none"
-            autoComplete="off"
             disabled={repositoryPreview !== null}
             onChange={(event) => {
               setRepositoryUrl(event.target.value);
@@ -1083,14 +949,10 @@ export function BrowseScriptsView({
             <div className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{repositoryPreview.name}</span>
-                <Badge variant="muted">
-                  {repositoryPreview.script_count} scripts
-                </Badge>
+                <Badge variant="muted">{repositoryPreview.script_count} scripts</Badge>
               </div>
               {repositoryPreview.description ? (
-                <p className="text-muted-foreground">
-                  {repositoryPreview.description}
-                </p>
+                <p className="text-muted-foreground">{repositoryPreview.description}</p>
               ) : null}
               <p className="break-all font-mono text-xs text-muted-foreground">
                 {repositoryUrlForDisplay(repositoryPreview.url)}
@@ -1111,16 +973,8 @@ export function BrowseScriptsView({
               </Button>
             )}
             <Button
-              disabled={
-                !repositoryUrl.trim() ||
-                repositoryBusy.has("add") ||
-                repositoryBusy.has("preview")
-              }
-              onClick={
-                repositoryPreview
-                  ? addRepository
-                  : () => void previewRepository()
-              }
+              disabled={!repositoryUrl.trim() || repositoryBusy.has("add") || repositoryBusy.has("preview")}
+              onClick={repositoryPreview ? addRepository : () => void previewRepository()}
             >
               {repositoryPreview ? "Add repository" : "Preview repository"}
             </Button>
@@ -1138,7 +992,8 @@ export function BrowseScriptsView({
           <DialogHeader>
             <DialogTitle>Remove repository?</DialogTitle>
             <DialogDescription>
-              Cached browser entries from this repository will be removed. Scripts already installed from it will remain installed, but their update source will be unavailable.
+              Cached browser entries from this repository will be removed. Scripts already installed from it will remain
+              installed, but their update source will be unavailable.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1150,11 +1005,7 @@ export function BrowseScriptsView({
                 if (!removeSource) return;
                 const source = removeSource;
                 setRemoveSource(null);
-                void runRepositoryAction(
-                  source.url,
-                  () => removeScriptRepository(source.url),
-                  "Repository removed.",
-                );
+                void runRepositoryAction(source.url, () => removeScriptRepository(source.url), "Repository removed.");
               }}
               variant="destructive"
             >
@@ -1174,20 +1025,16 @@ export function BrowseScriptsView({
           <DialogHeader>
             <DialogTitle>Repository information mismatch</DialogTitle>
             <DialogDescription>
-              The repository reported information that does not match the validated package.
-              This can be caused by stale repository data, a publisher mistake, or tampering.
-              BaudBound rejected the package and did not install or update it.
+              The repository reported information that does not match the validated package. This can be caused by stale
+              repository data, a publisher mistake, or tampering. BaudBound rejected the package and did not install or
+              update it.
             </DialogDescription>
           </DialogHeader>
           {mismatchIncident ? (
             <div className="grid gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
               <div className="font-medium">{mismatchIncident.script.name}</div>
-              <div className="text-muted-foreground">
-                Repository: {mismatchIncident.script.repository_name}
-              </div>
-              <div className="break-words font-mono text-xs text-destructive">
-                {mismatchIncident.message}
-              </div>
+              <div className="text-muted-foreground">Repository: {mismatchIncident.script.repository_name}</div>
+              <div className="break-words font-mono text-xs text-destructive">{mismatchIncident.message}</div>
             </div>
           ) : null}
           <DialogFooter>
@@ -1198,8 +1045,7 @@ export function BrowseScriptsView({
               <Button
                 onClick={() => {
                   const source = repositories.find(
-                    (repository) =>
-                      repository.url === mismatchIncident.script.repository_url,
+                    (repository) => repository.url === mismatchIncident.script.repository_url,
                   );
                   setMismatchIncident(null);
                   if (source) setRemoveSource(source);
@@ -1215,9 +1061,7 @@ export function BrowseScriptsView({
 
       <DetailDialog
         description={
-          detailScript
-            ? `${detailScript.repository_name} | ${detailScript.script_id}`
-            : "Repository script information"
+          detailScript ? `${detailScript.repository_name} | ${detailScript.script_id}` : "Repository script information"
         }
         onOpenChange={(open) => {
           if (!open) setDetailScript(null);
@@ -1227,10 +1071,7 @@ export function BrowseScriptsView({
       >
         {detailScript ? (
           <RepositoryScriptDetails
-            blacklistEntries={blacklistEntriesForRepositoryScript(
-              dashboard.blacklist.entries,
-              detailScript,
-            )}
+            blacklistEntries={blacklistEntriesForRepositoryScript(dashboard.blacklist.entries, detailScript)}
             script={detailScript}
           />
         ) : null}
@@ -1273,15 +1114,11 @@ function RepositoryScriptDetails({
             </div>
           </CardHeader>
           <CardContent className="grid gap-2 text-sm">
-            <p className="select-text text-muted-foreground">
-              {blacklistEntry.reason}
-            </p>
+            <p className="select-text text-muted-foreground">{blacklistEntry.reason}</p>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>Scope {blacklistEntry.scope}</span>
               <span>Published {blacklistEntry.published_at}</span>
-              <ExternalLink href={blacklistEntry.advisory_url}>
-                Read advisory
-              </ExternalLink>
+              <ExternalLink href={blacklistEntry.advisory_url}>Read advisory</ExternalLink>
             </div>
           </CardContent>
         </Card>
@@ -1366,7 +1203,8 @@ function RepositoryScriptDetails({
       </div>
       <div className="flex items-start gap-2 rounded-md border border-baud-amber/30 bg-baud-amber/10 p-3 text-sm text-baud-amber">
         <CircleAlert className="mt-0.5 size-4 shrink-0" />
-        Repository permissions, capabilities, and risk are unverified previews. The downloaded package is validated separately before installation.
+        Repository permissions, capabilities, and risk are unverified previews. The downloaded package is validated
+        separately before installation.
       </div>
     </div>
   );
@@ -1408,13 +1246,7 @@ function FilterSelect({
   );
 }
 
-function FilterField({
-  children,
-  label,
-}: {
-  children: React.ReactNode;
-  label: string;
-}) {
+function FilterField({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <div className="grid gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -1423,35 +1255,40 @@ function FilterField({
   );
 }
 
-function RepositoryStateBadge({
-  className,
-  state,
-}: {
-  className?: string;
-  state: RepositoryScriptState;
-}) {
+function RepositoryStateBadge({ className, state }: { className?: string; state: RepositoryScriptState }) {
   if (state === "unavailable") {
-    return <Badge className={className} variant="destructive">Unavailable</Badge>;
+    return (
+      <Badge className={className} variant="destructive">
+        Unavailable
+      </Badge>
+    );
   }
   if (state === "incompatible") {
-    return <Badge className={className} variant="medium">Incompatible</Badge>;
+    return (
+      <Badge className={className} variant="medium">
+        Incompatible
+      </Badge>
+    );
   }
   if (state === "update_available") {
-    return <Badge className={className} variant="medium">Update available</Badge>;
+    return (
+      <Badge className={className} variant="medium">
+        Update available
+      </Badge>
+    );
   }
   if (state === "installed_elsewhere") {
-    return <Badge className={className} variant="muted">Installed from another repository</Badge>;
+    return (
+      <Badge className={className} variant="muted">
+        Installed from another repository
+      </Badge>
+    );
   }
   return null;
 }
 
 function RiskBadge({ risk }: { risk: string }) {
-  const variant =
-    risk === "low"
-      ? "good"
-      : risk === "medium"
-        ? "medium"
-        : "destructive";
+  const variant = risk === "low" ? "good" : risk === "medium" ? "medium" : "destructive";
   return <Badge variant={variant}>{risk}</Badge>;
 }
 
@@ -1462,11 +1299,9 @@ function refreshStageLabel(stage: RepositoryRefreshProgress["stage"]) {
   return "Refreshed";
 }
 
-function highestBlacklistSeverity(
-  entries: DashboardPayload["blacklist"]["entries"],
-) {
+function highestBlacklistSeverity(entries: DashboardPayload["blacklist"]["entries"]) {
   const order = ["low", "medium", "high", "critical"] as const;
-  return entries
-    .map((entry) => entry.severity)
-    .sort((left, right) => order.indexOf(right) - order.indexOf(left))[0] ?? null;
+  return (
+    entries.map((entry) => entry.severity).sort((left, right) => order.indexOf(right) - order.indexOf(left))[0] ?? null
+  );
 }

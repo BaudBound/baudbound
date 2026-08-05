@@ -10,22 +10,19 @@ import { Input } from "@/components/ui/input";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
-  filterVariables,
   filterVariableMetadata,
+  filterVariables,
   stringifyJson,
+  type VariableRow,
   variableRows,
   variableScopeLabel,
-  type VariableRow,
 } from "@/lib/run-inspection";
 import type { VariableScope } from "@/lib/runner-api";
 import { useSortableRows } from "@/lib/table-sorting";
 
 type VariableSortColumn = "name" | "scope" | "type" | "value";
 
-const variableSortSelectors: Record<
-  VariableSortColumn,
-  (row: VariableRow) => string
-> = {
+const variableSortSelectors: Record<VariableSortColumn, (row: VariableRow) => string> = {
   name: (row) => row.name,
   scope: (row) => variableScopeLabel(row.scope),
   type: (row) => row.type,
@@ -43,23 +40,10 @@ export function RunVariablePanel({
   const [showMetadata, setShowMetadata] = useState(false);
   const [expandedNames, setExpandedNames] = useState<Set<string>>(new Set());
   const metadataCheckboxId = useId();
-  const rows = useMemo(
-    () => variableRows(variables, variableScopes),
-    [variableScopes, variables],
-  );
-  const displayRows = useMemo(
-    () => filterVariableMetadata(rows, showMetadata),
-    [rows, showMetadata],
-  );
-  const filteredRows = useMemo(
-    () => filterVariables(displayRows, query),
-    [displayRows, query],
-  );
-  const {
-    sortedRows: visibleRows,
-    sortState,
-    toggleSort,
-  } = useSortableRows(filteredRows, variableSortSelectors);
+  const rows = useMemo(() => variableRows(variables, variableScopes), [variableScopes, variables]);
+  const displayRows = useMemo(() => filterVariableMetadata(rows, showMetadata), [rows, showMetadata]);
+  const filteredRows = useMemo(() => filterVariables(displayRows, query), [displayRows, query]);
+  const { sortedRows: visibleRows, sortState, toggleSort } = useSortableRows(filteredRows, variableSortSelectors);
 
   function toggleExpanded(name: string) {
     setExpandedNames((current) => {
@@ -94,10 +78,7 @@ export function RunVariablePanel({
             id={metadataCheckboxId}
             onCheckedChange={(checked) => setShowMetadata(checked === true)}
           />
-          <label
-            className="cursor-pointer select-none text-sm text-muted-foreground"
-            htmlFor={metadataCheckboxId}
-          >
+          <label className="cursor-pointer select-none text-sm text-muted-foreground" htmlFor={metadataCheckboxId}>
             Show metadata
           </label>
         </div>
@@ -106,36 +87,20 @@ export function RunVariablePanel({
       {visibleRows.length === 0 ? (
         <EmptyState>No variables match the current filters.</EmptyState>
       ) : (
-        <div className="max-h-[420px] overflow-auto rounded-md border border-border p-0 max-[1280px]:border-0">
+        <div className="max-h-[420px] overflow-x-hidden overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0">
           <table className="responsive-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                <SortableTableHeader
-                  column="name"
-                  onSort={toggleSort}
-                  sortState={sortState}
-                >
+                <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>
                   Name
                 </SortableTableHeader>
-                <SortableTableHeader
-                  column="scope"
-                  onSort={toggleSort}
-                  sortState={sortState}
-                >
+                <SortableTableHeader column="scope" onSort={toggleSort} sortState={sortState}>
                   Scope
                 </SortableTableHeader>
-                <SortableTableHeader
-                  column="type"
-                  onSort={toggleSort}
-                  sortState={sortState}
-                >
+                <SortableTableHeader column="type" onSort={toggleSort} sortState={sortState}>
                   Type
                 </SortableTableHeader>
-                <SortableTableHeader
-                  column="value"
-                  onSort={toggleSort}
-                  sortState={sortState}
-                >
+                <SortableTableHeader column="value" onSort={toggleSort} sortState={sortState}>
                   Value
                 </SortableTableHeader>
                 <th className="px-3 py-2"></th>
@@ -158,15 +123,7 @@ export function RunVariablePanel({
   );
 }
 
-function VariableTableRow({
-  expanded,
-  onToggle,
-  row,
-}: {
-  expanded: boolean;
-  onToggle: () => void;
-  row: VariableRow;
-}) {
+function VariableTableRow({ expanded, onToggle, row }: { expanded: boolean; onToggle: () => void; row: VariableRow }) {
   const expandable = row.type === "object" || row.type === "array";
 
   return (
@@ -182,9 +139,7 @@ function VariableTableRow({
           <Badge variant="muted">{row.type}</Badge>
         </td>
         <td className="max-w-[420px] px-3 py-2" data-label="Value">
-          <span className="break-words font-mono text-xs text-muted-foreground">
-            {row.preview}
-          </span>
+          <span className="break-words font-mono text-xs text-muted-foreground">{row.preview}</span>
         </td>
         <td className="px-3 py-2 text-right" data-label="Actions">
           {expandable ? (
@@ -204,9 +159,7 @@ function VariableTableRow({
       {expanded ? (
         <tr className="border-b border-border bg-background/40">
           <td className="p-3" colSpan={5} data-label="">
-            <CodeBlock className="max-h-[280px]">
-              {stringifyJson(row.raw)}
-            </CodeBlock>
+            <CodeBlock className="max-h-[280px]">{stringifyJson(row.raw)}</CodeBlock>
           </td>
         </tr>
       ) : null}

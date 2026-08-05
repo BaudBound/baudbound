@@ -18,8 +18,8 @@ const usbPort: SerialPortScanResult = {
 };
 
 describe("serial device scanner model", () => {
-  it("normalizes surrounding and repeated whitespace in logical IDs", () => {
-    expect(normalizeSerialDeviceId("  Main   Controller ")).toBe("main-controller");
+  it("preserves valid casing and removes unsupported identifier characters", () => {
+    expect(normalizeSerialDeviceId(" Main-Controller_2! ")).toBe("Main-Controller_2");
   });
 
   it("creates a safe serial config with USB validation when identity is complete", () => {

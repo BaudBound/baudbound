@@ -36,6 +36,7 @@ import {
 } from "@/lib/input-limits";
 import {
   type DashboardPayload,
+  type ResourceLimit,
   type RunnerConfig,
   type SerialDeviceSettings,
   readRunnerConfig,
@@ -492,6 +493,179 @@ function SimpleConfigEditor({
 
       <Card>
         <CardHeader>
+          <CardTitle>Run admission</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ResourceLimitField
+            label="Maximum active runs"
+            min={1}
+            onChange={(max_active_runs_global) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_active_runs_global },
+              })
+            }
+            value={config.limits.max_active_runs_global}
+          />
+          <ResourceLimitField
+            label="Maximum active runs per script"
+            min={1}
+            onChange={(max_active_runs_per_script) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_active_runs_per_script },
+              })
+            }
+            value={config.limits.max_active_runs_per_script}
+          />
+          <ResourceLimitField
+            label="Maximum queued activations per script"
+            min={1}
+            onChange={(max_queued_activations_per_script) =>
+              onChange({
+                ...config,
+                limits: {
+                  ...config.limits,
+                  max_queued_activations_per_script,
+                },
+              })
+            }
+            value={config.limits.max_queued_activations_per_script}
+          />
+          <ResourceLimitField
+            label="Maximum schedule catch-up events per poll"
+            min={1}
+            onChange={(max_schedule_catch_up_events_per_poll) =>
+              onChange({
+                ...config,
+                limits: {
+                  ...config.limits,
+                  max_schedule_catch_up_events_per_poll,
+                },
+              })
+            }
+            value={config.limits.max_schedule_catch_up_events_per_poll}
+          />
+          <label className="grid content-start gap-1.5 text-sm">
+            <span className="text-xs text-muted-foreground">Queue overflow</span>
+            <Select
+              onValueChange={(queue_overflow_strategy) =>
+                onChange({
+                  ...config,
+                  limits: {
+                    ...config.limits,
+                    queue_overflow_strategy: queue_overflow_strategy as
+                      | "drop_oldest"
+                      | "reject_newest",
+                  },
+                })
+              }
+              value={config.limits.queue_overflow_strategy}
+            >
+              <SelectTrigger aria-label="Queue overflow">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="reject_newest">Reject newest</SelectItem>
+                <SelectItem value="drop_oldest">Drop oldest</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Run execution limits</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ResourceLimitField
+            label="Maximum steps per run"
+            min={1}
+            onChange={(max_steps_per_run) =>
+              onChange({ ...config, limits: { ...config.limits, max_steps_per_run } })
+            }
+            value={config.limits.max_steps_per_run}
+          />
+          <ResourceLimitField
+            label="Maximum run duration in milliseconds"
+            min={1}
+            onChange={(max_run_duration_ms) =>
+              onChange({ ...config, limits: { ...config.limits, max_run_duration_ms } })
+            }
+            value={config.limits.max_run_duration_ms}
+          />
+          <ResourceLimitField
+            label="Maximum loop iterations per run"
+            min={1}
+            onChange={(max_loop_iterations_per_run) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_loop_iterations_per_run },
+              })
+            }
+            value={config.limits.max_loop_iterations_per_run}
+          />
+          <ResourceLimitField
+            label="Maximum generated text bytes"
+            min={1}
+            onChange={(max_generated_text_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_generated_text_bytes },
+              })
+            }
+            value={config.limits.max_generated_text_bytes}
+          />
+          <ResourceLimitField
+            label="Maximum process output bytes per stream"
+            min={1}
+            onChange={(max_process_output_bytes) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_process_output_bytes },
+              })
+            }
+            value={config.limits.max_process_output_bytes}
+          />
+          <ResourceLimitField
+            label="Maximum file-write bytes per run"
+            min={1}
+            onChange={(max_file_write_bytes_per_run) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_file_write_bytes_per_run },
+              })
+            }
+            value={config.limits.max_file_write_bytes_per_run}
+          />
+          <ResourceLimitField
+            label="Maximum active processes per script"
+            min={1}
+            onChange={(max_processes_per_script) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_processes_per_script },
+              })
+            }
+            value={config.limits.max_processes_per_script}
+          />
+          <ResourceLimitField
+            label="Maximum process launches per minute"
+            min={1}
+            onChange={(max_process_launches_per_minute) =>
+              onChange({
+                ...config,
+                limits: { ...config.limits, max_process_launches_per_minute },
+              })
+            }
+            value={config.limits.max_process_launches_per_minute}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Retained diagnostic limits</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
@@ -519,7 +693,7 @@ function SimpleConfigEditor({
             }
             value={config.limits.max_retained_variable_bytes}
           />
-          <NumberField
+          <ResourceLimitField
             label="Maximum active variable bytes"
             max={268_435_456}
             min={4_096}
@@ -563,7 +737,7 @@ function SimpleConfigEditor({
           <CardTitle>External data limits</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <NumberField
+          <ResourceLimitField
             label="Maximum HTTP response bytes"
             max={4_294_967_296}
             min={1}
@@ -575,7 +749,7 @@ function SimpleConfigEditor({
             }
             value={config.limits.max_http_response_bytes}
           />
-          <NumberField
+          <ResourceLimitField
             label="Maximum file download bytes"
             max={4_294_967_296}
             min={1}
@@ -587,7 +761,7 @@ function SimpleConfigEditor({
             }
             value={config.limits.max_file_download_bytes}
           />
-          <NumberField
+          <ResourceLimitField
             label="Maximum file read bytes"
             max={4_294_967_296}
             min={1}
@@ -668,6 +842,85 @@ function SimpleConfigEditor({
               onChange({ ...config, webhooks: { ...config.webhooks, port } })
             }
             port={config.webhooks.port}
+            resourceLimits={[
+              {
+                label: "Maximum unauthenticated connections",
+                onChange: (max_unauthenticated_connections) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, max_unauthenticated_connections },
+                  }),
+                value: config.webhooks.max_unauthenticated_connections,
+              },
+              {
+                label: "Global pre-authentication requests per minute",
+                onChange: (pre_auth_requests_per_minute_global) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, pre_auth_requests_per_minute_global },
+                  }),
+                value: config.webhooks.pre_auth_requests_per_minute_global,
+              },
+              {
+                label: "Per-address pre-authentication requests per minute",
+                onChange: (pre_auth_requests_per_minute_per_address) =>
+                  onChange({
+                    ...config,
+                    webhooks: {
+                      ...config.webhooks,
+                      pre_auth_requests_per_minute_per_address,
+                    },
+                  }),
+                value: config.webhooks.pre_auth_requests_per_minute_per_address,
+              },
+              {
+                label: "Header read timeout in milliseconds",
+                onChange: (header_read_timeout_ms) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, header_read_timeout_ms },
+                  }),
+                value: config.webhooks.header_read_timeout_ms,
+              },
+              {
+                label: "Authentication timeout in milliseconds",
+                onChange: (pre_auth_timeout_ms) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, pre_auth_timeout_ms },
+                  }),
+                value: config.webhooks.pre_auth_timeout_ms,
+              },
+              {
+                label: "Body progress timeout in milliseconds",
+                onChange: (body_read_progress_timeout_ms) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, body_read_progress_timeout_ms },
+                  }),
+                value: config.webhooks.body_read_progress_timeout_ms,
+              },
+              {
+                label: "Body total timeout in milliseconds",
+                onChange: (body_read_timeout_ms) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, body_read_timeout_ms },
+                  }),
+                value: config.webhooks.body_read_timeout_ms,
+              },
+              {
+                label: "Maximum header bytes",
+                max: 4_294_967_296,
+                min: 8_192,
+                onChange: (max_header_bytes) =>
+                  onChange({
+                    ...config,
+                    webhooks: { ...config.webhooks, max_header_bytes },
+                  }),
+                value: config.webhooks.max_header_bytes,
+              },
+            ]}
             title="Webhooks"
           />
           <NetworkSection
@@ -710,6 +963,47 @@ function SimpleConfigEditor({
               onChange({ ...config, websockets: { ...config.websockets, port } })
             }
             port={config.websockets.port}
+            resourceLimits={[
+              {
+                label: "Maximum unauthenticated connections",
+                onChange: (max_unauthenticated_connections) =>
+                  onChange({
+                    ...config,
+                    websockets: { ...config.websockets, max_unauthenticated_connections },
+                  }),
+                value: config.websockets.max_unauthenticated_connections,
+              },
+              {
+                label: "Global pre-authentication requests per minute",
+                onChange: (pre_auth_requests_per_minute_global) =>
+                  onChange({
+                    ...config,
+                    websockets: { ...config.websockets, pre_auth_requests_per_minute_global },
+                  }),
+                value: config.websockets.pre_auth_requests_per_minute_global,
+              },
+              {
+                label: "Per-address pre-authentication requests per minute",
+                onChange: (pre_auth_requests_per_minute_per_address) =>
+                  onChange({
+                    ...config,
+                    websockets: {
+                      ...config.websockets,
+                      pre_auth_requests_per_minute_per_address,
+                    },
+                  }),
+                value: config.websockets.pre_auth_requests_per_minute_per_address,
+              },
+              {
+                label: "Handshake timeout in milliseconds",
+                onChange: (handshake_timeout_ms) =>
+                  onChange({
+                    ...config,
+                    websockets: { ...config.websockets, handshake_timeout_ms },
+                  }),
+                value: config.websockets.handshake_timeout_ms,
+              },
+            ]}
             title="WebSockets"
           />
         </CardContent>
@@ -721,7 +1015,9 @@ function SimpleConfigEditor({
           <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:w-auto">
             <Input
               maxLength={SERIAL_DEVICE_ID_MAX_LENGTH}
-              onChange={(event) => onNewDeviceIdChange(event.target.value)}
+              onChange={(event) =>
+                onNewDeviceIdChange(normalizeSerialDeviceId(event.target.value))
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter") onAddSerialDevice();
               }}
@@ -787,6 +1083,7 @@ function NetworkSection({
   onMaxConnectionsChange,
   onPortChange,
   port,
+  resourceLimits,
   title,
 }: {
   allowBrowserOrigins: string[];
@@ -802,8 +1099,12 @@ function NetworkSection({
   onMaxConnectionsChange?: (value: number) => void;
   onPortChange: (value: number) => void;
   port: number;
+  resourceLimits: NetworkResourceLimitField[];
   title: string;
 }) {
+  const hasUnlimitedAdmissionControl = resourceLimits.some(
+    (field) => field.value === "unlimited",
+  );
   return (
     <div className="grid gap-3 rounded-md border border-border bg-background p-3">
       <div className="text-sm font-medium">{title}</div>
@@ -834,6 +1135,24 @@ function NetworkSection({
           value={maxConnections}
         />
       ) : null}
+      <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+        {resourceLimits.map((field) => (
+          <ResourceLimitField
+            key={field.label}
+            label={field.label}
+            max={field.max}
+            min={field.min}
+            onChange={field.onChange}
+            value={field.value}
+          />
+        ))}
+      </div>
+      {hasUnlimitedAdmissionControl ? (
+        <div className="text-xs text-amber-400">
+          One or more listener admission protections are unlimited. Remote clients can consume
+          connections, request processing, or memory without that protection.
+        </div>
+      ) : null}
       <BooleanField
         checked={allowUnauthenticatedPublicBind}
         label="Allow unauthenticated public bind"
@@ -848,6 +1167,14 @@ function NetworkSection({
     </div>
   );
 }
+
+type NetworkResourceLimitField = {
+  label: string;
+  max?: number;
+  min?: number;
+  onChange: (value: ResourceLimit) => void;
+  value: ResourceLimit;
+};
 
 function SerialDeviceCard({
   device,
@@ -1224,6 +1551,69 @@ function NumberField({
           }
         }}
         value={Number.isFinite(value) ? value : min}
+      />
+    </div>
+  );
+}
+
+function ResourceLimitField({
+  label,
+  max = Number.MAX_SAFE_INTEGER,
+  min = 1,
+  onChange,
+  value,
+}: {
+  label: string;
+  max?: number;
+  min?: number;
+  onChange: (value: ResourceLimit) => void;
+  value: ResourceLimit;
+}) {
+  const inputId = useId();
+  const [lastFiniteValue, setLastFiniteValue] = useState(
+    value === "unlimited" ? min : value,
+  );
+  useEffect(() => {
+    if (value !== "unlimited") setLastFiniteValue(value);
+  }, [value]);
+  const contract: NumericFieldContract = {
+    kind: "integer",
+    maximum: String(max),
+    minimum: String(min),
+    signed: false,
+  };
+  const unlimited = value === "unlimited";
+
+  return (
+    <div className="grid content-start gap-1.5 text-sm">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <label className="min-w-0 text-xs text-muted-foreground" htmlFor={inputId}>
+          {label}
+        </label>
+        <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          Unlimited
+          <Switch
+            aria-label={`${label} unlimited`}
+            checked={unlimited}
+            onCheckedChange={(checked) =>
+              onChange(checked ? "unlimited" : lastFiniteValue)
+            }
+          />
+        </label>
+      </div>
+      <NumericField
+        ariaLabel={label}
+        contract={contract}
+        disabled={unlimited}
+        id={inputId}
+        onChange={(draft) => {
+          const parsed = Number(draft);
+          if (Number.isInteger(parsed) && parsed >= min && parsed <= max) {
+            setLastFiniteValue(parsed);
+            onChange(parsed);
+          }
+        }}
+        value={unlimited ? lastFiniteValue : value}
       />
     </div>
   );

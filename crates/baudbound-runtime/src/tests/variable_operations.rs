@@ -3,6 +3,32 @@ use serde_json::{Value, json};
 use crate::execute_manual_program;
 
 #[test]
+fn variable_operations_accept_and_resolve_shared_identifiers() {
+    let report = execute(
+        vec![
+            variable_node(
+                "n-source",
+                "Release-Channel_2",
+                "set",
+                "string",
+                json!("stable"),
+            ),
+            variable_node(
+                "n-target",
+                "0-result",
+                "set",
+                "string",
+                json!("{{Release-Channel_2}}"),
+            ),
+        ],
+        linear_edges(&["n-source", "n-target"]),
+    )
+    .expect("portable variable identifiers should execute and resolve");
+
+    assert_eq!(report.variables.get("0-result"), Some(&json!("stable")));
+}
+
+#[test]
 fn set_coerces_exported_json_container_strings() {
     let report = execute(
         vec![

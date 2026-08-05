@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Number, Value};
 
+use baudbound_script::is_user_identifier;
+
 use crate::{RuntimeError, RuntimeNode};
 
 pub(crate) const DERIVED_VARIABLE_METADATA_SUFFIXES: [&str; 4] =
@@ -21,13 +23,11 @@ pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(
         });
     }
 
-    let mut bytes = name.bytes();
-    let valid = bytes.next().is_some_and(is_identifier_start) && bytes.all(is_identifier_continue);
-    if !valid {
+    if !is_user_identifier(name) {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!(
-                "invalid variable name {name:?}; names must start with a letter or underscore and contain only letters, numbers, or underscores"
+                "invalid variable name {name:?}; names may contain only ASCII letters, numbers, hyphens, and underscores"
             ),
         });
     }
@@ -63,7 +63,7 @@ pub(crate) fn coerce_variable_value(
                 message: format!("expected boolean, found {}", value_kind(&other)),
             }),
         },
-        "object" | "http_response" | "http_headers" | "datetime" | "duration" => {
+        "object" | "http_headers" | "datetime" | "duration" => {
             coerce_json_container(node, value, true)
         }
         "list" => coerce_json_container(node, value, false),
@@ -287,12 +287,6 @@ pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
         }
         "boolean" => Value::Bool(false),
         "object" | "http_headers" => Value::Object(Map::new()),
-        "http_response" => serde_json::json!({
-            "type": "http_response",
-            "status": 0,
-            "headers": {},
-            "body": ""
-        }),
         "datetime" => serde_json::json!({
             "type": "datetime",
             "value": "1970-01-01T00:00:00.000Z"

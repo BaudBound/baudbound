@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fmt, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
@@ -26,6 +27,7 @@ mod schema;
 mod scoped_variables;
 mod script_updates;
 mod secrets;
+mod system_logs;
 mod update_cache;
 
 use conversions::{
@@ -73,6 +75,16 @@ impl SqliteRunnerStore {
                 path: parent.to_path_buf(),
                 source,
             })?;
+            // Restrict the directory before opening the database. SQLite
+            // creates its write-ahead log and shared-memory sidecars itself,
+            // after this point and with the process umask, so restricting only
+            // the database file leaves those readable. They carry the same
+            // recently written pages, including the runner control token.
+            //
+            // Only an explicit parent is restricted. A bare database file name
+            // resolves its root to the working directory, which the storage
+            // layer does not own and must not modify.
+            restrict_runner_home_permissions(parent)?;
         }
 
         let root = path
@@ -97,6 +109,13 @@ impl SqliteRunnerStore {
             secret_cipher: Arc::new(RwLock::new(None)),
             variable_change_observer: Arc::new(RwLock::new(None)),
         })
+    }
+
+    fn sqlite_error(&self, source: rusqlite::Error) -> StorageError {
+        StorageError::Sqlite {
+            path: self.path.clone(),
+            source,
+        }
     }
 
     #[must_use]
@@ -520,6 +539,32 @@ impl SqliteRunnerStore {
     }
 }
 
+/// Restricts the runner home so no other user can traverse into it.
+///
+/// This covers every file the storage layer creates, including the files
+/// SQLite creates for itself later, without having to enumerate them.
+#[cfg(unix)]
+fn restrict_runner_home_permissions(root: &Path) -> Result<(), StorageError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(root)
+        .map_err(|source| StorageError::Io {
+            path: root.to_path_buf(),
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(root, permissions).map_err(|source| StorageError::Io {
+        path: root.to_path_buf(),
+        source,
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_runner_home_permissions(_root: &Path) -> Result<(), StorageError> {
+    Ok(())
+}
+
 #[cfg(unix)]
 fn restrict_database_permissions(path: &Path) -> Result<(), StorageError> {
     use std::os::unix::fs::PermissionsExt;
@@ -543,6 +588,10 @@ fn restrict_database_permissions(_path: &Path) -> Result<(), StorageError> {
 }
 
 impl ScriptStore for SqliteRunnerStore {
+    fn script_workspace(&self, script_id: &str) -> PathBuf {
+        self.root.join("workspaces").join(script_id)
+    }
+
     fn append_run_record(&self, record: StoredRunRecord) -> Result<(), StorageError> {
         let logs_json =
             serde_json::to_string(&record.logs).map_err(|source| StorageError::Json {
@@ -1098,6 +1147,80 @@ impl ScriptStore for SqliteRunnerStore {
             updated_at_unix,
             value: value.clone(),
         })
+    }
+
+    fn replace_script_settings(
+        &self,
+        script_reference: &str,
+        values: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Vec<crate::StoredScriptSetting>, StorageError> {
+        let installed = self.resolve_reference(script_reference)?;
+        let updated_at_unix = current_unix_timestamp();
+        let updated_at_sqlite = u64_to_sqlite(updated_at_unix)?;
+        let serialized = values
+            .iter()
+            .map(|(name, value)| {
+                serde_json::to_string(value)
+                    .map(|value_json| (name, value, value_json))
+                    .map_err(|source| {
+                        StorageError::Operation(format!(
+                            "failed to serialize Script Setting {name:?}: {source}"
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        transaction
+            .execute(
+                "DELETE FROM script_settings WHERE script_id = ?1",
+                params![installed.id],
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO script_settings (script_id, name, value_json, updated_at_unix)
+                     VALUES (?1, ?2, ?3, ?4)",
+                )
+                .map_err(|source| StorageError::Sqlite {
+                    path: self.path.clone(),
+                    source,
+                })?;
+            for (name, _, value_json) in &serialized {
+                statement
+                    .execute(params![installed.id, name, value_json, updated_at_sqlite])
+                    .map_err(|source| StorageError::Sqlite {
+                        path: self.path.clone(),
+                        source,
+                    })?;
+            }
+        }
+        self.request_trigger_reload_with_connection(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|source| StorageError::Sqlite {
+                path: self.path.clone(),
+                source,
+            })?;
+
+        Ok(serialized
+            .into_iter()
+            .map(|(name, value, _)| crate::StoredScriptSetting {
+                name: name.clone(),
+                updated_at_unix,
+                value: value.clone(),
+            })
+            .collect())
     }
 
     fn remove_script_setting(

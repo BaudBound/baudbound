@@ -2,9 +2,18 @@ use crate::runtime::{
     DERIVED_VARIABLE_METADATA_SUFFIXES, RuntimeFrame, RuntimeGraph,
     refresh_derived_variable_metadata,
 };
-use crate::{RuntimeCancellationToken, RuntimeStateStore};
+use crate::{ResourceLimit, RuntimeCancellationToken, RuntimeStateStore};
 use serde_json::Value;
-use std::{io::Write, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    io::Write,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::Duration,
+};
 
 mod action_diagnostics;
 mod action_dispatch;
@@ -28,6 +37,9 @@ struct RuntimeExecutor<'a> {
     logs: Vec<RuntimeLogEntry>,
     logs_truncated: bool,
     observer: Option<Arc<dyn RuntimeRunObserver>>,
+    execution_policy: RuntimeExecutionPolicy,
+    executed_steps: u64,
+    loop_iterations: u64,
     output_limits: RuntimeOutputLimits,
     retained_log_bytes: usize,
     action_handler: &'a dyn RuntimeActionHandler,
@@ -36,7 +48,10 @@ struct RuntimeExecutor<'a> {
     variable_scopes: std::collections::BTreeMap<String, RunVariableScope>,
     secret_names: Vec<String>,
     secret_values: Vec<Value>,
+    transient_sensitive_values: Vec<Value>,
+    transient_sensitive_variable_names: BTreeSet<String>,
     webhook_response_sent: bool,
+    wall_clock_budget: Option<WallClockBudget>,
 }
 
 impl<'a> RuntimeExecutor<'a> {
@@ -46,6 +61,10 @@ impl<'a> RuntimeExecutor<'a> {
         trigger_payload: Value,
         resources: RuntimeExecutionResources<'a>,
     ) -> Result<Self, RuntimeError> {
+        let wall_clock_budget = WallClockBudget::start(
+            resources.execution_policy.max_run_duration_ms,
+            resources.cancellation.clone(),
+        )?;
         let initial_state = load_initial_state(
             &graph,
             &identity.script_id,
@@ -66,13 +85,18 @@ impl<'a> RuntimeExecutor<'a> {
             context: RuntimeContext {
                 cancellation: resources.cancellation.clone(),
                 identity,
+                package_bytes: resources.package_bytes,
                 package_path: resources.package_path,
+                workspace_path: resources.workspace_path,
                 trigger_payload,
                 variables: initial_state.variables,
             },
             logs: Vec::new(),
             logs_truncated: false,
             observer: resources.observer,
+            execution_policy: resources.execution_policy,
+            executed_steps: 0,
+            loop_iterations: 0,
             output_limits: resources.output_limits,
             retained_log_bytes: 0,
             action_handler: resources.action_handler,
@@ -81,7 +105,10 @@ impl<'a> RuntimeExecutor<'a> {
             variable_scopes: initial_state.variable_scopes,
             secret_names: initial_state.secret_names,
             secret_values: initial_state.secret_values,
+            transient_sensitive_values: Vec::new(),
+            transient_sensitive_variable_names: BTreeSet::new(),
             webhook_response_sent: false,
+            wall_clock_budget,
         })
     }
 
@@ -147,10 +174,58 @@ impl<'a> RuntimeExecutor<'a> {
 
     fn ensure_not_cancelled(&self) -> Result<(), RuntimeError> {
         if self.cancellation.is_cancelled() {
-            Err(RuntimeError::Cancelled)
+            Err(self.cancellation_error())
         } else {
             Ok(())
         }
+    }
+
+    fn cancellation_error(&self) -> RuntimeError {
+        if self
+            .wall_clock_budget
+            .as_ref()
+            .is_some_and(WallClockBudget::is_exceeded)
+        {
+            return RuntimeError::ResourceLimitExceeded {
+                resource: "wall-clock duration in milliseconds",
+                limit: self.execution_policy.max_run_duration_ms,
+            };
+        }
+        RuntimeError::Cancelled
+    }
+
+    fn record_executed_step(&mut self) -> Result<(), RuntimeError> {
+        self.executed_steps = self.executed_steps.checked_add(1).ok_or_else(|| {
+            RuntimeError::State("execution step counter was exhausted".to_owned())
+        })?;
+        if self
+            .execution_policy
+            .max_steps_per_run
+            .is_exceeded_by(self.executed_steps)
+        {
+            return Err(RuntimeError::ResourceLimitExceeded {
+                resource: "executed steps",
+                limit: self.execution_policy.max_steps_per_run,
+            });
+        }
+        Ok(())
+    }
+
+    fn record_loop_iteration(&mut self) -> Result<(), RuntimeError> {
+        self.loop_iterations = self.loop_iterations.checked_add(1).ok_or_else(|| {
+            RuntimeError::State("loop iteration counter was exhausted".to_owned())
+        })?;
+        if self
+            .execution_policy
+            .max_loop_iterations_per_run
+            .is_exceeded_by(self.loop_iterations)
+        {
+            return Err(RuntimeError::ResourceLimitExceeded {
+                resource: "loop iterations",
+                limit: self.execution_policy.max_loop_iterations_per_run,
+            });
+        }
+        Ok(())
     }
 
     fn set_variable(
@@ -170,12 +245,33 @@ impl<'a> RuntimeExecutor<'a> {
         Ok(())
     }
 
+    fn set_sensitive_variable(
+        &mut self,
+        name: String,
+        value: Value,
+        scope: RunVariableScope,
+        omit_from_report: bool,
+    ) -> Result<(), RuntimeError> {
+        self.set_variable(name.clone(), value, scope)?;
+        if omit_from_report {
+            self.transient_sensitive_variable_names.insert(name.clone());
+            for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
+                self.transient_sensitive_variable_names
+                    .insert(format!("{name}{suffix}"));
+            }
+        }
+        Ok(())
+    }
+
     fn remove_variable(&mut self, name: &str) {
         self.context.variables.remove(name);
         self.variable_scopes.remove(name);
+        self.transient_sensitive_variable_names.remove(name);
         refresh_derived_variable_metadata(&mut self.context.variables, name);
         for suffix in DERIVED_VARIABLE_METADATA_SUFFIXES {
             self.variable_scopes.remove(&format!("{name}{suffix}"));
+            self.transient_sensitive_variable_names
+                .remove(&format!("{name}{suffix}"));
         }
     }
 
@@ -262,8 +358,11 @@ impl<'a> RuntimeExecutor<'a> {
 fn ensure_value_within_limit(
     name: &str,
     value: &Value,
-    max_bytes: usize,
+    max_bytes: ResourceLimit,
 ) -> Result<(), RuntimeError> {
+    let Some(max_bytes) = max_bytes.value() else {
+        return Ok(());
+    };
     let mut writer = BoundedSizeWriter::new(max_bytes);
     match serde_json::to_writer(&mut writer, value) {
         Ok(()) => Ok(()),
@@ -277,13 +376,13 @@ fn ensure_value_within_limit(
 }
 
 struct BoundedSizeWriter {
-    bytes: usize,
+    bytes: u64,
     exceeded: bool,
-    max_bytes: usize,
+    max_bytes: u64,
 }
 
 impl BoundedSizeWriter {
-    const fn new(max_bytes: usize) -> Self {
+    const fn new(max_bytes: u64) -> Self {
         Self {
             bytes: 0,
             exceeded: false,
@@ -294,7 +393,8 @@ impl BoundedSizeWriter {
 
 impl Write for BoundedSizeWriter {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.bytes = self.bytes.saturating_add(buffer.len());
+        let buffer_bytes = u64::try_from(buffer.len()).unwrap_or(u64::MAX);
+        self.bytes = self.bytes.saturating_add(buffer_bytes);
         if self.bytes > self.max_bytes {
             self.exceeded = true;
             return Err(std::io::Error::other("active value limit exceeded"));
@@ -304,6 +404,58 @@ impl Write for BoundedSizeWriter {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+struct WallClockBudget {
+    exceeded: Arc<AtomicBool>,
+    stop_sender: crossbeam_channel::Sender<()>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl WallClockBudget {
+    fn start(
+        limit: ResourceLimit,
+        cancellation: RuntimeCancellationToken,
+    ) -> Result<Option<Self>, RuntimeError> {
+        let Some(milliseconds) = limit.value() else {
+            return Ok(None);
+        };
+        let (stop_sender, stop_receiver) = crossbeam_channel::bounded(1);
+        let exceeded = Arc::new(AtomicBool::new(false));
+        let worker_exceeded = Arc::clone(&exceeded);
+        let worker = std::thread::Builder::new()
+            .name("baudbound-run-wall-clock-budget".to_owned())
+            .spawn(move || {
+                crossbeam_channel::select! {
+                    recv(stop_receiver) -> _ => {}
+                    recv(crossbeam_channel::after(Duration::from_millis(milliseconds))) -> _ => {
+                        worker_exceeded.store(true, Ordering::Release);
+                        cancellation.cancel();
+                    }
+                }
+            })
+            .map_err(|source| {
+                RuntimeError::State(format!("failed to start wall-clock budget timer: {source}"))
+            })?;
+        Ok(Some(Self {
+            exceeded,
+            stop_sender,
+            worker: Some(worker),
+        }))
+    }
+
+    fn is_exceeded(&self) -> bool {
+        self.exceeded.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for WallClockBudget {
+    fn drop(&mut self) {
+        let _ = self.stop_sender.try_send(());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 

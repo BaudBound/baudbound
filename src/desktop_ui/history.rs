@@ -422,7 +422,7 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     write_atomic_with(path, |output| output.write_all(bytes).map_err(string_error))
 }
 
-fn write_atomic_with(
+pub(super) fn write_atomic_with(
     path: &std::path::Path,
     write: impl FnOnce(&mut std::fs::File) -> Result<(), String>,
 ) -> Result<(), String> {
@@ -500,7 +500,7 @@ fn safe_file_component(value: &str) -> String {
     }
 }
 
-fn cancelled_export() -> ExportResult {
+pub(super) fn cancelled_export() -> ExportResult {
     ExportResult {
         cancelled: true,
         exported_count: 0,
@@ -508,7 +508,7 @@ fn cancelled_export() -> ExportResult {
     }
 }
 
-fn successful_export(path: &std::path::Path, exported_count: usize) -> ExportResult {
+pub(super) fn successful_export(path: &std::path::Path, exported_count: usize) -> ExportResult {
     ExportResult {
         cancelled: false,
         exported_count,
@@ -518,7 +518,7 @@ fn successful_export(path: &std::path::Path, exported_count: usize) -> ExportRes
     }
 }
 
-fn string_error(error: impl std::fmt::Display) -> String {
+pub(super) fn string_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 

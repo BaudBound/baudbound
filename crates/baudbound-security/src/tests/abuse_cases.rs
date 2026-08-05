@@ -12,6 +12,7 @@ fn dangerous_actions_cannot_downgrade_their_declared_risk() {
     for (action_type, permission) in [
         ("action.shell", "process.shell"),
         ("action.process.run", "process.run"),
+        ("action.application.open", "process.run"),
     ] {
         let error = validate_program_permissions(
             &program_with_steps(&[action_type]),
@@ -82,6 +83,11 @@ fn process_execution_permissions_keep_their_security_classification() {
         .expect("run process permission should exist");
     assert_eq!(run_process.name, "process.run");
     assert_eq!(run_process.risk, RiskLevel::Dangerous);
+
+    let open_application = permission_for_action_type("action.application.open")
+        .expect("open application permission should exist");
+    assert_eq!(open_application.name, "process.run");
+    assert_eq!(open_application.risk, RiskLevel::Dangerous);
 
     let shell =
         permission_for_action_type("action.shell").expect("shell command permission should exist");
@@ -206,4 +212,42 @@ fn transfer_actions_keep_base_and_path_specific_permissions() {
         .collect::<Vec<_>>();
 
     assert_eq!(names, ["file.copy", "file.read.any", "file.write.any"]);
+}
+
+#[test]
+fn observation_triggers_derive_permissions_from_their_effective_scope() {
+    let mut limited_watch = program_with_steps(&["trigger.file_watch"]);
+    limited_watch["entry"]["program"]["steps"][0]["config"] = json!({"path": "workspace/incoming"});
+    let limited_report = calculate_program_permissions(&limited_watch)
+        .expect("a workspace-relative watch should derive a limited observation permission");
+    assert_eq!(limited_report.calculated_risk, RiskLevel::Medium);
+    assert_eq!(
+        limited_report.required_permissions[0].name,
+        "file.watch.limited"
+    );
+
+    for path in [
+        "C:\\Users\\operator\\Documents",
+        "/srv/incoming",
+        "{{settings.watchPath}}",
+    ] {
+        let mut unbounded_watch = program_with_steps(&["trigger.file_watch"]);
+        unbounded_watch["entry"]["program"]["steps"][0]["config"] = json!({"path": path});
+        let report = calculate_program_permissions(&unbounded_watch)
+            .expect("an arbitrary watch should derive the host-wide observation permission");
+        assert_eq!(report.calculated_risk, RiskLevel::Dangerous, "{path}");
+        assert_eq!(
+            report.required_permissions[0].name, "file.watch.any",
+            "{path}"
+        );
+    }
+
+    let process_report =
+        calculate_program_permissions(&program_with_steps(&["trigger.process_started"]))
+            .expect("process observation should require explicit approval");
+    assert_eq!(process_report.calculated_risk, RiskLevel::Medium);
+    assert_eq!(
+        process_report.required_permissions[0].name,
+        "process.observe"
+    );
 }

@@ -1,7 +1,8 @@
 use std::{
     fs,
     io::{Cursor, Write},
-    sync::Mutex,
+    path::Path,
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
@@ -66,6 +67,221 @@ fn staged_packages_are_independent_of_the_selected_source_file() {
     );
 }
 
+/// Guards the script workspace anchor end to end through `RunnerCore`.
+///
+/// The unit test in `baudbound-actions` builds a package path by hand in the
+/// installed layout, so it cannot observe which path the execution path
+/// actually supplies. This test drives a real import, approval, and run so the
+/// wiring is what is covered.
+#[test]
+fn limited_relative_writes_resolve_inside_the_runner_home_workspace() {
+    let script_id = "workspace-anchor-probe";
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("workspace-anchor.bbs");
+    fs::write(
+        &package_path,
+        create_workspace_write_test_package(script_id),
+    )
+    .expect("workspace anchor package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("workspace anchor package should import");
+    core.approve_installed(&store, script_id)
+        .expect("workspace anchor package should approve");
+    let report = core
+        .run_installed(&store, script_id)
+        .expect("workspace anchor package should run");
+    let logs = report
+        .logs
+        .iter()
+        .map(|entry| format!("{entry:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let expected = store
+        .root()
+        .join("workspaces")
+        .join(script_id)
+        .join("output")
+        .join("result.txt");
+    assert!(
+        expected.is_file(),
+        "a bounded relative write must resolve inside the runner home workspace, expected {}\nrun logs:\n{logs}",
+        expected.display()
+    );
+    assert_eq!(
+        fs::read_to_string(&expected).expect("workspace output should be readable"),
+        "workspace"
+    );
+
+    let stray = std::env::temp_dir().join("workspaces").join(script_id);
+    let stray_exists = stray.exists();
+    if stray_exists {
+        let _ = fs::remove_dir_all(std::env::temp_dir().join("workspaces"));
+    }
+    assert!(
+        !stray_exists,
+        "a bounded relative write must not create a workspace in the system temp directory, found {}",
+        stray.display()
+    );
+}
+
+#[test]
+fn installed_package_trust_boundaries_reject_replaced_bytes() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("network-trigger.bbs");
+    fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    let installed = core
+        .import_package(&store, &package_path)
+        .expect("package should import");
+
+    fs::write(&installed.package_path, b"attacker-controlled replacement")
+        .expect("installed package should be replaceable for the test");
+
+    assert!(matches!(
+        core.approve_installed(&store, &installed.id),
+        Err(CoreError::Storage(StorageError::HashMismatch { .. }))
+    ));
+    assert!(matches!(
+        core.list_trigger_registrations(&store, Some(&installed.id)),
+        Err(CoreError::Storage(StorageError::HashMismatch { .. }))
+    ));
+    assert!(matches!(
+        core.run_installed(&store, &installed.id),
+        Err(CoreError::Storage(StorageError::HashMismatch { .. }))
+    ));
+}
+
+#[test]
+fn package_bytes_changed_during_snapshot_cannot_validate_as_approved() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("network-trigger.bbs");
+    fs::write(&package_path, create_policy_test_package()).expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let installed = RunnerCore::default()
+        .import_package(&store, &package_path)
+        .expect("package should import");
+    let mut mixed_bytes = fs::read(&installed.package_path).expect("installed bytes should read");
+    let changed_index = mixed_bytes.len() / 2;
+    mixed_bytes[changed_index] ^= 0xff;
+
+    let error = StagedPackage::verified_from_bytes(&installed, Arc::from(mixed_bytes))
+        .err()
+        .expect("a snapshot containing changed bytes must be rejected");
+
+    assert!(matches!(
+        error,
+        CoreError::Storage(StorageError::HashMismatch { .. })
+    ));
+}
+
+struct FirstRunBlockingActionHandler {
+    entered: Mutex<Option<mpsc::Sender<()>>>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+impl RuntimeActionHandler for FirstRunBlockingActionHandler {
+    fn execute_action(
+        &self,
+        _request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        if let Some(entered) = self
+            .entered
+            .lock()
+            .expect("entry signal lock should not be poisoned")
+            .take()
+        {
+            entered
+                .send(())
+                .expect("first run entry signal should be observed");
+            self.release
+                .lock()
+                .expect("release signal lock should not be poisoned")
+                .recv()
+                .expect("first run should be released");
+        }
+        Ok(RuntimeActionResult {
+            output_data: Map::from_iter([("handled".to_owned(), Value::Bool(true))]),
+            sensitive_output_keys: Default::default(),
+        })
+    }
+}
+
+#[test]
+fn queued_run_snapshots_package_only_after_acquiring_its_execution_permit() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let package_path = temporary_directory.path().join("action-handler-test.bbs");
+    fs::write(&package_path, create_action_handler_test_package())
+        .expect("test package should be written");
+    let store = test_store(&temporary_directory);
+    let (entered_sender, entered_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
+    let handler = Arc::new(FirstRunBlockingActionHandler {
+        entered: Mutex::new(Some(entered_sender)),
+        release: Mutex::new(release_receiver),
+    });
+    let core = RunnerCore::default().with_action_handler(handler);
+    let installed = core
+        .import_package(&store, &package_path)
+        .expect("package should import");
+    core.approve_installed(&store, &installed.id)
+        .expect("package should approve");
+
+    let first = {
+        let core = core.clone();
+        let store = store.clone();
+        let script_id = installed.id.clone();
+        thread::spawn(move || core.run_installed(&store, &script_id))
+    };
+    entered_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("first run should reach its action");
+
+    let (second_started_sender, second_started_receiver) = mpsc::channel();
+    let second = {
+        let core = core.clone();
+        let store = store.clone();
+        let script_id = installed.id.clone();
+        thread::spawn(move || {
+            second_started_sender
+                .send(())
+                .expect("second run start should be observed");
+            core.run_installed(&store, &script_id)
+        })
+    };
+    second_started_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("second run should start acquiring its permit");
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while core.execution_queue.waiting_count(&installed.id) == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "second run did not enter the execution queue"
+        );
+        thread::yield_now();
+    }
+
+    fs::write(&installed.package_path, b"replacement after first snapshot")
+        .expect("installed package should be replaced for the race test");
+    release_sender
+        .send(())
+        .expect("first run release should be delivered");
+
+    first
+        .join()
+        .expect("first run thread should finish")
+        .expect("the first run must execute its immutable approved snapshot");
+    assert!(matches!(
+        second.join().expect("second run thread should finish"),
+        Err(CoreError::Storage(StorageError::HashMismatch { .. }))
+    ));
+}
+
 #[derive(Default)]
 struct RecordingActionHandler {
     actions: Mutex<Vec<String>>,
@@ -108,6 +324,7 @@ impl RuntimeActionHandler for RecordingActionHandler {
             .push(request.action_type.clone());
         Ok(RuntimeActionResult {
             output_data: Map::from_iter([("handled".to_owned(), Value::Bool(true))]),
+            sensitive_output_keys: Default::default(),
         })
     }
 }
@@ -499,6 +716,191 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
             .is_empty()
     );
     assert!(!updated.package_path.exists());
+}
+
+#[test]
+fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycle() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let initial_path = temporary_directory.path().join("observation-initial.bbs");
+    let updated_path = temporary_directory.path().join("observation-updated.bbs");
+    let variable_path = temporary_directory.path().join("observation-variable.bbs");
+    let process_path = temporary_directory.path().join("observation-process.bbs");
+    let absolute_watch_path = temporary_directory.path().join("host-watch");
+    fs::create_dir_all(&absolute_watch_path).expect("absolute watch directory should exist");
+
+    fs::write(
+        &initial_path,
+        create_observation_trigger_package(
+            "observation-watch",
+            "trigger.file_watch",
+            "file_watch",
+            json!({"path": "incoming", "recursive": false}),
+            &["file.watch.limited"],
+            "medium",
+            json!([]),
+        ),
+    )
+    .expect("limited observation package should be written");
+    fs::write(
+        &updated_path,
+        create_observation_trigger_package(
+            "observation-watch",
+            "trigger.file_watch",
+            "file_watch",
+            json!({"path": absolute_watch_path, "recursive": false}),
+            &["file.watch.any"],
+            "dangerous",
+            json!([]),
+        ),
+    )
+    .expect("host observation package should be written");
+    fs::write(
+        &variable_path,
+        create_observation_trigger_package(
+            "observation-variable",
+            "trigger.file_watch",
+            "file_watch",
+            json!({"path": "{{watchPath}}", "recursive": false}),
+            &["file.watch.any", "variable.local.set"],
+            "dangerous",
+            json!([{
+                "name": "watchPath",
+                "scope": "runtime",
+                "type": "file_path",
+                "value": absolute_watch_path
+            }]),
+        ),
+    )
+    .expect("variable observation package should be written");
+    fs::write(
+        &process_path,
+        create_observation_trigger_package(
+            "observation-process",
+            "trigger.process_started",
+            "process_started",
+            json!({"matchMode": "process_name", "target": "baudbound-test-process"}),
+            &["process.observe"],
+            "medium",
+            json!([]),
+        ),
+    )
+    .expect("process observation package should be written");
+
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &initial_path)
+        .expect("limited observation package should import");
+    assert!(
+        core.list_trigger_registrations(&store, None)
+            .expect("unapproved registrations should list")
+            .is_empty(),
+        "unapproved observation triggers must not register"
+    );
+
+    let approval = core
+        .approve_installed(&store, "observation-watch")
+        .expect("limited observation package should approve");
+    assert_eq!(
+        approval.approval.approved_permissions,
+        ["file.watch.limited"]
+    );
+    let limited = core
+        .list_trigger_registrations(&store, None)
+        .expect("approved limited registration should list");
+    let limited = limited
+        .iter()
+        .find(|registration| registration.action_type == "trigger.file_watch")
+        .expect("limited file-watch registration should exist");
+    let limited_path = Path::new(
+        limited.config["path"]
+            .as_str()
+            .expect("limited watch path should resolve to text"),
+    );
+    assert!(limited_path.is_absolute());
+    let expected_workspace = store
+        .root()
+        .join("workspaces/observation-watch")
+        .canonicalize()
+        .expect("script workspace should resolve");
+    assert!(limited_path.starts_with(expected_workspace));
+
+    core.revoke_approval(&store, "observation-watch")
+        .expect("approval should revoke")
+        .expect("approval should exist");
+    assert!(
+        core.list_trigger_registrations(&store, None)
+            .expect("registrations after revocation should list")
+            .is_empty(),
+        "revocation must remove observation triggers on the next registration reload"
+    );
+    core.approve_installed(&store, "observation-watch")
+        .expect("limited observation package should reapprove");
+
+    core.update_package(&store, &updated_path)
+        .expect("observation package should update");
+    assert!(
+        core.list_trigger_registrations(&store, None)
+            .expect("registrations after update should list")
+            .is_empty(),
+        "a package update must invalidate the previous observation approval"
+    );
+    let updated_approval = core
+        .approve_installed(&store, "observation-watch")
+        .expect("updated observation package should approve");
+    assert_eq!(
+        updated_approval.approval.approved_permissions,
+        ["file.watch.any"]
+    );
+    let updated = core
+        .list_trigger_registrations(&store, None)
+        .expect("updated observation registration should list");
+    let updated = updated
+        .iter()
+        .find(|registration| registration.action_type == "trigger.file_watch")
+        .expect("updated file-watch registration should exist");
+    assert_eq!(
+        Path::new(updated.config["path"].as_str().unwrap()),
+        absolute_watch_path
+    );
+
+    core.import_package(&store, &variable_path)
+        .expect("variable observation package should import");
+    core.approve_installed(&store, "observation-variable")
+        .expect("variable observation package should approve");
+    let variable_registration = core
+        .list_trigger_registrations(&store, Some("observation-variable"))
+        .expect("variable observation registration should list");
+    let variable_registration = variable_registration
+        .iter()
+        .find(|registration| registration.action_type == "trigger.file_watch")
+        .expect("variable file-watch registration should exist");
+    assert_eq!(
+        Path::new(variable_registration.config["path"].as_str().unwrap()),
+        absolute_watch_path,
+        "pre-trigger variables must resolve before file-watch service validation"
+    );
+
+    core.import_package(&store, &process_path)
+        .expect("process observation package should import");
+    let process_approval = core
+        .approve_installed(&store, "observation-process")
+        .expect("process observation package should approve");
+    assert_eq!(
+        process_approval.approval.approved_permissions,
+        ["process.observe"]
+    );
+    let process_registration = core
+        .list_trigger_registrations(&store, Some("observation-process"))
+        .expect("process observation registration should list");
+    let process_registration = process_registration
+        .iter()
+        .find(|registration| registration.action_type == "trigger.process_started")
+        .expect("process observation registration should exist");
+    assert_eq!(process_registration.config["matchMode"], "process_name");
+    assert_eq!(
+        process_registration.config["target"],
+        "baudbound-test-process"
+    );
 }
 
 #[test]
@@ -1179,8 +1581,197 @@ fn dispatches_trigger_event_through_core_dispatcher() {
     );
 }
 
+#[test]
+fn saving_script_settings_validates_the_entire_batch_before_writing() {
+    let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
+    let package_path = temporary_directory.path().join("settings.bbs");
+    fs::write(&package_path, create_script_settings_test_package())
+        .expect("settings package should be written");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+    core.import_package(&store, &package_path)
+        .expect("settings package should import");
+    core.set_installed_script_setting_from_text(&store, "settings-test", "Endpoint", "saved")
+        .expect("initial setting should store");
+
+    let invalid = BTreeMap::from([
+        ("Endpoint".to_owned(), "changed".to_owned()),
+        ("Retries".to_owned(), "not-a-number".to_owned()),
+    ]);
+    core.save_installed_script_settings_from_text(&store, "settings-test", &invalid)
+        .expect_err("an invalid setting must reject the entire batch");
+
+    let unchanged = core
+        .list_installed_script_settings(&store, "settings-test")
+        .expect("settings should remain readable");
+    assert_eq!(
+        unchanged
+            .iter()
+            .find(|setting| setting.name == "Endpoint")
+            .and_then(|setting| setting.configured_value.as_ref()),
+        Some(&json!("saved"))
+    );
+    assert!(
+        unchanged
+            .iter()
+            .find(|setting| setting.name == "Retries")
+            .is_some_and(|setting| !setting.configured)
+    );
+
+    let replacement = BTreeMap::from([("Retries".to_owned(), "3".to_owned())]);
+    let statuses = core
+        .save_installed_script_settings_from_text(&store, "settings-test", &replacement)
+        .expect("valid settings should replace the configured set");
+    assert!(
+        statuses
+            .iter()
+            .find(|setting| setting.name == "Endpoint")
+            .is_some_and(|setting| !setting.configured)
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .find(|setting| setting.name == "Retries")
+            .and_then(|setting| setting.configured_value.as_ref()),
+        Some(&json!(3.0))
+    );
+}
+
 fn create_policy_test_package() -> Vec<u8> {
     create_policy_test_package_with_webhook("network-trigger", "hook")
+}
+
+fn create_observation_trigger_package(
+    script_id: &str,
+    action_type: &str,
+    trigger_type: &str,
+    config: Value,
+    permissions: &[&str],
+    risk: &str,
+    variables: Value,
+) -> Vec<u8> {
+    let has_variables = variables
+        .as_array()
+        .is_some_and(|variables| !variables.is_empty());
+    let manifest = json!({
+        "format_version": 1,
+        "script_language_version": 1,
+        "id": script_id,
+        "name": script_id,
+        "created_with": "BaudBound Test",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "minimum_runner_version": "0.1.0",
+        "version": "1.0.0",
+        "variables": variables
+    })
+    .to_string();
+    let program = complete_test_program_contract(
+        &json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-manual",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [
+                    {
+                        "id": "n-manual",
+                        "action_type": "trigger.manual",
+                        "type": "manual",
+                        "config": {},
+                        "runtime_outputs": []
+                    },
+                    {
+                        "id": "n-observation",
+                        "action_type": action_type,
+                        "type": trigger_type,
+                        "config": config,
+                        "runtime_outputs": []
+                    }
+                ],
+                "program": {"type": "block", "steps": [], "edges": []}
+            }
+        })
+        .to_string(),
+    );
+    let mut capabilities: Value =
+        serde_json::from_str(&capabilities_json(&program, test_headless_runtime()))
+            .expect("observation capabilities should parse");
+    if has_variables {
+        capabilities["required_capabilities"]
+            .as_array_mut()
+            .expect("required capabilities should be an array")
+            .push(json!("runtime.variables"));
+    }
+    let capabilities = capabilities.to_string();
+    let permissions = json!({
+        "declared_permissions": permissions,
+        "risk_level": risk
+    })
+    .to_string();
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program.as_str()),
+        ("permissions.json", permissions.as_str()),
+        ("capabilities.json", capabilities.as_str()),
+    ])
+}
+
+fn create_script_settings_test_package() -> Vec<u8> {
+    let manifest = r#"{
+        "format_version": 1,
+        "script_language_version": 1,
+        "id": "settings-test",
+        "name": "Settings Test",
+        "created_with": "BaudBound Test",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "minimum_runner_version": "0.1.0",
+        "version": "1.0.0",
+        "settings": [
+            {
+                "name": "Endpoint",
+                "type": "string",
+                "description": "Endpoint setting",
+                "required": false,
+                "default_value": "package"
+            },
+            {
+                "name": "Retries",
+                "type": "number",
+                "description": "Retry count",
+                "required": false
+            }
+        ]
+    }"#;
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [],
+                "edges": []
+            }
+        }
+    }"#;
+    let capabilities = capabilities_json(program, test_headless_runtime());
+    create_test_package([
+        ("manifest.json", manifest),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions":[],"risk_level":"low"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
 }
 
 fn core_with_policy(
@@ -1406,6 +1997,70 @@ fn create_sub_script_parent_package(script_id: &str, target_script: &str) -> Vec
 
 fn create_action_handler_test_package() -> Vec<u8> {
     create_action_handler_test_package_with_capabilities(None)
+}
+
+/// Builds a package whose only step writes to a bounded relative path.
+///
+/// The trigger is wired to the step so the action actually executes. A package
+/// with no edges imports and approves cleanly but never runs its step, which
+/// would make a workspace assertion vacuous.
+fn create_workspace_write_test_package(script_id: &str) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "{script_id}",
+            "name": "{script_id}",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "version": "1.0.0"
+        }}"#
+    );
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [{
+                    "id": "n-write",
+                    "action_type": "action.file.write",
+                    "type": "action",
+                    "action": "write_file",
+                    "config": {
+                        "path": "output/result.txt",
+                        "content": "workspace",
+                        "mode": "overwrite"
+                    },
+                    "runtime_outputs": []
+                }],
+                "edges": [{
+                    "execution_order": 0,
+                    "source": "n-manual",
+                    "source_handle": "out",
+                    "target": "n-write",
+                    "target_handle": "input"
+                }]
+            }
+        }
+    }"#;
+    let capabilities = capabilities_json(program, test_headless_runtime());
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions":["file.write.limited"],"risk_level":"high"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
 }
 
 fn create_cancellable_test_package() -> Vec<u8> {

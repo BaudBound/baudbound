@@ -96,7 +96,7 @@ pub(crate) fn trigger_registrations_from_package(
             resolve_pre_trigger_config(action_type, &mut config, variables);
         }
         if action_type == "trigger.file_watch" {
-            resolve_limited_file_watch_path(installed, &mut config)?;
+            resolve_limited_file_watch_path(store, installed, &mut config)?;
         }
 
         registrations.push(TriggerRegistration {
@@ -186,6 +186,7 @@ fn pre_trigger_template_fields(action_type: &str) -> &'static [&'static str] {
 }
 
 fn resolve_limited_file_watch_path(
+    store: &impl ScriptStore,
     installed: &InstalledScript,
     config: &mut Value,
 ) -> Result<(), CoreError> {
@@ -208,17 +209,7 @@ fn resolve_limited_file_watch_path(
     {
         return Ok(());
     }
-    let scripts_directory = installed.package_path.parent().ok_or_else(|| {
-        CoreError::InvalidTriggerRegistration(
-            "installed package has no scripts directory".to_owned(),
-        )
-    })?;
-    let runner_home = scripts_directory.parent().ok_or_else(|| {
-        CoreError::InvalidTriggerRegistration(
-            "installed package has no runner directory".to_owned(),
-        )
-    })?;
-    let workspace = runner_home.join("workspaces").join(&installed.id);
+    let workspace = store.script_workspace(&installed.id);
     fs::create_dir_all(&workspace).map_err(|source| {
         CoreError::InvalidTriggerRegistration(format!(
             "failed to create script workspace {}: {source}",

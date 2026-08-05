@@ -17,7 +17,10 @@ use tungstenite::{
     protocol::WebSocketConfig,
 };
 
-use crate::{NetworkTriggerAuthenticationError, NetworkTriggerAuthenticator, NetworkTriggerKind};
+use crate::{
+    ConnectionGate, ConnectionPermit, NetworkTriggerAuthenticationError,
+    NetworkTriggerAuthenticator, NetworkTriggerKind,
+};
 use crate::{TriggerEvent, try_send_trigger_event};
 
 use super::{
@@ -25,14 +28,16 @@ use super::{
     route::{WebSocketHandshake, WebSocketRoute, WebSocketRouteKey, websocket_payload},
 };
 
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub(super) struct WebSocketConnectionContext {
     pub(super) allow_browser_origins: Arc<BTreeSet<String>>,
+    pub(super) authenticated_connections: Arc<ConnectionGate>,
     pub(super) authenticator: Arc<dyn NetworkTriggerAuthenticator>,
+    pub(super) handshake_timeout: Option<Duration>,
+    pub(super) generation: Arc<str>,
     pub(super) max_message_bytes: usize,
     pub(super) registry: Arc<WebSocketConnectionRegistry>,
     pub(super) routes: Arc<RwLock<Vec<WebSocketRoute>>>,
@@ -45,17 +50,21 @@ pub(super) fn handle_connection(
     stream: TcpStream,
     remote_address: SocketAddr,
     context: WebSocketConnectionContext,
+    pre_auth_permit: ConnectionPermit,
 ) {
-    if let Err(error) = configure_handshake_stream(&stream) {
+    if let Err(error) = configure_handshake_stream(&stream, context.handshake_timeout) {
         tracing::warn!("failed to configure WebSocket handshake socket: {error}");
         return;
     }
 
-    let selected = Arc::new(Mutex::new(None::<(WebSocketHandshake, WebSocketRoute)>));
+    let selected = Arc::new(Mutex::new(
+        None::<(WebSocketHandshake, WebSocketRoute, ConnectionPermit)>,
+    ));
     let selected_capture = Arc::clone(&selected);
     let route_capture = Arc::clone(&context.routes);
     let allow_browser_origins = Arc::clone(&context.allow_browser_origins);
     let authenticator = Arc::clone(&context.authenticator);
+    let authenticated_connections = Arc::clone(&context.authenticated_connections);
     let config = WebSocketConfig::default()
         .max_frame_size(Some(context.max_message_bytes))
         .max_message_size(Some(context.max_message_bytes));
@@ -107,6 +116,12 @@ pub(super) fn handle_connection(
             ) {
                 return Err(authentication_rejection(error));
             }
+            let Some(connection_permit) = authenticated_connections.try_acquire() else {
+                return Err(rejection_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "WebSocket authenticated connection limit reached.",
+                ));
+            };
             if offered_protocol(request, "baudbound.v1") {
                 response.headers_mut().insert(
                     "sec-websocket-protocol",
@@ -117,7 +132,8 @@ pub(super) fn handle_connection(
             }
             *selected_capture
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((handshake, route));
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                Some((handshake, route, connection_permit));
             Ok(response)
         },
         Some(config),
@@ -128,12 +144,13 @@ pub(super) fn handle_connection(
             return;
         }
     };
+    drop(pre_auth_permit);
 
     if let Err(error) = configure_connected_stream(websocket.get_mut()) {
         tracing::warn!("failed to configure WebSocket connection socket: {error}");
         return;
     }
-    let Some((handshake, initial_route)) = selected
+    let Some((handshake, initial_route, _connection_permit)) = selected
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take()
@@ -141,7 +158,7 @@ pub(super) fn handle_connection(
         tracing::warn!("WebSocket handshake completed without selecting a route");
         return;
     };
-    let route_key = initial_route.key();
+    let route_key = initial_route.key(&context.generation);
     let connection_id = match context.registry.insert(route_key.clone(), websocket) {
         Ok(connection_id) => connection_id,
         Err(error) => {
@@ -160,7 +177,8 @@ pub(super) fn handle_connection(
             .read();
         match result {
             Ok(message) if message.is_text() || message.is_binary() => {
-                let Some(route) = current_route(&context.routes, &route_key) else {
+                let Some(route) = current_route(&context.routes, &route_key, &context.generation)
+                else {
                     break;
                 };
                 match websocket_payload(
@@ -218,19 +236,23 @@ pub(super) fn handle_connection(
 fn current_route(
     routes: &RwLock<Vec<WebSocketRoute>>,
     route_key: &WebSocketRouteKey,
+    generation: &str,
 ) -> Option<WebSocketRoute> {
+    if route_key.generation != generation {
+        return None;
+    }
     routes
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .iter()
-        .find(|route| route.key() == *route_key)
+        .find(|route| route.key(generation) == *route_key)
         .cloned()
 }
 
-fn configure_handshake_stream(stream: &TcpStream) -> io::Result<()> {
+fn configure_handshake_stream(stream: &TcpStream, timeout: Option<Duration>) -> io::Result<()> {
     stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
-    stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT))
+    stream.set_read_timeout(timeout)?;
+    stream.set_write_timeout(timeout)
 }
 
 fn configure_connected_stream(stream: &TcpStream) -> io::Result<()> {

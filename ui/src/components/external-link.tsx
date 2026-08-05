@@ -1,7 +1,7 @@
 import { ExternalLink as ExternalLinkIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { toast } from "sonner";
 
+import { useSystemLog } from "@/components/system-log-provider";
 import { openExternalUrl, tryNormalizeExternalUrl } from "@/lib/external-url";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ export function ExternalLink({
   href: string;
   showIcon?: boolean;
 }) {
+  const { notify } = useSystemLog();
   const normalizedHref = tryNormalizeExternalUrl(href);
   if (!normalizedHref) {
     return (
@@ -39,9 +40,14 @@ export function ExternalLink({
       href={normalizedHref}
       onClick={(event) => {
         event.preventDefault();
-        void openExternalUrl(normalizedHref).catch((error) =>
-          toast.error(`Could not open link: ${String(error)}`),
-        );
+        void openExternalUrl(normalizedHref).catch((error) => {
+          notify.error("The external link could not be opened.", {
+            details: [{ label: "URL", value: normalizedHref }],
+            error,
+            source: "External links",
+            title: "Could not open link",
+          });
+        });
       }}
     >
       <span className="min-w-0 break-all">{children}</span>

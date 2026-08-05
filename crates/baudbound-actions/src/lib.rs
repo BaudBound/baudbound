@@ -2,16 +2,20 @@
 
 mod actions;
 mod limits;
+mod resource_tracker;
 
 use std::{sync::Arc, time::Duration};
 
 use baudbound_runtime::{
-    RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest, RuntimeActionResult,
-    RuntimeContext,
+    ResourceLimit, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
+    RuntimeActionResult, RuntimeContext,
 };
+use resource_tracker::ActionResourceTracker;
 use serde_json::{Map, Number, Value};
 
-pub use actions::{SerialConnectionRegistry, SerialDeviceConfig};
+pub use actions::{
+    ActionFile, SerialConnectionRegistry, SerialDeviceConfig, open_configured_file_for_read,
+};
 use actions::{
     convert_value_action, copy_file_action, delete_file_action, desktop_only_action,
     download_file_action, http_request_action, kill_process_action, move_file_action,
@@ -51,6 +55,7 @@ pub const SUPPORTED_ACTION_TYPES: &[&str] = &[
     "action.sound.play",
     "action.text.format",
     "action.url.parse",
+    "action.form_dialog",
     "action.value.convert",
     "action.webhook_response",
     "action.websocket.write",
@@ -70,6 +75,7 @@ pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
     "action.notification",
     "action.pixel.get",
     "action.sound.play",
+    "action.form_dialog",
     "action.window.active",
     "action.window.focus",
 ];
@@ -78,12 +84,19 @@ pub const DESKTOP_ADAPTER_ACTION_TYPES: &[&str] = &[
 pub struct HeadlessActionHandler {
     limits: ActionLimits,
     policy: ActionSecurityPolicy,
+    resource_tracker: Arc<ActionResourceTracker>,
     serial_connections: Arc<SerialConnectionRegistry>,
     websocket_sink: Option<Arc<dyn WebSocketMessageSink>>,
 }
 
 pub trait WebSocketMessageSink: Send + Sync {
-    fn send_text(&self, connection_id: &str, message: &str) -> Result<usize, String>;
+    fn send_text(
+        &self,
+        script_id: &str,
+        trigger_node_id: &str,
+        connection_id: &str,
+        message: &str,
+    ) -> Result<usize, String>;
 }
 
 pub trait DesktopActionAdapter: Send + Sync {
@@ -113,16 +126,31 @@ pub trait DesktopActionAdapter: Send + Sync {
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
+    fn form_dialog(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "interactive form dialogs")
+    }
+
     fn notification(
         &self,
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
+    /// Plays audio from a package asset or a configured filesystem path.
+    ///
+    /// `max_read_bytes` is the configured file read limit. A filesystem source
+    /// is a file read and must be bounded by the same limit as
+    /// `action.file.read`, which the caller supplies because the adapter does
+    /// not own runner configuration.
     fn sound_play(
         &self,
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
+        max_read_bytes: ResourceLimit,
     ) -> Result<RuntimeActionResult, RuntimeActionError>;
 
     fn keyboard(
@@ -220,6 +248,14 @@ impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
         desktop_only_action(request, "message boxes")
     }
 
+    fn form_dialog(
+        &self,
+        request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        desktop_only_action(request, "interactive form dialogs")
+    }
+
     fn notification(
         &self,
         request: &RuntimeActionRequest,
@@ -232,6 +268,7 @@ impl DesktopActionAdapter for UnavailableDesktopActionAdapter {
         &self,
         request: &RuntimeActionRequest,
         _context: &RuntimeContext,
+        _max_read_bytes: ResourceLimit,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         desktop_only_action(request, "audio playback")
     }
@@ -321,6 +358,7 @@ where
             "action.keyboard" => self.adapter.keyboard(request, context),
             "action.keyboard.type_text" => self.adapter.keyboard_type_text(request, context),
             "action.message_box" => self.adapter.message_box(request, context),
+            "action.form_dialog" => self.adapter.form_dialog(request, context),
             "action.mouse" => self.adapter.mouse_click(request, context),
             "action.mouse.move" => self.adapter.mouse_move(request, context),
             "action.notification" => self.adapter.notification(request, context),
@@ -331,7 +369,10 @@ where
             "action.process.status" if uses_window_title_match(request) => self
                 .adapter
                 .process_status_by_window_title(request, context),
-            "action.sound.play" => self.adapter.sound_play(request, context),
+            "action.sound.play" => {
+                self.adapter
+                    .sound_play(request, context, self.headless.limits.max_file_read_bytes)
+            }
             "action.window.active" => self.adapter.active_window(request, context),
             "action.window.focus" => self.adapter.window_focus(request, context),
             _ => self.headless.execute_action(request, context),
@@ -339,6 +380,7 @@ where
     }
 
     fn run_finished(&self, identity: &baudbound_runtime::RunIdentity) {
+        self.headless.run_finished(identity);
         self.adapter.run_finished(identity);
     }
 }
@@ -357,6 +399,7 @@ impl HeadlessActionHandler {
         Self {
             limits: ActionLimits::default(),
             policy: ActionSecurityPolicy::default(),
+            resource_tracker: Arc::new(ActionResourceTracker::default()),
             serial_connections: Arc::new(SerialConnectionRegistry::new(devices)),
             websocket_sink: None,
         }
@@ -393,46 +436,131 @@ impl RuntimeActionHandler for HeadlessActionHandler {
         request: &RuntimeActionRequest,
         context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        self.authorize_process_creation(request)?;
         match request.action_type.as_str() {
             "action.beep" => desktop_only_action(request, "audio tone playback"),
             "action.clipboard.get" => desktop_only_action(request, "clipboard reads"),
             "action.clipboard.set" => desktop_only_action(request, "clipboard writes"),
-            "action.file.copy" => copy_file_action(request, context),
+            "action.file.copy" => self.with_file_write_budget(context, |budget| {
+                copy_file_action(request, context, budget)
+            }),
             "action.file.delete" => delete_file_action(request, context),
-            "action.file.download" => download_file_action(
-                request,
-                context,
-                self.limits.max_file_download_bytes,
-                &self.policy,
-            ),
-            "action.file.move" => move_file_action(request, context),
+            "action.file.download" => self.with_file_write_budget(context, |budget| {
+                download_file_action(
+                    request,
+                    context,
+                    self.limits.max_file_download_bytes,
+                    &self.policy,
+                    budget,
+                )
+            }),
+            "action.file.move" => self.with_file_write_budget(context, |budget| {
+                move_file_action(request, context, budget)
+            }),
             "action.file.read" => {
                 read_file_action(request, context, self.limits.max_file_read_bytes)
             }
-            "action.file.write" => write_file_action(request, context),
+            "action.file.write" => self.with_file_write_budget(context, |budget| {
+                write_file_action(request, context, budget)
+            }),
             "action.http" => {
                 http_request_action(request, self.limits.max_http_response_bytes, &self.policy)
             }
             "action.message_box" => desktop_only_action(request, "message boxes"),
+            "action.form_dialog" => desktop_only_action(request, "interactive form dialogs"),
             "action.notification" => desktop_only_action(request, "desktop notifications"),
-            "action.application.open" => open_application_action(request),
+            "action.application.open" => {
+                open_application_action(request, self.reserve_process_launch(request, context)?)
+            }
             "action.process.kill" => kill_process_action(request),
-            "action.process.run" => run_process_action(request, context),
+            "action.process.run" => run_process_action(
+                request,
+                context,
+                self.limits.max_process_output_bytes,
+                self.reserve_process_launch(request, context)?,
+            ),
             "action.process.status" => process_status_action(request),
             "action.serial.write" => self.serial_write_action(request),
-            "action.shell" => shell_command_action(request, context),
+            "action.shell" => shell_command_action(
+                request,
+                context,
+                self.limits.max_process_output_bytes,
+                self.reserve_process_launch(request, context)?,
+            ),
             "action.sound.play" => desktop_only_action(request, "audio playback"),
-            "action.text.format" => text_format_action(request),
+            "action.text.format" => {
+                text_format_action(request, self.limits.max_generated_text_bytes)
+            }
             "action.url.parse" => parse_url_action(request),
             "action.value.convert" => convert_value_action(request),
             "action.webhook_response" => webhook_response_action(request, context),
-            "action.websocket.write" => self.websocket_write_action(request),
+            "action.websocket.write" => self.websocket_write_action(request, context),
             action_type => Err(RuntimeActionError::Unsupported(action_type.to_owned())),
         }
+    }
+
+    fn run_finished(&self, identity: &baudbound_runtime::RunIdentity) {
+        self.resource_tracker.finish_run(&identity.run_id);
     }
 }
 
 impl HeadlessActionHandler {
+    fn reserve_process_launch(
+        &self,
+        request: &RuntimeActionRequest,
+        context: &RuntimeContext,
+    ) -> Result<resource_tracker::ProcessLaunchPermit, RuntimeActionError> {
+        self.resource_tracker
+            .reserve_process_launch(
+                &context.identity.script_id,
+                self.limits.max_processes_per_script,
+                self.limits.max_process_launches_per_minute,
+            )
+            .map_err(|message| RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message,
+            })
+    }
+
+    fn with_file_write_budget(
+        &self,
+        context: &RuntimeContext,
+        operation: impl FnOnce(
+            &mut resource_tracker::FileWriteBudget,
+        ) -> Result<RuntimeActionResult, RuntimeActionError>,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        let mut budget = self.resource_tracker.file_write_budget(
+            &context.identity.run_id,
+            self.limits.max_file_write_bytes_per_run,
+        );
+        let result = operation(&mut budget)?;
+        budget.commit();
+        Ok(result)
+    }
+
+    fn authorize_process_creation(
+        &self,
+        request: &RuntimeActionRequest,
+    ) -> Result<(), RuntimeActionError> {
+        if matches!(
+            request.action_type.as_str(),
+            "action.application.open" | "action.process.run" | "action.shell"
+        ) && !self.policy.allow_process_execution
+        {
+            return failed(
+                request,
+                "process creation is blocked because security.policy.allow_dangerous_permissions is false",
+            );
+        }
+        if request.action_type == "action.shell" && !self.policy.allow_shell_commands {
+            return failed(
+                request,
+                "shell execution is blocked because security.policy.allow_shell_commands is false",
+            );
+        }
+        Ok(())
+    }
+
     fn serial_write_action(
         &self,
         request: &RuntimeActionRequest,
@@ -476,12 +604,14 @@ impl HeadlessActionHandler {
                     Value::Number(Number::from(payload.len())),
                 ),
             ]),
+            sensitive_output_keys: Default::default(),
         })
     }
 
     fn websocket_write_action(
         &self,
         request: &RuntimeActionRequest,
+        context: &RuntimeContext,
     ) -> Result<RuntimeActionResult, RuntimeActionError> {
         let connection_id = required_string(request, "connectionId")?;
         let message = required_string(request, "message")?;
@@ -493,7 +623,12 @@ impl HeadlessActionHandler {
         };
 
         let bytes = sink
-            .send_text(&connection_id, &message)
+            .send_text(
+                &context.identity.script_id,
+                &context.identity.trigger_node_id,
+                &connection_id,
+                &message,
+            )
             .map_err(|message| RuntimeActionError::Failed {
                 action_type: request.action_type.clone(),
                 message,
@@ -505,6 +640,7 @@ impl HeadlessActionHandler {
                 ("message".to_owned(), Value::String(message)),
                 ("bytes".to_owned(), Value::Number(Number::from(bytes))),
             ]),
+            sensitive_output_keys: Default::default(),
         })
     }
 }

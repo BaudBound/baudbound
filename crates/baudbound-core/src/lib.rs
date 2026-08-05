@@ -15,8 +15,9 @@ mod triggers;
 mod version;
 
 use std::{
+    collections::BTreeMap,
     fs::{File, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -30,7 +31,10 @@ use baudbound_runtime::{
     RuntimeRunObserver, RuntimeSecretDeclaration, execute_manual_program_with_state,
     execute_trigger_program_with_state,
 };
-use baudbound_script::{PackageLoadError, PackageSummary, ScriptPackage, load_script_package};
+use baudbound_script::{
+    PackageLoadError, PackageSummary, ScriptPackage, load_script_package,
+    load_script_package_reader, max_package_archive_bytes,
+};
 use baudbound_security::{
     BlacklistDecision, BlacklistMatchSubject, BlacklistPolicy, BlacklistSeverity,
     PermissiveBlacklistPolicy, RunnerPolicy, SecurityValidationError,
@@ -64,10 +68,11 @@ pub use config::{
     DEFAULT_WEBHOOK_MAX_BODY_BYTES, DEFAULT_WEBHOOK_PORT, DEFAULT_WEBSOCKET_BIND,
     DEFAULT_WEBSOCKET_MAX_MESSAGE_BYTES, DEFAULT_WEBSOCKET_PORT, DesktopSettings, DisplaySettings,
     LimitSettings, MAX_RUNNER_CONFIG_BYTES, MAX_SERIAL_MESSAGE_BYTES, MAX_SERIAL_MESSAGE_GAP_MS,
-    RunnerConfig, RunnerConfigError, RunnerSettings, SecurityPolicySettings, SecuritySettings,
-    SerialDeviceSettings, SerialSettings, TimeFormat, TriggerSettings, UpdateSettings,
-    WebSocketSettings, WebhookSettings,
+    QueueOverflowStrategy, RunnerConfig, RunnerConfigError, RunnerSettings, SecurityPolicySettings,
+    SecuritySettings, SerialDeviceSettings, SerialSettings, TimeFormat, TriggerSettings,
+    UpdateSettings, WebSocketSettings, WebhookSettings,
 };
+pub use execution_queue::ExecutionAdmissionPolicy;
 pub use package::PackageInspection;
 pub use secrets::{InstalledSecretStatus, MAX_SECRET_INPUT_BYTES};
 pub use serial::{SerialDeviceConfig, serial_device_configs_from_settings};
@@ -125,6 +130,8 @@ pub struct RunnerCore {
     action_security_policy: ActionSecurityPolicy,
     blacklist_policy: Arc<dyn BlacklistPolicy>,
     configured_target_runtimes: Vec<String>,
+    execution_admission_policy: ExecutionAdmissionPolicy,
+    execution_policy: baudbound_runtime::RuntimeExecutionPolicy,
     execution_queue: Arc<ScriptExecutionQueue>,
     output_limits: RuntimeOutputLimits,
     policy: RunnerPolicy,
@@ -142,6 +149,8 @@ impl Default for RunnerCore {
             action_security_policy: ActionSecurityPolicy::default(),
             blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: Vec::new(),
+            execution_admission_policy: ExecutionAdmissionPolicy::default(),
+            execution_policy: baudbound_runtime::RuntimeExecutionPolicy::default(),
             execution_queue: Arc::new(ScriptExecutionQueue::default()),
             output_limits: RuntimeOutputLimits::default(),
             policy: RunnerPolicy::permissive(),
@@ -168,13 +177,36 @@ impl RunnerCore {
                 max_file_download_bytes: config.limits.max_file_download_bytes,
                 max_file_read_bytes: config.limits.max_file_read_bytes,
                 max_http_response_bytes: config.limits.max_http_response_bytes,
+                max_generated_text_bytes: config.limits.max_generated_text_bytes,
+                max_process_output_bytes: config.limits.max_process_output_bytes,
+                max_processes_per_script: config.limits.max_processes_per_script,
+                max_process_launches_per_minute: config.limits.max_process_launches_per_minute,
+                max_file_write_bytes_per_run: config.limits.max_file_write_bytes_per_run,
             },
             action_security_policy: ActionSecurityPolicy {
+                allow_process_execution: config.security.policy.allow_dangerous_permissions,
                 allow_private_http_requests: config.security.policy.allow_private_http_requests,
+                allow_shell_commands: config.security.policy.allow_shell_commands,
             },
             blacklist_policy: Arc::new(PermissiveBlacklistPolicy),
             configured_target_runtimes: config.runner.target_runtimes.clone(),
-            execution_queue: Arc::new(ScriptExecutionQueue::default()),
+            execution_admission_policy: ExecutionAdmissionPolicy {
+                max_active_runs_global: config.limits.max_active_runs_global,
+                max_active_runs_per_script: config.limits.max_active_runs_per_script,
+                max_queued_activations_per_script: config.limits.max_queued_activations_per_script,
+                queue_overflow_strategy: config.limits.queue_overflow_strategy,
+            },
+            execution_policy: baudbound_runtime::RuntimeExecutionPolicy {
+                max_steps_per_run: config.limits.max_steps_per_run,
+                max_run_duration_ms: config.limits.max_run_duration_ms,
+                max_loop_iterations_per_run: config.limits.max_loop_iterations_per_run,
+            },
+            execution_queue: Arc::new(ScriptExecutionQueue::new(ExecutionAdmissionPolicy {
+                max_active_runs_global: config.limits.max_active_runs_global,
+                max_active_runs_per_script: config.limits.max_active_runs_per_script,
+                max_queued_activations_per_script: config.limits.max_queued_activations_per_script,
+                queue_overflow_strategy: config.limits.queue_overflow_strategy,
+            })),
             output_limits: RuntimeOutputLimits {
                 max_log_entry_bytes: config.limits.max_log_entry_bytes,
                 max_runtime_variable_bytes: config.limits.max_runtime_variable_bytes,
@@ -242,7 +274,14 @@ impl RunnerCore {
     #[must_use]
     pub fn with_execution_queue_from(mut self, existing: &Self) -> Self {
         self.execution_queue = Arc::clone(&existing.execution_queue);
+        self.execution_queue
+            .update_policy(self.execution_admission_policy);
         self
+    }
+
+    #[must_use]
+    pub const fn execution_admission_policy(&self) -> ExecutionAdmissionPolicy {
+        self.execution_admission_policy
     }
 
     #[must_use]
@@ -273,7 +312,7 @@ impl RunnerCore {
         path: impl AsRef<Path>,
     ) -> Result<InstalledScript, CoreError> {
         let staged = StagedPackage::copy_from(path.as_ref())?;
-        let package = load_script_package(&staged.path)?;
+        let package = staged.load_package()?;
         self.validate_loaded_package(&package)?;
         self.ensure_package_distribution_allowed(&package, &staged.path, "import")?;
         store
@@ -287,7 +326,7 @@ impl RunnerCore {
         path: impl AsRef<Path>,
     ) -> Result<InstalledScript, CoreError> {
         let staged = StagedPackage::copy_from(path.as_ref())?;
-        let package = load_script_package(&staged.path)?;
+        let package = staged.load_package()?;
         self.validate_loaded_package(&package)?;
         self.ensure_package_distribution_allowed(&package, &staged.path, "update")?;
         let declared_secret_names = package
@@ -437,13 +476,12 @@ impl RunnerCore {
     ) -> Result<Vec<TriggerRegistration>, CoreError> {
         let include_inactive = reference.is_some();
         let scripts = match reference {
-            Some(reference) => vec![store.verify_script_package_hash(reference)?],
+            Some(reference) => vec![store.find_script(reference)?],
             None => store
                 .list_scripts()?
                 .into_iter()
                 .filter(|script| script.enabled)
-                .map(|script| store.verify_script_package_hash(&script.id))
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect(),
         };
 
         let mut registrations = Vec::new();
@@ -455,7 +493,8 @@ impl RunnerCore {
             {
                 continue;
             }
-            let package = load_script_package(&script.package_path)?;
+            let (script, _staged_package, package) =
+                load_verified_installed_package(store, &script.id)?;
             self.validate_loaded_package(&package)?;
             if !include_inactive && !has_current_approval(store, &script, &package)? {
                 continue;
@@ -507,8 +546,8 @@ impl RunnerCore {
         store: &impl ScriptStore,
         reference: &str,
     ) -> Result<ScriptApprovalResult, CoreError> {
-        let installed = store.verify_script_package_hash(reference)?;
-        let package = load_script_package(&installed.package_path)?;
+        let (installed, _staged_package, package) =
+            load_verified_installed_package(store, reference)?;
         self.validate_loaded_package(&package)?;
         self.ensure_installed_distribution_allowed(&installed, "approve")?;
         store
@@ -576,6 +615,15 @@ impl RunnerCore {
         settings::set_installed_script_setting_from_text(self, store, reference, name, value)
     }
 
+    pub fn save_installed_script_settings_from_text(
+        &self,
+        store: &impl ScriptStore,
+        reference: &str,
+        values: &BTreeMap<String, String>,
+    ) -> Result<Vec<InstalledScriptSettingStatus>, CoreError> {
+        settings::save_installed_script_settings_from_text(self, store, reference, values)
+    }
+
     pub fn remove_installed_script_setting(
         &self,
         store: &impl ScriptStore,
@@ -636,7 +684,7 @@ impl RunnerCore {
         mut call_stack: Vec<String>,
         cancellation: RuntimeCancellationToken,
     ) -> Result<RunReport, CoreError> {
-        let installed = store.verify_script_package_hash(reference)?;
+        let installed = store.find_script(reference)?;
         if !installed.enabled {
             return Err(CoreError::ScriptDisabled(installed.id));
         }
@@ -661,6 +709,9 @@ impl RunnerCore {
                     }
                     AcquireError::Busy => unreachable!("blocking acquisition cannot be busy"),
                     AcquireError::Full => CoreError::ScriptQueueFull(installed.id.clone()),
+                    AcquireError::Superseded => {
+                        CoreError::ScriptQueueSuperseded(installed.id.clone())
+                    }
                     AcquireError::Rejected => self
                         .ensure_installed_execution_allowed(&installed, "run")
                         .expect_err("the queue only rejects newly restricted scripts"),
@@ -683,15 +734,23 @@ impl RunnerCore {
                         CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
                     }
                     AcquireError::Full => CoreError::ScriptQueueFull(installed.id.clone()),
+                    AcquireError::Superseded => {
+                        CoreError::ScriptQueueSuperseded(installed.id.clone())
+                    }
                     AcquireError::Rejected => self
                         .ensure_installed_execution_allowed(&installed, "run")
                         .expect_err("the queue only rejects newly restricted scripts"),
                 })?
         };
+        let installed = store.find_script(&installed.id)?;
+        if !installed.enabled {
+            return Err(CoreError::ScriptDisabled(installed.id));
+        }
         self.ensure_installed_execution_allowed(&installed, "run")?;
+        let (installed, staged_package, package) =
+            load_verified_installed_package(store, &installed.id)?;
         call_stack.push(installed.id.clone());
 
-        let package = load_script_package(&installed.package_path)?;
         if let Err(source) = self.validate_package_compatibility(&package) {
             append_failed_run_record(
                 store,
@@ -773,12 +832,15 @@ impl RunnerCore {
 
         let runtime_resources = || {
             let resources = RuntimeExecutionResources::new(&core_action_handler)
-                .with_package_path(installed.package_path.clone())
+                .with_package_path(staged_package.path.clone())
+                .with_workspace_path(store.script_workspace(&installed.id))
+                .with_package_bytes(Arc::clone(&staged_package.bytes))
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
                 .with_default_variables(&default_variables)
                 .with_script_settings(&script_settings)
-                .with_output_limits(self.output_limits);
+                .with_output_limits(self.output_limits)
+                .with_execution_policy(self.execution_policy);
             match self.run_observers.as_slice() {
                 [] => resources,
                 [observer] => resources.with_observer(Arc::clone(observer)),
@@ -845,14 +907,18 @@ impl RunnerCore {
     }
 
     fn script_status(&self, store: &impl ScriptStore, script: InstalledScript) -> ScriptStatus {
-        let package_hash_status = match store.verify_script_package_hash(&script.id) {
-            Ok(_) => PackageHashStatus::Valid,
-            Err(StorageError::HashMismatch {
+        let (staged_package, package_hash_status) = match StagedPackage::verified_copy_from(&script)
+        {
+            Ok(staged) => (Some(staged), PackageHashStatus::Valid),
+            Err(CoreError::Storage(StorageError::HashMismatch {
                 expected, actual, ..
-            }) => PackageHashStatus::Mismatch { expected, actual },
-            Err(error) => PackageHashStatus::Error {
-                message: error.to_string(),
-            },
+            })) => (None, PackageHashStatus::Mismatch { expected, actual }),
+            Err(error) => (
+                None,
+                PackageHashStatus::Error {
+                    message: error.to_string(),
+                },
+            ),
         };
         let package_hash_valid = matches!(package_hash_status, PackageHashStatus::Valid);
 
@@ -862,7 +928,11 @@ impl RunnerCore {
         let mut package_loaded = false;
 
         let package = if package_hash_valid {
-            match load_script_package(&script.package_path) {
+            match staged_package
+                .as_ref()
+                .expect("valid package hash must retain its staged package")
+                .load_package()
+            {
                 Ok(package) => {
                     package_loaded = true;
                     declared_permissions = package.permissions.declared_permissions.clone();
@@ -991,7 +1061,7 @@ impl RunnerCore {
         operation: &'static str,
     ) -> Result<(), CoreError> {
         let decision = self.blacklist_policy.decide(&BlacklistMatchSubject {
-            package_hash: Some(sha256_file(path)?),
+            package_hash: Some(sha256_bytes(&read_bounded_package_bytes(path)?)),
             script_id: Some(package.manifest.id.clone()),
             trusted_urls: Vec::new(),
         });
@@ -1036,6 +1106,8 @@ pub enum CoreError {
     ScriptDisabled(String),
     #[error("script {0} already has too many queued runs")]
     ScriptQueueFull(String),
+    #[error("a newer activation replaced the oldest queued run for script {0}")]
+    ScriptQueueSuperseded(String),
     #[error("failed to stage package {path}: {source}")]
     PackageStage {
         path: PathBuf,
@@ -1063,39 +1135,36 @@ fn blacklist_titles(decision: &BlacklistDecision) -> String {
         .join(", ")
 }
 
-fn sha256_file(path: &Path) -> Result<String, CoreError> {
-    let mut file = File::open(path).map_err(|source| CoreError::PackageStage {
-        path: path.to_path_buf(),
-        source,
-    })?;
+fn sha256_bytes(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|source| CoreError::PackageStage {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
-    }
-    Ok(digest
+    digest.update(bytes);
+    digest
         .finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
-        .collect())
+        .collect()
 }
 
-struct StagedPackage {
+pub(crate) fn load_verified_installed_package(
+    store: &impl ScriptStore,
+    reference: &str,
+) -> Result<(InstalledScript, StagedPackage, ScriptPackage), CoreError> {
+    VerifiedPackageSnapshot::load(store, reference).map(VerifiedPackageSnapshot::into_parts)
+}
+
+pub(crate) struct StagedPackage {
     _directory: tempfile::TempDir,
+    bytes: Arc<[u8]>,
     path: PathBuf,
 }
 
 impl StagedPackage {
     fn copy_from(source_path: &Path) -> Result<Self, CoreError> {
+        let bytes = read_bounded_package_bytes(source_path)?;
+        Self::from_bytes(source_path, Arc::from(bytes))
+    }
+
+    fn from_bytes(source_path: &Path, bytes: Arc<[u8]>) -> Result<Self, CoreError> {
         let file_name = source_path
             .file_name()
             .ok_or_else(|| CoreError::PackageStage {
@@ -1113,10 +1182,6 @@ impl StagedPackage {
                 source,
             })?;
         let staged_path = directory.path().join(file_name);
-        let mut source = File::open(source_path).map_err(|source| CoreError::PackageStage {
-            path: source_path.to_path_buf(),
-            source,
-        })?;
         let mut destination = OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -1125,10 +1190,12 @@ impl StagedPackage {
                 path: staged_path.clone(),
                 source,
             })?;
-        io::copy(&mut source, &mut destination).map_err(|source| CoreError::PackageStage {
-            path: staged_path.clone(),
-            source,
-        })?;
+        destination
+            .write_all(&bytes)
+            .map_err(|source| CoreError::PackageStage {
+                path: staged_path.clone(),
+                source,
+            })?;
         destination
             .flush()
             .map_err(|source| CoreError::PackageStage {
@@ -1144,9 +1211,83 @@ impl StagedPackage {
 
         Ok(Self {
             _directory: directory,
+            bytes,
             path: staged_path,
         })
     }
+
+    fn load_package(&self) -> Result<ScriptPackage, CoreError> {
+        load_script_package_reader(Cursor::new(self.bytes.as_ref())).map_err(CoreError::Package)
+    }
+
+    fn verified_copy_from(installed: &InstalledScript) -> Result<Self, CoreError> {
+        let bytes = Arc::<[u8]>::from(read_bounded_package_bytes(&installed.package_path)?);
+        Self::verified_from_bytes(installed, bytes)
+    }
+
+    fn verified_from_bytes(
+        installed: &InstalledScript,
+        bytes: Arc<[u8]>,
+    ) -> Result<Self, CoreError> {
+        let actual = sha256_bytes(&bytes);
+        if actual != installed.package_hash {
+            return Err(CoreError::Storage(StorageError::HashMismatch {
+                script_id: installed.id.clone(),
+                expected: installed.package_hash.clone(),
+                actual,
+            }));
+        }
+        Self::from_bytes(&installed.package_path, bytes)
+    }
+}
+
+struct VerifiedPackageSnapshot {
+    installed: InstalledScript,
+    package: ScriptPackage,
+    staged: StagedPackage,
+}
+
+impl VerifiedPackageSnapshot {
+    fn load(store: &impl ScriptStore, reference: &str) -> Result<Self, CoreError> {
+        let installed = store.find_script(reference)?;
+        let staged = StagedPackage::verified_copy_from(&installed)?;
+        let package = staged.load_package()?;
+        Ok(Self {
+            installed,
+            package,
+            staged,
+        })
+    }
+
+    fn into_parts(self) -> (InstalledScript, StagedPackage, ScriptPackage) {
+        (self.installed, self.staged, self.package)
+    }
+}
+
+fn read_bounded_package_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
+    let maximum = max_package_archive_bytes();
+    let mut file = File::open(path).map_err(|source| CoreError::PackageStage {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(maximum.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|source| CoreError::PackageStage {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum {
+        return Err(CoreError::PackageStage {
+            path: path.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("package archive exceeds {maximum} bytes"),
+            ),
+        });
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]

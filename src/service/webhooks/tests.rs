@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
     sync::{
@@ -10,13 +11,24 @@ use std::{
 };
 
 use baudbound_core::{RunReport, TriggerEvent, TriggerRegistration};
-use baudbound_runtime::RunIdentity;
+use baudbound_runtime::{ResourceLimit, RunIdentity};
+use baudbound_triggers::NetworkTriggerAuthenticationError;
 use serde_json::{Value, json};
 
 use super::*;
 use crate::service::{executor::TriggerRunner, ipc::ServiceControlServer};
 
 struct AllowAllAuthenticator;
+
+#[test]
+fn unlimited_webhook_header_limit_removes_the_library_default_cap() {
+    assert_eq!(
+        listener::http1_header_buffer_size(ResourceLimit::Unlimited)
+            .expect("unlimited header setting should be supported"),
+        usize::MAX
+    );
+    assert!(listener::http1_header_buffer_size(ResourceLimit::limited(8 * 1024 - 1)).is_err());
+}
 
 impl NetworkTriggerAuthenticator for AllowAllAuthenticator {
     fn authenticate(
@@ -31,6 +43,21 @@ impl NetworkTriggerAuthenticator for AllowAllAuthenticator {
 }
 
 struct ExpectedTokenAuthenticator(&'static str);
+
+struct SlowAuthenticator(Duration);
+
+impl NetworkTriggerAuthenticator for SlowAuthenticator {
+    fn authenticate(
+        &self,
+        _script_id: &str,
+        _node_id: &str,
+        _trigger_kind: NetworkTriggerKind,
+        _provided_token: Option<&str>,
+    ) -> Result<(), NetworkTriggerAuthenticationError> {
+        thread::sleep(self.0);
+        Ok(())
+    }
+}
 
 impl NetworkTriggerAuthenticator for ExpectedTokenAuthenticator {
     fn authenticate(
@@ -165,7 +192,13 @@ fn route_reload_preserves_in_flight_execution_and_accepts_new_routes() {
     let old_response = send_request(&host, "POST", "/events/old", "{}");
     accept_next(&mut host);
 
-    host.service = webhook_service_for("new", "n-new", false, 1.0);
+    let new_service = webhook_service_for("new", "n-new", false, 1.0);
+    host.listener.replace_admission(
+        new_service.clone(),
+        Arc::new(AllowAllAuthenticator),
+        BTreeSet::new(),
+    );
+    host.service = new_service;
     let new_response = send_request(&host, "POST", "/events/new", "{}");
     accept_next(&mut host);
 
@@ -220,9 +253,11 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
         Ok(report(&event, Default::default()))
     }) as Arc<TriggerRunner>;
     let mut host = test_host(webhook_service(false, 1.0), runner);
-    host.authenticator = Arc::new(ExpectedTokenAuthenticator("correct-token"));
-    host.allow_browser_origins
-        .insert("https://allowed.example".to_owned());
+    let authenticator: Arc<dyn NetworkTriggerAuthenticator> =
+        Arc::new(ExpectedTokenAuthenticator("correct-token"));
+    let allow_browser_origins = BTreeSet::from(["https://allowed.example".to_owned()]);
+    host.listener
+        .replace_admission(host.service.clone(), authenticator, allow_browser_origins);
 
     let missing = send_request(&host, "POST", "/events/test", "{}");
     accept_next(&mut host);
@@ -394,8 +429,13 @@ fn webhook_connection_limit_rejects_excess_clients_and_recovers() {
     let mut rejected_response = Vec::new();
     let rejected_result = rejected_client.read_to_end(&mut rejected_response);
     assert!(
-        rejected_result.is_err() || rejected_response.is_empty(),
-        "excess connection should be dropped without dispatch"
+        rejected_result.is_ok(),
+        "capacity response should be readable"
+    );
+    assert!(
+        String::from_utf8_lossy(&rejected_response).starts_with("HTTP/1.1 503"),
+        "excess connection should receive an explicit capacity response: {}",
+        String::from_utf8_lossy(&rejected_response)
     );
 
     drop(occupying_client);
@@ -409,9 +449,39 @@ fn webhook_connection_limit_rejects_excess_clients_and_recovers() {
 }
 
 #[test]
+fn timed_out_authentication_jobs_remain_bounded_until_they_exit() {
+    let mut config = listener_config("127.0.0.1:0", 8, 1024);
+    config.max_unauthenticated_connections = ResourceLimit::limited(1);
+    config.pre_auth_timeout_ms = ResourceLimit::limited(20);
+    let listener = WebhookListener::bind(
+        config,
+        webhook_service(false, 1.0),
+        Arc::new(SlowAuthenticator(Duration::from_millis(200))),
+        BTreeSet::new(),
+    )
+    .expect("webhook listener should bind");
+    let address = listener.local_addr();
+
+    let first = http_request(address, "POST", "/events/test", "{}", &[]);
+    assert!(first.starts_with("HTTP/1.1 408"), "{first}");
+    let second = http_request(address, "POST", "/events/test", "{}", &[]);
+    assert!(second.starts_with("HTTP/1.1 503"), "{second}");
+
+    thread::sleep(Duration::from_millis(225));
+    let recovered = http_request(address, "POST", "/events/test", "{}", &[]);
+    assert!(recovered.starts_with("HTTP/1.1 408"), "{recovered}");
+}
+
+#[test]
 fn webhook_listener_stops_promptly_while_a_client_is_stalled() {
-    let listener =
-        WebhookListener::bind("127.0.0.1:0", 1, 1024).expect("webhook listener should bind");
+    let service = webhook_service(false, 1.0);
+    let listener = WebhookListener::bind(
+        listener_config("127.0.0.1:0", 1, 1024),
+        service,
+        Arc::new(AllowAllAuthenticator),
+        BTreeSet::new(),
+    )
+    .expect("webhook listener should bind");
     let mut stalled_client =
         TcpStream::connect(listener.local_addr()).expect("stalled client should connect");
     stalled_client
@@ -428,6 +498,72 @@ fn webhook_listener_stops_promptly_while_a_client_is_stalled() {
     );
 }
 
+#[test]
+fn webhook_listener_restart_applies_updated_limits() {
+    let runner = Arc::new(|event: TriggerEvent| Ok(report(&event, Default::default())))
+        as Arc<TriggerRunner>;
+    let mut host = test_host_with_limits(webhook_service(false, 1.0), runner, 8, 1024);
+
+    let next_config = listener_config("127.0.0.1:0", 4, 2);
+    host.listener
+        .restart(
+            next_config.clone(),
+            host.service.clone(),
+            Arc::new(AllowAllAuthenticator),
+            BTreeSet::new(),
+        )
+        .expect("listener should restart with updated limits");
+    assert!(host.listener.matches_configuration(&next_config));
+
+    let accepted = send_request(&host, "POST", "/events/test", "{}");
+    accept_next(&mut host);
+    assert!(
+        accepted
+            .recv_timeout(Duration::from_secs(1))
+            .expect("request at the new body limit should complete")
+            .starts_with("HTTP/1.1 202")
+    );
+
+    let rejected = send_request(&host, "POST", "/events/test", "abc");
+    assert!(
+        rejected
+            .recv_timeout(Duration::from_secs(1))
+            .expect("request above the new body limit should complete")
+            .starts_with("HTTP/1.1 413")
+    );
+}
+
+#[test]
+fn failed_webhook_listener_rebind_preserves_the_live_listener() {
+    let runner = Arc::new(|event: TriggerEvent| Ok(report(&event, Default::default())))
+        as Arc<TriggerRunner>;
+    let mut host = test_host(webhook_service(false, 1.0), runner);
+    let occupied =
+        std::net::TcpListener::bind("127.0.0.1:0").expect("conflicting listener should bind");
+    let occupied_address = occupied
+        .local_addr()
+        .expect("conflicting address should resolve")
+        .to_string();
+
+    host.listener
+        .restart(
+            listener_config(&occupied_address, 4, 512),
+            host.service.clone(),
+            Arc::new(AllowAllAuthenticator),
+            BTreeSet::new(),
+        )
+        .expect_err("conflicting rebind must fail");
+
+    let response = send_request(&host, "POST", "/events/test", "{}");
+    accept_next(&mut host);
+    assert!(
+        response
+            .recv_timeout(Duration::from_secs(1))
+            .expect("original listener should remain available")
+            .starts_with("HTTP/1.1 202")
+    );
+}
+
 fn test_host(service: WebhookService, runner: Arc<TriggerRunner>) -> WebhookHost {
     test_host_with_limits(service, runner, 8, 1024)
 }
@@ -438,15 +574,41 @@ fn test_host_with_limits(
     max_connections: usize,
     max_body_bytes: usize,
 ) -> WebhookHost {
+    let authenticator: Arc<dyn NetworkTriggerAuthenticator> = Arc::new(AllowAllAuthenticator);
     WebhookHost {
-        allow_browser_origins: BTreeSet::new(),
-        authenticator: Arc::new(AllowAllAuthenticator),
         executor: TriggerExecutor::with_runner(2, 4, "webhook-test", runner)
             .expect("test webhook executor should start"),
-        listener: WebhookListener::bind("127.0.0.1:0", max_connections, max_body_bytes)
-            .expect("test webhook listener should bind"),
+        listener: WebhookListener::bind(
+            listener_config("127.0.0.1:0", max_connections, max_body_bytes),
+            service.clone(),
+            authenticator,
+            BTreeSet::new(),
+        )
+        .expect("test webhook listener should bind"),
         pending: BTreeMap::new(),
         service,
+    }
+}
+
+fn listener_config(
+    bind_address: &str,
+    max_connections: usize,
+    max_body_bytes: usize,
+) -> WebhookListenerConfig {
+    WebhookListenerConfig {
+        bind_address: bind_address.to_owned(),
+        body_read_progress_timeout_ms: ResourceLimit::limited(250),
+        body_read_timeout_ms: ResourceLimit::limited(250),
+        header_read_timeout_ms: ResourceLimit::limited(250),
+        max_body_bytes,
+        max_connections,
+        max_header_bytes: ResourceLimit::limited(32 * 1024),
+        max_unauthenticated_connections: ResourceLimit::limited(
+            u64::try_from(max_connections).unwrap(),
+        ),
+        pre_auth_requests_per_minute_global: ResourceLimit::limited(10_000),
+        pre_auth_requests_per_minute_per_address: ResourceLimit::limited(10_000),
+        pre_auth_timeout_ms: ResourceLimit::limited(250),
     }
 }
 

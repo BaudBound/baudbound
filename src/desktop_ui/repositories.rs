@@ -127,7 +127,7 @@ fn refresh_due_repositories<R: tauri::Runtime>(
         let url = source.url;
         let result = crate::script_repositories::refresh_repository(
             store,
-            config.limits.max_file_download_bytes,
+            config.limits.max_file_download_bytes.value_or_max(),
             &url,
             &mut |progress| {
                 let _ = app.emit(
@@ -526,7 +526,8 @@ fn repository_download_limit(state: &DesktopUiState) -> Result<u64, String> {
     Ok(current_runner_config(state)
         .map_err(|error| error.to_string())?
         .limits
-        .max_file_download_bytes as u64)
+        .max_file_download_bytes
+        .value_or_max())
 }
 
 fn emit_repository_changed<R: tauri::Runtime>(app: &tauri::AppHandle<R>, repository_url: &str) {

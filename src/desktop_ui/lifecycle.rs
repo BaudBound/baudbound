@@ -17,14 +17,9 @@ const MENU_RELOAD_RUNNER: &str = "reload-runner";
 const MENU_QUIT: &str = "quit";
 const QUIT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn configure_desktop_lifecycle(
-    app: &mut App,
-    launched_from_autostart: bool,
-    force_initial_window_visible: bool,
-) -> Result<()> {
+pub fn configure_desktop_lifecycle(app: &mut App) -> Result<()> {
     configure_close_to_tray(app);
     configure_tray(app)?;
-    configure_initial_window_visibility(app, launched_from_autostart, force_initial_window_visible);
     Ok(())
 }
 
@@ -58,8 +53,8 @@ fn configure_close_to_tray(app: &App) {
     });
 }
 
-fn configure_initial_window_visibility(
-    app: &App,
+pub(super) fn apply_initial_window_visibility(
+    app: &AppHandle,
     launched_from_autostart: bool,
     force_visible: bool,
 ) {
@@ -74,7 +69,7 @@ fn configure_initial_window_visibility(
     if start_hidden {
         return;
     }
-    show_main_window(app.handle());
+    show_main_window(app);
 }
 
 fn configure_tray(app: &App) -> Result<()> {

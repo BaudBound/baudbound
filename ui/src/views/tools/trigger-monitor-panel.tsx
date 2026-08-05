@@ -1,48 +1,32 @@
-import {
-  Eye,
-  Pause,
-  Play,
-  RadioTower,
-  RotateCcw,
-  Square,
-  Trash2,
-} from "lucide-react";
+import { Eye, Pause, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { CodeBlock } from "@/components/code-block";
 import { DetailDialog } from "@/components/detail-dialog";
 import { EmptyState } from "@/components/empty-state";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { TriggerMonitorController } from "@/hooks/use-trigger-monitor";
-import type {
-  DashboardPayload,
-  TriggerMonitorEvent,
-} from "@/lib/runner-api";
 import { formatCount } from "@/lib/count-format";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
-import { triggerMonitorEventMatches } from "@/lib/trigger-monitor-events";
+import type { DashboardPayload, TriggerMonitorEvent } from "@/lib/runner-api";
 import { useDesktopTime } from "@/lib/time-format";
+import { triggerMonitorEventMatches } from "@/lib/trigger-monitor-events";
 import { visibleText } from "@/lib/visible-text";
 
-export function TriggerMonitorView({
+export function TriggerMonitorPanel({
   controller,
   dashboard,
 }: {
   controller: TriggerMonitorController;
   dashboard: DashboardPayload;
 }) {
+  const { notify } = useSystemLog();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [actionType, setActionType] = useState("all");
@@ -52,38 +36,19 @@ export function TriggerMonitorView({
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scriptNames = useMemo(
-    () =>
-      Object.fromEntries(
-        dashboard.runner.scripts.map((script) => [
-          script.installed.id,
-          script.installed.name,
-        ]),
-      ),
+    () => Object.fromEntries(dashboard.runner.scripts.map((script) => [script.installed.id, script.installed.name])),
     [dashboard.runner.scripts],
   );
   const actionTypes = useMemo(
-    () =>
-      [...new Set(controller.events.map((event) => event.action_type))].sort(),
+    () => [...new Set(controller.events.map((event) => event.action_type))].sort(),
     [controller.events],
   );
   const filteredEvents = useMemo(
     () =>
       controller.events.filter((event) =>
-        triggerMonitorEventMatches(
-          event,
-          deferredSearch,
-          actionType,
-          status,
-          scriptNames[event.script_id] ?? "",
-        ),
+        triggerMonitorEventMatches(event, deferredSearch, actionType, status, scriptNames[event.script_id] ?? ""),
       ),
-    [
-      actionType,
-      controller.events,
-      deferredSearch,
-      scriptNames,
-      status,
-    ],
+    [actionType, controller.events, deferredSearch, scriptNames, status],
   );
 
   useEffect(() => {
@@ -97,21 +62,22 @@ export function TriggerMonitorView({
     try {
       await action();
     } catch (error) {
-      toast.error(`${failure}: ${String(error)}`);
+      notify.error(failure, {
+        error,
+        source: "Trigger monitor",
+        title: "Trigger monitor operation failed",
+      });
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="grid gap-4">
+    <>
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2">
-              <RadioTower className="size-4 text-baud-blue" />
-              Live trigger monitor
-            </CardTitle>
+            <CardTitle>Live trigger monitor</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               Captured input remains in memory and is cleared when BaudBound exits.
             </p>
@@ -120,13 +86,11 @@ export function TriggerMonitorView({
             {controller.monitorState.enabled ? "Monitoring" : "Stopped"}
           </Badge>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
           {controller.monitorState.enabled ? (
             <Button
               disabled={busy}
-              onClick={() =>
-                void perform(controller.stop, "Could not stop trigger monitoring")
-              }
+              onClick={() => void perform(controller.stop, "Could not stop trigger monitoring")}
               size="sm"
               variant="outline"
             >
@@ -136,9 +100,7 @@ export function TriggerMonitorView({
           ) : (
             <Button
               disabled={busy}
-              onClick={() =>
-                void perform(controller.start, "Could not start trigger monitoring")
-              }
+              onClick={() => void perform(controller.start, "Could not start trigger monitoring")}
               size="sm"
             >
               <Play />
@@ -156,9 +118,7 @@ export function TriggerMonitorView({
           </Button>
           <Button
             disabled={controller.events.length === 0 || busy}
-            onClick={() =>
-              void perform(controller.clear, "Could not clear trigger events")
-            }
+            onClick={() => void perform(controller.clear, "Could not clear trigger events")}
             size="sm"
             variant="outline"
           >
@@ -166,39 +126,32 @@ export function TriggerMonitorView({
             Clear
           </Button>
           <label className="ml-auto flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={follow}
-              onCheckedChange={(checked) => setFollow(checked === true)}
-            />
+            <Checkbox checked={follow} onCheckedChange={(checked) => setFollow(checked === true)} />
             Follow latest
           </label>
-        </CardContent>
-      </Card>
-
-      {controller.initializationError ? (
-        <EmptyState>
-          Could not initialize trigger monitoring: {controller.initializationError}
-        </EmptyState>
-      ) : null}
-      {controller.omittedEventCount > 0 ? (
-        <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
-          {formatCount(controller.omittedEventCount, "monitor event")}{" "}
-          {controller.omittedEventCount === 1 ? "was" : "were"} omitted because the
-          interface could not keep up. Script execution was not affected.
         </div>
-      ) : null}
-      {controller.pausedOmittedEventCount > 0 ? (
-        <div className="rounded-md border border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
-          {formatCount(controller.pausedOmittedEventCount, "paused event")}{" "}
-          {controller.pausedOmittedEventCount === 1 ? "was" : "were"} omitted after
-          the 500 event pause buffer filled. Script execution was not affected.
-        </div>
-      ) : null}
-
-      <Card>
-        <CardHeader className="grid gap-3">
+        {controller.initializationError ? (
+          <div className="border-t border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Could not initialize trigger monitoring: {controller.initializationError}
+          </div>
+        ) : null}
+        {controller.omittedEventCount > 0 ? (
+          <div className="border-t border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
+            {formatCount(controller.omittedEventCount, "monitor event")}{" "}
+            {controller.omittedEventCount === 1 ? "was" : "were"} omitted because the interface could not keep up.
+            Script execution was not affected.
+          </div>
+        ) : null}
+        {controller.pausedOmittedEventCount > 0 ? (
+          <div className="border-t border-baud-amber/30 bg-baud-amber/10 px-4 py-3 text-sm text-baud-amber">
+            {formatCount(controller.pausedOmittedEventCount, "paused event")}{" "}
+            {controller.pausedOmittedEventCount === 1 ? "was" : "were"} omitted after the 500 event pause buffer
+            filled. Script execution was not affected.
+          </div>
+        ) : null}
+        <div className="grid gap-3 border-t border-border px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>Trigger events</CardTitle>
+            <h3 className="text-sm font-semibold">Trigger events</h3>
             <div className="text-xs text-muted-foreground">
               {controller.paused
                 ? `${controller.pausedEventCount} waiting while paused`
@@ -208,13 +161,14 @@ export function TriggerMonitorView({
           <div className="grid min-w-0 grid-cols-[minmax(12rem,1fr)_minmax(12rem,18rem)_minmax(10rem,14rem)] gap-2 max-md:grid-cols-1">
             <Input
               aria-label="Search trigger events"
+              className="h-9 py-0"
               maxLength={SEARCH_INPUT_MAX_LENGTH}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search script, trigger, type, source, or payload"
               value={search}
             />
             <Select onValueChange={setActionType} value={actionType}>
-              <SelectTrigger aria-label="Filter trigger type">
+              <SelectTrigger aria-label="Filter trigger type" className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -227,7 +181,7 @@ export function TriggerMonitorView({
               </SelectContent>
             </Select>
             <Select onValueChange={setStatus} value={status}>
-              <SelectTrigger aria-label="Filter trigger status">
+              <SelectTrigger aria-label="Filter trigger status" className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -237,8 +191,8 @@ export function TriggerMonitorView({
               </SelectContent>
             </Select>
           </div>
-        </CardHeader>
-        <CardContent className="p-0 max-[1280px]:p-3">
+        </div>
+        <CardContent className="border-t border-border p-0 max-[1280px]:p-3">
           {filteredEvents.length === 0 ? (
             <div className="p-4">
               <EmptyState>
@@ -265,7 +219,7 @@ export function TriggerMonitorView({
         }}
         scriptName={selected ? scriptNames[selected.script_id] : undefined}
       />
-    </div>
+    </>
   );
 }
 
@@ -282,7 +236,7 @@ function TriggerEventTable({
 }) {
   const { formatUnixMilliseconds } = useDesktopTime();
   return (
-    <div className="max-h-[60vh] overflow-auto" ref={scrollRef}>
+    <div className="max-h-[60vh] overflow-x-hidden overflow-y-auto" ref={scrollRef}>
       <table className="responsive-table w-full border-collapse text-sm">
         <thead className="sticky top-0 z-10 bg-card">
           <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -292,7 +246,9 @@ function TriggerEventTable({
             <th className="px-3 py-2">Type</th>
             <th className="px-3 py-2">Status</th>
             <th className="px-3 py-2">Payload</th>
-            <th className="w-12 px-3 py-2"><span className="sr-only">View</span></th>
+            <th className="w-12 px-3 py-2">
+              <span className="sr-only">View</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -305,31 +261,20 @@ function TriggerEventTable({
                 {formatUnixMilliseconds(event.timestamp_unix_ms)}
               </td>
               <td className="px-3 py-3" data-label="Script">
-                <div className="font-medium">
-                  {scriptNames[event.script_id] ?? "Unknown script"}
-                </div>
-                <div className="break-all font-mono text-xs text-muted-foreground">
-                  {event.script_id}
-                </div>
+                <div className="font-medium">{scriptNames[event.script_id] ?? "Unknown script"}</div>
+                <div className="break-all font-mono text-xs text-muted-foreground">{event.script_id}</div>
               </td>
               <td className="px-3 py-3 font-mono text-xs" data-label="Trigger">
                 {event.node_id}
               </td>
-              <td
-                className="px-3 py-3 font-mono text-xs text-muted-foreground"
-                data-label="Type"
-              >
+              <td className="px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Type">
                 {event.action_type}
               </td>
               <td className="px-3 py-3" data-label="Status">
-                <Badge variant={event.status === "queued" ? "good" : "destructive"}>
-                  {event.status}
-                </Badge>
+                <Badge variant={event.status === "queued" ? "good" : "destructive"}>{event.status}</Badge>
               </td>
               <td className="max-w-[28rem] px-3 py-3" data-label="Payload">
-                <span className="line-clamp-2 break-all font-mono text-xs">
-                  {visibleText(event.payload_json)}
-                </span>
+                <span className="line-clamp-2 break-all font-mono text-xs">{visibleText(event.payload_json)}</span>
               </td>
               <td className="px-3 py-3" data-label="View">
                 <Button
@@ -370,7 +315,9 @@ function TriggerEventDialog({
     >
       <div className="grid gap-4">
         <Card>
-          <CardHeader><CardTitle>Event</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Event</CardTitle>
+          </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4 text-sm max-md:grid-cols-1">
             <Detail label="Script" value={scriptName ?? "Unknown script"} />
             <Detail label="Script ID" value={event.script_id} mono />
@@ -384,16 +331,16 @@ function TriggerEventDialog({
         </Card>
         {event.error ? (
           <Card>
-            <CardHeader><CardTitle>Rejection</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Rejection</CardTitle>
+            </CardHeader>
             <CardContent className="text-sm text-destructive">{event.error}</CardContent>
           </Card>
         ) : null}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>Payload</CardTitle>
-            {event.payload_truncated ? (
-              <Badge variant="medium">Truncated at 64 KiB</Badge>
-            ) : null}
+            {event.payload_truncated ? <Badge variant="medium">Truncated at 64 KiB</Badge> : null}
           </CardHeader>
           <CardContent>
             <CodeBlock className="max-h-[50vh]">{payloadText(event)}</CodeBlock>
@@ -404,21 +351,11 @@ function TriggerEventDialog({
   );
 }
 
-function Detail({
-  label,
-  mono = false,
-  value,
-}: {
-  label: string;
-  mono?: boolean;
-  value: string;
-}) {
+function Detail({ label, mono = false, value }: { label: string; mono?: boolean; value: string }) {
   return (
     <div className="min-w-0">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 break-all ${mono ? "font-mono text-xs" : ""}`}>
-        {value}
-      </div>
+      <div className={`mt-1 break-all ${mono ? "font-mono text-xs" : ""}`}>{value}</div>
     </div>
   );
 }

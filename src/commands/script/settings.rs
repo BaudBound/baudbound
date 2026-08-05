@@ -44,7 +44,7 @@ pub(super) fn handle_settings_command(
             if core.remove_installed_script_setting(store, &script, &name)? {
                 println!("Reset {name} to its package default for {script}.");
             } else {
-                println!("{name} did not have a configured override for {script}.");
+                println!("{name} did not have a configured value for {script}.");
             }
         }
         ScriptSettingsCommand::Reset { script } => {
@@ -58,7 +58,7 @@ pub(super) fn handle_settings_command(
                 core.remove_installed_script_setting(store, &script, name)?;
             }
             println!(
-                "Reset {} configured Script Setting override{} for {script}.",
+                "Reset {} configured Script Setting value{} for {script}.",
                 configured.len(),
                 if configured.len() == 1 { "" } else { "s" }
             );

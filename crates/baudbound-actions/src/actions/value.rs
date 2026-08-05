@@ -64,6 +64,7 @@ pub(crate) fn convert_value_action(
             ("source_type".to_owned(), Value::String(source_type)),
             ("target_type".to_owned(), Value::String(target.to_owned())),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 

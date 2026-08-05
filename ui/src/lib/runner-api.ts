@@ -590,6 +590,45 @@ export type StoredRunLogRecord = {
   timestamp_unix_ms: number;
 };
 
+export type SystemLogSeverity = "error" | "info" | "success" | "warning";
+
+export type SystemLogDetail = {
+  label: string;
+  value: string;
+};
+
+export type NewSystemLog = {
+  details: SystemLogDetail[];
+  message: string;
+  severity: SystemLogSeverity;
+  source: string;
+  title: string;
+};
+
+export type StoredSystemLog = NewSystemLog & {
+  id: string;
+  timestamp_unix_ms: number;
+  unread: boolean;
+};
+
+export type SystemLogQuery = {
+  direction: SortDirection;
+  limit: number;
+  offset: number;
+  search: string;
+  severity: SystemLogSeverity | null;
+  sort: "message" | "severity" | "source" | "time" | "title";
+};
+
+export type SystemLogSummary = {
+  total: number;
+  unread: number;
+  unread_errors: number;
+  unread_info: number;
+  unread_successes: number;
+  unread_warnings: number;
+};
+
 export type StoredVariableRecord = {
   name: string;
   scope: "global" | "persistent";
@@ -774,6 +813,9 @@ export type DisplaySettings = {
 };
 
 export type DesktopSettings = {
+  dialog_console_always_on_top: boolean;
+  dialog_console_enabled: boolean;
+  dialog_console_focus_on_request: boolean;
   keep_running_on_close: boolean;
   launch_at_login: boolean;
   start_background_runner_on_launch: boolean;
@@ -799,15 +841,30 @@ export type RunnerConfig = {
 };
 
 export type LimitSettings = {
-  max_file_download_bytes: number;
-  max_file_read_bytes: number;
-  max_http_response_bytes: number;
+  max_file_download_bytes: ResourceLimit;
+  max_file_read_bytes: ResourceLimit;
+  max_http_response_bytes: ResourceLimit;
+  max_generated_text_bytes: ResourceLimit;
+  max_process_output_bytes: ResourceLimit;
+  max_active_runs_global: ResourceLimit;
+  max_active_runs_per_script: ResourceLimit;
+  max_queued_activations_per_script: ResourceLimit;
+  max_schedule_catch_up_events_per_poll: ResourceLimit;
+  queue_overflow_strategy: "drop_oldest" | "reject_newest";
+  max_steps_per_run: ResourceLimit;
+  max_run_duration_ms: ResourceLimit;
+  max_loop_iterations_per_run: ResourceLimit;
+  max_processes_per_script: ResourceLimit;
+  max_process_launches_per_minute: ResourceLimit;
+  max_file_write_bytes_per_run: ResourceLimit;
   max_log_entry_bytes: number;
-  max_runtime_variable_bytes: number;
+  max_runtime_variable_bytes: ResourceLimit;
   max_retained_variable_bytes: number;
   max_run_log_bytes: number;
   max_run_record_bytes: number;
 };
+
+export type ResourceLimit = number | "unlimited";
 
 export type RunnerSettings = {
   run_history_max_age_days: number;
@@ -869,18 +926,30 @@ export type WebhookSettings = {
   allow_browser_origins: string[];
   allow_unauthenticated_public_bind: boolean;
   bind: string;
+  body_read_progress_timeout_ms: ResourceLimit;
+  body_read_timeout_ms: ResourceLimit;
+  header_read_timeout_ms: ResourceLimit;
   max_body_bytes: number;
   max_connections: number;
+  max_header_bytes: ResourceLimit;
+  max_unauthenticated_connections: ResourceLimit;
   port: number;
+  pre_auth_requests_per_minute_global: ResourceLimit;
+  pre_auth_requests_per_minute_per_address: ResourceLimit;
+  pre_auth_timeout_ms: ResourceLimit;
 };
 
 export type WebSocketSettings = {
   allow_browser_origins: string[];
   allow_unauthenticated_public_bind: boolean;
   bind: string;
+  handshake_timeout_ms: ResourceLimit;
   max_connections: number;
   max_message_bytes: number;
+  max_unauthenticated_connections: ResourceLimit;
   port: number;
+  pre_auth_requests_per_minute_global: ResourceLimit;
+  pre_auth_requests_per_minute_per_address: ResourceLimit;
 };
 
 export type RunnerConfigPayload = {
@@ -1289,6 +1358,36 @@ export function queryRunLogs(query: RunLogQuery) {
   return invoke<PaginatedRecords<StoredRunLogRecord>>("query_logs", { query });
 }
 
+export function recordSystemLog(log: NewSystemLog) {
+  return invoke<StoredSystemLog>("record_system_log", { log });
+}
+
+export function querySystemLogs(query: SystemLogQuery) {
+  return invoke<PaginatedRecords<StoredSystemLog>>("query_system_logs", {
+    query,
+  });
+}
+
+export function getSystemLog(id: string) {
+  return invoke<StoredSystemLog | null>("get_system_log", { id });
+}
+
+export function getSystemLogSummary() {
+  return invoke<SystemLogSummary>("system_log_summary");
+}
+
+export function markSystemLogsRead() {
+  return invoke<SystemLogSummary>("mark_system_logs_read");
+}
+
+export function clearSystemLogs() {
+  return invoke<number>("clear_system_logs");
+}
+
+export function exportSystemLogs(query: SystemLogQuery) {
+  return invoke<ExportResult>("export_system_logs", { query });
+}
+
 export function getVariableInventory() {
   return invoke<VariableInventory>("variable_inventory");
 }
@@ -1389,45 +1488,27 @@ export function removeScriptSecret(reference: string, name: string) {
   );
 }
 
-export function setScriptSetting(
+export async function saveScriptSettings(
   reference: string,
-  name: string,
-  value: string,
+  settings: Array<{ name: string; value: string }>,
 ) {
-  return sha256Hex(value).then((valueDigest) =>
-    invokeSensitive<ActionPayload>(
-      "set_script_setting",
-      {
-        kind: "set_script_setting",
+  const reviewedSettings = await Promise.all(
+    settings.map(async (setting) => ({
+      ...setting,
+      valueDigest: await sha256Hex(setting.value),
+    })),
+  );
+  return invokeSensitive<ActionPayload>(
+    "save_script_settings",
+    {
+      kind: "save_script_settings",
+      reference,
+      settings: reviewedSettings.map(({ name, valueDigest }) => ({
         name,
-        reference,
         value_digest: valueDigest,
-      },
-      {
-        request: {
-          name,
-          reference,
-          value,
-          valueDigest,
-        },
-      },
-    ),
-  );
-}
-
-export function unsetScriptSetting(reference: string, name: string) {
-  return invokeSensitive<ActionPayload>(
-    "unset_script_setting",
-    { kind: "unset_script_setting", name, reference },
-    { name, reference },
-  );
-}
-
-export function resetScriptSettings(reference: string) {
-  return invokeSensitive<ActionPayload>(
-    "reset_script_settings",
-    { kind: "reset_script_settings", reference },
-    { reference },
+      })),
+    },
+    { request: { reference, settings: reviewedSettings } },
   );
 }
 

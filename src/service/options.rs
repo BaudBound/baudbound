@@ -7,6 +7,7 @@ use std::{
 
 use baudbound_actions::SerialConnectionRegistry;
 use baudbound_core::{RunnerConfig, serial_device_configs_from_settings};
+use baudbound_runtime::ResourceLimit;
 use baudbound_triggers::{
     SerialDeviceConfig as TriggerSerialDeviceConfig, SerialPortRebindSink,
     WebSocketConnectionRegistry,
@@ -22,13 +23,26 @@ pub struct ServeOptions {
     pub(crate) hotkey_stdin_enabled: bool,
     pub max_webhook_body_bytes: usize,
     pub max_webhook_connections: usize,
+    pub(crate) webhook_max_unauthenticated_connections: ResourceLimit,
+    pub(crate) webhook_pre_auth_requests_per_minute_global: ResourceLimit,
+    pub(crate) webhook_pre_auth_requests_per_minute_per_address: ResourceLimit,
+    pub(crate) webhook_header_read_timeout_ms: ResourceLimit,
+    pub(crate) webhook_pre_auth_timeout_ms: ResourceLimit,
+    pub(crate) webhook_body_read_progress_timeout_ms: ResourceLimit,
+    pub(crate) webhook_body_read_timeout_ms: ResourceLimit,
+    pub(crate) webhook_max_header_bytes: ResourceLimit,
     pub max_websocket_connections: usize,
     pub max_websocket_message_bytes: usize,
+    pub(crate) websocket_max_unauthenticated_connections: ResourceLimit,
+    pub(crate) websocket_pre_auth_requests_per_minute_global: ResourceLimit,
+    pub(crate) websocket_pre_auth_requests_per_minute_per_address: ResourceLimit,
+    pub(crate) websocket_handshake_timeout_ms: ResourceLimit,
     pub(crate) once: bool,
     pub(crate) process_watch_enabled: bool,
     pub(crate) allow_public_network_listeners: bool,
     pub(crate) reload_check_interval: Duration,
     pub(crate) run_schedules_immediately: bool,
+    pub(crate) max_schedule_catch_up_events_per_poll: ResourceLimit,
     pub(crate) schedules_enabled: bool,
     pub(crate) serial_enabled: bool,
     pub(crate) serial_devices: Vec<TriggerSerialDeviceConfig>,
@@ -82,12 +96,36 @@ impl ServeOptions {
                 .unwrap_or(config.webhooks.max_body_bytes)
                 .max(1),
             max_webhook_connections: config.webhooks.max_connections,
+            webhook_max_unauthenticated_connections: config
+                .webhooks
+                .max_unauthenticated_connections,
+            webhook_pre_auth_requests_per_minute_global: config
+                .webhooks
+                .pre_auth_requests_per_minute_global,
+            webhook_pre_auth_requests_per_minute_per_address: config
+                .webhooks
+                .pre_auth_requests_per_minute_per_address,
+            webhook_header_read_timeout_ms: config.webhooks.header_read_timeout_ms,
+            webhook_pre_auth_timeout_ms: config.webhooks.pre_auth_timeout_ms,
+            webhook_body_read_progress_timeout_ms: config.webhooks.body_read_progress_timeout_ms,
+            webhook_body_read_timeout_ms: config.webhooks.body_read_timeout_ms,
+            webhook_max_header_bytes: config.webhooks.max_header_bytes,
             max_websocket_connections: overrides
                 .max_websocket_connections
                 .unwrap_or(config.websockets.max_connections),
             max_websocket_message_bytes: overrides
                 .max_websocket_message_bytes
                 .unwrap_or(config.websockets.max_message_bytes),
+            websocket_max_unauthenticated_connections: config
+                .websockets
+                .max_unauthenticated_connections,
+            websocket_pre_auth_requests_per_minute_global: config
+                .websockets
+                .pre_auth_requests_per_minute_global,
+            websocket_pre_auth_requests_per_minute_per_address: config
+                .websockets
+                .pre_auth_requests_per_minute_per_address,
+            websocket_handshake_timeout_ms: config.websockets.handshake_timeout_ms,
             once,
             process_watch_enabled: config.triggers.process_watch_enabled,
             allow_public_network_listeners: config.security.policy.allow_public_network_listeners,
@@ -98,6 +136,9 @@ impl ServeOptions {
                     .max(1),
             ),
             run_schedules_immediately,
+            max_schedule_catch_up_events_per_poll: config
+                .limits
+                .max_schedule_catch_up_events_per_poll,
             schedules_enabled: config.triggers.schedules_enabled,
             serial_enabled: config.triggers.serial_enabled,
             serial_devices,

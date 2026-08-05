@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ColorValueInput } from "@/components/color-value-input";
 import { HotkeyInput } from "@/components/hotkey-input";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   runtimeFloatMaximum,
   runtimeFloatMinimum,
@@ -176,8 +177,8 @@ export function TypedValueInput({
 
   if (valueType === "string") {
     return (
-      <textarea
-        className="min-h-24 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      <Textarea
+        className="min-h-24 w-full resize-y"
         id={id}
         onChange={(event) => onChange(event.target.value)}
         value={value}

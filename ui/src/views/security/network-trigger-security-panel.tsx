@@ -1,14 +1,8 @@
-import { KeyRound } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
-import type {
-  DashboardPayload,
-  NetworkTriggerType,
-  TriggerAuthStatus,
-} from "@/lib/runner-api";
+import type { DashboardPayload, NetworkTriggerType, TriggerAuthStatus } from "@/lib/runner-api";
 import { isApprovalCurrent } from "@/lib/status-format";
 import { type SortValue, useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
@@ -25,10 +19,7 @@ export type NetworkTriggerAuthRow = {
 
 type NetworkAuthSortColumn = "created" | "lastRotation" | "script" | "trigger";
 
-const networkAuthSortSelectors: Record<
-  NetworkAuthSortColumn,
-  (row: NetworkTriggerAuthRow) => SortValue
-> = {
+const networkAuthSortSelectors: Record<NetworkAuthSortColumn, (row: NetworkTriggerAuthRow) => SortValue> = {
   created: (row) => row.auth?.created_at_unix,
   lastRotation: (row) => row.auth?.rotated_at_unix,
   script: (row) => row.scriptName,
@@ -48,30 +39,22 @@ export function NetworkTriggerSecurityPanel({
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   const rows = networkTriggerAuthRows(dashboard);
-  const { sortedRows, sortState, toggleSort } = useSortableRows(
-    rows,
-    networkAuthSortSelectors,
-  );
+  const { sortedRows, sortState, toggleSort } = useSortableRows(rows, networkAuthSortSelectors);
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <KeyRound className="size-4 text-muted-foreground" />
-            <CardTitle>Network trigger authentication</CardTitle>
-          </div>
+          <CardTitle>Network trigger authentication</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
             Manage access tokens for installed Webhook and WebSocket triggers.
           </p>
         </div>
-        <Badge
-          variant={rows.every((row) => !row.auth || row.auth.auth_enabled) ? "good" : "destructive"}
-        >
+        <Badge variant={rows.every((row) => !row.auth || row.auth.auth_enabled) ? "good" : "destructive"}>
           {rows.length} network trigger{rows.length === 1 ? "" : "s"}
         </Badge>
       </CardHeader>
-      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+      <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
           <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No installed scripts use Webhook or WebSocket triggers.
@@ -103,23 +86,17 @@ export function NetworkTriggerSecurityPanel({
                 >
                   <td className="px-3 py-3" data-label="Script">
                     <div className="font-medium">{row.scriptName}</div>
-                    <div className="break-all font-mono text-xs text-muted-foreground">
-                      {row.scriptId}
-                    </div>
+                    <div className="break-all font-mono text-xs text-muted-foreground">{row.scriptId}</div>
                   </td>
                   <td className="px-3 py-3" data-label="Trigger">
                     <Badge variant="muted">{triggerTypeLabel(row.triggerType)}</Badge>
-                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                      {row.nodeId}
-                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground">{row.nodeId}</div>
                   </td>
                   <td className="px-3 py-3 text-xs" data-label="Created">
                     {row.auth ? formatUnixSeconds(row.auth.created_at_unix) : "After approval"}
                   </td>
                   <td className="px-3 py-3 text-xs" data-label="Last rotation">
-                    {row.auth?.rotated_at_unix
-                      ? formatUnixSeconds(row.auth.rotated_at_unix)
-                      : "Never"}
+                    {row.auth?.rotated_at_unix ? formatUnixSeconds(row.auth.rotated_at_unix) : "Never"}
                   </td>
                   <td className="px-3 py-3" data-label="Authentication">
                     {row.auth ? (
@@ -164,21 +141,19 @@ export function networkTriggerAuthRows(dashboard: DashboardPayload): NetworkTrig
       return script.triggers.flatMap((trigger) => {
         const triggerType = networkTriggerType(trigger.runner_type);
         if (!triggerType) return [];
-        return [{
-          approvalCurrent: isApprovalCurrent(script.approval_status),
-          auth: authByTrigger.get(`${trigger.node_id}:${triggerType}`) ?? null,
-          nodeId: trigger.node_id,
-          scriptId: script.installed.id,
-          scriptName: script.installed.name,
-          triggerType,
-        }];
+        return [
+          {
+            approvalCurrent: isApprovalCurrent(script.approval_status),
+            auth: authByTrigger.get(`${trigger.node_id}:${triggerType}`) ?? null,
+            nodeId: trigger.node_id,
+            scriptId: script.installed.id,
+            scriptName: script.installed.name,
+            triggerType,
+          },
+        ];
       });
     })
-    .sort(
-      (left, right) =>
-        left.scriptName.localeCompare(right.scriptName) ||
-        left.nodeId.localeCompare(right.nodeId),
-    );
+    .sort((left, right) => left.scriptName.localeCompare(right.scriptName) || left.nodeId.localeCompare(right.nodeId));
 }
 
 function networkTriggerType(runnerType: string): NetworkTriggerType | null {

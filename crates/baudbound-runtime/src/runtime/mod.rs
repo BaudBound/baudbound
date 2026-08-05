@@ -11,7 +11,7 @@ mod templates;
 mod variables;
 
 pub(crate) use calculation::evaluate_calculation_expression;
-pub use cancellation::RuntimeCancellationToken;
+pub use cancellation::{RuntimeCancellationSubscription, RuntimeCancellationToken};
 #[cfg(test)]
 pub(crate) use conditions::compare_condition_values;
 pub(crate) use conditions::{compare_condition_values_with_end, values_equal_for_condition};

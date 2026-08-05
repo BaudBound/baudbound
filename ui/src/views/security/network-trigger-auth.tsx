@@ -1,8 +1,8 @@
 import { Copy, RefreshCw, ShieldCheck, ShieldOff } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,7 @@ export function NetworkTriggerAuthControls({
   onDashboard: (dashboard: DashboardPayload) => void;
   runAction: DashboardAction;
 }) {
+  const { notify } = useSystemLog();
   const [confirmation, setConfirmation] = useState<TriggerAuthConfirmation>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [rotating, setRotating] = useState(false);
@@ -51,9 +52,26 @@ export function NetworkTriggerAuthControls({
       );
       onDashboard(result.dashboard);
       setGeneratedToken(result.token);
-      toast.success(result.message);
+      notify.success(result.message, {
+        details: [
+          { label: "Script ID", value: auth.script_id },
+          { label: "Trigger node ID", value: auth.node_id },
+          { label: "Trigger type", value: auth.trigger_type },
+        ],
+        source: "Network trigger security",
+        title: "Trigger token rotated",
+      });
     } catch (error) {
-      toast.error(String(error));
+      notify.error("The network trigger token could not be rotated.", {
+        details: [
+          { label: "Script ID", value: auth.script_id },
+          { label: "Trigger node ID", value: auth.node_id },
+          { label: "Trigger type", value: auth.trigger_type },
+        ],
+        error,
+        source: "Network trigger security",
+        title: "Token rotation failed",
+      });
     } finally {
       setRotating(false);
     }
@@ -148,8 +166,17 @@ export function NetworkTriggerAuthControls({
               onClick={() => {
                 if (!generatedToken) return;
                 void navigator.clipboard.writeText(generatedToken).then(
-                  () => toast.success("Token copied."),
-                  (error) => toast.error(`Could not copy token: ${String(error)}`),
+                  () =>
+                    notify.success("The trigger token was copied to the clipboard.", {
+                      source: "Network trigger security",
+                      title: "Token copied",
+                    }),
+                  (error) =>
+                    notify.error("The trigger token could not be copied.", {
+                      error,
+                      source: "Network trigger security",
+                      title: "Could not copy token",
+                    }),
                 );
               }}
               variant="outline"

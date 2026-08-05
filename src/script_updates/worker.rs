@@ -125,7 +125,11 @@ fn check_due_scripts<R: tauri::Runtime>(
         })
         .map(|state| state.script_id)
         .collect::<Vec<_>>();
-    let results = check_script_updates(store, config.limits.max_file_download_bytes, &due);
+    let results = check_script_updates(
+        store,
+        config.limits.max_file_download_bytes.value_or_max(),
+        &due,
+    );
     for script_id in due {
         if let Some(Err(error)) = results.get(&script_id) {
             tracing::debug!(%script_id, %error, "automatic script update check failed");

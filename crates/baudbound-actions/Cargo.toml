@@ -10,6 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 baudbound-runtime = { path = "../baudbound-runtime", version = "2.0.0" }
+baudbound-security = { path = "../baudbound-security", version = "2.0.0" }
 base64.workspace = true
 cap-std.workspace = true
 command-group.workspace = true
@@ -23,5 +24,12 @@ tempfile.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }

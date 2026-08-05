@@ -100,9 +100,9 @@ pub fn desktop_doctor_checks() -> Vec<DoctorCheck> {
         ),
         DoctorCheck::new(
             true,
-            "Message boxes",
-            &["action.message_box"],
-            "Uses native rfd dialogs. Requires a graphical desktop session.",
+            "Interactive dialogs",
+            &["action.message_box", "action.form_dialog"],
+            "Uses a dedicated BaudBound Tauri window. Requires the running desktop application and a graphical session.",
         ),
         DoctorCheck::new(
             true,

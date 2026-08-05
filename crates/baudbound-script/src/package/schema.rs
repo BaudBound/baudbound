@@ -93,6 +93,8 @@ fn build_standalone_validator(source: &str) -> Result<Validator, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use serde_json::json;
 
     use super::*;
@@ -100,6 +102,52 @@ mod tests {
     #[test]
     fn accepts_a_schema_complete_minimal_program() {
         validate_program_schema(&minimal_program()).expect("minimal program should match schema");
+    }
+
+    #[test]
+    fn program_variable_metadata_exactly_unions_manifest_and_runtime_data_types() {
+        let program_schema: Value = serde_json::from_str(PROGRAM_SCHEMA_JSON)
+            .expect("embedded program schema should parse");
+        let manifest_schema: Value = serde_json::from_str(MANIFEST_SCHEMA_JSON)
+            .expect("embedded manifest schema should parse");
+        let runtime_types = program_schema["$defs"]["runtimeDataType"]["enum"]
+            .as_array()
+            .expect("runtimeDataType should be an enum");
+        let manifest_variable_types =
+            manifest_schema["properties"]["variables"]["items"]["properties"]["type"]["enum"]
+                .as_array()
+                .expect("manifest variable type should be an enum");
+        let variable_types = program_schema["$defs"]["variableType"]["enum"]
+            .as_array()
+            .expect("variableType should be an enum");
+        let expected = runtime_types
+            .iter()
+            .chain(manifest_variable_types)
+            .map(|value| value.as_str().expect("type names should be strings"))
+            .collect::<BTreeSet<_>>();
+        let actual = variable_types
+            .iter()
+            .map(|value| value.as_str().expect("type names should be strings"))
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn accepts_color_runtime_variable_exported_by_the_editor() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["runtime_context"]["variables"] = json!([{
+            "name": "n-pixel.hex",
+            "token": "{{n-pixel.hex}}",
+            "type": "color",
+            "scope": "node_output",
+            "source": "node_output",
+            "read_only": true,
+            "description": "Pixel color as a hex string."
+        }]);
+
+        validate_program_schema(&program)
+            .expect("editor color runtime variable should match the runner schema");
     }
 
     #[test]
@@ -130,6 +178,14 @@ mod tests {
             ("boolean", json!(false)),
             ("object", json!({ "key": "value" })),
             ("list", json!(["value"])),
+            (
+                "datetime",
+                json!({"type": "datetime", "value": "2026-08-03T12:00:00Z"}),
+            ),
+            (
+                "duration",
+                json!({"type": "duration", "unit": "seconds", "value": 3}),
+            ),
             ("file_path", json!("/tmp/value")),
         ];
 

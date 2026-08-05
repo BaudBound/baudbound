@@ -1,4 +1,4 @@
-import { AlertTriangle, Eye, RefreshCw, Settings2 } from "lucide-react";
+import { Eye, RefreshCw, Settings2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -8,48 +8,33 @@ import { ExternalLink } from "@/components/external-link";
 import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { Switch } from "@/components/ui/switch";
 import type { DashboardAction } from "@/lib/app-types";
+import { blacklistBlocksUpdateSource, blacklistLabel, blacklistVariant } from "@/lib/blacklist";
 import {
   checkScriptUpdate,
   type ScriptStatus,
   type ScriptUpdateState,
-  setScriptAutomaticUpdateChecks,
   type StoredRunRecord,
+  setScriptAutomaticUpdateChecks,
 } from "@/lib/runner-api";
 import { approvalLabel, isApprovalCurrent, packageHashLabel, riskVariant } from "@/lib/status-format";
-import { useDesktopTime } from "@/lib/time-format";
 import { useSortableRows } from "@/lib/table-sorting";
+import { useDesktopTime } from "@/lib/time-format";
 import { RemotePackageDialog } from "@/views/remote-package-dialog";
-import {
-  blacklistBlocksUpdateSource,
-  blacklistLabel,
-  blacklistVariant,
-} from "@/lib/blacklist";
 
 type TriggerSortColumn = "action" | "node" | "runnerType";
 type RecentRunSortColumn = "completed" | "runId" | "status" | "trigger";
 
-const triggerSortSelectors: Record<
-  TriggerSortColumn,
-  (trigger: ScriptStatus["triggers"][number]) => string
-> = {
+const triggerSortSelectors: Record<TriggerSortColumn, (trigger: ScriptStatus["triggers"][number]) => string> = {
   action: (trigger) => trigger.action_type,
   node: (trigger) => trigger.node_id,
   runnerType: (trigger) => trigger.runner_type,
 };
 
-const recentRunSortSelectors: Record<
-  RecentRunSortColumn,
-  (run: StoredRunRecord) => number | string
-> = {
+const recentRunSortSelectors: Record<RecentRunSortColumn, (run: StoredRunRecord) => number | string> = {
   completed: (run) => run.completed_at_unix,
   runId: (run) => run.run_id,
   status: (run) => run.status,
@@ -79,9 +64,7 @@ export function ScriptDetailPanel({
   const [reviewUpdateOpen, setReviewUpdateOpen] = useState(false);
   const { formatUnixSeconds } = useDesktopTime();
   const metadata = script.metadata;
-  const scriptRuns = recentRuns
-    .filter((run) => run.script_id === script.installed.id)
-    .slice(0, 5);
+  const scriptRuns = recentRuns.filter((run) => run.script_id === script.installed.id).slice(0, 5);
   const {
     sortedRows: sortedTriggers,
     sortState: triggerSortState,
@@ -97,35 +80,23 @@ export function ScriptDetailPanel({
     <div className="grid gap-4">
       {script.blacklist.entries.length > 0 ? (
         <Card className="border-baud-amber/45">
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-center gap-2">
-              <AlertTriangle className="size-4 text-baud-amber" />
-              Official blacklist
-              <Badge variant={blacklistVariant(script.blacklist.severity)}>
-                {blacklistLabel(script.blacklist.severity)}
-              </Badge>
-            </CardTitle>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+            <CardTitle>Official blacklist</CardTitle>
+            <Badge variant={blacklistVariant(script.blacklist.severity)}>
+              {blacklistLabel(script.blacklist.severity)}
+            </Badge>
           </CardHeader>
           <CardContent className="grid gap-3">
             {script.blacklist.entries.map((entry) => (
-              <section
-                className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm"
-                key={entry.id}
-              >
+              <section className="grid gap-2 rounded-md border border-border bg-background p-3 text-sm" key={entry.id}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{entry.title}</span>
-                  <Badge variant={blacklistVariant(entry.severity)}>
-                    {blacklistLabel(entry.severity)}
-                  </Badge>
+                  <Badge variant={blacklistVariant(entry.severity)}>{blacklistLabel(entry.severity)}</Badge>
                   <Badge variant="muted">{entry.scope}</Badge>
                 </div>
-                <p className="select-text leading-6 text-muted-foreground">
-                  {entry.reason}
-                </p>
+                <p className="select-text leading-6 text-muted-foreground">{entry.reason}</p>
                 <div>
-                  <ExternalLink href={entry.advisory_url}>
-                    Read the security advisory
-                  </ExternalLink>
+                  <ExternalLink href={entry.advisory_url}>Read the security advisory</ExternalLink>
                 </div>
               </section>
             ))}
@@ -137,12 +108,7 @@ export function ScriptDetailPanel({
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>About this script</CardTitle>
           <span title={settingCount === 0 ? "This script does not declare any settings" : "Script Settings"}>
-            <Button
-              disabled={settingCount === 0}
-              onClick={onManageSettings}
-              size="sm"
-              variant="outline"
-            >
+            <Button disabled={settingCount === 0} onClick={onManageSettings} size="sm" variant="outline">
               <Settings2 />
               Script Settings
             </Button>
@@ -152,9 +118,7 @@ export function ScriptDetailPanel({
           {metadata ? (
             <div className="grid gap-4 text-sm">
               {metadata.description.trim() ? (
-                <p className="select-text leading-6 text-foreground">
-                  {metadata.description}
-                </p>
+                <p className="select-text leading-6 text-foreground">{metadata.description}</p>
               ) : null}
 
               <MetadataRows
@@ -175,17 +139,13 @@ export function ScriptDetailPanel({
                   {metadata.website.trim() ? (
                     <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
                       <span className="text-muted-foreground">Website</span>
-                      <ExternalLink href={metadata.website}>
-                        {metadata.website}
-                      </ExternalLink>
+                      <ExternalLink href={metadata.website}>{metadata.website}</ExternalLink>
                     </div>
                   ) : null}
                   {metadata.source.trim() ? (
                     <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
                       <span className="text-muted-foreground">Source</span>
-                      <ExternalLink href={metadata.source}>
-                        {metadata.source}
-                      </ExternalLink>
+                      <ExternalLink href={metadata.source}>{metadata.source}</ExternalLink>
                     </div>
                   ) : null}
                 </section>
@@ -221,13 +181,11 @@ export function ScriptDetailPanel({
             <div className="grid gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">Update status</span>
-                <Badge variant={updateStatusVariant(updateState.status)}>
-                  {updateStatusLabel(updateState.status)}
-                </Badge>
+                <Badge variant={updateStatusVariant(updateState.status)}>{updateStatusLabel(updateState.status)}</Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                This check only discovers published packages. BaudBound never installs or approves
-                a script update automatically.
+                This check only discovers published packages. BaudBound never installs or approves a script update
+                automatically.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -243,17 +201,13 @@ export function ScriptDetailPanel({
                   busyActions.has(`check-script-update:${script.installed.id}`)
                 }
                 onClick={() =>
-                  runAction(`check-script-update:${script.installed.id}`, () =>
-                    checkScriptUpdate(script.installed.id),
-                  )
+                  runAction(`check-script-update:${script.installed.id}`, () => checkScriptUpdate(script.installed.id))
                 }
                 size="sm"
                 variant="outline"
               >
                 <RefreshCw />
-                {busyActions.has(`check-script-update:${script.installed.id}`)
-                  ? "Checking..."
-                  : "Check for updates"}
+                {busyActions.has(`check-script-update:${script.installed.id}`) ? "Checking..." : "Check for updates"}
               </Button>
             </div>
           </div>
@@ -262,9 +216,7 @@ export function ScriptDetailPanel({
             <div className="grid gap-2 text-sm">
               <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3">
                 <span className="text-muted-foreground">Repository URL</span>
-                <ExternalLink href={metadata.repository_url}>
-                  {metadata.repository_url}
-                </ExternalLink>
+                <ExternalLink href={metadata.repository_url}>{metadata.repository_url}</ExternalLink>
               </div>
               <MetadataRows
                 rows={[
@@ -272,9 +224,7 @@ export function ScriptDetailPanel({
                   ["Latest version", updateState.latest_version ?? "Not checked"],
                   [
                     "Package size",
-                    updateState.package_size === null
-                      ? "Not available"
-                      : formatBytes(updateState.package_size),
+                    updateState.package_size === null ? "Not available" : formatBytes(updateState.package_size),
                   ],
                   ["Published", updateState.published_at ?? "Not available"],
                   ["Last error", updateState.last_error ?? ""],
@@ -288,9 +238,7 @@ export function ScriptDetailPanel({
               ) : null}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              This script does not provide a repository URL.
-            </p>
+            <p className="text-sm text-muted-foreground">This script does not provide a repository URL.</p>
           )}
 
           <div className="flex items-start justify-between gap-4 border-t border-border pt-4">
@@ -372,9 +320,7 @@ export function ScriptDetailPanel({
           </CardHeader>
           <CardContent>
             <div className="mb-3 flex flex-wrap gap-2">
-              <Badge variant={riskVariant(script.installed.risk_level)}>
-                {script.installed.risk_level}
-              </Badge>
+              <Badge variant={riskVariant(script.installed.risk_level)}>{script.installed.risk_level}</Badge>
               <Badge variant={script.package_error ? "destructive" : "good"}>
                 hash {packageHashLabel(script.package_hash_status)}
               </Badge>
@@ -419,11 +365,9 @@ export function ScriptDetailPanel({
         </CardHeader>
         <CardContent className="p-0 max-[1280px]:p-3">
           {script.triggers.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              No active trigger registrations.
-            </p>
+            <p className="p-4 text-sm text-muted-foreground">No active trigger registrations.</p>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
+            <div className="max-w-full overflow-x-hidden rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -469,7 +413,7 @@ export function ScriptDetailPanel({
               <EmptyState>No recent runs for this script.</EmptyState>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
+            <div className="max-w-full overflow-x-hidden rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
               <table className="responsive-table w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -502,10 +446,7 @@ export function ScriptDetailPanel({
                       <td className="px-3 py-2" data-label="Status">
                         {run.status}
                       </td>
-                      <td
-                        className="px-3 py-2 font-mono text-xs text-muted-foreground"
-                        data-label="Run ID"
-                      >
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Run ID">
                         {run.run_id}
                       </td>
                       <td className="px-3 py-2 text-right" data-label="View">
@@ -534,12 +475,18 @@ export function ScriptDetailPanel({
 
 function updateStatusLabel(status: ScriptUpdateState["status"]) {
   switch (status) {
-    case "available": return "Update available";
-    case "failed": return "Check failed";
-    case "not_checked": return "Not checked";
-    case "unavailable": return "Unavailable";
-    case "unconfigured": return "Not configured";
-    case "up_to_date": return "Up to date";
+    case "available":
+      return "Update available";
+    case "failed":
+      return "Check failed";
+    case "not_checked":
+      return "Not checked";
+    case "unavailable":
+      return "Unavailable";
+    case "unconfigured":
+      return "Not configured";
+    case "up_to_date":
+      return "Up to date";
   }
 }
 

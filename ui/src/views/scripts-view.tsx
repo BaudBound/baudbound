@@ -5,12 +5,9 @@ import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import type { DashboardAction } from "@/lib/app-types";
-import type {
-  DashboardPayload,
-  ScriptStatus,
-  StoredRunRecord,
-} from "@/lib/runner-api";
+import type { DashboardPayload, ScriptStatus, StoredRunRecord } from "@/lib/runner-api";
 import { useSortableRows } from "@/lib/table-sorting";
+import { RunDetailPanel } from "@/views/run-detail-panel";
 import { ScriptApprovalDialog } from "@/views/script-approval-dialog";
 import { ScriptDetailPanel } from "@/views/script-detail-panel";
 import { ScriptPackageToolbar } from "@/views/script-package-toolbar";
@@ -18,21 +15,10 @@ import { ScriptProblemPanel } from "@/views/script-problem-panel";
 import { ScriptRow } from "@/views/script-row";
 import { ScriptSettingsDialog } from "@/views/script-settings-dialog";
 import { ScriptUpdateCheckDialog } from "@/views/script-update-check-dialog";
-import { RunDetailPanel } from "@/views/run-detail-panel";
 
-type ScriptSortColumn =
-  | "approval"
-  | "hash"
-  | "name"
-  | "risk"
-  | "state"
-  | "target"
-  | "triggers";
+type ScriptSortColumn = "approval" | "hash" | "name" | "risk" | "state" | "target" | "triggers";
 
-const scriptSortSelectors: Record<
-  ScriptSortColumn,
-  (script: ScriptStatus) => boolean | number | string
-> = {
+const scriptSortSelectors: Record<ScriptSortColumn, (script: ScriptStatus) => boolean | number | string> = {
   approval: (script) => script.approval_status.state,
   hash: (script) => script.package_hash_status.state,
   name: (script) => script.installed.name,
@@ -65,27 +51,20 @@ export function ScriptsView({
   const [approvalScriptId, setApprovalScriptId] = useState<string | null>(null);
   const [settingsScriptId, setSettingsScriptId] = useState<string | null>(null);
   const [checkUpdatesOpen, setCheckUpdatesOpen] = useState(false);
-  const { sortedRows: sortedScripts, sortState, toggleSort } = useSortableRows(
-    dashboard.runner.scripts,
-    scriptSortSelectors,
-  );
-  const approvalScript = dashboard.runner.scripts.find(
-    (script) => script.installed.id === approvalScriptId,
-  );
-  const detailScript = dashboard.runner.scripts.find(
-    (script) => script.installed.id === detailScriptId,
-  ) ?? null;
-  const settingsScript = dashboard.runner.scripts.find(
-    (script) => script.installed.id === settingsScriptId,
-  ) ?? null;
+  const {
+    sortedRows: sortedScripts,
+    sortState,
+    toggleSort,
+  } = useSortableRows(dashboard.runner.scripts, scriptSortSelectors);
+  const approvalScript = dashboard.runner.scripts.find((script) => script.installed.id === approvalScriptId);
+  const detailScript = dashboard.runner.scripts.find((script) => script.installed.id === detailScriptId) ?? null;
+  const settingsScript = dashboard.runner.scripts.find((script) => script.installed.id === settingsScriptId) ?? null;
 
   return (
     <div className="grid gap-4">
       <ScriptPackageToolbar
         busyActions={busyActions}
-        canCheckUpdates={dashboard.runner.scripts.some((script) =>
-          Boolean(script.metadata?.repository_url.trim()),
-        )}
+        canCheckUpdates={dashboard.runner.scripts.some((script) => Boolean(script.metadata?.repository_url.trim()))}
         onCheckUpdates={() => setCheckUpdatesOpen(true)}
         runAction={runAction}
       />
@@ -98,8 +77,8 @@ export function ScriptsView({
         <EmptyState>No scripts are installed.</EmptyState>
       ) : (
         <Card>
-          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
-            <table className="responsive-table w-full border-collapse text-sm">
+          <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
+            <table className="responsive-table scripts-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>
@@ -112,7 +91,7 @@ export function ScriptsView({
                     Risk
                   </SortableTableHeader>
                   <SortableTableHeader
-                    className="hidden xl:table-cell"
+                    className="hidden min-[1500px]:table-cell"
                     column="hash"
                     onSort={toggleSort}
                     sortState={sortState}
@@ -126,7 +105,7 @@ export function ScriptsView({
                     Triggers
                   </SortableTableHeader>
                   <SortableTableHeader
-                    className="hidden xl:table-cell"
+                    className="hidden min-[1500px]:table-cell"
                     column="target"
                     onSort={toggleSort}
                     sortState={sortState}
@@ -142,9 +121,7 @@ export function ScriptsView({
               <tbody>
                 {sortedScripts.map((script) => (
                   <ScriptRow
-                    activeRuns={dashboard.active_runs.filter(
-                      (run) => run.script_id === script.installed.id,
-                    )}
+                    activeRuns={dashboard.active_runs.filter((run) => run.script_id === script.installed.id)}
                     busyActions={busyActions}
                     key={script.installed.id}
                     onReviewApproval={setApprovalScriptId}
@@ -152,9 +129,7 @@ export function ScriptsView({
                     onViewSettings={setSettingsScriptId}
                     runAction={runAction}
                     script={script}
-                    settingCount={
-                      (dashboard.script_settings[script.installed.id] ?? []).length
-                    }
+                    settingCount={(dashboard.script_settings[script.installed.id] ?? []).length}
                     updateState={dashboard.script_updates[script.installed.id]}
                   />
                 ))}
@@ -177,9 +152,7 @@ export function ScriptsView({
       ) : null}
       <DetailDialog
         description={
-          detailScript
-            ? `${detailScript.installed.name} | ${detailScript.installed.id}`
-            : "Script information"
+          detailScript ? `${detailScript.installed.name} | ${detailScript.installed.id}` : "Script information"
         }
         onOpenChange={(open) => {
           if (!open) {
@@ -199,29 +172,18 @@ export function ScriptsView({
               runAction={runAction}
               script={detailScript}
               onManageSettings={() => setSettingsScriptId(detailScript.installed.id)}
-              settingCount={
-                (dashboard.script_settings[detailScript.installed.id] ?? []).length
-              }
+              settingCount={(dashboard.script_settings[detailScript.installed.id] ?? []).length}
               updateState={dashboard.script_updates[detailScript.installed.id]}
             />
             <DetailDialog
-              description={
-                detailRun
-                  ? `${detailScript.installed.name} | ${detailRun.run_id}`
-                  : "Run information"
-              }
+              description={detailRun ? `${detailScript.installed.name} | ${detailRun.run_id}` : "Run information"}
               onOpenChange={(open) => {
                 if (!open) setDetailRun(null);
               }}
               open={detailRun !== null}
               title="Run details"
             >
-              {detailRun ? (
-                <RunDetailPanel
-                  run={detailRun}
-                  scriptName={detailScript.installed.name}
-                />
-              ) : null}
+              {detailRun ? <RunDetailPanel run={detailRun} scriptName={detailScript.installed.name} /> : null}
             </DetailDialog>
           </>
         ) : null}

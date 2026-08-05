@@ -12,6 +12,19 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 use super::*;
 
 #[test]
+fn desktop_dialog_capability_allows_console_event_subscriptions() {
+    let capability: Value =
+        serde_json::from_str(include_str!("../../capabilities/desktop-dialog.json"))
+            .expect("desktop dialog capability should be valid JSON");
+
+    assert_eq!(capability["windows"], json!(["desktop-dialog-*"]));
+    assert_eq!(
+        capability["permissions"],
+        json!(["core:event:allow-listen", "core:event:allow-unlisten"])
+    );
+}
+
+#[test]
 fn utility_windows_cannot_invoke_runner_management_commands() {
     assert!(desktop_command_is_allowed("main", "remove_script"));
     assert!(desktop_command_is_allowed(
@@ -25,6 +38,58 @@ fn utility_windows_cannot_invoke_runner_management_commands() {
     assert!(!desktop_command_is_allowed(
         "coordinate-picker-session-1",
         "remove_script"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "fetch_desktop_dialog"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-console",
+        "fetch_desktop_dialog_console"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "fetch_desktop_dialog_console"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-console",
+        "fetch_desktop_dialog_console_window_state"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-console",
+        "set_desktop_dialog_console_fullscreen"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "set_desktop_dialog_console_fullscreen"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "desktop-dialog-console",
+        "dashboard_state"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "select_desktop_dialog_paths"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "submit_desktop_dialog"
+    ));
+    assert!(desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "cancel_desktop_dialog"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "desktop-dialog-request-id",
+        "dashboard_state"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "desktop-dialogish-request-id",
+        "fetch_desktop_dialog"
+    ));
+    assert!(!desktop_command_is_allowed(
+        "coordinate-picker-session-1",
+        "select_desktop_dialog_paths"
     ));
     assert!(!desktop_command_is_allowed("unexpected", "dashboard_state"));
 }
@@ -51,14 +116,17 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     .expect("blacklist state should open");
     // Keep the blocking HTTP client alive until the mock app drops on this test thread.
     let _blacklist_lifetime_guard = Arc::clone(&blacklist);
+    let dialog_broker = Arc::new(desktop_dialog::DesktopDialogBroker::default());
     let core = build_runner_core(
         &runner_config,
         Arc::clone(&websocket_registry),
         Arc::clone(&active_runs),
         Arc::clone(&blacklist),
+        Arc::clone(&dialog_broker),
     );
     let state = DesktopUiState {
         active_runs: Arc::clone(&active_runs),
+        dialog_broker: Arc::clone(&dialog_broker),
         blacklist,
         background_options: Mutex::new(desktop_background_options(
             &runner_config,
@@ -92,6 +160,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         .manage(SensitiveOperationGuard::default())
         .manage(crate::script_updates::RemotePreparationRegistry::default())
         .manage(crate::script_updates::RemotePackageReviews::default())
+        .manage(dialog_broker)
         .manage(state)
         .invoke_handler(desktop_command_handler!())
         .build(test::mock_context(test::noop_assets()))
@@ -370,39 +439,12 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         assert!(monitor_discovery["unavailable_reason"].is_string());
     }
 
-    #[cfg(windows)]
-    {
-        let picker = invoke(&webview, "start_coordinate_picker", json!({}));
-        assert!(
-            picker["monitor_count"]
-                .as_u64()
-                .is_some_and(|count| count > 0)
-        );
-        let picker_session = picker["session_id"]
-            .as_str()
-            .expect("picker session ID should be returned");
-        invoke(
-            &webview,
-            "select_coordinate_picker",
-            json!({"sessionId": picker_session}),
-        );
-
-        let cancellable_picker = invoke(&webview, "start_coordinate_picker", json!({}));
-        let cancellable_session = cancellable_picker["session_id"]
-            .as_str()
-            .expect("second picker session ID should be returned");
-        invoke(
-            &webview,
-            "cancel_coordinate_picker",
-            json!({"sessionId": cancellable_session}),
-        );
-    }
-
     let started = invoke(&webview, "start_background_runner", json!({}));
     assert_eq!(started["dashboard"]["desktop_background"]["running"], true);
 
     let mut restart_config = RunnerConfig::default();
     restart_config.security.policy.allow_private_http_requests = true;
+    restart_config.desktop.dialog_console_enabled = true;
     let restarted = invoke_sensitive(
         &webview,
         "save_runner_config_model",
@@ -424,6 +466,10 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let restarted_config = invoke(&webview, "read_runner_config", json!({}));
     assert_eq!(
         restarted_config["config"]["security"]["policy"]["allow_private_http_requests"],
+        true
+    );
+    assert_eq!(
+        restarted_config["config"]["desktop"]["dialog_console_enabled"],
         true
     );
 
@@ -462,7 +508,13 @@ fn background_restart_detection_covers_every_runtime_owned_config_section() {
     assert!(!runner_runtime_config_changed(&previous, &updates));
 
     let mut limits = previous.clone();
-    limits.limits.max_http_response_bytes += 1;
+    limits.limits.max_http_response_bytes = baudbound_runtime::ResourceLimit::limited(
+        limits
+            .limits
+            .max_http_response_bytes
+            .value_or_max()
+            .saturating_add(1),
+    );
     assert!(runner_runtime_config_changed(&previous, &limits));
 
     let mut runner = previous.clone();

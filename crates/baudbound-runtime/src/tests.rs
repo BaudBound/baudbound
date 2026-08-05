@@ -15,6 +15,18 @@ mod state;
 #[path = "tests/variable_operations.rs"]
 mod variable_operations;
 
+fn assert_json_contract_type(value: &Value, expected: &str) {
+    let matches = match expected {
+        "boolean" => value.is_boolean(),
+        "number" => value.is_number(),
+        "object" => value.is_object(),
+        "string" => value.is_string(),
+        "json" => true,
+        other => panic!("unsupported JSON contract type {other}"),
+    };
+    assert!(matches, "expected {expected}, found {value}");
+}
+
 #[test]
 fn executes_manual_log_and_variable_operation() {
     let started_at_unix_ms = unix_timestamp_millis_now();
@@ -131,7 +143,7 @@ fn rejects_active_variable_values_over_the_configured_limit() {
     });
     let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler).with_output_limits(
         RuntimeOutputLimits {
-            max_runtime_variable_bytes: 32,
+            max_runtime_variable_bytes: crate::ResourceLimit::limited(32),
             ..RuntimeOutputLimits::default()
         },
     );
@@ -140,6 +152,75 @@ fn rejects_active_variable_values_over_the_configured_limit() {
         .expect_err("oversized active value should fail");
 
     assert!(error.to_string().contains("32 byte active value limit"));
+}
+
+#[test]
+fn enforces_step_and_loop_budgets_independently() {
+    let two_step_program = json!({
+        "entry": {
+            "trigger": manual_trigger(),
+            "triggers": [],
+            "program": {
+                "steps": [log_node("n-one", "one"), log_node("n-two", "two")],
+                "edges": [edge("n-trigger", "out", "n-one"), edge("n-one", "out", "n-two")]
+            }
+        }
+    });
+    let step_error = execute_manual_program_with_state(
+        &two_step_program,
+        "script-step-limit",
+        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_execution_policy(
+            RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::limited(1),
+                max_run_duration_ms: ResourceLimit::Unlimited,
+                max_loop_iterations_per_run: ResourceLimit::Unlimited,
+            },
+        ),
+    )
+    .expect_err("second node must exceed the one-step budget");
+    assert!(matches!(
+        step_error,
+        RuntimeError::ResourceLimitExceeded {
+            resource: "executed steps",
+            limit: ResourceLimit::Limited(1)
+        }
+    ));
+
+    let repeat_program = json!({
+        "entry": {
+            "trigger": manual_trigger(),
+            "triggers": [],
+            "program": {
+                "steps": [{
+                    "id": "n-repeat",
+                    "action_type": "control.repeat",
+                    "type": "repeat",
+                    "config": {"count": "3"},
+                    "runtime_outputs": []
+                }],
+                "edges": [edge("n-trigger", "out", "n-repeat")]
+            }
+        }
+    });
+    let loop_error = execute_manual_program_with_state(
+        &repeat_program,
+        "script-loop-limit",
+        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_execution_policy(
+            RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::Unlimited,
+                max_run_duration_ms: ResourceLimit::Unlimited,
+                max_loop_iterations_per_run: ResourceLimit::limited(2),
+            },
+        ),
+    )
+    .expect_err("third iteration must exceed the two-iteration budget");
+    assert!(matches!(
+        loop_error,
+        RuntimeError::ResourceLimitExceeded {
+            resource: "loop iterations",
+            limit: ResourceLimit::Limited(2)
+        }
+    ));
 }
 
 #[test]
@@ -521,6 +602,50 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
     assert!(report.logs.iter().any(|log| log.message == "counter=3"));
+}
+
+#[test]
+fn ten_thousand_iteration_repeat_completes_without_stack_growth() {
+    let report = execute_manual_program_with_state(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-repeat",
+                            "action_type": "control.repeat",
+                            "type": "repeat",
+                            "config": { "count": "10000" },
+                            "runtime_outputs": []
+                        },
+                        log_node("n-done", "repeat complete")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-repeat"),
+                        edge("n-repeat", "done", "n-done")
+                    ]
+                }
+            }
+        }),
+        "script-repeat-stress",
+        RuntimeExecutionResources::new(&UnsupportedActionHandler).with_execution_policy(
+            RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::Unlimited,
+                max_run_duration_ms: ResourceLimit::Unlimited,
+                max_loop_iterations_per_run: ResourceLimit::Unlimited,
+            },
+        ),
+    )
+    .expect("an explicitly unlimited repeat should preserve every iteration");
+
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "repeat complete")
+    );
 }
 
 #[test]
@@ -951,6 +1076,7 @@ fn executes_external_action_handler_and_exposes_output_reference() {
                         .cloned()
                         .unwrap_or_else(|| Value::String("missing".to_owned())),
                 )]),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -995,6 +1121,91 @@ fn executes_external_action_handler_and_exposes_output_reference() {
             .logs
             .iter()
             .any(|log| log.message == "external=hello")
+    );
+}
+
+#[test]
+fn sensitive_action_outputs_remain_usable_but_are_removed_from_reports_and_logs() {
+    #[derive(Debug)]
+    struct SensitiveFormDialogHandler;
+
+    impl RuntimeActionHandler for SensitiveFormDialogHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Ok(RuntimeActionResult::new(Map::from_iter([
+                (
+                    "values".to_owned(),
+                    json!({"password":"transient-password-value","username":"Ada"}),
+                ),
+                ("button".to_owned(), json!("ok")),
+            ]))
+            .with_sensitive_output_path("values", ["password"]))
+        }
+    }
+
+    let report = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-form-dialog",
+                            "action_type": "action.form_dialog",
+                            "type": "action",
+                            "action": "form_dialog",
+							"config": {"title": "Credentials", "fields": []},
+                            "runtime_outputs": []
+                        },
+						log_node("n-user-log", "username={{n-form-dialog.values.username}}"),
+						log_node("n-direct-log", "direct={{n-form-dialog.values.password}}"),
+						variable_node("n-copy", "password_copy", "set", "string", "{{n-form-dialog.values.password}}"),
+						log_node("n-copy-log", "copy={{password_copy}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-form-dialog"),
+						edge("n-form-dialog", "success", "n-user-log"),
+						edge("n-user-log", "out", "n-direct-log"),
+                        edge("n-direct-log", "out", "n-copy"),
+                        edge("n-copy", "out", "n-copy-log")
+                    ]
+                }
+            }
+        }),
+        "script-sensitive-output",
+        &SensitiveFormDialogHandler,
+    )
+    .expect("sensitive output should remain usable during the run");
+
+    assert!(!report.variables.contains_key("n-form-dialog.values"));
+    assert!(!report.variables.contains_key("password_copy"));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|entry| entry.message == "username=Ada")
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .all(|entry| !entry.message.contains("transient-password-value"))
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|entry| entry.message == "direct=[REDACTED]")
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|entry| entry.message == "copy=[REDACTED]")
     );
 }
 
@@ -1074,6 +1285,7 @@ fn webhook_response_can_only_be_sent_once_per_run() {
                     ("trigger_id".to_owned(), json!("n-trigger")),
                     ("status_code".to_owned(), json!(200)),
                 ]),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1154,6 +1366,7 @@ fn resolves_bracket_paths_and_nested_external_action_inputs() {
             );
             Ok(RuntimeActionResult {
                 output_data: Map::from_iter([("text".to_owned(), json!("admin"))]),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1242,6 +1455,7 @@ fn dispatches_json_http_bodies_with_safely_serialized_variables() {
                     ("duration_ms".to_owned(), json!(15)),
                     ("body".to_owned(), json!("response\r\nbody")),
                 ]),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1389,6 +1603,7 @@ fn routes_out_of_range_resolved_numeric_config_to_failed_before_action_dispatch(
             self.0.store(true, Ordering::SeqCst);
             Ok(RuntimeActionResult {
                 output_data: Map::new(),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1451,6 +1666,7 @@ fn routes_out_of_range_resolved_screen_coordinate_to_failed_before_action_dispat
             self.0.store(true, Ordering::SeqCst);
             Ok(RuntimeActionResult {
                 output_data: Map::new(),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1569,6 +1785,100 @@ fn expected_action_failures_follow_failed_edges_with_structured_error_data() {
 }
 
 #[test]
+fn structured_http_failures_follow_the_shared_action_contract() {
+    #[derive(Debug)]
+    struct FailingHttpHandler;
+
+    impl RuntimeActionHandler for FailingHttpHandler {
+        fn execute_action(
+            &self,
+            request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Err(RuntimeActionError::StructuredFailure {
+                action_type: request.action_type.clone(),
+                failure: RuntimeActionFailure::new(
+                    "PRIVATE_ADDRESS_BLOCKED",
+                    "http",
+                    "destination is private",
+                    false,
+                )
+                .with_detail("method", json!("GET"))
+                .with_detail("destination", json!("http://127.0.0.1")),
+            })
+        }
+    }
+
+    let report = execute_manual_program_with_actions(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-http",
+                            "action_type": "action.http",
+                            "type": "action",
+                            "action": "http_request",
+                            "config": {
+                                "body": "",
+                                "headers": {},
+                                "method": "GET",
+                                "timeoutSeconds": 5,
+                                "url": "http://127.0.0.1/private",
+                                "userAgent": ""
+                            },
+                            "runtime_outputs": []
+                        },
+                        log_node("n-failed", "code={{n-http.error.code}} type={{n-http.error.type}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-http"),
+                        edge("n-http", "failed", "n-failed")
+                    ]
+                }
+            }
+        }),
+        "script-http-failed-edge",
+        &FailingHttpHandler,
+    )
+    .expect("structured HTTP failure should follow its failed edge");
+
+    let contract: Value = serde_json::from_str(include_str!(
+        "../../../contracts/network-action-conformance.json"
+    ))
+    .expect("network action contract should parse");
+    let required_fields = contract["error"]["required_fields"]
+        .as_object()
+        .expect("error field contract should be an object");
+    let error = report
+        .variables
+        .get("n-http.error")
+        .and_then(Value::as_object)
+        .expect("structured HTTP error should be stored");
+
+    for (field, expected_type) in required_fields {
+        let value = error
+            .get(field)
+            .unwrap_or_else(|| panic!("HTTP error is missing {field}"));
+        assert_json_contract_type(value, expected_type.as_str().unwrap());
+    }
+    assert_eq!(error.get("code"), Some(&json!("PRIVATE_ADDRESS_BLOCKED")));
+    assert_eq!(error.get("type"), contract["error"].get("error_type"));
+    assert_eq!(error.get("retryable"), Some(&json!(false)));
+    assert_eq!(
+        error["details"].get("method"),
+        Some(&json!("GET")),
+        "action-specific details should survive runtime dispatch"
+    );
+    assert_eq!(
+        contract["error"]["codes"]["PRIVATE_ADDRESS_BLOCKED"],
+        error["retryable"]
+    );
+}
+
+#[test]
 fn successful_actions_never_fall_back_to_a_connected_failed_edge() {
     #[derive(Debug)]
     struct SuccessfulActionHandler;
@@ -1581,6 +1891,7 @@ fn successful_actions_never_fall_back_to_a_connected_failed_edge() {
         ) -> Result<RuntimeActionResult, RuntimeActionError> {
             Ok(RuntimeActionResult {
                 output_data: Map::new(),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1759,6 +2070,7 @@ fn preserves_negative_screen_coordinates_through_runtime_dispatch() {
                 .push(request.clone());
             Ok(RuntimeActionResult {
                 output_data: Map::new(),
+                sensitive_output_keys: Default::default(),
             })
         }
     }
@@ -1837,6 +2149,7 @@ fn passes_package_path_to_action_handler() {
                             .to_string(),
                     ),
                 )]),
+                sensitive_output_keys: Default::default(),
             })
         }
     }

@@ -2,12 +2,11 @@ use std::{io, mem::size_of, os::windows::ffi::OsStringExt};
 
 use windows_sys::Win32::{
     Foundation::{LPARAM, POINT, RECT},
-    Graphics::{
-        Dwm::DwmFlush,
-        Gdi::{
-            EnumDisplayMonitors, GetDC, GetMonitorInfoW, GetPixel, HDC, HMONITOR, MONITORINFO,
-            MONITORINFOEXW, ReleaseDC,
-        },
+    Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
+        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC,
+        GetDIBits, GetMonitorInfoW, GetPixel, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITORINFO,
+        MONITORINFOEXW, ReleaseDC, SRCCOPY, SelectObject,
     },
     UI::{
         HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
@@ -15,7 +14,7 @@ use windows_sys::Win32::{
     },
 };
 
-use super::{MonitorBounds, MonitorInfo, ScreenLayout, ScreenPixel};
+use super::{MonitorBounds, MonitorInfo, ScreenLayout, ScreenPixel, ScreenSnapshot};
 
 pub(super) fn discover_screen_layout() -> Result<ScreenLayout, String> {
     let mut state = MonitorEnumerationState::default();
@@ -91,14 +90,200 @@ pub(super) fn sample_pixel(x: i32, y: i32) -> Result<ScreenPixel, String> {
     Ok(ScreenPixel::from_rgb(red, green, blue))
 }
 
-pub(super) fn flush_desktop_composition() -> Result<(), String> {
-    let result = unsafe { DwmFlush() };
-    if result < 0 {
+pub(super) fn capture_snapshot(bounds: MonitorBounds) -> Result<ScreenSnapshot, String> {
+    let width = i32::try_from(bounds.width)
+        .map_err(|_| "screen snapshot width exceeds the Windows GDI range".to_owned())?;
+    let height = i32::try_from(bounds.height)
+        .map_err(|_| "screen snapshot height exceeds the Windows GDI range".to_owned())?;
+    let pixel_count = usize::try_from(bounds.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(bounds.height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .ok_or_else(|| "screen snapshot dimensions exceed the supported memory range".to_owned())?;
+    let image_bytes = pixel_count
+        .checked_mul(size_of::<u32>())
+        .and_then(|bytes| u32::try_from(bytes).ok())
+        .ok_or_else(|| "screen snapshot byte size exceeds the Windows GDI range".to_owned())?;
+
+    let screen_dc = ScreenDeviceContext::acquire()?;
+    let memory_dc = MemoryDeviceContext::create(screen_dc.handle())?;
+    let bitmap = OwnedBitmap::create(screen_dc.handle(), width, height)?;
+    let selection = SelectedObject::select(memory_dc.handle(), bitmap.handle())?;
+    if unsafe {
+        BitBlt(
+            memory_dc.handle(),
+            0,
+            0,
+            width,
+            height,
+            screen_dc.handle(),
+            bounds.left,
+            bounds.top,
+            SRCCOPY | CAPTUREBLT,
+        )
+    } == 0
+    {
         return Err(format!(
-            "failed to wait for the desktop to redraw after closing the picker: HRESULT {result:#010X}"
+            "failed to capture the desktop for the coordinate picker: {}",
+            io::Error::last_os_error()
         ));
     }
-    Ok(())
+    selection.restore()?;
+
+    let mut pixels = Vec::new();
+    pixels
+        .try_reserve_exact(pixel_count)
+        .map_err(|error| format!("failed to allocate the coordinate picker snapshot: {error}"))?;
+    pixels.resize(pixel_count, 0u32);
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: u32::try_from(size_of::<BITMAPINFOHEADER>())
+                .expect("BITMAPINFOHEADER size fits in u32"),
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            biSizeImage: image_bytes,
+            ..BITMAPINFOHEADER::default()
+        },
+        ..BITMAPINFO::default()
+    };
+    let copied_lines = unsafe {
+        GetDIBits(
+            memory_dc.handle(),
+            bitmap.handle(),
+            0,
+            bounds.height,
+            pixels.as_mut_ptr().cast(),
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+        )
+    };
+    if copied_lines != height {
+        return Err(format!(
+            "failed to read the coordinate picker snapshot: copied {copied_lines} of {height} rows"
+        ));
+    }
+
+    ScreenSnapshot::new(bounds, pixels)
+}
+
+struct ScreenDeviceContext(HDC);
+
+impl ScreenDeviceContext {
+    fn acquire() -> Result<Self, String> {
+        let handle = unsafe { GetDC(std::ptr::null_mut()) };
+        if handle.is_null() {
+            return Err("failed to get the screen device context".to_owned());
+        }
+        Ok(Self(handle))
+    }
+
+    fn handle(&self) -> HDC {
+        self.0
+    }
+}
+
+impl Drop for ScreenDeviceContext {
+    fn drop(&mut self) {
+        unsafe { ReleaseDC(std::ptr::null_mut(), self.0) };
+    }
+}
+
+struct MemoryDeviceContext(HDC);
+
+impl MemoryDeviceContext {
+    fn create(screen_dc: HDC) -> Result<Self, String> {
+        let handle = unsafe { CreateCompatibleDC(screen_dc) };
+        if handle.is_null() {
+            return Err(format!(
+                "failed to create the coordinate picker memory context: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        Ok(Self(handle))
+    }
+
+    fn handle(&self) -> HDC {
+        self.0
+    }
+}
+
+impl Drop for MemoryDeviceContext {
+    fn drop(&mut self) {
+        unsafe { DeleteDC(self.0) };
+    }
+}
+
+struct OwnedBitmap(HBITMAP);
+
+impl OwnedBitmap {
+    fn create(screen_dc: HDC, width: i32, height: i32) -> Result<Self, String> {
+        let handle = unsafe { CreateCompatibleBitmap(screen_dc, width, height) };
+        if handle.is_null() {
+            return Err(format!(
+                "failed to create the coordinate picker bitmap: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        Ok(Self(handle))
+    }
+
+    fn handle(&self) -> HBITMAP {
+        self.0
+    }
+}
+
+impl Drop for OwnedBitmap {
+    fn drop(&mut self) {
+        unsafe { DeleteObject(self.0) };
+    }
+}
+
+struct SelectedObject {
+    device_context: HDC,
+    previous: HGDIOBJ,
+    restored: bool,
+}
+
+impl SelectedObject {
+    fn select(device_context: HDC, bitmap: HBITMAP) -> Result<Self, String> {
+        let previous = unsafe { SelectObject(device_context, bitmap) };
+        if previous.is_null() {
+            return Err(format!(
+                "failed to select the coordinate picker bitmap: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        Ok(Self {
+            device_context,
+            previous,
+            restored: false,
+        })
+    }
+
+    fn restore(mut self) -> Result<(), String> {
+        if unsafe { SelectObject(self.device_context, self.previous) }.is_null() {
+            return Err(format!(
+                "failed to release the coordinate picker bitmap: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        self.restored = true;
+        Ok(())
+    }
+}
+
+impl Drop for SelectedObject {
+    fn drop(&mut self) {
+        if !self.restored {
+            unsafe { SelectObject(self.device_context, self.previous) };
+        }
+    }
 }
 
 #[derive(Default)]

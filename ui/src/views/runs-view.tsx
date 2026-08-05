@@ -5,13 +5,13 @@ import {
   useMemo,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DetailDialog } from "@/components/detail-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusSummaryCard } from "@/components/status-summary-card";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +56,7 @@ export function RunsView({
   dashboard: DashboardPayload;
   runAction: DashboardAction;
 }) {
+  const { notify } = useSystemLog();
   const [detailRun, setDetailRun] = useState<StoredRunRecord | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
@@ -175,11 +176,16 @@ export function RunsView({
     try {
       const result = await exportRuns([...selected]);
       if (!result.cancelled)
-        toast.success(
+        notify.success(
           `Exported ${formatCount(result.exported_count, "run")} to ${result.file_name}.`,
+          { source: "Run history", title: "Runs exported" },
         );
     } catch (reason) {
-      toast.error(`Could not export runs: ${String(reason)}`);
+      notify.error("The selected runs could not be exported.", {
+        error: reason,
+        source: "Run history",
+        title: "Run export failed",
+      });
     } finally {
       setExporting(false);
     }
@@ -272,13 +278,14 @@ export function RunsView({
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
             <Input
               aria-label="Search runs"
+              className="h-9 py-0"
               maxLength={SEARCH_INPUT_MAX_LENGTH}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search run ID, script, trigger, or logs"
               value={search}
             />
             <Select onValueChange={setScriptFilter} value={scriptFilter}>
-              <SelectTrigger aria-label="Filter by script">
+              <SelectTrigger aria-label="Filter by script" className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -294,7 +301,7 @@ export function RunsView({
               </SelectContent>
             </Select>
             <Select onValueChange={setStatusFilter} value={statusFilter}>
-              <SelectTrigger aria-label="Filter by status">
+              <SelectTrigger aria-label="Filter by status" className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

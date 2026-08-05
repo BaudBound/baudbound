@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::Read,
     path::Path,
@@ -22,6 +22,13 @@ const MAX_REFERENCE_BYTES: usize = 256;
 const MAX_NODE_ID_BYTES: usize = 128;
 const MAX_NAME_BYTES: usize = 128;
 const MAX_PACKAGE_PATH_BYTES: usize = 32_768;
+const MAX_SCRIPT_SETTINGS: usize = 4_096;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(super) struct ScriptSettingDigest {
+    pub(super) name: String,
+    pub(super) value_digest: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -53,17 +60,9 @@ pub(super) enum SensitiveOperation {
         reference: String,
         enabled: bool,
     },
-    SetScriptSetting {
+    SaveScriptSettings {
         reference: String,
-        name: String,
-        value_digest: String,
-    },
-    UnsetScriptSetting {
-        reference: String,
-        name: String,
-    },
-    ResetScriptSettings {
-        reference: String,
+        settings: Vec<ScriptSettingDigest>,
     },
     InstallRemoteScriptPackage {
         review_id: String,
@@ -124,9 +123,7 @@ impl SensitiveOperation {
             Self::UpdateScriptPackage { .. } => "update_script_package",
             Self::SetScriptAutomaticUpdateChecks { .. } => "set_script_automatic_update_checks",
             Self::SetScriptEnabled { .. } => "set_script_enabled",
-            Self::SetScriptSetting { .. } => "set_script_setting",
-            Self::UnsetScriptSetting { .. } => "unset_script_setting",
-            Self::ResetScriptSettings { .. } => "reset_script_settings",
+            Self::SaveScriptSettings { .. } => "save_script_settings",
             Self::InstallRemoteScriptPackage { .. } => "install_remote_script_package",
             Self::RunScript { .. } => "run_script",
             Self::SaveRunnerConfig { .. } => "save_runner_config",
@@ -166,15 +163,10 @@ impl SensitiveOperation {
                 "{} {reference}",
                 if *enabled { "Enable" } else { "Disable" }
             ),
-            Self::SetScriptSetting {
-                reference, name, ..
-            } => format!("Set Script Setting {name} for {reference}"),
-            Self::UnsetScriptSetting { reference, name } => {
-                format!("Reset Script Setting {name} for {reference}")
-            }
-            Self::ResetScriptSettings { reference } => {
-                format!("Reset all Script Settings for {reference}")
-            }
+            Self::SaveScriptSettings {
+                reference,
+                settings,
+            } => format!("Save {} Script Settings for {reference}", settings.len()),
             Self::InstallRemoteScriptPackage { .. } => {
                 "Install the reviewed remote script package".to_owned()
             }
@@ -398,22 +390,31 @@ fn validate_operation(
         | SensitiveOperation::RemoveScript { reference }
         | SensitiveOperation::RunScript { reference }
         | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. }
-        | SensitiveOperation::SetScriptEnabled { reference, .. }
-        | SensitiveOperation::ResetScriptSettings { reference } => {
+        | SensitiveOperation::SetScriptEnabled { reference, .. } => {
             validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)
         }
-        SensitiveOperation::SetScriptSetting {
+        SensitiveOperation::SaveScriptSettings {
             reference,
-            name,
-            value_digest,
+            settings,
         } => {
             validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
-            validate_text("setting name", name, MAX_NAME_BYTES, false)?;
-            validate_sha256_digest("setting value digest", value_digest)
-        }
-        SensitiveOperation::UnsetScriptSetting { reference, name } => {
-            validate_text("script reference", reference, MAX_REFERENCE_BYTES, false)?;
-            validate_text("setting name", name, MAX_NAME_BYTES, false)
+            if settings.len() > MAX_SCRIPT_SETTINGS {
+                return Err(format!(
+                    "no more than {MAX_SCRIPT_SETTINGS} Script Settings may be saved at once"
+                ));
+            }
+            let mut names = HashSet::with_capacity(settings.len());
+            for setting in settings {
+                validate_text("setting name", &setting.name, MAX_NAME_BYTES, false)?;
+                validate_sha256_digest("setting value digest", &setting.value_digest)?;
+                if !names.insert(setting.name.as_str()) {
+                    return Err(format!(
+                        "Script Setting {:?} appears more than once",
+                        setting.name
+                    ));
+                }
+            }
+            Ok(())
         }
         SensitiveOperation::ImportScriptPackage { package_path }
         | SensitiveOperation::UpdateScriptPackage { package_path } => {
@@ -572,9 +573,7 @@ fn operation_digest(
         | SensitiveOperation::RunScript { reference }
         | SensitiveOperation::SetScriptAutomaticUpdateChecks { reference, .. }
         | SensitiveOperation::SetScriptEnabled { reference, .. }
-        | SensitiveOperation::SetScriptSetting { reference, .. }
-        | SensitiveOperation::UnsetScriptSetting { reference, .. }
-        | SensitiveOperation::ResetScriptSettings { reference } => {
+        | SensitiveOperation::SaveScriptSettings { reference, .. } => {
             let installed = state
                 .store
                 .verify_script_package_hash(reference)

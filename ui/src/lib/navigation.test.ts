@@ -27,16 +27,18 @@ describe("runner navigation", () => {
     expect(navigationItems.at(-1)?.id).toBe("about");
   });
 
-  it("keeps registration diagnostics in Doctor and exposes live monitoring", () => {
+  it("keeps registration diagnostics in Doctor without a separate Monitor destination", () => {
     const inspect = navigationGroups.find((group) => group.label === "Inspect");
 
     expect(inspect?.items.map((item) => item.id)).toEqual([
       "security",
       "runs",
       "logs",
-      "monitor",
       "variables",
     ]);
+    expect(navigationItems.some((item) => String(item.id) === "monitor")).toBe(
+      false,
+    );
     expect(navigationItems.some((item) => String(item.id) === "triggers")).toBe(
       false,
     );

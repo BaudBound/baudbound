@@ -7,6 +7,7 @@ use crate::{TriggerError, TriggerRegistration, split_path_and_query};
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct WebSocketRouteKey {
+    pub(super) generation: String,
     pub(super) node_id: String,
     pub(super) path: String,
     pub(super) script_id: String,
@@ -45,8 +46,9 @@ impl WebSocketRoute {
         Ok(Self { path, registration })
     }
 
-    pub(super) fn key(&self) -> WebSocketRouteKey {
+    pub(super) fn key(&self, generation: &str) -> WebSocketRouteKey {
         WebSocketRouteKey {
+            generation: generation.to_owned(),
             node_id: self.registration.node_id.clone(),
             path: self.path.clone(),
             script_id: self.registration.script_id.clone(),

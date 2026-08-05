@@ -5,7 +5,7 @@ use baudbound_actions::DesktopActionHandler;
 use baudbound_core::{RunnerConfig, RunnerCore, SerialDeviceSettings};
 use baudbound_triggers::{SerialPortRebindSink, WebSocketConnectionRegistry};
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, Runtime, State};
 
 use crate::{
     desktop_actions::SystemDesktopActionAdapter,
@@ -29,8 +29,7 @@ pub(super) fn read_runner_config(
 }
 
 #[tauri::command]
-pub(super) fn save_runner_config<R: tauri::Runtime>(
-    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+pub(super) async fn save_runner_config<R: Runtime>(
     confirmation_id: String,
     contents: String,
     guard: State<'_, SensitiveOperationGuard>,
@@ -48,14 +47,15 @@ pub(super) fn save_runner_config<R: tauri::Runtime>(
         &state,
         &window,
     )?;
-    run_locked_action(&state, || {
-        save_runner_config_contents(&autostart, &state, &contents, restart_background)
+    let app = window.app_handle().clone();
+    run_config_action(app, move |autostart, state| {
+        save_runner_config_contents(autostart, state, &contents, restart_background)
     })
+    .await
 }
 
 #[tauri::command]
-pub(super) fn save_runner_config_model<R: tauri::Runtime>(
-    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+pub(super) async fn save_runner_config_model<R: Runtime>(
     confirmation_id: String,
     config: RunnerConfig,
     guard: State<'_, SensitiveOperationGuard>,
@@ -73,14 +73,15 @@ pub(super) fn save_runner_config_model<R: tauri::Runtime>(
         &state,
         &window,
     )?;
-    run_locked_action(&state, || {
-        save_runner_config_model_contents(&autostart, &state, config, restart_background)
+    let app = window.app_handle().clone();
+    run_config_action(app, move |autostart, state| {
+        save_runner_config_model_contents(autostart, state, config, restart_background)
     })
+    .await
 }
 
 #[tauri::command]
-pub(super) fn reset_runner_config<R: tauri::Runtime>(
-    autostart: State<'_, tauri_plugin_autostart::AutoLaunchManager>,
+pub(super) async fn reset_runner_config<R: Runtime>(
     confirmation_id: String,
     guard: State<'_, SensitiveOperationGuard>,
     restart_background: bool,
@@ -94,15 +95,36 @@ pub(super) fn reset_runner_config<R: tauri::Runtime>(
         &state,
         &window,
     )?;
-    run_locked_action(&state, || {
+    let app = window.app_handle().clone();
+    run_config_action(app, move |autostart, state| {
         save_valid_runner_config(
-            &autostart,
-            &state,
+            autostart,
+            state,
             RunnerConfig::template_toml(),
             restart_background,
             ConfigWriteOperation::Reset,
         )
     })
+    .await
+}
+
+async fn run_config_action<R, F>(
+    app: tauri::AppHandle<R>,
+    action: F,
+) -> Result<ActionPayload, String>
+where
+    R: Runtime,
+    F: FnOnce(&tauri_plugin_autostart::AutoLaunchManager, &DesktopUiState) -> Result<String>
+        + Send
+        + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let autostart = app.state::<tauri_plugin_autostart::AutoLaunchManager>();
+        let state = app.state::<DesktopUiState>();
+        run_locked_action(&state, || action(&autostart, &state))
+    })
+    .await
+    .map_err(|error| format!("runner config task failed: {error}"))?
 }
 
 pub(super) fn start_background_runner_message(state: &DesktopUiState) -> Result<String> {
@@ -338,6 +360,14 @@ fn rollback_result<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -
 
 fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -> Result<()> {
     state
+        .dialog_broker
+        .configure(
+            super::desktop_dialog::DesktopDialogOptions::from_desktop_settings(
+                &runner_config.desktop,
+            ),
+        )
+        .map_err(|error| anyhow!(error))?;
+    state
         .store
         .set_run_retention_policy(baudbound_storage::RunRetentionPolicy::new(
             runner_config.runner.run_history_max_records,
@@ -350,6 +380,7 @@ fn replace_runtime_config(state: &DesktopUiState, runner_config: RunnerConfig) -
         Arc::clone(&state.websocket_registry),
         Arc::clone(&state.active_runs),
         Arc::clone(&state.blacklist),
+        Arc::clone(&state.dialog_broker),
     )
     .with_execution_queue_from(&existing_core);
     let serial_connections = next_core.serial_connections();
@@ -449,6 +480,7 @@ pub(super) fn build_runner_core(
     websocket_registry: Arc<WebSocketConnectionRegistry>,
     active_runs: Arc<ActiveRunRegistry>,
     blacklist: Arc<crate::blacklist::BlacklistService>,
+    dialog_broker: Arc<super::desktop_dialog::DesktopDialogBroker>,
 ) -> RunnerCore {
     let core = RunnerCore::from_config(runner_config)
         .with_execution_mode(baudbound_core::RunnerExecutionMode::Desktop)
@@ -458,7 +490,7 @@ pub(super) fn build_runner_core(
         .with_run_observer(active_runs);
     let action_handler = Arc::new(DesktopActionHandler::new(
         core.headless_action_handler(),
-        SystemDesktopActionAdapter::default(),
+        SystemDesktopActionAdapter::with_dialog_provider(dialog_broker),
     ));
     core.with_action_handler(action_handler)
 }

@@ -16,7 +16,7 @@ pub(super) fn run_pixel_get(
     validate_native_coordinate(request, x, y)?;
     let color = native_pixel_color(request, x, y)?;
 
-    Ok(RuntimeActionResult { output_data: color })
+    Ok(RuntimeActionResult::new(color))
 }
 
 #[cfg(windows)]
@@ -44,6 +44,7 @@ pub(super) fn run_active_window(
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     Ok(RuntimeActionResult {
         output_data: native_active_window(request)?,
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -61,6 +62,7 @@ pub(super) fn run_window_focus(
             ("match_mode".to_owned(), Value::String(match_mode)),
             ("target".to_owned(), Value::String(target)),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 

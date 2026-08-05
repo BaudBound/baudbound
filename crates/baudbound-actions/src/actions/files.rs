@@ -1,11 +1,11 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use baudbound_runtime::{
-    RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
+    ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
 use cap_std::{
     ambient_authority,
@@ -14,6 +14,7 @@ use cap_std::{
 use serde_json::{Map, Number, Value};
 
 use crate::actions::{bounded_io, network::send_download_request};
+use crate::resource_tracker::FileWriteBudget;
 use crate::{
     ActionSecurityPolicy, config_bool, config_string, failed, required_string, timeout_duration,
 };
@@ -25,7 +26,7 @@ use move_file::move_file;
 pub(crate) fn read_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
-    max_read_bytes: u64,
+    max_read_bytes: ResourceLimit,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let encoding = config_string(&request.config, "encoding").unwrap_or_else(|| "utf-8".to_owned());
@@ -43,7 +44,7 @@ pub(crate) fn read_file_action(
     if !metadata.is_file {
         return failed(request, format!("{path} is not a regular file"));
     }
-    if metadata.len > max_read_bytes {
+    if max_read_bytes.is_exceeded_by(metadata.len) {
         return failed(
             request,
             format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
@@ -73,13 +74,15 @@ pub(crate) fn read_file_action(
             ("content".to_owned(), Value::String(content)),
             ("bytes".to_owned(), Value::Number(Number::from(bytes.len()))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 pub(crate) fn download_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
-    max_download_bytes: u64,
+    max_download_bytes: ResourceLimit,
     policy: &ActionSecurityPolicy,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let url = required_string(request, "url")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -99,7 +102,7 @@ pub(crate) fn download_file_action(
     }
     if response
         .content_length()
-        .is_some_and(|length| length > max_download_bytes)
+        .is_some_and(|length| max_download_bytes.is_exceeded_by(length))
     {
         return failed(
             request,
@@ -113,10 +116,16 @@ pub(crate) fn download_file_action(
             message: format!("failed to create temporary download file: {source}"),
         })?;
     let download_result = (|| {
-        let bytes = bounded_io::copy(&mut response, &mut temporary_file, max_download_bytes)
-            .map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!("failed to download {url}: {source}"),
+        let mut writer = AccountedWriter {
+            inner: &mut temporary_file,
+            budget: write_budget,
+        };
+        let bytes =
+            bounded_io::copy(&mut response, &mut writer, max_download_bytes).map_err(|source| {
+                RuntimeActionError::Failed {
+                    action_type: request.action_type.clone(),
+                    message: format!("failed to download {url}: {source}"),
+                }
             })?;
         temporary_file
             .sync_all()
@@ -146,12 +155,14 @@ pub(crate) fn download_file_action(
             ("url".to_owned(), Value::String(url)),
             ("bytes".to_owned(), Value::Number(Number::from(bytes))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn write_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let content = config_string(&request.config, "content").unwrap_or_default();
@@ -164,6 +175,7 @@ pub(crate) fn write_file_action(
         "overwrite" => WriteMode::Overwrite,
         other => return failed(request, format!("unsupported file write mode {other}")),
     };
+    account_file_write(request, write_budget, content.len())?;
     let mut file =
         path_buf
             .open_write(write_mode, false)
@@ -186,12 +198,14 @@ pub(crate) fn write_file_action(
                 Value::Number(Number::from(content.len())),
             ),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn copy_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -201,6 +215,19 @@ pub(crate) fn copy_file_action(
         resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
+    let source_bytes = source
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {source_path}: {source}"),
+        })?
+        .len;
+    write_budget
+        .account(source_bytes)
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })?;
     ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
@@ -222,12 +249,14 @@ pub(crate) fn copy_file_action(
             ),
             ("bytes".to_owned(), Value::Number(Number::from(bytes))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
 pub(crate) fn move_file_action(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    write_budget: &mut FileWriteBudget,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source_path = required_string(request, "sourcePath")?;
     let destination_path = required_string(request, "destinationPath")?;
@@ -237,6 +266,19 @@ pub(crate) fn move_file_action(
         resolve_action_path(request, context, &destination_path, PathIntent::Destination)?;
 
     ensure_regular_source(request, &source)?;
+    let source_bytes = source
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {source_path}: {source}"),
+        })?
+        .len;
+    write_budget
+        .account(source_bytes)
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })?;
     ensure_distinct_paths(request, &source, &destination)?;
     ensure_destination_available(request, &destination, overwrite)?;
     ensure_parent_directory(request, &destination)?;
@@ -255,6 +297,7 @@ pub(crate) fn move_file_action(
                 Value::String(destination_path),
             ),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -283,6 +326,7 @@ pub(crate) fn delete_file_action(
 
     Ok(RuntimeActionResult {
         output_data: Map::from_iter([("path".to_owned(), Value::String(path))]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -306,9 +350,88 @@ struct ActionMetadata {
     len: u64,
 }
 
-enum ActionFile {
+pub enum ActionFile {
     Ambient(fs::File),
     Limited(cap_std::fs::File),
+}
+
+/// Opens a configured path for reading through the shared path resolver.
+///
+/// Callers outside this module get the same treatment as the file actions: a
+/// bounded relative path is confined to the script workspace, an absolute or
+/// parent-traversing path uses ambient authority and therefore requires a
+/// Dangerous permission, and the configured read limit is applied before any
+/// content is handed back.
+pub fn open_configured_file_for_read(
+    request: &RuntimeActionRequest,
+    context: &RuntimeContext,
+    configured_path: &str,
+    max_read_bytes: ResourceLimit,
+) -> Result<ActionFile, RuntimeActionError> {
+    let path = resolve_action_path(request, context, configured_path, PathIntent::Existing)?;
+    let metadata = path
+        .metadata()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to inspect {configured_path}: {source}"),
+        })?;
+    if !metadata.is_file {
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("{configured_path} is not a regular file"),
+        });
+    }
+    if max_read_bytes.is_exceeded_by(metadata.len) {
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("file exceeds the configured read limit of {max_read_bytes} bytes"),
+        });
+    }
+    path.open_read()
+        .map_err(|source| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!("failed to read {configured_path}: {source}"),
+        })
+}
+
+struct AccountedWriter<'a, W> {
+    inner: &'a mut W,
+    budget: &'a mut FileWriteBudget,
+}
+
+impl<W: Write> Write for AccountedWriter<'_, W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let requested = u64::try_from(buffer.len()).unwrap_or(u64::MAX);
+        self.budget.account(requested).map_err(io::Error::other)?;
+        match self.inner.write(buffer) {
+            Ok(written) => {
+                self.budget
+                    .release(requested.saturating_sub(u64::try_from(written).unwrap_or(u64::MAX)));
+                Ok(written)
+            }
+            Err(source) => {
+                self.budget.release(requested);
+                Err(source)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn account_file_write(
+    request: &RuntimeActionRequest,
+    budget: &mut FileWriteBudget,
+    bytes: usize,
+) -> Result<(), RuntimeActionError> {
+    budget
+        .account(u64::try_from(bytes).unwrap_or(u64::MAX))
+        .map_err(|message| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message,
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -324,28 +447,32 @@ fn resolve_action_path(
     intent: PathIntent,
 ) -> Result<ActionPath, RuntimeActionError> {
     let path = Path::new(configured_path);
-    if path.is_absolute() || contains_parent_component(path) {
+    // Shares one classifier with the permission calculator so the risk approved
+    // by the user and the authority used at run time cannot disagree.
+    if baudbound_security::is_unbounded_path(configured_path) {
         return Ok(ActionPath::Ambient(path.to_path_buf()));
     }
+    // A bounded relative path is only bounded if a workspace exists to bound it
+    // to. Falling back to ambient authority here would resolve the path against
+    // the process working directory while the package still declares a limited
+    // permission, so this fails closed instead.
     let Some(workspace) = script_workspace(context) else {
-        return Ok(ActionPath::Ambient(path.to_path_buf()));
+        return Err(RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: format!(
+                "cannot resolve the bounded relative path {configured_path:?} because no script \
+                 workspace is available for this run"
+            ),
+        });
     };
-    fs::create_dir_all(&workspace).map_err(|source| RuntimeActionError::Failed {
-        action_type: request.action_type.clone(),
-        message: format!(
-            "failed to create script workspace {}: {source}",
-            workspace.display()
-        ),
-    })?;
-    let directory = Dir::open_ambient_dir(&workspace, ambient_authority()).map_err(|source| {
-        RuntimeActionError::Failed {
+    let directory =
+        open_workspace_directory(&workspace).map_err(|source| RuntimeActionError::Failed {
             action_type: request.action_type.clone(),
             message: format!(
                 "failed to open script workspace {}: {source}",
                 workspace.display()
             ),
-        }
-    })?;
+        })?;
     if matches!(intent, PathIntent::Existing) {
         directory
             .metadata(path)
@@ -364,25 +491,60 @@ fn resolve_action_path(
     })
 }
 
-fn contains_parent_component(path: &Path) -> bool {
-    path.components()
-        .any(|component| component == Component::ParentDir)
-        || path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .split('/')
-            .any(|component| component == "..")
+fn script_workspace(context: &RuntimeContext) -> Option<PathBuf> {
+    context.workspace_path.clone()
 }
 
-fn script_workspace(context: &RuntimeContext) -> Option<PathBuf> {
-    let package_path = context.package_path.as_ref()?;
-    let scripts_directory = package_path.parent()?;
-    let runner_home = scripts_directory.parent()?;
-    Some(
-        runner_home
-            .join("workspaces")
-            .join(&context.identity.script_id),
-    )
+/// Opens the script workspace without following a symbolic link at its root.
+///
+/// `cap-std` confines everything below the directory handle, but the handle
+/// itself is obtained with ambient authority. Opening a symlinked workspace
+/// root would therefore relocate the whole sandbox, so the root is created and
+/// verified before it is used.
+fn open_workspace_directory(workspace: &Path) -> io::Result<Dir> {
+    if let Some(parent) = workspace.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    match fs::create_dir(workspace) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+
+    let metadata = fs::symlink_metadata(workspace)?;
+    if metadata.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "script workspace is a symbolic link",
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "script workspace is not a directory",
+        ));
+    }
+    verify_workspace_owner(&metadata)?;
+
+    Dir::open_ambient_dir(workspace, ambient_authority())
+}
+
+#[cfg(unix)]
+fn verify_workspace_owner(metadata: &fs::Metadata) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    if metadata.uid() != rustix::process::getuid().as_raw() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "script workspace is owned by another user",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn verify_workspace_owner(_metadata: &fs::Metadata) -> io::Result<()> {
+    Ok(())
 }
 
 fn ensure_destination_available(
@@ -805,6 +967,15 @@ impl ActionFile {
         match self {
             Self::Ambient(file) => file.sync_all(),
             Self::Limited(file) => file.sync_all(),
+        }
+    }
+}
+
+impl io::Seek for ActionFile {
+    fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+        match self {
+            Self::Ambient(file) => file.seek(position),
+            Self::Limited(file) => file.seek(position),
         }
     }
 }

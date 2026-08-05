@@ -171,13 +171,6 @@ impl SqliteRunnerStore {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|source| self.sqlite_error(source))
     }
-
-    fn sqlite_error(&self, source: rusqlite::Error) -> StorageError {
-        StorageError::Sqlite {
-            path: self.path.clone(),
-            source,
-        }
-    }
 }
 
 fn validate_query_text(label: &str, value: &str, max_bytes: usize) -> Result<(), StorageError> {

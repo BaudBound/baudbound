@@ -139,7 +139,7 @@ fn execute_graph_from_trigger(
     };
     match executor.run_from_trigger() {
         Ok(report) => Ok(executor.redact_report(report)),
-        Err(RuntimeError::Cancelled) => Err(RuntimeError::Cancelled),
+        Err(RuntimeError::Cancelled) => Err(executor.cancellation_error()),
         Err(error) if executor.has_secrets() => Err(RuntimeError::Redacted(
             executor.redact_text(&error.to_string()),
         )),

@@ -8,6 +8,7 @@ pub(crate) mod text;
 pub(crate) mod url;
 pub(crate) mod value;
 
+pub use files::{ActionFile, open_configured_file_for_read};
 pub(crate) use files::{
     copy_file_action, delete_file_action, download_file_action, move_file_action, read_file_action,
     write_file_action,

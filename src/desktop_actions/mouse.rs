@@ -46,7 +46,7 @@ pub(super) fn run_mouse_click(
     if input_action == InputAction::Press {
         output_data.insert("click_type".to_owned(), Value::String(click_type));
     }
-    Ok(RuntimeActionResult { output_data })
+    Ok(RuntimeActionResult::new(output_data))
 }
 
 pub(super) fn run_mouse_move(
@@ -71,6 +71,7 @@ pub(super) fn run_mouse_move(
             ("x".to_owned(), Value::Number(Number::from(x))),
             ("y".to_owned(), Value::Number(Number::from(y))),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 

@@ -23,13 +23,7 @@ export type ActionMenuItem = {
   onSelect: () => void;
 };
 
-export function ActionMenu({
-  items,
-  label = "More actions",
-}: {
-  items: ActionMenuItem[];
-  label?: string;
-}) {
+export function ActionMenu({ items, label = "More actions" }: { items: ActionMenuItem[]; label?: string }) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,7 +86,7 @@ export function ActionMenu({
       </Button>
       {open ? (
         <div
-          className="fixed z-50 grid min-w-[160px] gap-1 rounded-md border border-border bg-card p-1 shadow-lg"
+          className="fixed z-50 grid w-[min(160px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] gap-1 rounded-md border border-border bg-card p-1 shadow-lg"
           role="menu"
           style={{ left: menuPosition.left, top: menuPosition.top }}
         >

@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant, SystemTime};
 
+use baudbound_runtime::ResourceLimit;
 use serde_json::json;
 
 use super::{ScheduleService, spec::ScheduleSpec};
@@ -45,19 +46,105 @@ fn accepts_millisecond_intervals() {
 }
 
 #[test]
-fn delayed_poll_coalesces_missed_ticks_without_cadence_drift() {
+fn one_millisecond_intervals_are_accepted_without_clamping() {
+    let start = Instant::now();
+    let mut service = ScheduleService::from_registrations(
+        [registration("n-one-millisecond", "1", "milliseconds")],
+        start,
+    )
+    .expect("one millisecond schedule should parse");
+
+    assert!(
+        service
+            .due_events(start + Duration::from_micros(999), SystemTime::UNIX_EPOCH)
+            .is_empty()
+    );
+    let events = service.due_events(start + Duration::from_millis(1), SystemTime::UNIX_EPOCH);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].payload["interval_seconds"], 0.001);
+}
+
+#[test]
+fn one_millisecond_catch_up_preserves_ten_thousand_ticks_in_bounded_batches() {
+    let start = Instant::now();
+    let mut service = ScheduleService::from_registrations(
+        [registration("n-one-millisecond", "1", "milliseconds")],
+        start,
+    )
+    .expect("one millisecond schedule should parse");
+    let delayed = start + Duration::from_secs(10);
+    let mut emitted = 0_u64;
+
+    loop {
+        let dispatch = service.for_each_due_event_with_limit(
+            delayed,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(10),
+            ResourceLimit::limited(127),
+            |_| {},
+        );
+        emitted += dispatch.emitted;
+        if !dispatch.deferred {
+            break;
+        }
+    }
+
+    assert_eq!(emitted, 10_000);
+    assert_eq!(
+        service.time_until_next_due(delayed),
+        Some(Duration::from_millis(1))
+    );
+}
+
+#[test]
+fn delayed_poll_emits_every_tick_without_cadence_drift() {
     let start = Instant::now();
     let mut service =
         ScheduleService::from_registrations([registration("n-schedule", "10", "seconds")], start)
             .expect("schedule should parse");
     let delayed = start + Duration::from_secs(35);
 
-    let events = service.due_events(delayed, SystemTime::UNIX_EPOCH);
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].payload["missed_intervals"], 2);
+    let events = service.due_events(delayed, SystemTime::UNIX_EPOCH + Duration::from_secs(35));
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].payload["scheduled_at_unix"], 10);
+    assert_eq!(events[1].payload["scheduled_at_unix"], 20);
+    assert_eq!(events[2].payload["scheduled_at_unix"], 30);
     assert_eq!(
         service.time_until_next_due(delayed),
         Some(Duration::from_secs(5))
+    );
+}
+
+#[test]
+fn finite_catch_up_limit_defers_ticks_without_dropping_them() {
+    let start = Instant::now();
+    let mut service =
+        ScheduleService::from_registrations([registration("n-schedule", "1", "seconds")], start)
+            .expect("schedule should parse");
+    let delayed = start + Duration::from_secs(5);
+
+    let first = service.due_events_with_limit(
+        delayed,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(5),
+        ResourceLimit::limited(2),
+    );
+    assert_eq!(first.events.len(), 2);
+    assert!(first.deferred);
+
+    let second = service.due_events_with_limit(
+        delayed,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(5),
+        ResourceLimit::limited(3),
+    );
+    assert_eq!(second.events.len(), 3);
+    assert!(!second.deferred);
+    assert_eq!(
+        first
+            .events
+            .into_iter()
+            .chain(second.events)
+            .map(|event| event.payload["scheduled_at_unix"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [1, 2, 3, 4, 5]
     );
 }
 

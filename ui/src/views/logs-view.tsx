@@ -1,10 +1,10 @@
-import { Download, Trash2 } from "lucide-react";
+import { Download, FileClock, MonitorCog, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,15 +15,18 @@ import { formatCount } from "@/lib/count-format";
 import { SEARCH_INPUT_MAX_LENGTH } from "@/lib/input-limits";
 import {
   clearRunLogs,
+  type DashboardPayload,
   exportLogs,
   queryRunLogs,
-  type DashboardPayload,
   type RunLogQuery,
   type StoredRunLogRecord,
+  type SystemLogSummary,
 } from "@/lib/runner-api";
+import { unreadSystemLogBreakdown } from "@/lib/navigation-badges";
 import { nextSortState, type SortState } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
 import { visibleText } from "@/lib/visible-text";
+import { SystemLogsPanel } from "@/views/system-logs-panel";
 
 const clearLogsAction = "logs-clear";
 type LogSortColumn = RunLogQuery["sort"];
@@ -37,6 +40,95 @@ export function LogsView({
   dashboard: DashboardPayload;
   runAction: DashboardAction;
 }) {
+  const { openRequest, summary } = useSystemLog();
+  const [section, setSection] = useState<"run" | "system">("run");
+
+  useEffect(() => {
+    if (openRequest) setSection("system");
+  }, [openRequest]);
+
+  return (
+    <div className="grid gap-4">
+      <div
+        aria-label="Log type"
+        className="grid min-w-0 grid-cols-2 overflow-hidden rounded-md border border-border bg-card"
+        role="tablist"
+      >
+        <Button
+          aria-selected={section === "run"}
+          className="h-11 min-w-0 rounded-none border-0 border-r border-border"
+          data-active={section === "run"}
+          onClick={() => setSection("run")}
+          role="tab"
+          variant={section === "run" ? "secondary" : "subtle"}
+        >
+          <FileClock />
+          Run logs
+        </Button>
+        <Button
+          aria-selected={section === "system"}
+          className="h-11 min-w-0 rounded-none border-0"
+          data-active={section === "system"}
+          onClick={() => setSection("system")}
+          role="tab"
+          variant={section === "system" ? "secondary" : "subtle"}
+        >
+          <MonitorCog />
+          System logs
+          <SystemLogUnreadBadges summary={summary} />
+        </Button>
+      </div>
+      {section === "run" ? (
+        <RunLogsPanel busyActions={busyActions} dashboard={dashboard} runAction={runAction} />
+      ) : (
+        <SystemLogsPanel />
+      )}
+    </div>
+  );
+}
+
+export function SystemLogUnreadBadges({ summary }: { summary: SystemLogSummary }) {
+  const badges = [
+    { count: summary.unread_errors, plural: "errors", singular: "error", variant: "destructive" as const },
+    { count: summary.unread_warnings, plural: "warnings", singular: "warning", variant: "medium" as const },
+    { count: summary.unread_info, plural: "info", singular: "info", variant: "muted" as const },
+    { count: summary.unread_successes, plural: "successes", singular: "success", variant: "good" as const },
+  ].filter((badge) => badge.count > 0);
+  if (badges.length === 0) return null;
+
+  return (
+    <span
+      aria-label={unreadSystemLogBreakdown(summary)}
+      className="ml-1 flex shrink-0 items-center gap-1"
+    >
+      {badges.map((badge) => {
+        const label = badge.count === 1 ? badge.singular : badge.plural;
+        return (
+          <Badge
+            aria-label={`${badge.count} unread ${label}`}
+            className="min-w-5 px-1.5"
+            key={badge.singular}
+            title={`${badge.count} unread ${label}`}
+            variant={badge.variant}
+          >
+            {badge.count > 99 ? "99+" : badge.count}
+          </Badge>
+        );
+      })}
+    </span>
+  );
+}
+
+function RunLogsPanel({
+  busyActions,
+  dashboard,
+  runAction,
+}: {
+  busyActions: Set<string>;
+  dashboard: DashboardPayload;
+  runAction: DashboardAction;
+}) {
+  const { notify } = useSystemLog();
   const { formatUnixMilliseconds } = useDesktopTime();
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -105,18 +197,23 @@ export function LogsView({
     try {
       const result = await exportLogs(format, { ...query, offset: 0 });
       if (!result.cancelled)
-        toast.success(
-          `Exported ${formatCount(result.exported_count, "log")} to ${result.file_name}.`,
-        );
+        notify.success(`Exported ${formatCount(result.exported_count, "log")} to ${result.file_name}.`, {
+          source: "Run logs",
+          title: "Run logs exported",
+        });
     } catch (reason) {
-      toast.error(`Could not export logs: ${String(reason)}`);
+      notify.error("The run logs could not be exported.", {
+        error: reason,
+        source: "Run logs",
+        title: "Run log export failed",
+      });
     } finally {
       setExporting(false);
     }
   }
 
   return (
-    <div className="grid gap-4">
+    <>
       <Card>
         <CardHeader className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -159,7 +256,7 @@ export function LogsView({
             value={search}
           />
         </CardHeader>
-        <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+        <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
           {error ? (
             <div className="p-4">
               <EmptyState>Could not load logs: {error}</EmptyState>
@@ -183,12 +280,7 @@ export function LogsView({
                       ["run", "Run"],
                     ] as const
                   ).map(([column, label]) => (
-                    <SortableTableHeader
-                      column={column}
-                      key={column}
-                      onSort={toggleSort}
-                      sortState={sortState}
-                    >
+                    <SortableTableHeader column={column} key={column} onSort={toggleSort} sortState={sortState}>
                       {label}
                     </SortableTableHeader>
                   ))}
@@ -196,51 +288,27 @@ export function LogsView({
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr
-                    className="border-b border-border align-top last:border-0"
-                    key={`${row.run_id}-${row.log_index}`}
-                  >
-                    <td
-                      className="whitespace-nowrap px-3 py-3"
-                      data-label="Time"
-                    >
+                  <tr className="border-b border-border align-top last:border-0" key={`${row.run_id}-${row.log_index}`}>
+                    <td className="whitespace-nowrap px-3 py-3" data-label="Time">
                       {formatUnixMilliseconds(row.timestamp_unix_ms)}
                     </td>
                     <td className="px-3 py-3" data-label="Level">
-                      <Badge variant={logLevelVariant(row.level)}>
-                        {row.level}
-                      </Badge>
+                      <Badge variant={logLevelVariant(row.level)}>{row.level}</Badge>
                     </td>
                     <td className="px-3 py-3" data-label="Script">
                       <div className="font-medium">{row.script_name}</div>
-                      <div className="break-all font-mono text-xs text-muted-foreground">
-                        {row.script_id}
-                      </div>
+                      <div className="break-all font-mono text-xs text-muted-foreground">{row.script_id}</div>
                     </td>
-                    <td
-                      className="px-3 py-3 font-mono text-xs"
-                      data-label="Node"
-                    >
+                    <td className="px-3 py-3 font-mono text-xs" data-label="Node">
                       {row.node_id ?? "runtime"}
                     </td>
-                    <td
-                      className="px-3 py-3 font-mono text-xs text-muted-foreground"
-                      data-label="Type"
-                    >
+                    <td className="px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Type">
                       {row.action_type ?? "-"}
                     </td>
-                    <td
-                      className="px-3 py-3 xl:max-w-[520px]"
-                      data-label="Message"
-                    >
-                      <span className="break-words font-mono text-xs">
-                        {visibleText(row.message)}
-                      </span>
+                    <td className="px-3 py-3 xl:max-w-[520px]" data-label="Message">
+                      <span className="break-words font-mono text-xs">{visibleText(row.message)}</span>
                     </td>
-                    <td
-                      className="break-all px-3 py-3 font-mono text-xs text-muted-foreground"
-                      data-label="Run"
-                    >
+                    <td className="break-all px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Run">
                       {row.run_id}
                     </td>
                   </tr>
@@ -269,7 +337,7 @@ export function LogsView({
         open={confirmClearOpen}
         title="Clear stored logs?"
       />
-    </div>
+    </>
   );
 }
 

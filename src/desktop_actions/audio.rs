@@ -3,7 +3,6 @@ use std::{io::BufReader, time::Duration};
 use baudbound_runtime::{
     RuntimeActionError, RuntimeActionRequest, RuntimeActionResult, RuntimeContext,
 };
-use baudbound_script::read_package_asset;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source, source::SineWave};
 use serde_json::{Map, Number, Value};
 
@@ -36,6 +35,7 @@ pub(super) fn run_beep(
             ("frequency_hz".to_owned(), Value::from(frequency_hz)),
             ("duration_ms".to_owned(), Value::from(duration_ms)),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 
@@ -83,15 +83,28 @@ fn bounded_number(
 pub(super) fn run_sound_play(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
+    max_read_bytes: baudbound_runtime::ResourceLimit,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let source = config_string(request, "source").unwrap_or_else(|| "asset".to_owned());
     if source.trim() == "file_path" {
         let file_path = required_string(request, "filePath")?;
-        let file = std::fs::File::open(&file_path).map_err(|source| {
-            failed_error(
-                request,
-                format!("failed to open audio file {file_path:?}: {source}"),
-            )
+        // Routed through the shared path resolver so a bounded relative path is
+        // confined to the script workspace and an absolute path is classified
+        // as a Dangerous read, matching every other filesystem action. A raw
+        // open here bypassed path classification entirely and turned this
+        // Medium-risk node into an arbitrary file read.
+        let file = baudbound_actions::open_configured_file_for_read(
+            request,
+            context,
+            &file_path,
+            max_read_bytes,
+        )
+        .map_err(|error| {
+            // The underlying cause distinguishes a missing file from an
+            // unreadable one, which lets a script probe the filesystem. Keep the
+            // detail out of the script-visible message.
+            tracing::debug!(path = %file_path, "sound playback source could not be opened: {error}");
+            failed_error(request, "failed to read the audio source".to_owned())
         })?;
         play_audio_source(
             request,
@@ -104,23 +117,19 @@ pub(super) fn run_sound_play(
                 ("file_path".to_owned(), Value::String(file_path)),
                 ("source".to_owned(), Value::String("file_path".to_owned())),
             ]),
+            sensitive_output_keys: Default::default(),
         });
     }
 
     let asset_path = required_string(request, "assetPath")?;
-    let package_path = context
-        .package_path
-        .as_ref()
-        .ok_or_else(|| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: "asset sound playback requires an installed package context".to_owned(),
-        })?;
-    let asset = read_package_asset(package_path, &asset_path).map_err(|source| {
-        failed_error(
-            request,
-            format!("failed to read package audio asset {asset_path:?}: {source}"),
-        )
-    })?;
+    let asset = super::package_assets::read_context_package_asset(context, &asset_path).map_err(
+        |source| {
+            failed_error(
+                request,
+                format!("failed to read package audio asset {asset_path:?}: {source}"),
+            )
+        },
+    )?;
     play_audio_source(
         request,
         std::io::Cursor::new(asset.bytes.clone()),
@@ -137,6 +146,7 @@ pub(super) fn run_sound_play(
             ("media_type".to_owned(), Value::String(asset.media_type)),
             ("source".to_owned(), Value::String("asset".to_owned())),
         ]),
+        sensitive_output_keys: Default::default(),
     })
 }
 

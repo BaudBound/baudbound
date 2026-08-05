@@ -1,10 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import { FileUp, Globe2, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { Details } from "@/components/details";
 import { LazyMarkdownContent } from "@/components/lazy-markdown-content";
+import { useSystemLog } from "@/components/system-log-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +51,7 @@ export function RemotePackageDialog({
   onInstalled?: (scriptId: string) => void;
   preparedReview?: RemotePackageReview;
 }) {
+  const { notify } = useSystemLog();
   const [mode, setMode] = useState<"choice" | "remote">("choice");
   const [url, setUrl] = useState("");
   const [preparing, setPreparing] = useState(false);
@@ -98,11 +99,15 @@ export function RemotePackageDialog({
         const message = String(error);
         if (!isCancellation(message)) {
           setPrepareError(message);
-          toast.error(`Remote update preparation failed: ${message}`);
+          notify.error("The remote update could not be prepared.", {
+            error,
+            source: "Script packages",
+            title: "Remote update preparation failed",
+          });
         }
       })
       .finally(() => finishPreparation());
-  }, [discoveredScriptId, open, preparedReview]);
+  }, [discoveredScriptId, notify, open, preparedReview]);
 
   function finishPreparation() {
     preparationRequest.current = null;
@@ -154,7 +159,11 @@ export function RemotePackageDialog({
       await cancelRemoteScriptPackagePreparation(requestId);
     } catch (error) {
       setCancelling(false);
-      toast.error(`Could not cancel the download: ${String(error)}`);
+      notify.error("The package download could not be cancelled.", {
+        error,
+        source: "Script packages",
+        title: "Download cancellation failed",
+      });
     }
   }
 
@@ -169,7 +178,12 @@ export function RemotePackageDialog({
       );
       if (succeeded) handleOpenChange(false);
     } catch (error) {
-      toast.error(`Package selection failed: ${String(error)}`);
+      notify.error("A local package could not be selected.", {
+        details: [{ label: "Operation", value: operation }],
+        error,
+        source: "Script packages",
+        title: "Package selection failed",
+      });
     }
   }
 
@@ -188,7 +202,12 @@ export function RemotePackageDialog({
       const message = String(error);
       if (!isCancellation(message)) {
         setPrepareError(message);
-        toast.error(`Remote package preparation failed: ${message}`);
+        notify.error("The remote package could not be prepared for review.", {
+          details: [{ label: "Package URL", value: url.trim() }],
+          error,
+          source: "Script packages",
+          title: "Remote package preparation failed",
+        });
       }
     } finally {
       finishPreparation();
@@ -297,7 +316,6 @@ export function RemotePackageDialog({
             <label className="grid gap-1.5 text-sm" htmlFor="remote-package-url">
               HTTPS URL
               <Input
-                autoComplete="off"
                 id="remote-package-url"
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://example.com/releases/script.bbs"

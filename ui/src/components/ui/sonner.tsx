@@ -30,8 +30,10 @@ export function Toaster(props: ToasterProps) {
         } as CSSProperties
       }
       theme="dark"
+      swipeDirections={[]}
       toastOptions={{
         classNames: {
+          actionButton: "cn-toast-action",
           toast: "cn-toast",
         },
       }}

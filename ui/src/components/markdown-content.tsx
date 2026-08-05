@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 
 export function MarkdownContent({ className, source }: { className?: string; source: string }) {
   return (
-    <div className={cn("select-text text-sm leading-6 text-muted-foreground", className)}>
+    <div
+      className={cn("min-w-0 max-w-full select-text break-words text-sm leading-6 text-muted-foreground", className)}
+    >
       <ReactMarkdown
         components={{
           a: MarkdownLink,
@@ -16,7 +18,7 @@ export function MarkdownContent({ className, source }: { className?: string; sou
           ),
           code: ({ children, className: codeClassName, ...props }) => (
             <code
-              className={cn("rounded-sm bg-muted px-1 py-0.5 font-mono text-xs", codeClassName)}
+              className={cn("break-all rounded-sm bg-muted px-1 py-0.5 font-mono text-xs", codeClassName)}
               {...props}
             >
               {children}
@@ -29,7 +31,7 @@ export function MarkdownContent({ className, source }: { className?: string; sou
           ol: ({ children }) => <ol className="my-2 grid gap-1">{children}</ol>,
           p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
           pre: ({ children }) => (
-            <pre className="my-3 overflow-x-auto rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground">
+            <pre className="my-3 max-w-full overflow-x-hidden whitespace-pre-wrap break-all rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground">
               {children}
             </pre>
           ),

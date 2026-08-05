@@ -401,7 +401,7 @@ pub enum ScriptCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ScriptSettingsCommand {
-    /// List declared settings, configured overrides, defaults, and effective values.
+    /// List declared settings, configured values, defaults, and effective values.
     List {
         /// Installed script id or name.
         script: String,
@@ -409,7 +409,7 @@ pub enum ScriptSettingsCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Set one configured override. Objects and lists use JSON.
+    /// Set one configured value. Objects and lists use JSON.
     Set {
         /// Installed script id or name.
         script: String,
@@ -418,14 +418,14 @@ pub enum ScriptSettingsCommand {
         /// Value parsed according to the declared setting type.
         value: String,
     },
-    /// Remove one configured override and return to the package default.
+    /// Remove one configured value and return to the package default.
     Unset {
         /// Installed script id or name.
         script: String,
         /// Declared setting name.
         name: String,
     },
-    /// Remove every configured override for one script.
+    /// Remove every configured value for one script.
     Reset {
         /// Installed script id or name.
         script: String,
