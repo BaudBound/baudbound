@@ -10,6 +10,7 @@ use crate::{ValueType, validate_value};
 use super::{
     RunVariableScope, RuntimeActionError, RuntimeActionFailure, RuntimeActionRequest, RuntimeError,
     RuntimeExecutor, RuntimeNode, action_diagnostics::action_completion_message,
+    cast_validation::validate_config_casts,
 };
 
 impl RuntimeExecutor<'_> {
@@ -40,8 +41,9 @@ impl RuntimeExecutor<'_> {
         if node.action_type == "action.webhook_response" {
             self.validate_webhook_response_state(node)?;
         }
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = if node.action_type == "action.http" {
-            resolve_http_request_config(&node.config, &self.context.variables).map_err(
+            resolve_http_request_config(&node.id, &node.config, &self.context.variables).map_err(
                 |message| structured_http_runtime_error(node, "INVALID_REQUEST", message, false),
             )?
         } else {
@@ -173,6 +175,7 @@ impl RuntimeExecutor<'_> {
     }
 
     fn execute_delay(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
         // Delay's fields are all numeric and stay under `NumericKind`; see
         // the comment on the call above in `execute_external_action`.

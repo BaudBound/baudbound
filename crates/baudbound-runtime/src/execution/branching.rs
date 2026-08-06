@@ -6,7 +6,10 @@ use crate::runtime::{
 use serde_json::Number;
 use serde_json::Value;
 
-use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
+use super::{
+    RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode,
+    cast_validation::validate_config_casts,
+};
 
 pub(super) struct ConditionEvaluation {
     pub(super) result: bool,
@@ -18,6 +21,7 @@ impl RuntimeExecutor<'_> {
         &mut self,
         node: &RuntimeNode,
     ) -> Result<bool, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::ControlFlow {
@@ -260,6 +264,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn repeat_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::ControlFlow {

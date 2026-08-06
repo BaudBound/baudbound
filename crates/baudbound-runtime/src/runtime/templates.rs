@@ -181,7 +181,7 @@ fn resolve_variable_expression<'a>(
     crate::cast_value(resolved, target).ok().map(Cow::Owned)
 }
 
-fn resolve_reference<'a>(
+pub(crate) fn resolve_reference<'a>(
     expression: &str,
     variables: &'a BTreeMap<String, Value>,
 ) -> Option<&'a Value> {

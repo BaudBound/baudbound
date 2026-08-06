@@ -8,6 +8,8 @@ use super::*;
 mod calculation_matrix;
 #[path = "tests/cancellation.rs"]
 mod cancellation;
+#[path = "tests/cast_validation.rs"]
+mod cast_validation;
 #[path = "tests/control_flow_matrix.rs"]
 mod control_flow_matrix;
 #[path = "tests/state.rs"]

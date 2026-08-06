@@ -2,12 +2,16 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use crate::execution::cast_validation::validate_config_casts;
+
 use super::{render_json_template, resolve_config_map};
 
 pub(crate) fn resolve_http_request_config(
+    node_id: &str,
     config: &Map<String, Value>,
     variables: &BTreeMap<String, Value>,
 ) -> Result<Map<String, Value>, String> {
+    validate_config_casts(node_id, config, variables).map_err(|error| error.to_string())?;
     let mut resolved = resolve_config_map(config, variables);
     if !uses_json_body(config, &resolved)? {
         return Ok(resolved);
@@ -101,7 +105,7 @@ mod tests {
             Value::String("value\r\n\"quoted\"".to_owned()),
         )]);
 
-        let resolved = resolve_http_request_config(&config, &variables)
+        let resolved = resolve_http_request_config("n-http", &config, &variables)
             .expect("JSON body should resolve safely");
         let body = resolved
             .get("body")
@@ -130,7 +134,7 @@ mod tests {
             ("payload".to_owned(), json!({"count": 2})),
         ]);
 
-        let resolved = resolve_http_request_config(&config, &variables)
+        let resolved = resolve_http_request_config("n-http", &config, &variables)
             .expect("typed JSON variables should resolve");
         let body = resolved.get("body").and_then(Value::as_str).unwrap();
 
@@ -151,7 +155,7 @@ mod tests {
         .clone();
         let variables = BTreeMap::from([("data".to_owned(), Value::String("line\r".to_owned()))]);
 
-        let resolved = resolve_http_request_config(&config, &variables)
+        let resolved = resolve_http_request_config("n-http", &config, &variables)
             .expect("legacy JSON body should be inferred");
         let body = resolved.get("body").and_then(Value::as_str).unwrap();
 
@@ -169,8 +173,8 @@ mod tests {
             .clone();
         let variables = BTreeMap::from([("data".to_owned(), Value::String("line\r".to_owned()))]);
 
-        let resolved =
-            resolve_http_request_config(&config, &variables).expect("text body should resolve");
+        let resolved = resolve_http_request_config("n-http", &config, &variables)
+            .expect("text body should resolve");
 
         assert_eq!(
             resolved.get("body"),
@@ -185,7 +189,7 @@ mod tests {
             .expect("config should be an object")
             .clone();
 
-        let error = resolve_http_request_config(&config, &BTreeMap::new())
+        let error = resolve_http_request_config("n-http", &config, &BTreeMap::new())
             .expect_err("invalid JSON must fail");
 
         assert!(error.contains("invalid JSON HTTP request body"));

@@ -19,6 +19,7 @@ mod action_diagnostics;
 mod action_dispatch;
 mod api;
 mod branching;
+pub(crate) mod cast_validation;
 mod contracts;
 mod default_variables;
 mod frames;

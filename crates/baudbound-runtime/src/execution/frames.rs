@@ -485,6 +485,7 @@ impl<'a> ExpectedNodeFailure<'a> {
             }),
             RuntimeError::InvalidGraph(_)
             | RuntimeError::Type { .. }
+            | RuntimeError::Cast { .. }
             | RuntimeError::ControlFlow { .. }
             | RuntimeError::UnsupportedStep { .. }
             | RuntimeError::State(_)

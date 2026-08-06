@@ -461,6 +461,8 @@ pub enum RuntimeError {
     Calculation { node_id: String, message: String },
     #[error("type error for node {node_id}: {message}")]
     Type { node_id: String, message: String },
+    #[error("cast failed for node {node_id}: {message}")]
+    Cast { node_id: String, message: String },
     #[error("control flow failed for node {node_id}: {message}")]
     ControlFlow { node_id: String, message: String },
     #[error("runtime execution is not implemented for {action_type} node {node_id}")]
