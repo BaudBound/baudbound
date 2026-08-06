@@ -93,7 +93,7 @@ pub(crate) fn trigger_registrations_from_package(
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
         if let Some(variables) = pre_trigger_values.as_ref() {
-            resolve_pre_trigger_config(action_type, &mut config, variables);
+            resolve_pre_trigger_config(action_type, &mut config, variables)?;
         }
         if action_type == "trigger.file_watch" {
             resolve_limited_file_watch_path(store, installed, &mut config)?;
@@ -162,16 +162,28 @@ fn resolve_pre_trigger_config(
     action_type: &str,
     config: &mut Value,
     variables: &BTreeMap<String, Value>,
-) {
+) -> Result<(), CoreError> {
     for field in pre_trigger_template_fields(action_type) {
         let Some(template) = config.get(*field).and_then(Value::as_str) else {
             continue;
         };
-        let resolved = resolve_template_value(template, variables);
+        // Template resolution cannot report a failed cast, so a bad cast here
+        // would resolve to the literal template text and be registered as a
+        // real schedule interval, hotkey or webhook response body.
+        let template = template.to_owned();
+        baudbound_runtime::cast_validation::validate_template_casts(&template, variables).map_err(
+            |reason| {
+                CoreError::InvalidTriggerRegistration(format!(
+                    "trigger field {field:?} cannot be prepared: {reason}"
+                ))
+            },
+        )?;
+        let resolved = resolve_template_value(&template, variables);
         if let Some(value) = config.get_mut(*field) {
             *value = resolved;
         }
     }
+    Ok(())
 }
 
 fn pre_trigger_template_fields(action_type: &str) -> &'static [&'static str] {
@@ -263,11 +275,13 @@ mod tests {
         ]);
 
         let mut default_config = json!({ "every": "{{interval}}", "unit": "seconds" });
-        resolve_pre_trigger_config("trigger.schedule", &mut default_config, &variables);
+        resolve_pre_trigger_config("trigger.schedule", &mut default_config, &variables)
+            .expect("the fixture resolves");
         assert_eq!(default_config["every"], json!(2.5));
 
         let mut setting_config = json!({ "every": "{{settings.interval}}", "unit": "seconds" });
-        resolve_pre_trigger_config("trigger.schedule", &mut setting_config, &variables);
+        resolve_pre_trigger_config("trigger.schedule", &mut setting_config, &variables)
+            .expect("the fixture resolves");
         assert_eq!(setting_config["every"], json!(4));
     }
 
@@ -275,7 +289,8 @@ mod tests {
     fn leaves_unavailable_schedule_values_unresolved_for_service_validation() {
         let mut config = json!({ "every": "{{node.output}}", "unit": "seconds" });
 
-        resolve_pre_trigger_config("trigger.schedule", &mut config, &BTreeMap::new());
+        resolve_pre_trigger_config("trigger.schedule", &mut config, &BTreeMap::new())
+            .expect("the fixture resolves");
 
         assert_eq!(config["every"], json!("{{node.output}}"));
     }
@@ -289,11 +304,13 @@ mod tests {
         ]);
 
         let mut file_watch = json!({ "path": "{{path}}", "recursive": false });
-        resolve_pre_trigger_config("trigger.file_watch", &mut file_watch, &variables);
+        resolve_pre_trigger_config("trigger.file_watch", &mut file_watch, &variables)
+            .expect("the fixture resolves");
         assert_eq!(file_watch["path"], json!("inbox"));
 
         let mut hotkey = json!({ "key": "{{key}}" });
-        resolve_pre_trigger_config("trigger.hotkey", &mut hotkey, &variables);
+        resolve_pre_trigger_config("trigger.hotkey", &mut hotkey, &variables)
+            .expect("the fixture resolves");
         assert_eq!(hotkey["key"], json!("Ctrl+F8"));
 
         for (action_type, field) in [
@@ -302,8 +319,30 @@ mod tests {
             ("trigger.websocket", "path"),
         ] {
             let mut config = json!({ (field): "{{name}}" });
-            resolve_pre_trigger_config(action_type, &mut config, &variables);
+            resolve_pre_trigger_config(action_type, &mut config, &variables)
+                .expect("the fixture resolves");
             assert_eq!(config[field], json!("{{name}}"));
         }
+    }
+    #[test]
+    fn a_failing_cast_in_a_trigger_field_is_refused_rather_than_registered() {
+        // Trigger config is prepared before a run exists, so nothing else
+        // proves its casts. A failure here once left the literal template
+        // text to be registered as a real interval, hotkey or response body.
+        let variables = BTreeMap::from([("interval".to_owned(), json!(2.5))]);
+        let mut config = json!({ "every": "{{interval|integer}}", "unit": "seconds" });
+
+        let error = resolve_pre_trigger_config("trigger.schedule", &mut config, &variables)
+            .expect_err("a fractional value cannot cast to integer");
+
+        assert!(
+            format!("{error:?}").contains("integer"),
+            "the error should name the target type: {error:?}"
+        );
+        assert_eq!(
+            config["every"],
+            json!("{{interval|integer}}"),
+            "the field must be left untouched rather than half prepared"
+        );
     }
 }

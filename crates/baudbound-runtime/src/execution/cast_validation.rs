@@ -89,3 +89,18 @@ pub(crate) fn validate_config_casts(
     }
     Ok(())
 }
+
+/// Proves every cast inside one template string succeeds.
+///
+/// Trigger configuration is resolved before a run exists, so it cannot use the
+/// per-node pre-pass. Without this a failing cast there would resolve to the
+/// literal template text and be registered as a schedule interval, a hotkey or
+/// a webhook response body.
+pub fn validate_template_casts(
+    template: &str,
+    variables: &BTreeMap<String, Value>,
+) -> Result<(), String> {
+    for_each_template(template, |expression| {
+        validate_expression(expression, variables)
+    })
+}
