@@ -236,14 +236,31 @@ pub(super) fn load_initial_state(
 /// `number` or `file_path`) does not parse into a `ValueType` and is left to
 /// `validate_default_variable`, which already accepts it.
 fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
+    let type_error = |reason: String| RuntimeError::Type {
+        node_id: String::new(),
+        message: format!("default variable \"{}\" {reason}", variable.name),
+    };
+
     if let Ok(declared) = variable.value_type.parse::<ValueType>()
         && let Err(reason) = validate_value(&variable.value, declared)
     {
-        return Err(RuntimeError::Type {
-            node_id: String::new(),
-            message: format!("default variable \"{}\" {reason}", variable.name),
-        });
+        return Err(type_error(reason));
     }
+
+    // A list only satisfies `ValueType::List` by being an array, so its
+    // elements have to be checked separately. Without this a list declared as
+    // integers would accept a string element and nothing would ever notice.
+    if let Some(item_type) = variable.item_type.as_deref()
+        && let Ok(declared_item) = item_type.parse::<ValueType>()
+        && let Some(items) = variable.value.as_array()
+    {
+        for (index, item) in items.iter().enumerate() {
+            if let Err(reason) = validate_value(item, declared_item) {
+                return Err(type_error(format!("item {index} {reason}")));
+            }
+        }
+    }
+
     Ok(())
 }
 

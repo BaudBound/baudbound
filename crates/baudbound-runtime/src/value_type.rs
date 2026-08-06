@@ -141,99 +141,14 @@ fn validate_keyboard_key(value: &Value) -> Result<(), String> {
     let Some(text) = value.as_str() else {
         return Err(format!("expected keyboard key, found {}", describe(value)));
     };
-
-    let parts: Vec<&str> = text.split(['+', '-']).map(str::trim).collect();
-    if parts.is_empty() || parts.iter().any(|part| part.is_empty()) {
-        return Err(
-            "expected keyboard key, key expression must contain at least one supported key"
-                .to_owned(),
-        );
+    match baudbound_script::keyboard_key_error(text) {
+        Some(reason) => Err(format!("expected keyboard key, {reason}")),
+        None => Ok(()),
     }
-
-    let contract = key_contract_tokens();
-    let mut seen = std::collections::HashSet::new();
-    for part in parts {
-        let normalized = normalize_key_token(part);
-        let canonical = contract
-            .modifiers
-            .get(&normalized)
-            .or_else(|| contract.keys.get(&normalized))
-            .ok_or_else(|| format!("expected keyboard key, {part} is not a known key"))?;
-        if !seen.insert(canonical.clone()) {
-            return Err(format!(
-                "expected keyboard key, key expression contains {canonical} more than once"
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 /// Normalizes a single key-expression token the same way the editor does:
 /// trim, lowercase, then drop spaces and underscores.
-fn normalize_key_token(token: &str) -> String {
-    token
-        .trim()
-        .to_lowercase()
-        .chars()
-        .filter(|c| *c != ' ' && *c != '_')
-        .collect()
-}
-
-/// Normalized modifier and key tokens (canonical names and aliases) mapped to
-/// their canonical names, kept as two separate tables mirroring
-/// `windows-key-contract.ts`'s `modifierAliases` and `keyAliases` maps.
-struct KeyContractTokens {
-    modifiers: std::collections::HashMap<String, String>,
-    keys: std::collections::HashMap<String, String>,
-}
-
-/// Builds the token tables the same way `windows-key-contract.ts` does:
-/// modifiers and keys are looked up separately, with modifiers taking
-/// precedence, so a collision between the two sides can never silently
-/// change which one wins.
-fn key_contract_tokens() -> &'static KeyContractTokens {
-    static TOKENS: std::sync::OnceLock<KeyContractTokens> = std::sync::OnceLock::new();
-    TOKENS.get_or_init(|| {
-        #[derive(serde::Deserialize)]
-        struct KeyContract {
-            modifiers: Vec<KeyEntry>,
-            keys: Vec<KeyEntry>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct KeyEntry {
-            canonical: String,
-            #[serde(default)]
-            aliases: Vec<String>,
-        }
-
-        let contract: KeyContract = serde_json::from_str(include_str!(
-            "../../../contracts/runner/windows-keyboard-keys.json"
-        ))
-        .expect("embedded keyboard key contract must be valid JSON");
-
-        let build_table = |entries: Vec<KeyEntry>| {
-            let mut table = std::collections::HashMap::new();
-            for entry in entries {
-                table.insert(
-                    normalize_key_token(&entry.canonical),
-                    entry.canonical.clone(),
-                );
-                for alias in &entry.aliases {
-                    table.insert(normalize_key_token(alias), entry.canonical.clone());
-                }
-            }
-            table
-        };
-
-        KeyContractTokens {
-            modifiers: build_table(contract.modifiers),
-            keys: build_table(contract.keys),
-        }
-    })
-}
-
 fn validate_tagged(value: &Value, tag: &str, fields: &[&str]) -> Result<(), String> {
     let Some(object) = value.as_object() else {
         return Err(format!("expected {tag}, found {}", describe(value)));
@@ -330,20 +245,6 @@ mod tests {
 
         assert!(validate_value(&valid, ValueType::KeyboardKey).is_ok());
         assert!(validate_value(&invalid, ValueType::KeyboardKey).is_err());
-    }
-
-    #[test]
-    fn modifier_and_key_tokens_do_not_collide() {
-        let contract = key_contract_tokens();
-        let colliding: Vec<&String> = contract
-            .modifiers
-            .keys()
-            .filter(|token| contract.keys.contains_key(*token))
-            .collect();
-        assert!(
-            colliding.is_empty(),
-            "modifier and key tokens must not collide, found: {colliding:?}"
-        );
     }
 
     #[test]

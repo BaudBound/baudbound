@@ -693,3 +693,36 @@ fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -
         }
     })
 }
+
+#[test]
+fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
+    // The whole-value check only confirms a list is an array, so element types
+    // have to be checked where the list is declared.
+    for (item_type, bad_element) in [
+        ("integer", json!("not a number")),
+        ("float", json!(3)),
+        ("color", json!("red")),
+        ("keyboard_key", json!("NotARealKey")),
+    ] {
+        let store = TestStateStore::default();
+        let mut variable = default_variable(
+            "items",
+            RuntimeDefaultVariableScope::Runtime,
+            "list",
+            json!([bad_element]),
+        );
+        variable.item_type = Some(item_type.to_owned());
+
+        let error = execute_manual_program_with_state(
+            &variable_program("runtime", "increment", json!(1), "done"),
+            "script-1",
+            state_resources_with_defaults(&store, &[], &[variable]),
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("item 0"),
+            "the error should name the mismatch, found {error}"
+        );
+    }
+}

@@ -471,7 +471,7 @@ fn value_matches_declared_type(
 ) -> bool {
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
-        "keyboard_key" => value.as_str().is_some_and(|key| !key.trim().is_empty()),
+        "keyboard_key" => value.as_str().is_some_and(crate::is_keyboard_key),
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint, so a whole number is not a float and
         // a fractional one is not an integer.

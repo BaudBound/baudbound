@@ -5,7 +5,6 @@ use baudbound_script::{
     ScriptPackage, ScriptSettingDeclaration, validate_script_setting_value_limits,
 };
 use baudbound_storage::{ScriptStore, StoredScriptSetting};
-use baudbound_triggers::normalize_windows_hotkey;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -263,9 +262,13 @@ fn validate_setting_value(
 pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
         "string" => value.is_string(),
+        // Uses the shared rule rather than the hotkey parser, so a setting, a
+        // variable and a manifest default all agree on what a keyboard key is.
+        // The hotkey parser stays for registering a real hotkey, which is a
+        // different job from validating a declared value.
         "keyboard_key" => value
             .as_str()
-            .is_some_and(|key| normalize_windows_hotkey(key).is_ok()),
+            .is_some_and(baudbound_script::is_keyboard_key),
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint: a whole number is not a float and a
         // fractional one is not an integer.

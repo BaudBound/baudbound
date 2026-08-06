@@ -2,6 +2,7 @@
 
 mod color_match;
 mod identifier;
+mod keyboard_key;
 mod package;
 mod repository;
 mod safe_integer;
@@ -11,6 +12,7 @@ pub use color_match::{
     ColorComparisonMode, ColorMatchEvaluation, RgbColor, evaluate_color_match, parse_rgb_color,
 };
 pub use identifier::is_user_identifier;
+pub use keyboard_key::{is_keyboard_key, keyboard_key_error};
 pub use package::{
     MAX_SCRIPT_SETTING_CONTAINER_ITEMS, MAX_SCRIPT_SETTING_VALUE_DEPTH, PackageAsset, PackageEntry,
     PackageLoadError, PackageSummary, ScriptPackage, load_script_package,
