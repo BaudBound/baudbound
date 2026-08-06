@@ -1,7 +1,8 @@
 use crate::runtime::{
-    coerce_variable_value, config_string, empty_value_for_type, number_from_value, number_value,
-    remove_object_field, required_config_string, resolve_config_value, resolve_template_value,
-    set_object_field, validate_variable_name, value_kind,
+    coerce_variable_value, config_string, empty_value_for_declared_type, empty_value_for_type,
+    number_from_value, number_value, remove_object_field, required_config_string,
+    resolve_config_value, resolve_template_value, set_object_field, validate_variable_name,
+    value_kind,
 };
 use crate::{RuntimeVariableScope, ValueType, validate_value};
 use serde_json::{Map, Value};
@@ -543,9 +544,27 @@ fn clear_existing_variable(
         node_id: node.id.clone(),
         message: format!("clear requires existing variable {name:?}"),
     })?;
+    // Prefer the type the node declares. Deriving from the stored value cannot
+    // tell a color or a keyboard key from a plain string, and would clear a
+    // float to an integer zero.
+    if let Some(declared) = config_string(&node.config, "valueType")
+        && declared.parse::<ValueType>().is_ok()
+    {
+        return empty_value_for_declared_type(&declared).ok_or_else(|| {
+            RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!(
+                    "clear has no empty value for the {declared} variable {name:?}, use delete instead"
+                ),
+            }
+        });
+    }
     let value_type = match current {
         Value::String(_) => "string",
-        Value::Number(_) => "number",
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            "integer"
+        }
+        Value::Number(_) => "float",
         Value::Bool(_) => "boolean",
         Value::Array(_) => "list",
         Value::Object(object) => match object.get("type").and_then(Value::as_str) {

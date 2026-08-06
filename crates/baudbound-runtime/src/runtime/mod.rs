@@ -30,7 +30,7 @@ pub(crate) use templates::{
     template_value_is_defined,
 };
 pub(crate) use variables::{
-    DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_type,
-    number_from_value, number_value, refresh_derived_variable_metadata, remove_object_field,
-    set_object_field, validate_variable_name, value_kind, value_to_string,
+    DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_declared_type,
+    empty_value_for_type, number_from_value, number_value, refresh_derived_variable_metadata,
+    remove_object_field, set_object_field, validate_variable_name, value_kind, value_to_string,
 };

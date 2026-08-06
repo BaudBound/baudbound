@@ -139,7 +139,9 @@ fn logs_variable_names_scopes_inputs_and_resulting_values() {
             &r#"Appended "first" to runtime list variable "items". New value: ["first"]."#
         )
     );
-    assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0."#));
+    // "count" is a float here, as the 2.0 and 5.0 above show, so clearing it
+    // yields a float zero rather than an integer one.
+    assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0.0."#));
 }
 
 #[test]
@@ -281,7 +283,9 @@ fn set_object_field_supports_dot_fields_and_numeric_indexes() {
 fn clear_uses_the_editor_default_for_every_variable_type() {
     let types = [
         ("string", json!("value"), json!("")),
-        ("number", json!(42), json!(0)),
+        ("integer", json!(42), json!(0)),
+        ("float", json!(42.5), json!(0.0)),
+        ("color", json!("#ff8800"), json!("#000000")),
         ("boolean", json!(true), json!(false)),
         ("list", json!(["value"]), json!([])),
         ("object", json!({"value": true}), json!({})),
@@ -295,7 +299,6 @@ fn clear_uses_the_editor_default_for_every_variable_type() {
             json!({"type": "datetime", "value": "2026-07-29T00:00:00.000Z"}),
             json!({"type": "datetime", "value": "1970-01-01T00:00:00.000Z"}),
         ),
-        ("file_path", json!("input.txt"), json!("")),
     ];
     let steps = types
         .iter()
@@ -539,7 +542,9 @@ fn variable_node(id: &str, name: &str, operation: &str, value_type: &str, value:
         },
         "runtime_outputs": []
     });
-    if operation == "set" {
+    // The editor keeps valueType on the node for set and clear alike, so clear
+    // can tell a color or a keyboard key from a plain string.
+    if operation == "set" || operation == "clear" {
         node["config"]["valueType"] = json!(value_type);
     }
     if operation == "set" && value_type == "list" {
@@ -733,5 +738,72 @@ fn setting_an_integer_variable_rejects_a_fractional_value() {
     assert!(
         message.contains("count"),
         "message names the variable: {message}"
+    );
+}
+
+#[test]
+fn clearing_preserves_the_declared_type_for_every_type() {
+    for (value_type, initial) in [
+        ("integer", json!(7)),
+        ("float", json!(7.5)),
+        ("color", json!("#ff8800")),
+        ("string", json!("text")),
+        ("boolean", json!(true)),
+        ("object", json!({"a": 1})),
+    ] {
+        // The editor keeps valueType on every variable operation node, including
+        // clear, so the runner can tell a color from a plain string.
+        let mut clear = variable_node("n-clear", "v", "clear", value_type, Value::Null);
+        clear["config"]["valueType"] = json!(value_type);
+
+        let report = execute(
+            vec![
+                variable_node("n-set", "v", "set", value_type, initial.clone()),
+                clear,
+            ],
+            linear_edges(&["n-set", "n-clear"]),
+        )
+        .unwrap_or_else(|error| panic!("clearing a {value_type} variable failed: {error:?}"));
+
+        let cleared = report
+            .variables
+            .get("v")
+            .unwrap_or_else(|| panic!("{value_type} should still exist after clear"));
+        assert!(
+            crate::validate_value(cleared, value_type.parse().expect("a known type")).is_ok(),
+            "clearing a {value_type} produced {cleared}, which is not a valid {value_type}"
+        );
+    }
+}
+
+#[test]
+fn clearing_a_keyboard_key_reports_that_it_has_no_empty_value() {
+    let mut clear = variable_node("n-clear", "shortcut", "clear", "keyboard_key", Value::Null);
+    clear["config"]["valueType"] = json!("keyboard_key");
+
+    let report = execute(
+        vec![
+            variable_node("n-set", "shortcut", "set", "keyboard_key", json!("Ctrl+S")),
+            clear,
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("the run completes and the node takes its failed outcome");
+
+    assert!(
+        report.logs.iter().any(|log| log.level == "error"
+            && log.message.contains("no empty value")
+            && log.message.contains("delete")),
+        "clear should explain that a keyboard key has no empty value, logs: {:?}",
+        report
+            .logs
+            .iter()
+            .map(|log| &log.message)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        report.variables.get("shortcut"),
+        Some(&json!("Ctrl+S")),
+        "the original key must survive a refused clear"
     );
 }

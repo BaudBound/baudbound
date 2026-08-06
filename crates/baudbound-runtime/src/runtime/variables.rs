@@ -297,11 +297,30 @@ pub(crate) fn refresh_derived_variable_metadata(
     variables.insert(empty_key, Value::Bool(is_empty));
 }
 
+/// The value a `clear` operation leaves behind for a type.
+///
+/// Returns `None` for a type that has no empty member. A keyboard key is the
+/// only such type: every valid value names at least one real key, so there is
+/// nothing to clear it to. Storing an empty string there would leave a value
+/// that its own type rejects.
+pub(crate) fn empty_value_for_declared_type(value_type: &str) -> Option<Value> {
+    match value_type {
+        "keyboard_key" => None,
+        other => Some(empty_value_for_type(other)),
+    }
+}
+
 pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
     match value_type {
-        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" => {
+        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" | "integer" => {
             Value::Number(0.into())
         }
+        // A float must stay a float. `0.into()` would build the integer
+        // variant, leaving an integer inside a float variable.
+        "float" => Number::from_f64(0.0)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        "color" => Value::String("#000000".to_owned()),
         "boolean" => Value::Bool(false),
         "object" | "http_headers" => Value::Object(Map::new()),
         "datetime" => serde_json::json!({
