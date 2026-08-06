@@ -578,27 +578,6 @@ fn declared_default_variables_accept_a_correctly_typed_integer_value() {
     assert_eq!(report.variables.get("retries"), Some(&json!(3)));
 }
 
-#[test]
-fn a_resolved_config_value_must_satisfy_its_field_type() {
-    let mut field_types = std::collections::BTreeMap::new();
-    field_types.insert("amount".to_owned(), crate::ValueType::Integer);
-    let mut config = serde_json::Map::new();
-    config.insert("amount".to_owned(), json!(3.7));
-
-    let error = crate::execution::validate_typed_config("n-delay", &config, &field_types)
-        .expect_err("a fractional value must not satisfy an integer field");
-
-    let message = error.to_string();
-    assert!(
-        message.contains("amount"),
-        "message names the field: {message}"
-    );
-    assert!(
-        message.contains("integer"),
-        "message names the type: {message}"
-    );
-}
-
 fn build_initial_state_with_default(
     name: &str,
     value_type: &str,

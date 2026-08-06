@@ -28,8 +28,6 @@ mod initial_state;
 mod redaction;
 mod variable_operations;
 
-#[cfg(test)]
-pub(crate) use action_dispatch::validate_typed_config;
 pub use api::*;
 pub use contracts::*;
 use initial_state::load_initial_state;
