@@ -741,6 +741,16 @@ mod tests {
                 serde_json::json!([{"name": "settings", "scope": "runtime", "type": "string", "value": "reserved"}]),
                 "reserved Script Settings namespace",
             ),
+            // A list satisfies its own type by being an array, so each element
+            // has to be checked against the item type in its own right.
+            (
+                serde_json::json!([{"name": "keys", "scope": "runtime", "type": "list", "item_type": "keyboard_key", "value": ["NotARealKey"]}]),
+                "does not match type",
+            ),
+            (
+                serde_json::json!([{"name": "counts", "scope": "runtime", "type": "list", "item_type": "integer", "value": ["not a number"]}]),
+                "does not match type",
+            ),
         ] {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
                 .expect_err("invalid default variable should fail");
