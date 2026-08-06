@@ -2,12 +2,14 @@
 
 pub use baudbound_script::is_user_identifier;
 
+mod cast;
 mod execution;
 mod resource_limit;
 mod runtime;
 mod safe_regex;
 mod value_type;
 
+pub use cast::cast_value;
 pub use execution::*;
 pub use resource_limit::ResourceLimit;
 pub use runtime::{
