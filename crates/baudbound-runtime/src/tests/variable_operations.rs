@@ -848,3 +848,30 @@ fn clearing_ignores_a_stale_declared_type_for_a_non_string_variable() {
 
     assert_eq!(report.variables.get("count"), Some(&json!(0)));
 }
+
+#[test]
+fn a_failing_cast_in_a_variable_operation_stops_the_run() {
+    // Variable operations do not go through the external action path, so they
+    // need the cast pre-pass in their own right. Without it a failing cast
+    // resolves to the literal template text and gets stored as a string.
+    let error = execute(
+        vec![
+            variable_node("n-ratio", "ratio", "set", "float", json!(3.5)),
+            variable_node(
+                "n-count",
+                "count",
+                "set",
+                "integer",
+                json!("{{ratio|integer}}"),
+            ),
+        ],
+        linear_edges(&["n-ratio", "n-count"]),
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    let message = format!("{error:?}");
+    assert!(
+        message.contains("integer"),
+        "the error should name the target type: {message}"
+    );
+}

@@ -15,6 +15,11 @@ use super::{
 
 impl RuntimeExecutor<'_> {
     pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        // Every node, not just the ones that call an external action. Log,
+        // variable operations, delay and calculate render templates too, and a
+        // cast that fails during rendering resolves to the literal template
+        // text rather than stopping, so it has to be proven here.
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         match node.action_type.as_str() {
             "action.log" => self.execute_log(node),
             "runtime.set_variable" => self.execute_variable_operation(node),
@@ -41,7 +46,6 @@ impl RuntimeExecutor<'_> {
         if node.action_type == "action.webhook_response" {
             self.validate_webhook_response_state(node)?;
         }
-        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = if node.action_type == "action.http" {
             resolve_http_request_config(&node.id, &node.config, &self.context.variables).map_err(
                 |message| structured_http_runtime_error(node, "INVALID_REQUEST", message, false),
