@@ -4,6 +4,7 @@ mod color_match;
 mod identifier;
 mod package;
 mod repository;
+mod safe_integer;
 mod types;
 
 pub use color_match::{
@@ -25,6 +26,7 @@ pub use repository::{
     validate_anonymous_public_https_url, validate_public_https_package_url,
     validate_public_https_repository_url, validate_script_repository,
 };
+pub use safe_integer::{MAX_SAFE_INTEGER, is_safe_integer};
 pub use types::{
     Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
     RiskLevel, ScriptSettingDeclaration, SecretDeclaration,

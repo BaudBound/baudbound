@@ -269,7 +269,7 @@ pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, valu
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint: a whole number is not a float and a
         // fractional one is not an integer.
-        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "integer" => baudbound_script::is_safe_integer(value),
         "float" => value.is_f64(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {

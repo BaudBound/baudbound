@@ -9,7 +9,7 @@ use std::str::FromStr;
 use serde_json::Value;
 
 /// Largest whole number representable without loss, matching the editor.
-const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+pub(crate) use baudbound_script::MAX_SAFE_INTEGER;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
@@ -361,5 +361,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn the_integer_rule_matches_the_shared_package_rule() {
+        // The manifest validator and Script Settings decide integer-ness with
+        // baudbound_script::is_safe_integer. If the two ever disagree, a package
+        // could install carrying a value the runtime then refuses.
+        for value in [
+            serde_json::json!(0),
+            serde_json::json!(42),
+            serde_json::json!(-42),
+            serde_json::json!(MAX_SAFE_INTEGER),
+            serde_json::json!(-MAX_SAFE_INTEGER),
+            serde_json::json!(MAX_SAFE_INTEGER + 1),
+            serde_json::json!(i64::MIN),
+            serde_json::json!(u64::MAX),
+            serde_json::json!(3.7),
+            serde_json::json!("42"),
+            serde_json::json!(null),
+        ] {
+            assert_eq!(
+                validate_value(&value, ValueType::Integer).is_ok(),
+                baudbound_script::is_safe_integer(&value),
+                "the two integer rules disagree about {value}"
+            );
+        }
     }
 }

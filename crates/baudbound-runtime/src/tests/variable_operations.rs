@@ -807,3 +807,44 @@ fn clearing_a_keyboard_key_reports_that_it_has_no_empty_value() {
         "the original key must survive a refused clear"
     );
 }
+
+#[test]
+fn a_literal_string_increment_amount_keeps_an_integer_an_integer() {
+    // The editor stores a config value as text, so an amount typed as "1"
+    // reaches the runner as a JSON string rather than a number.
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(0)),
+            variable_node("n-increment", "count", "increment", "integer", json!("1")),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a textual increment amount should apply");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value, &json!(1));
+    assert!(
+        value.as_i64().is_some(),
+        "a textual whole amount must not turn an integer into a float, found {value}"
+    );
+}
+
+#[test]
+fn clearing_ignores_a_stale_declared_type_for_a_non_string_variable() {
+    // valueType is always editable on the node, so a clear node can carry a
+    // stale default. The stored value identifies every non-string type, so the
+    // declaration must not be able to clear an integer to an empty string.
+    let mut clear = variable_node("n-clear", "count", "clear", "integer", Value::Null);
+    clear["config"]["valueType"] = json!("string");
+
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(7)),
+            clear,
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("clearing an integer should succeed");
+
+    assert_eq!(report.variables.get("count"), Some(&json!(0)));
+}

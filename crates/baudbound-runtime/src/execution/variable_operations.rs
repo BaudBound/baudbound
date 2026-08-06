@@ -1,9 +1,10 @@
 use crate::runtime::{
     coerce_variable_value, config_string, empty_value_for_declared_type, empty_value_for_type,
-    number_from_value, number_value, remove_object_field, required_config_string,
-    resolve_config_value, resolve_template_value, set_object_field, validate_variable_name,
-    value_kind,
+    integer_from_value, number_from_value, number_value, remove_object_field,
+    required_config_string, resolve_config_value, resolve_template_value, set_object_field,
+    validate_variable_name, value_kind,
 };
+use crate::value_type::MAX_SAFE_INTEGER;
 use crate::{RuntimeVariableScope, ValueType, validate_value};
 use serde_json::{Map, Value};
 
@@ -243,12 +244,18 @@ impl RuntimeExecutor<'_> {
                     integer_operand(current.as_ref()),
                     integer_operand(Some(&increment_value)),
                 ) {
+                    // Bound the sum by the safe integer range rather than by
+                    // i64, so increment cannot produce a value that the
+                    // integer type itself would reject.
                     return current_whole
                         .checked_add(increment_whole)
+                        .filter(|sum| (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(sum))
                         .map(|sum| Value::Number(sum.into()))
                         .ok_or_else(|| RuntimeError::VariableOperation {
                             node_id: node.id.clone(),
-                            message: format!("increment overflowed the range of variable {name}"),
+                            message: format!(
+                                "increment moved variable {name} outside the safe integer range"
+                            ),
                         });
                 }
 
@@ -537,6 +544,19 @@ fn variable_operation_declared_type(
     Ok(value_type)
 }
 
+/// Names which string-shaped type a node declares, if it declares one.
+///
+/// `string`, `color` and `keyboard_key` are all JSON strings, so a stored value
+/// cannot say which of them it is. Only these three are read from the node,
+/// because every other type is identifiable from the value itself.
+fn declared_string_type(node: &RuntimeNode) -> Option<&'static str> {
+    match config_string(&node.config, "valueType")?.as_str() {
+        "color" => Some("color"),
+        "keyboard_key" => Some("keyboard_key"),
+        _ => None,
+    }
+}
+
 fn clear_existing_variable(
     node: &RuntimeNode,
     name: &str,
@@ -546,23 +566,24 @@ fn clear_existing_variable(
         node_id: node.id.clone(),
         message: format!("clear requires existing variable {name:?}"),
     })?;
-    // Prefer the type the node declares. Deriving from the stored value cannot
-    // tell a color or a keyboard key from a plain string, and would clear a
-    // float to an integer zero.
-    if let Some(declared) = config_string(&node.config, "valueType")
-        && declared.parse::<ValueType>().is_ok()
-    {
-        return empty_value_for_declared_type(&declared).ok_or_else(|| {
-            RuntimeError::VariableOperation {
-                node_id: node.id.clone(),
-                message: format!(
-                    "clear has no empty value for the {declared} variable {name:?}, use delete instead"
-                ),
-            }
-        });
-    }
     let value_type = match current {
-        Value::String(_) => "string",
+        // The stored value's shape identifies every type except which of the
+        // string-shaped ones it is, so only that case consults the declared
+        // type. Trusting the declaration for the others would clear an integer
+        // to an empty string whenever a node carried a stale default.
+        Value::String(_) => match declared_string_type(node) {
+            Some(declared) => {
+                return empty_value_for_declared_type(declared).ok_or_else(|| {
+                    RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: format!(
+                            "clear has no empty value for the {declared} variable {name:?}, use delete instead"
+                        ),
+                    }
+                });
+            }
+            None => "string",
+        },
         Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
             "integer"
         }
@@ -634,11 +655,14 @@ fn validate_list_append(
 /// that a fresh counter starts as an integer.
 fn integer_operand(value: Option<&Value>) -> Option<i64> {
     match value {
+        // An absent variable counts as integer zero, so a fresh counter starts
+        // as an integer.
         None => Some(0),
-        Some(Value::Number(number)) => number
-            .as_i64()
-            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
-        Some(_) => None,
+        // The editor stores a config value as text, so an amount typed as "1"
+        // arrives as a string. It uses the same rule `set` uses, otherwise
+        // typing a literal into the editor would silently widen a counter to a
+        // float while a variable reference kept it an integer.
+        Some(value) => integer_from_value(value),
     }
 }
 

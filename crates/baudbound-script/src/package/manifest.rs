@@ -475,7 +475,7 @@ fn value_matches_declared_type(
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint, so a whole number is not a float and
         // a fractional one is not an integer.
-        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "integer" => crate::is_safe_integer(value),
         "float" => value.is_f64(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
