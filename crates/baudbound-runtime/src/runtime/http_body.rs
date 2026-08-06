@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
-use crate::execution::cast_validation::validate_config_casts;
+use crate::execution::cast_validation::{validate_config_casts, validate_value_casts};
 
 use super::{render_json_template, resolve_config_map};
 
@@ -24,6 +24,15 @@ pub(crate) fn resolve_http_request_config(
     if body.trim().is_empty() {
         return Ok(resolved);
     }
+
+    // The body is parsed as JSON before its templates are resolved, and
+    // parsing turns an escaped brace into a real template that the scan over
+    // the raw config string could not see. Prove the parsed body before it is
+    // rendered, so a failing cast stops the run instead of sending the literal
+    // template text.
+    let parsed_body = serde_json::from_str::<Value>(body)
+        .map_err(|error| format!("invalid JSON HTTP request body: {error}"))?;
+    validate_value_casts(node_id, &parsed_body, variables).map_err(|error| error.to_string())?;
 
     let body = render_json_template(body, variables)
         .map_err(|error| format!("invalid JSON HTTP request body: {error}"))?;

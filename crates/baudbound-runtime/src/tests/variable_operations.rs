@@ -875,3 +875,33 @@ fn a_failing_cast_in_a_variable_operation_stops_the_run() {
         "the error should name the target type: {message}"
     );
 }
+
+#[test]
+fn a_cast_hidden_behind_json_escapes_still_stops_the_run() {
+    // The pre-pass scans the raw config string, but this operation parses the
+    // string as JSON first and resolves templates in the parsed result. An
+    // escaped brace is invisible to the raw scan and becomes a real template
+    // after parsing.
+    let mut set_object = variable_node(
+        "n-payload",
+        "payload",
+        "set",
+        "object",
+        json!("{\"n\":\"\\u007b\\u007bratio|integer}}\"}"),
+    );
+    set_object["config"]["valueType"] = json!("object");
+
+    let error = execute(
+        vec![
+            variable_node("n-ratio", "ratio", "set", "float", json!(3.5)),
+            set_object,
+        ],
+        linear_edges(&["n-ratio", "n-payload"]),
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    assert!(
+        format!("{error:?}").contains("integer"),
+        "the error should name the target type: {error:?}"
+    );
+}

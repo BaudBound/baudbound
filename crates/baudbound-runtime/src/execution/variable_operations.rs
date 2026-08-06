@@ -1,3 +1,4 @@
+use super::cast_validation::validate_value_casts;
 use crate::runtime::{
     coerce_variable_value, config_string, empty_value_for_declared_type, empty_value_for_type,
     integer_from_value, number_from_value, number_value, remove_object_field,
@@ -196,7 +197,7 @@ impl RuntimeExecutor<'_> {
                 })?;
                 let item_type = config_string(&node.config, "itemType");
                 let raw_value = if matches!(value_type, "list" | "object") {
-                    self.resolve_json_compatible_input(node.config.get("value"))?
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?
                 } else {
                     self.resolve_variable_input(node.config.get("value"))
                 };
@@ -295,7 +296,8 @@ impl RuntimeExecutor<'_> {
                     }
                     None => Vec::new(),
                 };
-                let item = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let item =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 validate_list_append(node, name, &list, &item)?;
                 list.push(item);
                 Ok(Value::Array(list))
@@ -321,7 +323,8 @@ impl RuntimeExecutor<'_> {
                         });
                     }
                 };
-                let item = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let item =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 let remove_mode = required_config_string(node, "removeMode")?;
                 if !matches!(remove_mode.as_str(), "first" | "all") {
                     return Err(RuntimeError::VariableOperation {
@@ -341,7 +344,8 @@ impl RuntimeExecutor<'_> {
             }
             "set_object_field" => {
                 let field_path = required_config_string(node, "fieldPath")?;
-                let value = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let value =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 let field_value_type = required_config_string(node, "fieldValueType")?;
                 let field_item_type = config_string(&node.config, "fieldItemType");
                 validate_declared_value(
@@ -392,7 +396,8 @@ impl RuntimeExecutor<'_> {
                 Ok(current)
             }
             "merge_object" => {
-                let incoming = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let incoming =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 validate_declared_value(node, "object", None, &incoming)?;
                 let mut object = match current {
                     Some(Value::Object(object)) => object,
@@ -427,11 +432,19 @@ impl RuntimeExecutor<'_> {
         resolve_config_value(value.unwrap_or(&Value::Null), &self.context.variables)
     }
 
-    fn resolve_json_compatible_input(&self, value: Option<&Value>) -> Result<Value, RuntimeError> {
+    fn resolve_json_compatible_input(
+        &self,
+        node_id: &str,
+        value: Option<&Value>,
+    ) -> Result<Value, RuntimeError> {
         let raw = value.cloned().unwrap_or(Value::Null);
         if let Value::String(text) = &raw
             && let Ok(json_value) = serde_json::from_str::<Value>(text.trim())
         {
+            // Parsing turns an escaped brace into a real template, which the
+            // pre-pass over the raw string could not see, so the parsed value
+            // has to be proven before it is resolved.
+            validate_value_casts(node_id, &json_value, &self.context.variables)?;
             return Ok(resolve_config_value(&json_value, &self.context.variables));
         }
 
@@ -470,7 +483,7 @@ impl RuntimeExecutor<'_> {
             }
             "append_list" => {
                 let item = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Appended {} to {scope} list variable {name:?}. New value: {next}.",
@@ -479,7 +492,7 @@ impl RuntimeExecutor<'_> {
             }
             "remove_list_items" => {
                 let item = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 let mode =
                     config_string(&node.config, "removeMode").unwrap_or_else(|| "all".to_owned());
@@ -491,7 +504,7 @@ impl RuntimeExecutor<'_> {
             "set_object_field" => {
                 let path = config_string(&node.config, "fieldPath").unwrap_or_default();
                 let value = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Set field {path:?} on {scope} object variable {name:?} to {}. New value: {next}.",
@@ -506,7 +519,7 @@ impl RuntimeExecutor<'_> {
             }
             "merge_object" => {
                 let value = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Shallow merged {} into {scope} object variable {name:?}. New value: {next}.",
