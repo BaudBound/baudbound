@@ -7,11 +7,17 @@ pub(crate) fn convert_value_action(
     request: &RuntimeActionRequest,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let input = request.config.get("value").cloned().unwrap_or(Value::Null);
+    // No default target. The old default named a type that no longer exists,
+    // so falling back to it would report an unsupported target rather than the
+    // real problem, which is that the node did not say what to convert to.
     let target = request
         .config
         .get("targetType")
         .and_then(Value::as_str)
-        .unwrap_or("text");
+        .ok_or_else(|| RuntimeActionError::Failed {
+            action_type: request.action_type.clone(),
+            message: "conversion requires a target type".to_owned(),
+        })?;
     let source_type = value_kind(&input).to_owned();
 
     let target = target
