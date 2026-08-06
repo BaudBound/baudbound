@@ -703,3 +703,54 @@ fn color_match_node(
 fn has_log(logs: &[crate::RuntimeLogEntry], message: &str) -> bool {
     logs.iter().any(|entry| entry.message == message)
 }
+
+#[test]
+fn a_failing_cast_in_a_condition_stops_the_run_instead_of_choosing_a_branch() {
+    // A condition decides which branch runs. If a failing cast resolved to the
+    // literal template text, the comparison would still produce a boolean and
+    // the program would quietly take a branch chosen by accident.
+    let error = execute_manual_program(
+        &program(
+            vec![
+                json!({
+                    "id": "n-calculate",
+                    "action_type": "action.calculate",
+                    "type": "action",
+                    "config": {"expression": "3 / 2"},
+                    "runtime_outputs": []
+                }),
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{n-calculate.result|integer}}",
+                            "operator": "==",
+                            "right": "1",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "took the true branch"),
+                log_node("n-false", "took the false branch"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-calculate"),
+                edge("n-calculate", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "condition-cast-failure",
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("integer"),
+        "the error should name the target type: {message}"
+    );
+}

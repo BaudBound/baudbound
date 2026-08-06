@@ -116,6 +116,9 @@ impl RuntimeExecutor<'_> {
         &self,
         node: &RuntimeNode,
     ) -> Result<ConditionEvaluation, RuntimeError> {
+        // A condition decides which branch runs, so a silently unresolved cast
+        // here would send the program down the wrong path rather than stop it.
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let conditions = node
             .config
             .get("conditions")
@@ -211,6 +214,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn evaluate_switch(&mut self, node: &RuntimeNode) -> Result<String, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let switch_value = resolve_template_value(
             &config_string(&node.config, "value").unwrap_or_default(),
             &self.context.variables,
@@ -284,6 +288,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn for_each_items(&self, node: &RuntimeNode) -> Result<Vec<Value>, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let raw_items = required_config_string(node, "items")?;
         let value = resolve_template_value(&raw_items, &self.context.variables);
         if let Value::Array(items) = value {
