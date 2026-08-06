@@ -56,13 +56,13 @@ fn set_coerces_exported_json_container_strings() {
 fn set_and_increment_resolve_variable_references() {
     let report = execute(
         vec![
-            variable_node("n-source", "source", "set", "number", json!(2)),
-            variable_node("n-target", "target", "set", "number", json!("{{source}}")),
+            variable_node("n-source", "source", "set", "integer", json!(2)),
+            variable_node("n-target", "target", "set", "integer", json!("{{source}}")),
             variable_node(
                 "n-increment",
                 "target",
                 "increment",
-                "number",
+                "integer",
                 json!("{{source}}"),
             ),
         ],
@@ -70,7 +70,7 @@ fn set_and_increment_resolve_variable_references() {
     )
     .expect("variable references should resolve before coercion");
 
-    assert_eq!(report.variables.get("target"), Some(&json!(4.0)));
+    assert_eq!(report.variables.get("target"), Some(&json!(4)));
 }
 
 #[test]
@@ -118,10 +118,10 @@ fn resolves_references_recursively_inside_json_values() {
 fn logs_variable_names_scopes_inputs_and_resulting_values() {
     let report = execute(
         vec![
-            variable_node("n-set", "count", "set", "number", json!(2)),
-            variable_node("n-increment", "count", "increment", "number", json!(3)),
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(3)),
             variable_node("n-append", "items", "append_list", "list", json!("first")),
-            variable_node("n-clear", "count", "clear", "number", Value::Null),
+            variable_node("n-clear", "count", "clear", "integer", Value::Null),
         ],
         linear_edges(&["n-set", "n-increment", "n-append", "n-clear"]),
     )
@@ -132,8 +132,8 @@ fn logs_variable_names_scopes_inputs_and_resulting_values() {
         .iter()
         .map(|log| log.message.as_str())
         .collect::<Vec<_>>();
-    assert!(messages.contains(&r#"Set runtime variable "count" to 2.0."#));
-    assert!(messages.contains(&r#"Incremented runtime variable "count" by 3. New value: 5.0."#));
+    assert!(messages.contains(&r#"Set runtime variable "count" to 2."#));
+    assert!(messages.contains(&r#"Incremented runtime variable "count" by 3. New value: 5."#));
     assert!(
         messages.contains(
             &r#"Appended "first" to runtime list variable "items". New value: ["first"]."#
@@ -141,7 +141,7 @@ fn logs_variable_names_scopes_inputs_and_resulting_values() {
     );
     // "count" is a float here, as the 2.0 and 5.0 above show, so clearing it
     // yields a float zero rather than an integer one.
-    assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0.0."#));
+    assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0."#));
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn supports_toggle_remove_merge_and_delete_operations() {
     remove_all["config"]["removeMode"] = json!("all");
 
     let mut list = variable_node("n-list", "items", "set", "list", json!("[1,2,2,3]"));
-    list["config"]["itemType"] = json!("number");
+    list["config"]["itemType"] = json!("integer");
 
     let mut remove_field = variable_node(
         "n-remove-field",
@@ -381,7 +381,7 @@ fn clear_requires_an_existing_variable_and_append_infers_item_type() {
         mismatch
             .logs
             .iter()
-            .any(|log| { log.level == "error" && log.message.contains("requires number items") })
+            .any(|log| { log.level == "error" && log.message.contains("requires integer items") })
     );
 }
 
@@ -398,7 +398,7 @@ fn exposes_complete_derived_metadata_with_javascript_string_lengths() {
                 "object",
                 json!(r#"{"one":1,"two":2}"#),
             ),
-            variable_node("n-number", "count", "set", "number", json!(4)),
+            variable_node("n-number", "count", "set", "integer", json!(4)),
         ],
         linear_edges(&["n-text", "n-list", "n-object", "n-number"]),
     )
@@ -407,7 +407,7 @@ fn exposes_complete_derived_metadata_with_javascript_string_lengths() {
     assert_metadata(&report.variables, "text", 3, "string", false);
     assert_metadata(&report.variables, "items", 0, "list", true);
     assert_metadata(&report.variables, "payload", 2, "object", false);
-    assert_metadata(&report.variables, "count", 0, "number", false);
+    assert_metadata(&report.variables, "count", 0, "integer", false);
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn invalid_increment_and_object_paths_fail_closed() {
             "n-increment",
             "count",
             "increment",
-            "number",
+            "integer",
             json!("not-a-number"),
         )],
         linear_edges(&["n-increment"]),

@@ -40,16 +40,7 @@ pub(crate) fn coerce_variable_value(
     value_type: &str,
 ) -> Result<Value, RuntimeError> {
     match value_type {
-        "string" | "file_content" | "file_path" => Ok(Value::String(value_to_string(&value))),
-        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" => {
-            number_from_value(Some(&value))
-                .and_then(Number::from_f64)
-                .map(Value::Number)
-                .ok_or_else(|| RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("expected number, found {}", value_kind(&value)),
-                })
-        }
+        "string" => Ok(Value::String(value_to_string(&value))),
         // An integer must not be widened to f64 here. `Number::from_f64` always
         // produces the float variant, which would make every integer variable a
         // float the moment it was set.
@@ -80,9 +71,7 @@ pub(crate) fn coerce_variable_value(
                 message: format!("expected boolean, found {}", value_kind(&other)),
             }),
         },
-        "object" | "http_headers" | "datetime" | "duration" => {
-            coerce_json_container(node, value, true)
-        }
+        "object" | "datetime" | "duration" => coerce_json_container(node, value, true),
         "list" => coerce_json_container(node, value, false),
         "keyboard_key" => Ok(Value::String(value_to_string(&value))),
         _ => Err(RuntimeError::VariableOperation {
@@ -312,9 +301,7 @@ pub(crate) fn empty_value_for_declared_type(value_type: &str) -> Option<Value> {
 
 pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
     match value_type {
-        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" | "integer" => {
-            Value::Number(0.into())
-        }
+        "integer" => Value::Number(0.into()),
         // A float must stay a float. `0.into()` would build the integer
         // variant, leaving an integer inside a float variable.
         "float" => Number::from_f64(0.0)
@@ -322,7 +309,7 @@ pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
             .unwrap_or(Value::Null),
         "color" => Value::String("#000000".to_owned()),
         "boolean" => Value::Bool(false),
-        "object" | "http_headers" => Value::Object(Map::new()),
+        "object" => Value::Object(Map::new()),
         "datetime" => serde_json::json!({
             "type": "datetime",
             "value": "1970-01-01T00:00:00.000Z"
@@ -442,7 +429,12 @@ pub(crate) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
+        // integer and float are separate types, so reporting a bare "number"
+        // would name a type that no longer exists.
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            "integer"
+        }
+        Value::Number(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "list",
         Value::Object(_) => "object",

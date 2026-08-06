@@ -199,8 +199,14 @@ fn parse_setting_value(
         )));
     }
     let value = match declaration.value_type.as_str() {
-        "string" | "file_path" | "hotkey" | "color" => Ok(Value::String(input.to_owned())),
-        "number" => input
+        "string" | "keyboard_key" | "color" => Ok(Value::String(input.to_owned())),
+        // An integer is parsed as an integer rather than through f64, so it
+        // keeps the integer variant and stays distinct from a float.
+        "integer" => input
+            .parse::<i64>()
+            .map(|whole| Value::Number(whole.into()))
+            .map_err(|_| CoreError::InvalidSetting("expected a whole number".to_owned())),
+        "float" => input
             .parse::<f64>()
             .ok()
             .filter(|value| value.is_finite())
@@ -257,12 +263,14 @@ fn validate_setting_value(
 pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
         "string" => value.is_string(),
-        "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
-        "hotkey" => value
+        "keyboard_key" => value
             .as_str()
             .is_some_and(|key| normalize_windows_hotkey(key).is_ok()),
         "color" => value.as_str().is_some_and(is_hex_color),
-        "number" => value.is_number(),
+        // integer and float are disjoint: a whole number is not a float and a
+        // fractional one is not an integer.
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "float" => value.is_f64(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {
@@ -315,7 +323,8 @@ mod tests {
     fn parses_supported_setting_values_from_cli_and_desktop_text() {
         for (value_type, input, expected) in [
             ("string", "plain text", json!("plain text")),
-            ("number", "12.5", json!(12.5)),
+            ("integer", "12", json!(12)),
+            ("float", "12.5", json!(12.5)),
             ("boolean", "true", json!(true)),
             ("list", "[1,2,3]", json!([1, 2, 3])),
             ("object", "{\"enabled\":true}", json!({"enabled": true})),
@@ -329,8 +338,7 @@ mod tests {
                 "{\"type\":\"duration\",\"unit\":\"minutes\",\"value\":5}",
                 json!({"type": "duration", "unit": "minutes", "value": 5}),
             ),
-            ("file_path", "/tmp/output.txt", json!("/tmp/output.txt")),
-            ("hotkey", "Ctrl+Shift+F8", json!("Ctrl+Shift+F8")),
+            ("keyboard_key", "Ctrl+Shift+F8", json!("Ctrl+Shift+F8")),
             ("color", "#1A2b3C", json!("#1A2b3C")),
         ] {
             assert_eq!(
@@ -338,7 +346,7 @@ mod tests {
                     &declaration(
                         value_type,
                         if value_type == "list" {
-                            Some("number")
+                            Some("integer")
                         } else {
                             None
                         },
@@ -354,7 +362,8 @@ mod tests {
     #[test]
     fn rejects_invalid_or_oversized_setting_values() {
         for (value_type, input, expected) in [
-            ("number", "NaN", "expected a finite number"),
+            ("float", "NaN", "expected a finite number"),
+            ("integer", "12.5", "expected a whole number"),
             ("boolean", "yes", "expected true or false"),
             ("list", "{}", "expected a JSON list"),
             ("object", "[]", "expected a JSON object"),
@@ -369,9 +378,8 @@ mod tests {
                 "{\"type\":\"duration\",\"unit\":\"weeks\",\"value\":1}",
                 "does not match declared type",
             ),
-            ("file_path", "   ", "does not match declared type"),
             (
-                "hotkey",
+                "keyboard_key",
                 "Ctrl+DefinitelyNotAKey",
                 "does not match declared type",
             ),

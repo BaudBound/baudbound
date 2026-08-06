@@ -273,7 +273,7 @@ fn runtime_default_resets_before_each_run() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Runtime,
-        "number",
+        "integer",
         json!(10),
     )];
     let program = variable_program("runtime", "increment", json!(1), "{{counter}}");
@@ -301,7 +301,7 @@ fn persistent_default_initializes_once_then_retains_changes() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Persistent,
-        "number",
+        "integer",
         json!(10),
     )];
     let program = variable_program("persistent", "increment", json!(1), "{{counter}}");
@@ -360,7 +360,7 @@ fn rejects_default_that_disagrees_with_variable_operation() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Persistent,
-        "number",
+        "integer",
         json!(10),
     )];
     let error = execute_manual_program_with_state(
@@ -385,16 +385,16 @@ fn rejects_malformed_default_resources_before_execution() {
             default_variable(
                 "counter",
                 RuntimeDefaultVariableScope::Runtime,
-                "number",
+                "integer",
                 json!("ten"),
             ),
-            "value does not match type",
+            "expected integer",
         ),
         (
             default_variable(
                 "system_counter",
                 RuntimeDefaultVariableScope::Runtime,
-                "number",
+                "integer",
                 json!(10),
             ),
             "invalid or reserved",
@@ -671,7 +671,7 @@ fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -
                             "name": "counter",
                             "operation": operation,
                             "scope": scope,
-                            "valueType": if operation == "increment" { "number" } else { "string" },
+                            "valueType": if operation == "increment" { "integer" } else { "string" },
                             "value": value
                         },
                         "runtime_outputs": []

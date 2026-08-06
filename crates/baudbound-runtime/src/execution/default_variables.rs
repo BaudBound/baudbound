@@ -10,28 +10,30 @@ use crate::{
 
 use super::RuntimeError;
 
+/// The ten declarable types. A list element may be any of them except a list,
+/// so nesting stays one level.
 const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
     "string",
-    "number",
+    "integer",
+    "float",
     "boolean",
     "object",
     "list",
-    "datetime",
-    "duration",
-    "file_path",
-    "integer",
-    "float",
     "color",
     "keyboard_key",
+    "datetime",
+    "duration",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
     "string",
-    "number",
+    "integer",
+    "float",
     "boolean",
     "object",
+    "color",
+    "keyboard_key",
     "datetime",
     "duration",
-    "file_path",
 ];
 
 pub(super) fn validate_default_variables(

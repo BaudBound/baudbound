@@ -406,7 +406,7 @@ fn color_match_resolves_rgb_objects_and_tolerance_variables() {
                     "object",
                     json!(r#"{"r":120,"g":80,"b":40}"#),
                 ),
-                variable_node("n-tolerance", "tolerance", "set", "number", json!("5")),
+                variable_node("n-tolerance", "tolerance", "set", "integer", json!("5")),
                 color_match_node(
                     json!("{{sample}}"),
                     json!("rgb(125, 80, 40)"),

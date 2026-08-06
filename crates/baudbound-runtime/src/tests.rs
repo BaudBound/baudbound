@@ -502,7 +502,7 @@ fn rejects_derived_variable_writes() {
                                     "name": "foo.$length",
                                     "operation": "set",
                                     "scope": "runtime",
-                                    "valueType": "number",
+                                    "valueType": "integer",
                                     "value": 10
                                 },
                                 "runtime_outputs": []
@@ -576,7 +576,7 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-counter", "counter", "set", "number", 0),
+                        variable_node("n-counter", "counter", "set", "integer", 0),
                         {
                             "id": "n-repeat",
                             "action_type": "control.repeat",
@@ -584,7 +584,7 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
                             "config": { "count": "3" },
                             "runtime_outputs": []
                         },
-                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        variable_node("n-inc", "counter", "increment", "integer", 1),
                         log_node("n-done", "counter={{counter}}")
                     ],
                     "edges": [
@@ -600,8 +600,8 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
     )
     .expect("repeat should execute");
 
-    assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
-    assert!(report.logs.iter().any(|log| log.message == "counter=3.0"));
+    assert_eq!(report.variables.get("counter"), Some(&json!(3)));
+    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
 #[test]
@@ -657,7 +657,7 @@ fn rejects_fractional_repeat_count_resolved_from_a_variable() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-count", "count", "set", "number", 1.5),
+                        variable_node("n-count", "count", "set", "float", 1.5),
                         {
                             "id": "n-repeat",
                             "action_type": "control.repeat",
@@ -691,7 +691,7 @@ fn continue_loop_skips_the_remaining_repeat_body() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-counter", "counter", "set", "number", 0),
+                        variable_node("n-counter", "counter", "set", "integer", 0),
                         {
                             "id": "n-repeat",
                             "action_type": "control.repeat",
@@ -699,7 +699,7 @@ fn continue_loop_skips_the_remaining_repeat_body() {
                             "config": { "count": "3" },
                             "runtime_outputs": []
                         },
-                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        variable_node("n-inc", "counter", "increment", "integer", 1),
                         loop_control_node("n-continue", "control.continue_loop", "continue_loop"),
                         log_node("n-skipped", "must not execute"),
                         log_node("n-done", "counter={{counter}}")
@@ -719,14 +719,14 @@ fn continue_loop_skips_the_remaining_repeat_body() {
     )
     .expect("continue loop should advance the repeat");
 
-    assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
+    assert_eq!(report.variables.get("counter"), Some(&json!(3)));
     assert!(
         report
             .logs
             .iter()
             .all(|log| log.message != "must not execute")
     );
-    assert!(report.logs.iter().any(|log| log.message == "counter=3.0"));
+    assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
 #[test]
@@ -738,7 +738,7 @@ fn break_loop_exits_repeat_and_follows_done() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-counter", "counter", "set", "number", 0),
+                        variable_node("n-counter", "counter", "set", "integer", 0),
                         {
                             "id": "n-repeat",
                             "action_type": "control.repeat",
@@ -746,7 +746,7 @@ fn break_loop_exits_repeat_and_follows_done() {
                             "config": { "count": "10" },
                             "runtime_outputs": []
                         },
-                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        variable_node("n-inc", "counter", "increment", "integer", 1),
                         {
                             "id": "n-if",
                             "action_type": "control.if",
@@ -779,8 +779,8 @@ fn break_loop_exits_repeat_and_follows_done() {
     )
     .expect("break loop should exit the repeat");
 
-    assert_eq!(report.variables.get("counter"), Some(&json!(2.0)));
-    assert!(report.logs.iter().any(|log| log.message == "counter=2.0"));
+    assert_eq!(report.variables.get("counter"), Some(&json!(2)));
+    assert!(report.logs.iter().any(|log| log.message == "counter=2"));
 }
 
 #[test]
@@ -792,8 +792,8 @@ fn break_loop_only_exits_the_innermost_loop() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-outer-count", "outer_count", "set", "number", 0),
-                        variable_node("n-inner-count", "inner_count", "set", "number", 0),
+                        variable_node("n-outer-count", "outer_count", "set", "integer", 0),
+                        variable_node("n-inner-count", "inner_count", "set", "integer", 0),
                         {
                             "id": "n-outer",
                             "action_type": "control.repeat",
@@ -808,9 +808,9 @@ fn break_loop_only_exits_the_innermost_loop() {
                             "config": { "count": "3" },
                             "runtime_outputs": []
                         },
-                        variable_node("n-inner-inc", "inner_count", "increment", "number", 1),
+                        variable_node("n-inner-inc", "inner_count", "increment", "integer", 1),
                         loop_control_node("n-break", "control.break_loop", "break_loop"),
-                        variable_node("n-outer-inc", "outer_count", "increment", "number", 1),
+                        variable_node("n-outer-inc", "outer_count", "increment", "integer", 1),
                         log_node(
                             "n-done",
                             "outer={{outer_count}}, inner={{inner_count}}"
@@ -833,13 +833,13 @@ fn break_loop_only_exits_the_innermost_loop() {
     )
     .expect("nested break loop should execute");
 
-    assert_eq!(report.variables.get("outer_count"), Some(&json!(2.0)));
-    assert_eq!(report.variables.get("inner_count"), Some(&json!(2.0)));
+    assert_eq!(report.variables.get("outer_count"), Some(&json!(2)));
+    assert_eq!(report.variables.get("inner_count"), Some(&json!(2)));
     assert!(
         report
             .logs
             .iter()
-            .any(|log| log.message == "outer=2.0, inner=2.0")
+            .any(|log| log.message == "outer=2, inner=2")
     );
 }
 
@@ -885,7 +885,7 @@ fn executes_while_until_condition_fails() {
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-counter", "counter", "set", "number", 0),
+                        variable_node("n-counter", "counter", "set", "integer", 0),
                         {
                             "id": "n-while",
                             "action_type": "control.while",
@@ -902,7 +902,7 @@ fn executes_while_until_condition_fails() {
                             },
                             "runtime_outputs": []
                         },
-                        variable_node("n-inc", "counter", "increment", "number", 1),
+                        variable_node("n-inc", "counter", "increment", "integer", 1),
                         log_node("n-done", "while counter={{counter}}")
                     ],
                     "edges": [
@@ -918,12 +918,12 @@ fn executes_while_until_condition_fails() {
     )
     .expect("while should execute");
 
-    assert_eq!(report.variables.get("counter"), Some(&json!(3.0)));
+    assert_eq!(report.variables.get("counter"), Some(&json!(3)));
     assert!(
         report
             .logs
             .iter()
-            .any(|log| log.message == "while counter=3.0")
+            .any(|log| log.message == "while counter=3")
     );
 }
 
@@ -1616,7 +1616,7 @@ fn routes_out_of_range_resolved_numeric_config_to_failed_before_action_dispatch(
                 "triggers": [],
                 "program": {
                     "steps": [
-                        variable_node("n-frequency", "frequency", "set", "number", 25_000),
+                        variable_node("n-frequency", "frequency", "set", "integer", 25_000),
                         {
                             "id": "n-beep",
                             "action_type": "action.beep",
@@ -2026,7 +2026,7 @@ fn variable_operation_failures_follow_failed_edges() {
                             "n-variable",
                             "count",
                             "increment",
-                            "number",
+                            "integer",
                             "not-a-number"
                         ),
                         log_node("n-failed", "variable={{n-variable.error.code}}")

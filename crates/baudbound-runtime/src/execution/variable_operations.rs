@@ -520,7 +520,9 @@ fn variable_operation_declared_type(
 ) -> Result<Option<String>, RuntimeError> {
     let value_type = match operation {
         "set" => Some(required_config_string(node, "valueType")?),
-        "increment" => Some("number".to_owned()),
+        // Increment does not pin a numeric type: it applies to whichever numeric
+        // type the variable was declared with, and preserves it.
+        "increment" => None,
         "toggle_boolean" => Some("boolean".to_owned()),
         "append_list" | "remove_list_items" => Some("list".to_owned()),
         "set_object_field" | "remove_object_field" | "merge_object" => Some("object".to_owned()),
@@ -643,7 +645,10 @@ fn integer_operand(value: Option<&Value>) -> Option<i64> {
 fn list_item_kind(value: &Value) -> Option<&'static str> {
     match value {
         Value::String(_) => Some("string"),
-        Value::Number(_) => Some("number"),
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            Some("integer")
+        }
+        Value::Number(_) => Some("float"),
         Value::Bool(_) => Some("boolean"),
         Value::Object(object) => match object.get("type").and_then(Value::as_str) {
             Some("datetime") => Some("datetime"),
@@ -697,8 +702,6 @@ fn validate_declared_value(
 ) -> Result<(), RuntimeError> {
     let valid = match value_type {
         "string" => value.is_string(),
-        "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
-        "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "object" => value.is_object(),
         "list" => value.as_array().is_some_and(|items| {
