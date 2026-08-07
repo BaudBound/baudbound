@@ -346,6 +346,8 @@ fn condition_operator_label(operator: &str) -> &str {
         "is_true" => "is true",
         "is_false" => "is false",
         "is_numeric" => "is numeric",
+        "is_integer" => "is an integer",
+        "is_float" => "is a float",
         "is_string" => "is a string",
         "is_boolean" => "is a boolean",
         "is_list" => "is a list",
@@ -364,6 +366,8 @@ fn condition_uses_right_value(operator: &str) -> bool {
             | "is_true"
             | "is_false"
             | "is_numeric"
+            | "is_integer"
+            | "is_float"
             | "is_string"
             | "is_boolean"
             | "is_list"

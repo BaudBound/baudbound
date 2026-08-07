@@ -111,8 +111,19 @@ fn supports_every_exported_condition_operator() {
         (json!("true"), "is_true", Value::Null, false),
         (json!(0), "is_false", Value::Null, false),
         (Value::Null, "is_false", Value::Null, false),
-        (json!("42.5"), "is_numeric", Value::Null, true),
+        // These test the type. Text that reads as a number is still text, so
+        // is_numeric is exactly is_integer or is_float and never overlaps
+        // is_string.
+        (json!(42), "is_numeric", Value::Null, true),
+        (json!(42.5), "is_numeric", Value::Null, true),
+        (json!("42.5"), "is_numeric", Value::Null, false),
         (json!("42px"), "is_numeric", Value::Null, false),
+        (json!(42), "is_integer", Value::Null, true),
+        (json!(42.5), "is_integer", Value::Null, false),
+        (json!("42"), "is_integer", Value::Null, false),
+        (json!(42.5), "is_float", Value::Null, true),
+        (json!(42), "is_float", Value::Null, false),
+        (json!("42.5"), "is_float", Value::Null, false),
         (json!("text"), "is_string", Value::Null, true),
         (json!(true), "is_boolean", Value::Null, true),
         (json!([1, 2]), "is_list", Value::Null, true),

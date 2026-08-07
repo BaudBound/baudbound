@@ -42,7 +42,12 @@ pub(crate) fn compare_condition_values_with_end(
         "is_empty" => Ok(is_value_empty(left)),
         "is_true" => Ok(left.as_bool() == Some(true)),
         "is_false" => Ok(left.as_bool() == Some(false)),
-        "is_numeric" => Ok(number_from_value(Some(left)).is_some()),
+        // These test the type, like the checks beside them. Text that happens
+        // to read as a number is still text, and casting is how it becomes a
+        // number, so is_numeric is exactly is_integer or is_float.
+        "is_numeric" => Ok(is_integer_value(left) || is_float_value(left)),
+        "is_integer" => Ok(is_integer_value(left)),
+        "is_float" => Ok(is_float_value(left)),
         "is_string" => Ok(left.is_string()),
         "is_boolean" => Ok(left.is_boolean()),
         "is_list" => Ok(left.is_array()),
@@ -115,4 +120,14 @@ fn is_value_empty(value: &Value) -> bool {
         Value::Object(fields) => fields.is_empty(),
         Value::Bool(_) | Value::Number(_) => false,
     }
+}
+
+fn is_integer_value(value: &Value) -> bool {
+    value
+        .as_number()
+        .is_some_and(|number| number.as_i64().is_some() || number.as_u64().is_some())
+}
+
+fn is_float_value(value: &Value) -> bool {
+    value.as_number().is_some_and(serde_json::Number::is_f64)
 }
