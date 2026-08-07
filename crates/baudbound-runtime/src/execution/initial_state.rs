@@ -241,7 +241,14 @@ fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), Ru
         message: format!("default variable \"{}\" {reason}", variable.name),
     };
 
-    if let Ok(declared) = variable.value_type.parse::<ValueType>()
+    // A declared value is read by the type declared beside it, so a whole
+    // number under a float declaration is that number as a float. The editor
+    // writes JSON with JavaScript numbers and cannot spell 300.0 as anything
+    // but `300`, so holding a declaration to the run time rule would make a
+    // whole float impossible to declare at all.
+    let declared_float = variable.value_type == "float" && variable.value.is_number();
+    if !declared_float
+        && let Ok(declared) = variable.value_type.parse::<ValueType>()
         && let Err(reason) = validate_value(&variable.value, declared)
     {
         return Err(type_error(reason));

@@ -141,7 +141,14 @@ pub(crate) fn resolve_runtime_script_settings(
         match value {
             Some(value) => {
                 validate_setting_value(declaration, &value)?;
-                values.insert(declaration.name.clone(), value);
+                values.insert(
+                    declaration.name.clone(),
+                    coerce_declared_value(
+                        &declaration.value_type,
+                        declaration.item_type.as_deref(),
+                        value,
+                    ),
+                );
             }
             None if declaration.required => {
                 return Err(CoreError::InvalidSetting(format!(
@@ -259,6 +266,34 @@ fn validate_setting_value(
     }
 }
 
+/// Gives a declared value the exact type its declaration names.
+///
+/// Only a float needs this. JSON spells three hundred as `300` whether it was
+/// meant as an integer or a float, and the declaration is what settles it, so
+/// the value is rebuilt as a float before a run can observe it as an integer.
+pub(crate) fn coerce_declared_value(
+    value_type: &str,
+    item_type: Option<&str>,
+    value: Value,
+) -> Value {
+    match value_type {
+        "float" => value
+            .as_f64()
+            .and_then(serde_json::Number::from_f64)
+            .map_or(value, Value::Number),
+        "list" => match (item_type, value) {
+            (Some(item_type), Value::Array(items)) => Value::Array(
+                items
+                    .into_iter()
+                    .map(|item| coerce_declared_value(item_type, None, item))
+                    .collect(),
+            ),
+            (_, value) => value,
+        },
+        _ => value,
+    }
+}
+
 pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
         "string" => value.is_string(),
@@ -271,7 +306,14 @@ pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, valu
         // integer and float are disjoint: a whole number is not a float and a
         // fractional one is not an integer.
         "integer" => baudbound_script::is_safe_integer(value),
-        "float" => value.is_f64(),
+        // A declared value is read by the type declared beside it, so a whole
+        // number under a float declaration is that number as a float. The
+        // editor writes JSON with JavaScript numbers and cannot spell 300.0 as
+        // anything but `300`, and typing "300" into a float setting already
+        // produces a float here, so refusing it in a declaration would be the
+        // one place that disagreed. `coerce_declared_value` makes it a float
+        // before anything downstream sees it.
+        "float" => value.as_f64().is_some_and(f64::is_finite),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {
@@ -418,5 +460,46 @@ mod tests {
             required: false,
             default_value: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod declared_float_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_whole_number_declared_a_float_is_accepted_and_becomes_one() {
+        // The editor writes JSON with JavaScript numbers, so three hundred as
+        // a float reaches the runner as `300`. The declaration beside it is
+        // what settles the type.
+        assert!(value_matches_type("float", None, &json!(300)));
+        assert!(value_matches_type("float", None, &json!(300.5)));
+        assert!(value_matches_type("float", None, &json!(-4)));
+        assert!(!value_matches_type("float", None, &json!("300")));
+
+        let coerced = coerce_declared_value("float", None, json!(300));
+        assert!(
+            coerced.is_f64(),
+            "a declared float must reach the run as a float: {coerced}"
+        );
+        assert_eq!(coerced.as_f64(), Some(300.0));
+
+        // A list of floats is coerced element by element.
+        let list = coerce_declared_value("list", Some("float"), json!([1, 2.5]));
+        let items = list.as_array().expect("a list stays a list");
+        assert!(
+            items.iter().all(serde_json::Value::is_f64),
+            "every element of a float list must be a float: {list}"
+        );
+    }
+
+    #[test]
+    fn an_integer_declaration_still_refuses_a_fraction() {
+        // Only float is read this way. The two stay disjoint everywhere else.
+        assert!(value_matches_type("integer", None, &json!(300)));
+        assert!(!value_matches_type("integer", None, &json!(300.5)));
+        assert_eq!(coerce_declared_value("integer", None, json!(300)), json!(300));
     }
 }
