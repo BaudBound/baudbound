@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import appSource from "../app.tsx?raw";
 import badgeSource from "../components/ui/badge.tsx?raw";
@@ -36,6 +38,25 @@ describe("horizontal overflow contract", () => {
     expect(scriptRowSource).toContain("max-[1280px]:flex-wrap");
     expect(browseScriptsViewSource).toContain('<col className="w-56" />');
     expect(browseScriptsViewSource).toContain("max-w-full flex-wrap justify-end gap-2");
+  });
+
+  it("sizes table columns from what they hold", () => {
+    // A fixed layout with no declared widths gives every column an equal
+    // share, which made a row number as wide as a log message and left the
+    // message wrapping over several lines. Every table shares this rule, so a
+    // single opt out puts one table back to equal shares. The pattern is
+    // spelled in parts so it does not match its own source.
+    // A ?raw import of a stylesheet yields an empty string under Vitest, so
+    // the file is read from disk to check what it actually says.
+    const stylesheet = readFileSync(fileURLToPath(new URL("../styles.css", import.meta.url)), "utf8");
+    expect(stylesheet).toContain("table-layout: auto");
+
+    const fixedLayout = /\btable-(?:fixed)\b|table-layout\s*:\s*(?:fixed)/;
+    const offenders = Object.entries(sourceFiles).flatMap(([path, source]) =>
+      fixedLayout.test(source) ? [path] : [],
+    );
+
+    expect(offenders).toEqual([]);
   });
 
   it("preserves horizontal padding for every shared badge", () => {
