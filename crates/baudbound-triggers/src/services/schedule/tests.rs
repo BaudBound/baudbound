@@ -331,25 +331,24 @@ fn registration(node_id: &str, every: &str, unit: &str) -> TriggerRegistration {
 }
 
 #[test]
-fn missed_intervals_counts_the_backlog_behind_each_event() {
+fn a_schedule_event_carries_exactly_the_documented_payload() {
     let start = Instant::now();
     let mut service =
         ScheduleService::from_registrations([registration("n-schedule", "10", "seconds")], start)
             .expect("schedule should parse");
 
-    // A punctual tick has nothing behind it.
-    let punctual = service.due_events(start + Duration::from_secs(10), SystemTime::UNIX_EPOCH);
-    assert_eq!(punctual.len(), 1);
-    assert_eq!(punctual[0].payload["missed_intervals"], 0);
+    let events = service.due_events(start + Duration::from_secs(10), SystemTime::UNIX_EPOCH);
+    assert_eq!(events.len(), 1);
 
-    // A poll that arrives 25 seconds late replays every tick it owes. The
-    // first carries the deepest backlog and the last is punctual again.
-    let delayed = start + Duration::from_secs(35);
-    let events = service.due_events(delayed, SystemTime::UNIX_EPOCH + Duration::from_secs(35));
-    assert_eq!(events.len(), 2);
-    assert_eq!(events[0].payload["missed_intervals"], 1);
-    assert_eq!(events[1].payload["missed_intervals"], 0);
-
-    // The count is an integer, matching what the node declares.
-    assert!(events[0].payload["missed_intervals"].is_u64());
+    // Pinned so a key cannot be declared by the node and left unemitted here,
+    // which is how missed_intervals came to be offered to authors for a value
+    // nothing ever produced.
+    let payload = events[0].payload.as_object().expect("payload is an object");
+    let mut keys = payload.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["interval_seconds", "schedule", "scheduled_at_unix"],
+        "the payload must match what the Schedule node declares"
+    );
 }

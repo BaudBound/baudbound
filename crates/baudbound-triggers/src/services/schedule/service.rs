@@ -167,13 +167,6 @@ impl ScheduleService {
                 .expect("selected schedule must remain registered");
             let overdue_by = now.saturating_duration_since(schedule.next_due);
             let scheduled_at = timestamp.checked_sub(overdue_by).unwrap_or(timestamp);
-            // How many further occurrences already came due behind this one.
-            // A punctual tick reports zero. Nothing is ever dropped, so this
-            // says how far behind the runner is rather than what it discarded,
-            // which is what lets a script skip work that a later tick repeats.
-            let missed_intervals =
-                u64::try_from(overdue_by.as_nanos() / schedule.spec.interval.as_nanos())
-                    .unwrap_or(u64::MAX);
             emit(TriggerEvent {
                 action_type: schedule.registration.action_type.clone(),
                 node_id: schedule.registration.node_id.clone(),
@@ -184,7 +177,6 @@ impl ScheduleService {
                     // output being an integer on one schedule and a float on
                     // the next.
                     "interval_seconds": schedule.spec.interval.as_secs_f64(),
-                    "missed_intervals": missed_intervals,
                     "schedule": {
                         "every": schedule.spec.every,
                         "unit": schedule.spec.unit,
