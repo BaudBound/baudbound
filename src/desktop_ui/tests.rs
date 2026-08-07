@@ -472,6 +472,21 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         restarted_config["config"]["desktop"]["dialog_console_enabled"],
         true
     );
+    // The file this save replaced was the template, written by the reset above.
+    // Saving a whole config from the interface has to leave its notes alone.
+    let restarted_contents = restarted_config["contents"]
+        .as_str()
+        .expect("config contents should be returned");
+    let comment_lines = |text: &str| {
+        text.lines()
+            .filter(|line| line.trim_start().starts_with('#'))
+            .count()
+    };
+    assert_eq!(
+        comment_lines(restarted_contents),
+        comment_lines(RunnerConfig::template_toml()),
+        "saving from the interface should not strip the comments: {restarted_contents}"
+    );
 
     invoke(&webview, "stop_background_runner", json!({}));
     let stopped = invoke_sensitive(

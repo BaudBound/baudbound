@@ -190,7 +190,11 @@ fn save_runner_config_model_contents(
     config: RunnerConfig,
     restart_background: bool,
 ) -> Result<String> {
-    let contents = config.to_pretty_toml()?;
+    // Settings edited from the interface arrive as a whole config, but the file
+    // they replace is the one the author has been reading. Write the values
+    // over it so its comments and spacing survive the edit.
+    let existing = fs::read_to_string(&state.config_path).unwrap_or_default();
+    let contents = config.to_toml_preserving_comments(&existing)?;
     save_valid_runner_config(
         autostart,
         state,

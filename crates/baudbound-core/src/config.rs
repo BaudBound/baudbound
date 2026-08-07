@@ -160,6 +160,31 @@ impl RunnerConfig {
         })
     }
 
+    /// Renders the config over the file already on disk, changing only values.
+    ///
+    /// Rendering from scratch would throw away every comment and every choice
+    /// of spacing in the file, which is what editing a setting from the
+    /// interface used to do. Writing each value into the parsed document
+    /// instead leaves the surrounding text where the author put it.
+    pub fn to_toml_preserving_comments(
+        &self,
+        existing: &str,
+    ) -> Result<String, RunnerConfigError> {
+        let Ok(mut document) = existing.parse::<toml_edit::DocumentMut>() else {
+            // Whatever is on disk is not TOML, so there is no formatting worth
+            // keeping and a clean render is the best available answer.
+            return self.to_pretty_toml();
+        };
+        let updated = self
+            .to_pretty_toml()?
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(|source| RunnerConfigError::Serialize {
+                message: source.to_string(),
+            })?;
+        merge_into_document(document.as_table_mut(), updated.as_table());
+        Ok(document.to_string())
+    }
+
     fn validate(&self, path: &Path) -> Result<(), RunnerConfigError> {
         if !(1..=MAX_RUN_HISTORY_RECORDS).contains(&self.runner.run_history_max_records) {
             return Err(RunnerConfigError::Validate {
@@ -503,11 +528,24 @@ impl RunnerConfig {
     #[must_use]
     pub fn template_toml() -> &'static str {
         r#"# BaudBound runner configuration.
-# The runner creates this file automatically on first start.
-# Webhooks and WebSockets are disabled by default.
+#
+# The runner creates this file automatically on first start. You can edit it
+# here or from Settings in the desktop app; both write the same file, and
+# editing from the app changes only the values, leaving these notes in place.
+#
+# Every limit below accepts either a number or "unlimited". Nothing here is a
+# ceiling you are stuck with: raise a limit, or write "unlimited", whenever a
+# script you trust needs more room. The defaults are chosen to make a runaway
+# script noticeable rather than to constrain deliberate work.
+#
+# Deleting a setting is the same as leaving it at its default. To start over,
+# press Reset in Settings, which rewrites this file with these notes restored.
 
 [runner]
+# How often the runner rechecks installed packages for trigger changes.
 trigger_reload_seconds = 2
+# How much run history to keep. Whichever limit is reached first prunes the
+# oldest runs: count, age in days, or total size on disk in bytes.
 run_history_max_records = 10000
 run_history_max_age_days = 30
 run_history_max_bytes = 1073741824
@@ -517,25 +555,51 @@ run_history_max_bytes = 1073741824
 target_runtimes = []
 
 [display]
+# Clock style used for every timestamp shown in the app: "24-hour" or "12-hour".
 time_format = "24-hour"
 
 [limits]
+# Ceilings on what a single run may consume. Each one accepts a number or
+# "unlimited".
+
+# Largest response body an HTTP request node will read.
 max_http_response_bytes = 10485760
+# Largest file a download node will fetch, and largest a read node will open.
 max_file_download_bytes = 104857600
 max_file_read_bytes = 10485760
+# Largest single block of text a node may generate.
 max_generated_text_bytes = 67108864
+# Largest amount of output captured from a launched process.
 max_process_output_bytes = 8388608
+
+# How many runs may execute at once, across all scripts and per script.
 max_active_runs_global = 16
 max_active_runs_per_script = 1
+# How many activations may wait behind a script that is already running.
 max_queued_activations_per_script = 64
+# When a schedule is missed, how many overdue events one poll may replay.
 max_schedule_catch_up_events_per_poll = 1000
+# What happens when a script's queue is full: "reject_newest" turns the new
+# activation away, "drop_oldest" makes room by discarding the one waiting
+# longest.
 queue_overflow_strategy = "reject_newest"
+
+# How far a single run may go before the runner stops it. Raise these, or set
+# them to "unlimited", for scripts meant to run continuously.
 max_steps_per_run = 1000000
 max_run_duration_ms = 3600000
 max_loop_iterations_per_run = 1000000
+
+# How many processes one script may hold open, and how quickly it may start
+# them.
 max_processes_per_script = 4
 max_process_launches_per_minute = 120
+# Total bytes one run may write to disk.
 max_file_write_bytes_per_run = 1073741824
+
+# Sizes of the records the runner keeps about a run: one log line, all the
+# variables held in memory during a run, the whole run log, a single variable
+# kept after the run ends, and the stored record as a whole.
 max_log_entry_bytes = 16384
 max_runtime_variable_bytes = 16777216
 max_run_log_bytes = 2097152
@@ -548,31 +612,50 @@ max_run_record_bytes = 8388608
 # They ship disabled. Enable one when a script you trust needs it, either here
 # or from Settings in the desktop app. Approving a package is not enough on its
 # own while the matching setting is false.
+
+# Lets scripts run shell commands and launch processes.
 allow_shell_commands = false
+# Lets scripts request permissions marked dangerous, such as unrestricted
+# filesystem access.
 allow_dangerous_permissions = false
+# Lets webhook and WebSocket listeners bind an address other than this machine.
 allow_public_network_listeners = false
+# Lets scripts make HTTP requests to private and loopback addresses, such as
+# other services on your own network.
 allow_private_http_requests = false
 
 [updates]
+# Whether the app checks for new releases on its own, and how often.
 automatic_checks = true
 check_interval_hours = 24
 
 [desktop]
+# Start the app when you sign in.
 launch_at_login = false
+# Start the background runner as soon as the app opens, so triggers are live
+# without pressing Start.
 start_background_runner_on_launch = false
+# Open to the tray instead of showing a window.
 start_minimized_to_tray = false
+# Closing the window leaves the app running in the tray. Set false to make
+# closing the window quit, which also stops every trigger.
 keep_running_on_close = true
+# The dialog console is the window scripts use to ask you something mid-run.
 dialog_console_enabled = false
 dialog_console_always_on_top = false
+# Bring the console forward when a script asks for input.
 dialog_console_focus_on_request = true
 
 [triggers]
+# Which kinds of trigger the runner listens for. A trigger switched off here
+# never fires, whatever the scripts that use it ask for.
 schedules_enabled = true
 file_watch_enabled = true
 hotkeys_enabled = true
 process_watch_enabled = true
 serial_enabled = true
 startup_enabled = true
+# Webhooks and WebSockets open a network listener, so they ship disabled.
 webhooks_enabled = false
 websockets_enabled = false
 
@@ -580,20 +663,34 @@ websockets_enabled = false
 # Define matching runner-side device settings here.
 #
 # [serial.devices.main_controller]
+# Port name as the operating system reports it, such as "COM3" or
+# "/dev/ttyUSB0".
 # port = "COM3"
+# Line settings, which have to match the device on the other end.
 # baud_rate = 9600
 # data_bits = 8
-# dtr_on_open = "deasserted"
 # parity = "none"
 # stop_bits = "1"
 # flow_control = "none"
+# Whether DTR is asserted when the port opens. Some boards reset when it is.
+# dtr_on_open = "deasserted"
+# How incoming bytes are split into messages. "idle_gap" ends a message after
+# message_gap_ms of silence.
 # read_mode = "idle_gap"
 # message_gap_ms = 100
 # max_message_bytes = 1048576
+# How long to wait after opening before trusting the port, for devices that
+# reset on connect.
 # open_stabilization_ms = 500
+# Reopen the port automatically after it drops.
 # auto_reconnect = true
+# Check the USB identity below before using the port, so a different device
+# plugged into the same port is not mistaken for this one.
 # validate_usb_identity = false
+# Follow this device when the operating system moves it to another port name.
+# Needs vendor_id and product_id.
 # auto_rebind_port = false
+# USB identity, as hexadecimal. Leave any of these empty to skip matching on it.
 # vendor_id = "1A86"
 # product_id = "7523"
 # serial_number = ""
@@ -601,22 +698,33 @@ websockets_enabled = false
 # product = ""
 
 [webhooks]
+# Address and port the webhook listener binds. 127.0.0.1 accepts requests from
+# this machine only; binding a public address also needs
+# allow_public_network_listeners above.
 bind = "127.0.0.1"
 port = 43891
 max_body_bytes = 1048576
 max_connections = 128
+# Caps applied before a request has authenticated, which is what absorbs
+# unwanted traffic. Each accepts a number or "unlimited".
 max_unauthenticated_connections = 32
 pre_auth_requests_per_minute_global = 600
 pre_auth_requests_per_minute_per_address = 60
 header_read_timeout_ms = 10000
 pre_auth_timeout_ms = 5000
+# body_read_progress_timeout_ms limits silence mid-body; body_read_timeout_ms
+# limits the whole body.
 body_read_progress_timeout_ms = 10000
 body_read_timeout_ms = 30000
 max_header_bytes = 32768
+# Browser origins allowed to call these endpoints. Empty allows none.
 allow_browser_origins = []
+# Permit a public bind with no authentication configured. Leave false unless
+# you intend the endpoint to be open to anyone who can reach it.
 allow_unauthenticated_public_bind = false
 
 [websockets]
+# Same shape as [webhooks] above, for the WebSocket listener.
 bind = "127.0.0.1"
 port = 43892
 max_message_bytes = 1048576
@@ -829,19 +937,49 @@ pub struct SerialDeviceSettings {
     pub data_bits: u8,
     pub dtr_on_open: String,
     pub flow_control: String,
+    #[serde(with = "unset_as_empty_text")]
     pub manufacturer: Option<String>,
     pub max_message_bytes: usize,
     pub message_gap_ms: u64,
     pub open_stabilization_ms: u64,
     pub parity: String,
     pub port: String,
+    #[serde(with = "unset_as_empty_text")]
     pub product_id: Option<String>,
+    #[serde(with = "unset_as_empty_text")]
     pub product: Option<String>,
     pub read_mode: String,
+    #[serde(with = "unset_as_empty_text")]
     pub serial_number: Option<String>,
     pub stop_bits: String,
     pub validate_usb_identity: bool,
+    #[serde(with = "unset_as_empty_text")]
     pub vendor_id: Option<String>,
+}
+
+/// Writes an unset optional setting as an empty string rather than dropping it.
+///
+/// TOML has no null, so serializing `None` the ordinary way omits the key and
+/// the setting disappears from the file the moment it is cleared. Reading an
+/// empty value back as `None` keeps the round trip exact, and the serial
+/// runtime already treats an empty value as unset, so the two spellings have
+/// always meant the same thing.
+mod unset_as_empty_text {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<String>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(value.as_deref().unwrap_or_default())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<String>, D::Error> {
+        let value = Option::<String>::deserialize(deserializer)?;
+        Ok(value.filter(|value| !value.is_empty()))
+    }
 }
 
 impl Default for SerialDeviceSettings {
@@ -1163,6 +1301,36 @@ fn validate_usb_id(
         });
     }
     Ok(())
+}
+
+/// Copies every value from `updated` onto `existing`, in place.
+///
+/// A comment written above a setting belongs to its key and survives on its
+/// own. A comment written after the value on the same line belongs to the
+/// value, so it is carried across by hand when the value is replaced.
+/// Settings the config no longer has are dropped, and ones it gained are
+/// appended.
+fn merge_into_document(existing: &mut toml_edit::Table, updated: &toml_edit::Table) {
+    existing.retain(|key, _| updated.contains_key(key));
+
+    for (key, updated_item) in updated {
+        match (existing.get_mut(key), updated_item) {
+            (Some(toml_edit::Item::Table(existing_table)), toml_edit::Item::Table(updated_table)) => {
+                merge_into_document(existing_table, updated_table);
+            }
+            (Some(existing_item), toml_edit::Item::Value(updated_value)) => {
+                let mut next = updated_value.clone();
+                if let Some(current) = existing_item.as_value() {
+                    *next.decor_mut() = current.decor().clone();
+                }
+                *existing_item = toml_edit::Item::Value(next);
+            }
+            (Some(existing_item), _) => *existing_item = updated_item.clone(),
+            (None, _) => {
+                existing.insert(key, updated_item.clone());
+            }
+        }
+    }
 }
 
 fn validate_optional_usb_id(
@@ -1891,5 +2059,91 @@ mod tests {
         );
         assert!(!config.triggers.webhooks_enabled);
         assert!(!config.triggers.websockets_enabled);
+    }
+}
+
+#[cfg(test)]
+mod comment_preservation_tests {
+    use super::*;
+
+    #[test]
+    fn editing_a_setting_keeps_every_comment_in_the_file() {
+        let original = RunnerConfig::template_toml();
+        let mut config =
+            RunnerConfig::from_toml(original, std::path::Path::new("config.toml")).unwrap();
+        config.runner.trigger_reload_seconds = 9;
+        config.triggers.webhooks_enabled = true;
+
+        let written = config.to_toml_preserving_comments(original).unwrap();
+
+        let comments = |text: &str| {
+            text.lines()
+                .map(str::trim_start)
+                .filter(|line| line.starts_with('#'))
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            comments(original),
+            comments(&written),
+            "every comment should survive an edit"
+        );
+        assert!(written.contains("trigger_reload_seconds = 9"));
+        assert!(written.contains("webhooks_enabled = true"));
+
+        let reloaded =
+            RunnerConfig::from_toml(&written, std::path::Path::new("config.toml")).unwrap();
+        assert_eq!(reloaded.runner.trigger_reload_seconds, 9);
+        assert!(reloaded.triggers.webhooks_enabled);
+    }
+
+    #[test]
+    fn keeps_a_note_written_after_the_value_it_describes() {
+        let original = "[runner]\ntrigger_reload_seconds = 2 # checked this often\n";
+        let mut config =
+            RunnerConfig::from_toml(original, std::path::Path::new("config.toml")).unwrap();
+        config.runner.trigger_reload_seconds = 30;
+
+        let written = config.to_toml_preserving_comments(original).unwrap();
+
+        assert!(
+            written.contains("trigger_reload_seconds = 30 # checked this often"),
+            "a trailing note belongs to the value and has to be carried across: {written}"
+        );
+    }
+
+    #[test]
+    fn an_unset_optional_setting_keeps_its_key() {
+        let mut config = RunnerConfig::default();
+        config
+            .serial
+            .devices
+            .insert(
+                "probe".to_owned(),
+                SerialDeviceSettings { port: "COM3".to_owned(), ..SerialDeviceSettings::default() },
+            );
+
+        let written = config.to_pretty_toml().unwrap();
+
+        for setting in ["vendor_id", "product_id", "serial_number", "manufacturer", "product"] {
+            assert!(
+                written.contains(&format!("{setting} = \"\"")),
+                "{setting} should stay in the file when it is unset: {written}"
+            );
+        }
+
+        let reloaded =
+            RunnerConfig::from_toml(&written, std::path::Path::new("config.toml")).unwrap();
+        assert_eq!(
+            reloaded.serial.devices["probe"], config.serial.devices["probe"],
+            "an empty value should read back as unset, not as an empty string"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_a_clean_render_when_the_file_is_not_toml() {
+        let config = RunnerConfig::default();
+        let written = config.to_toml_preserving_comments("this is not = = toml").unwrap();
+        assert_eq!(written, config.to_pretty_toml().unwrap());
     }
 }
