@@ -42,6 +42,17 @@ const modifiedShortcuts: ChromeShortcut[] = [
 /// Matched on their own, with no modifier required.
 const bareShortcuts = new Set(["F3", "F5", "F7"]);
 
+/**
+ * Reloads the window, the one browser behaviour worth keeping.
+ *
+ * WebView2 refuses the browser accelerators outright, so the shortcut cannot
+ * be let through and has to be carried out here instead. Only the modified
+ * form reloads, so a stray F5 still does nothing.
+ */
+export function isReloadShortcut(event: KeyboardEvent) {
+  return event.key === "F5" && (event.ctrlKey || event.metaKey);
+}
+
 /// Developer tools, kept available while developing the runner.
 const developerShortcuts: ChromeShortcut[] = [
   { key: "i", shift: true },
@@ -50,6 +61,9 @@ const developerShortcuts: ChromeShortcut[] = [
 ];
 
 export function isBrowserChromeShortcut(event: KeyboardEvent, allowDeveloperTools: boolean) {
+  if (isReloadShortcut(event)) {
+    return false;
+  }
   if (bareShortcuts.has(event.key)) {
     return true;
   }
@@ -85,6 +99,11 @@ export function installBrowserChromeGuard(
   const capture = { capture: true } as const;
   const onKeyDown = (event: Event) => {
     if (!(event instanceof KeyboardEvent)) return;
+    if (isReloadShortcut(event)) {
+      event.preventDefault();
+      window.location.reload();
+      return;
+    }
     if (isBrowserChromeShortcut(event, options.allowDeveloperTools)) {
       event.preventDefault();
     }

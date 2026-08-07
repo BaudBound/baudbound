@@ -5,6 +5,11 @@ const UNSIGNED_FLOAT_PATTERN = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]
 
 export const runtimeFloatMinimum = "-1.7976931348623157e308";
 export const runtimeFloatMaximum = "1.7976931348623157e308";
+// An integer contract is read with BigInt, which rejects exponent notation, so
+// an integer field cannot borrow the float bounds. This is the safe integer
+// range the runner and the type rules use.
+export const runtimeIntegerMinimum = "-9007199254740991";
+export const runtimeIntegerMaximum = "9007199254740991";
 
 export type NumericFieldContract = {
   kind: "float" | "integer";

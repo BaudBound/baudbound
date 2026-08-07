@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   runtimeFloatMaximum,
   runtimeFloatMinimum,
+  runtimeIntegerMaximum,
+  runtimeIntegerMinimum,
   type NumericFieldContract,
 } from "@/components/numeric-field-model";
 import { NumericField } from "@/components/numeric-field";
@@ -34,6 +36,8 @@ const runtimeFloatContract: NumericFieldContract = {
 const runtimeIntegerContract: NumericFieldContract = {
   ...runtimeFloatContract,
   kind: "integer",
+  maximum: runtimeIntegerMaximum,
+  minimum: runtimeIntegerMinimum,
 };
 const durationAmountContract: NumericFieldContract = {
   ...runtimeFloatContract,

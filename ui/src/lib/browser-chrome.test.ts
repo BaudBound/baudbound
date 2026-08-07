@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isBrowserChromeShortcut } from "@/lib/browser-chrome";
+import { isBrowserChromeShortcut, isReloadShortcut } from "@/lib/browser-chrome";
 
 function press(key: string, modifiers: Partial<KeyboardEvent> = {}) {
   return { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, key, ...modifiers } as KeyboardEvent;
@@ -45,5 +45,19 @@ describe("browser chrome shortcuts", () => {
   it("treats the command key like the control key", () => {
     expect(isBrowserChromeShortcut(press("f", { metaKey: true }), false)).toBe(true);
     expect(isBrowserChromeShortcut(press("c", { metaKey: true }), false)).toBe(false);
+  });
+});
+
+describe("reload", () => {
+  it("keeps the modified reload and refuses the bare one", () => {
+    // The window reload is the one browser behaviour worth keeping, and the
+    // guard carries it out itself because WebView2 refuses the accelerator.
+    expect(isReloadShortcut(press("F5", { ctrlKey: true }))).toBe(true);
+    expect(isReloadShortcut(press("F5", { metaKey: true }))).toBe(true);
+    expect(isBrowserChromeShortcut(press("F5", { ctrlKey: true }), false)).toBe(false);
+
+    // A stray F5 still does nothing, so a run is not restarted by accident.
+    expect(isReloadShortcut(press("F5"))).toBe(false);
+    expect(isBrowserChromeShortcut(press("F5"), false)).toBe(true);
   });
 });
