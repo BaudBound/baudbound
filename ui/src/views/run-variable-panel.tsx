@@ -139,7 +139,7 @@ function VariableTableRow({ expanded, onToggle, row }: { expanded: boolean; onTo
           <Badge variant="muted">{row.type}</Badge>
         </td>
         <td className="max-w-[420px] px-3 py-2" data-label="Value">
-          <span className="break-words font-mono text-xs text-muted-foreground">{row.preview}</span>
+          <span className="select-text break-words font-mono text-xs text-muted-foreground">{row.preview}</span>
         </td>
         <td className="px-3 py-2 text-right" data-label="Actions">
           {expandable ? (

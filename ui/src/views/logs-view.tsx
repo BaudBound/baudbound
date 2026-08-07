@@ -306,7 +306,7 @@ function RunLogsPanel({
                       {row.action_type ?? "-"}
                     </td>
                     <td className="px-3 py-3 xl:max-w-[520px]" data-label="Message">
-                      <span className="break-words font-mono text-xs">{visibleText(row.message)}</span>
+                      <span className="select-text break-words font-mono text-xs">{visibleText(row.message)}</span>
                     </td>
                     <td className="break-all px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Run">
                       {row.run_id}

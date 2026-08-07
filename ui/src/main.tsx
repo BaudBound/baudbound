@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "@/app";
+import { installBrowserChromeGuard } from "@/lib/browser-chrome";
 import { installContextMenuGuard } from "@/lib/context-menu";
 import "@/styles.css";
 import { CoordinatePickerOverlay } from "@/views/tools/coordinate-picker-overlay";
@@ -23,6 +24,7 @@ if (coordinatePickerSession) {
 }
 
 installContextMenuGuard(window);
+installBrowserChromeGuard(window, { allowDeveloperTools: import.meta.env.DEV });
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
