@@ -329,3 +329,27 @@ fn registration(node_id: &str, every: &str, unit: &str) -> TriggerRegistration {
         script_name: "Schedule Script".to_owned(),
     }
 }
+
+#[test]
+fn missed_intervals_counts_the_backlog_behind_each_event() {
+    let start = Instant::now();
+    let mut service =
+        ScheduleService::from_registrations([registration("n-schedule", "10", "seconds")], start)
+            .expect("schedule should parse");
+
+    // A punctual tick has nothing behind it.
+    let punctual = service.due_events(start + Duration::from_secs(10), SystemTime::UNIX_EPOCH);
+    assert_eq!(punctual.len(), 1);
+    assert_eq!(punctual[0].payload["missed_intervals"], 0);
+
+    // A poll that arrives 25 seconds late replays every tick it owes. The
+    // first carries the deepest backlog and the last is punctual again.
+    let delayed = start + Duration::from_secs(35);
+    let events = service.due_events(delayed, SystemTime::UNIX_EPOCH + Duration::from_secs(35));
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].payload["missed_intervals"], 1);
+    assert_eq!(events[1].payload["missed_intervals"], 0);
+
+    // The count is an integer, matching what the node declares.
+    assert!(events[0].payload["missed_intervals"].is_u64());
+}

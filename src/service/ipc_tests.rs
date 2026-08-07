@@ -1,6 +1,7 @@
 use std::{
     io::Write,
     net::TcpStream,
+    sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
@@ -62,10 +63,16 @@ fn incomplete_client_does_not_stall_command_polling_or_other_clients() {
     let incomplete =
         TcpStream::connect(server.descriptor().address).expect("incomplete client should connect");
     let status = json!({ "control": server.descriptor() });
+    // The deadline below measures the server, so the client has to be running
+    // before it starts. Timing the thread's own startup made this fail on a
+    // loaded machine for reasons that had nothing to do with the stalled peer.
+    let (ready, is_ready) = mpsc::channel();
     let client = thread::spawn(move || {
+        ready.send(()).expect("test thread should still be waiting");
         request_service_control(&status, ServiceControlCommand::Reload)
             .expect("authenticated client should not wait for incomplete peer");
     });
+    is_ready.recv().expect("client thread should start");
 
     let started = Instant::now();
     let command = wait_for_command(&server);
