@@ -189,7 +189,9 @@ function doctorChecks(dashboard: DashboardPayload, status: DoctorStatus): Doctor
         ? `${formatCount(dashboard.runner.enabled_script_count, "script")} ${
             dashboard.runner.enabled_script_count === 1 ? "is" : "are"
           } enabled.`
-        : "No scripts are enabled.",
+        : dashboard.runner.total_script_count > 0
+          ? "No scripts are enabled, so nothing will run."
+          : "No scripts are installed yet.",
       label: "Enabled scripts",
       state: status.states.enabledScripts,
     },
