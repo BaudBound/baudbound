@@ -681,7 +681,7 @@ fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
         ("integer", json!("not a number")),
         ("float", json!(3)),
         ("color", json!("red")),
-        ("keyboard_key", json!("NotARealKey")),
+        ("hotkey", json!("NotARealKey")),
     ] {
         let store = TestStateStore::default();
         let mut variable = default_variable(

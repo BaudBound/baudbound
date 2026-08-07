@@ -37,7 +37,7 @@ impl FromStr for ValueType {
             "object" => Ok(Self::Object),
             "list" => Ok(Self::List),
             "color" => Ok(Self::Color),
-            "keyboard_key" => Ok(Self::KeyboardKey),
+            "hotkey" => Ok(Self::KeyboardKey),
             "datetime" => Ok(Self::DateTime),
             "duration" => Ok(Self::Duration),
             other => Err(format!("unknown value type {other}")),
@@ -55,7 +55,7 @@ pub fn value_type_name(value_type: ValueType) -> &'static str {
         ValueType::Object => "object",
         ValueType::List => "list",
         ValueType::Color => "color",
-        ValueType::KeyboardKey => "keyboard_key",
+        ValueType::KeyboardKey => "hotkey",
         ValueType::DateTime => "datetime",
         ValueType::Duration => "duration",
     }
@@ -80,7 +80,7 @@ pub fn validate_value(value: &Value, value_type: ValueType) -> Result<(), String
         ValueType::Integer => validate_integer(value),
         ValueType::Float => validate_float(value),
         ValueType::Color => validate_color(value),
-        ValueType::KeyboardKey => validate_keyboard_key(value),
+        ValueType::KeyboardKey => validate_hotkey(value),
         ValueType::DateTime => validate_tagged(value, "datetime", &["type", "value"]),
         ValueType::Duration => validate_tagged(value, "duration", &["type", "unit", "value"]),
     }
@@ -137,11 +137,11 @@ fn validate_color(value: &Value) -> Result<(), String> {
     }
 }
 
-fn validate_keyboard_key(value: &Value) -> Result<(), String> {
+fn validate_hotkey(value: &Value) -> Result<(), String> {
     let Some(text) = value.as_str() else {
         return Err(format!("expected keyboard key, found {}", describe(value)));
     };
-    match baudbound_script::keyboard_key_error(text) {
+    match baudbound_script::hotkey_error(text) {
         Some(reason) => Err(format!("expected keyboard key, {reason}")),
         None => Ok(()),
     }
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_keys_must_exist_in_the_shared_contract() {
+    fn hotkeys_must_exist_in_the_shared_contract() {
         let valid = serde_json::json!("F5");
         let invalid = serde_json::json!("NotARealKey");
 

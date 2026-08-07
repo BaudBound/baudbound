@@ -171,7 +171,7 @@ export function TypedValueInput({
     );
   }
 
-  if (valueType === "keyboard_key") {
+  if (valueType === "hotkey") {
     return <HotkeyInput id={id} onChange={onChange} value={value} />;
   }
 

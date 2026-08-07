@@ -73,7 +73,7 @@ pub(crate) fn coerce_variable_value(
         },
         "object" | "datetime" | "duration" => coerce_json_container(node, value, true),
         "list" => coerce_json_container(node, value, false),
-        "keyboard_key" => Ok(Value::String(value_to_string(&value))),
+        "hotkey" => Ok(Value::String(value_to_string(&value))),
         _ => Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!("unsupported variable type {value_type}"),
@@ -294,7 +294,7 @@ pub(crate) fn refresh_derived_variable_metadata(
 /// that its own type rejects.
 pub(crate) fn empty_value_for_declared_type(value_type: &str) -> Option<Value> {
     match value_type {
-        "keyboard_key" => None,
+        "hotkey" => None,
         other => Some(empty_value_for_type(other)),
     }
 }

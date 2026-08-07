@@ -1,15 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-/// Reports why a key expression is not a valid `keyboard_key`, or `None` when
-/// it is valid.
+/// Reports why a key expression is not a valid `hotkey`, or `None` when it is
+/// valid.
 ///
-/// A keyboard key is an expression such as `Ctrl+S`, not a single key, and a
-/// bare modifier such as `Ctrl` is valid on its own. The rule lives in this
+/// A hotkey is an expression such as `Ctrl+S`, not a single key, and a bare
+/// modifier such as `Ctrl` is valid on its own. The rule lives in this
 /// crate so that the manifest validator, Script Settings and the runtime all
 /// decide it the same way. It mirrors `validateWindowsKeyExpression` in the
 /// editor, which is the contract both sides are written against.
-pub fn keyboard_key_error(expression: &str) -> Option<String> {
+pub fn hotkey_error(expression: &str) -> Option<String> {
     let parts: Vec<&str> = expression.split(['+', '-']).map(str::trim).collect();
     if parts.is_empty() || parts.iter().any(|part| part.is_empty()) {
         return Some("key expression must contain at least one supported key".to_owned());
@@ -36,9 +36,9 @@ pub fn keyboard_key_error(expression: &str) -> Option<String> {
     None
 }
 
-/// Reports whether a key expression is a valid `keyboard_key`.
-pub fn is_keyboard_key(expression: &str) -> bool {
-    keyboard_key_error(expression).is_none()
+/// Reports whether a key expression is a valid `hotkey`.
+pub fn is_hotkey(expression: &str) -> bool {
+    hotkey_error(expression).is_none()
 }
 
 fn normalize_key_token(token: &str) -> String {
@@ -76,7 +76,7 @@ fn key_contract_tokens() -> &'static KeyContractTokens {
         let contract: KeyContract = serde_json::from_str(include_str!(
             "../../../contracts/runner/windows-keyboard-keys.json"
         ))
-        .expect("embedded keyboard key contract must be valid JSON");
+        .expect("embedded Windows key contract must be valid JSON");
 
         let build_table = |entries: Vec<KeyEntry>| {
             let mut table = HashMap::new();
@@ -107,14 +107,14 @@ mod tests {
     fn accepts_the_expressions_the_editor_accepts() {
         for expression in ["F5", "Ctrl+S", "control+s", "Ctrl", "Ctrl+Shift+F8"] {
             assert!(
-                is_keyboard_key(expression),
-                "{expression:?} should be a valid keyboard key"
+                is_hotkey(expression),
+                "{expression:?} should be a valid hotkey"
             );
         }
         for expression in ["NotARealKey", "Ctrl+Ctrl", "Ctrl+", "", "Ctrl+control"] {
             assert!(
-                !is_keyboard_key(expression),
-                "{expression:?} should not be a valid keyboard key"
+                !is_hotkey(expression),
+                "{expression:?} should not be a valid hotkey"
             );
         }
     }

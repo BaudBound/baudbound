@@ -8,15 +8,7 @@ use super::PackageLoadError;
 include!(concat!(env!("OUT_DIR"), "/embedded_schemas.rs"));
 
 const KNOWN_VALUE_TYPES: &[&str] = &[
-    "string",
-    "integer",
-    "float",
-    "boolean",
-    "object",
-    "list",
-    "color",
-    "keyboard_key",
-    "datetime",
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
     "duration",
 ];
 
@@ -259,7 +251,7 @@ mod tests {
                 json!({"type": "duration", "unit": "seconds", "value": 3}),
             ),
             ("color", json!("#ff8800")),
-            ("keyboard_key", json!("Ctrl+S")),
+            ("hotkey", json!("Ctrl+S")),
         ];
 
         for (variable_type, value) in cases {

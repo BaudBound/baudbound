@@ -222,7 +222,7 @@ function draftValueForPreview(setting: InstalledScriptSettingStatus, draft: Sett
   if (!draft.configured) return setting.default_value;
   if (
     setting.value_type === "string" ||
-    setting.value_type === "keyboard_key" ||
+    setting.value_type === "hotkey" ||
     setting.value_type === "color"
   ) {
     return draft.value;
@@ -276,7 +276,7 @@ export function validateDraftValue(
   value: string,
 ): string | null {
   if (valueType === "string") return null;
-  if (valueType === "keyboard_key") {
+  if (valueType === "hotkey") {
     return validateHotkey(value) ? null : "Press a valid Windows key combination.";
   }
   if (valueType === "color") {
@@ -325,7 +325,7 @@ function valueMatchesType(
   value: unknown,
 ) {
   if (valueType === "string") return typeof value === "string";
-  if (valueType === "keyboard_key") return typeof value === "string" && validateHotkey(value);
+  if (valueType === "hotkey") return typeof value === "string" && validateHotkey(value);
   if (valueType === "color") return typeof value === "string" && isValidColor(value);
   if (valueType === "integer") return typeof value === "number" && Number.isInteger(value);
   if (valueType === "float") return typeof value === "number" && Number.isFinite(value);

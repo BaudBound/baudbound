@@ -23,7 +23,7 @@ export function formatTypedValueForDisplay(
 }
 
 function formatValue(valueType: DisplayType, value: unknown): string {
-  if (valueType === "string" || valueType === "keyboard_key" || valueType === "color") {
+  if (valueType === "string" || valueType === "hotkey" || valueType === "color") {
     return typeof value === "string" ? value : "Invalid value";
   }
   if (valueType === "integer") {

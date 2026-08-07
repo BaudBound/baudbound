@@ -12,9 +12,9 @@ describe("script setting drafts", () => {
     // The dialog spoke the previous vocabulary, so a keyboard key setting fell
     // through to the JSON branch. It offered no key capture and reported
     // "Enter valid JSON." for a key that was simply not recognised.
-    expect(check("keyboard_key", "Ctrl+Shift+F8")).toBeNull();
-    expect(check("keyboard_key", "Ctrl+NotARealKey")).toMatch(/Windows key combination/);
-    expect(check("keyboard_key", "Ctrl+NotARealKey")).not.toMatch(/JSON/);
+    expect(check("hotkey", "Ctrl+Shift+F8")).toBeNull();
+    expect(check("hotkey", "Ctrl+NotARealKey")).toMatch(/Windows key combination/);
+    expect(check("hotkey", "Ctrl+NotARealKey")).not.toMatch(/JSON/);
   });
 
   it("keeps integer and float apart", () => {

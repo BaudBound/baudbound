@@ -198,7 +198,7 @@ fn parse_setting_value(
         )));
     }
     let value = match declaration.value_type.as_str() {
-        "string" | "keyboard_key" | "color" => Ok(Value::String(input.to_owned())),
+        "string" | "hotkey" | "color" => Ok(Value::String(input.to_owned())),
         // An integer is parsed as an integer rather than through f64, so it
         // keeps the integer variant and stays distinct from a float.
         "integer" => input
@@ -266,9 +266,7 @@ pub(crate) fn value_matches_type(value_type: &str, item_type: Option<&str>, valu
         // variable and a manifest default all agree on what a keyboard key is.
         // The hotkey parser stays for registering a real hotkey, which is a
         // different job from validating a declared value.
-        "keyboard_key" => value
-            .as_str()
-            .is_some_and(baudbound_script::is_keyboard_key),
+        "hotkey" => value.as_str().is_some_and(baudbound_script::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint: a whole number is not a float and a
         // fractional one is not an integer.
@@ -341,7 +339,7 @@ mod tests {
                 "{\"type\":\"duration\",\"unit\":\"minutes\",\"value\":5}",
                 json!({"type": "duration", "unit": "minutes", "value": 5}),
             ),
-            ("keyboard_key", "Ctrl+Shift+F8", json!("Ctrl+Shift+F8")),
+            ("hotkey", "Ctrl+Shift+F8", json!("Ctrl+Shift+F8")),
             ("color", "#1A2b3C", json!("#1A2b3C")),
         ] {
             assert_eq!(
@@ -382,7 +380,7 @@ mod tests {
                 "does not match declared type",
             ),
             (
-                "keyboard_key",
+                "hotkey",
                 "Ctrl+DefinitelyNotAKey",
                 "does not match declared type",
             ),

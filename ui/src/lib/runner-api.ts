@@ -785,7 +785,7 @@ export type ScriptSettingValueType =
   | "duration"
   | "float"
   | "integer"
-  | "keyboard_key"
+  | "hotkey"
   | "list"
   | "object"
   | "string";

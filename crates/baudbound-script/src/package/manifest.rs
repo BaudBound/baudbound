@@ -9,27 +9,11 @@ use super::{PackageLoadError, finish_validation};
 /// Variables, list elements and Script Settings all declare the same ten types.
 /// A list element may be any of them except a list, so nesting stays one level.
 const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
-    "string",
-    "integer",
-    "float",
-    "boolean",
-    "object",
-    "list",
-    "color",
-    "keyboard_key",
-    "datetime",
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
     "duration",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
-    "string",
-    "integer",
-    "float",
-    "boolean",
-    "object",
-    "color",
-    "keyboard_key",
-    "datetime",
-    "duration",
+    "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
 const SUPPORTED_SETTING_TYPES: &[&str] = SUPPORTED_VARIABLE_TYPES;
 pub const MAX_SCRIPT_SETTING_CONTAINER_ITEMS: usize = 4096;
@@ -471,7 +455,7 @@ fn value_matches_declared_type(
 ) -> bool {
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
-        "keyboard_key" => value.as_str().is_some_and(crate::is_keyboard_key),
+        "hotkey" => value.as_str().is_some_and(crate::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint, so a whole number is not a float and
         // a fractional one is not an integer.
@@ -605,7 +589,7 @@ mod tests {
             },
             {
                 "name": "shortcut",
-                "type": "keyboard_key",
+                "type": "hotkey",
                 "default_value": "Ctrl+Shift+F8"
             },
             {
@@ -744,7 +728,7 @@ mod tests {
             // A list satisfies its own type by being an array, so each element
             // has to be checked against the item type in its own right.
             (
-                serde_json::json!([{"name": "keys", "scope": "runtime", "type": "list", "item_type": "keyboard_key", "value": ["NotARealKey"]}]),
+                serde_json::json!([{"name": "keys", "scope": "runtime", "type": "list", "item_type": "hotkey", "value": ["NotARealKey"]}]),
                 "does not match type",
             ),
             (

@@ -13,27 +13,11 @@ use super::RuntimeError;
 /// The ten declarable types. A list element may be any of them except a list,
 /// so nesting stays one level.
 const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
-    "string",
-    "integer",
-    "float",
-    "boolean",
-    "object",
-    "list",
-    "color",
-    "keyboard_key",
-    "datetime",
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
     "duration",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
-    "string",
-    "integer",
-    "float",
-    "boolean",
-    "object",
-    "color",
-    "keyboard_key",
-    "datetime",
-    "duration",
+    "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
 
 pub(super) fn validate_default_variables(
@@ -175,7 +159,7 @@ fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) 
         // against the shared vocabulary in `reject_wrong_type_default`, which
         // reports a type error rather than an invalid graph, so a mismatch
         // takes the same path as a failed cast.
-        "integer" | "float" | "color" | "keyboard_key" => true,
+        "integer" | "float" | "color" | "hotkey" => true,
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {

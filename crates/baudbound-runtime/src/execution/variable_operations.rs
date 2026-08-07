@@ -559,13 +559,13 @@ fn variable_operation_declared_type(
 
 /// Names which string-shaped type a node declares, if it declares one.
 ///
-/// `string`, `color` and `keyboard_key` are all JSON strings, so a stored value
+/// `string`, `color` and `hotkey` are all JSON strings, so a stored value
 /// cannot say which of them it is. Only these three are read from the node,
 /// because every other type is identifiable from the value itself.
 fn declared_string_type(node: &RuntimeNode) -> Option<&'static str> {
     match config_string(&node.config, "valueType")?.as_str() {
         "color" => Some("color"),
-        "keyboard_key" => Some("keyboard_key"),
+        "hotkey" => Some("hotkey"),
         _ => None,
     }
 }
@@ -758,7 +758,7 @@ fn validate_declared_value(
         // The types introduced by the type rework are checked by the shared
         // validator so that a declared variable and a validated boundary can
         // never disagree about what the type means.
-        "integer" | "float" | "color" | "keyboard_key" => value_type
+        "integer" | "float" | "color" | "hotkey" => value_type
             .parse::<crate::ValueType>()
             .is_ok_and(|declared| crate::validate_value(value, declared).is_ok()),
         "duration" => value.as_object().is_some_and(|object| {

@@ -777,13 +777,13 @@ fn clearing_preserves_the_declared_type_for_every_type() {
 }
 
 #[test]
-fn clearing_a_keyboard_key_reports_that_it_has_no_empty_value() {
-    let mut clear = variable_node("n-clear", "shortcut", "clear", "keyboard_key", Value::Null);
-    clear["config"]["valueType"] = json!("keyboard_key");
+fn clearing_a_hotkey_reports_that_it_has_no_empty_value() {
+    let mut clear = variable_node("n-clear", "shortcut", "clear", "hotkey", Value::Null);
+    clear["config"]["valueType"] = json!("hotkey");
 
     let report = execute(
         vec![
-            variable_node("n-set", "shortcut", "set", "keyboard_key", json!("Ctrl+S")),
+            variable_node("n-set", "shortcut", "set", "hotkey", json!("Ctrl+S")),
             clear,
         ],
         linear_edges(&["n-set", "n-clear"]),
