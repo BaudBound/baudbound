@@ -1,5 +1,6 @@
 //! Shared runner orchestration used by CLI, daemon, and desktop shells.
 
+mod active_runs;
 mod compatibility;
 mod config;
 mod execution_queue;
@@ -57,6 +58,7 @@ use run_records::{
 };
 use version::{VersionCompatibilityError, validate_minimum_runner_version};
 
+pub use active_runs::ActiveRunTracker;
 pub use baudbound_runtime::RunReport;
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 pub use compatibility::{DESKTOP_ONLY_ACTIONS, RunnerExecutionMode, WINDOWS_DESKTOP_ONLY_ACTIONS};
