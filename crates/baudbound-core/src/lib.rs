@@ -824,7 +824,14 @@ impl RunnerCore {
                 },
                 value_type: variable.value_type.clone(),
                 item_type: variable.item_type.clone(),
-                value: variable.value.clone(),
+                // The declaration settles what a bare number meant, so this is
+                // where a float declared as `300` becomes a float, before a run
+                // can read it as an integer.
+                value: settings::coerce_declared_value(
+                    &variable.value_type,
+                    variable.item_type.as_deref(),
+                    variable.value.clone(),
+                ),
             })
             .collect::<Vec<_>>();
         let script_settings =

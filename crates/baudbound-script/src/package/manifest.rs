@@ -6,37 +6,16 @@ use url::Url;
 
 use super::{PackageLoadError, finish_validation};
 
+/// Variables, list elements and Script Settings all declare the same ten types.
+/// A list element may be any of them except a list, so nesting stays one level.
 const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "list",
-    "datetime",
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
     "duration",
-    "file_path",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "datetime",
-    "duration",
-    "file_path",
+    "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
-const SUPPORTED_SETTING_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "list",
-    "datetime",
-    "duration",
-    "file_path",
-    "hotkey",
-    "color",
-];
+const SUPPORTED_SETTING_TYPES: &[&str] = SUPPORTED_VARIABLE_TYPES;
 pub const MAX_SCRIPT_SETTING_CONTAINER_ITEMS: usize = 4096;
 pub const MAX_SCRIPT_SETTING_VALUE_DEPTH: usize = 32;
 
@@ -425,7 +404,9 @@ pub(super) fn validate_manifest_variable_operations(
             .unwrap_or_default();
         let declared_type = match operation {
             "set" => config.get("valueType").and_then(serde_json::Value::as_str),
-            "increment" => Some("number"),
+            // Increment does not pin a numeric type: it applies to whichever
+            // numeric type the variable was declared with, and preserves it.
+            "increment" => None,
             "toggle_boolean" => Some("boolean"),
             "append_list" | "remove_list_items" => Some("list"),
             "set_object_field" | "remove_object_field" | "merge_object" => Some("object"),
@@ -474,10 +455,12 @@ fn value_matches_declared_type(
 ) -> bool {
     match value_type {
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
-        "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
-        "hotkey" => value.as_str().is_some_and(|key| !key.trim().is_empty()),
+        "hotkey" => value.as_str().is_some_and(crate::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
-        "number" => value.is_number(),
+        // integer and float are disjoint, so a whole number is not a float and
+        // a fractional one is not an integer.
+        "integer" => crate::is_safe_integer(value),
+        "float" => value.is_f64(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {
@@ -543,7 +526,7 @@ mod tests {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "Counter-2_primary",
             "scope": "persistent",
-            "type": "number",
+            "type": "integer",
             "description": "Retained counter",
             "value": 10
         }]));
@@ -563,7 +546,7 @@ mod tests {
             },
             {
                 "name": "retries",
-                "type": "number",
+                "type": "integer",
                 "default_value": 3
             },
             {
@@ -601,7 +584,7 @@ mod tests {
             },
             {
                 "name": "output_path",
-                "type": "file_path",
+                "type": "string",
                 "default_value": "/tmp/output.txt"
             },
             {
@@ -637,7 +620,7 @@ mod tests {
             ),
             (
                 serde_json::json!([
-                    {"name": "retries", "type": "number", "default_value": "three"}
+                    {"name": "retries", "type": "integer", "default_value": "three"}
                 ]),
                 "default value does not match type",
             ),
@@ -727,11 +710,11 @@ mod tests {
     fn rejects_invalid_manifest_default_variables() {
         for (variables, expected) in [
             (
-                serde_json::json!([{"name": "counter", "scope": "global", "type": "number", "value": 10}]),
+                serde_json::json!([{"name": "counter", "scope": "global", "type": "integer", "value": 10}]),
                 "unsupported scope",
             ),
             (
-                serde_json::json!([{"name": "counter", "scope": "runtime", "type": "number", "value": "ten"}]),
+                serde_json::json!([{"name": "counter", "scope": "runtime", "type": "integer", "value": "ten"}]),
                 "does not match type",
             ),
             (
@@ -741,6 +724,16 @@ mod tests {
             (
                 serde_json::json!([{"name": "settings", "scope": "runtime", "type": "string", "value": "reserved"}]),
                 "reserved Script Settings namespace",
+            ),
+            // A list satisfies its own type by being an array, so each element
+            // has to be checked against the item type in its own right.
+            (
+                serde_json::json!([{"name": "keys", "scope": "runtime", "type": "list", "item_type": "hotkey", "value": ["NotARealKey"]}]),
+                "does not match type",
+            ),
+            (
+                serde_json::json!([{"name": "counts", "scope": "runtime", "type": "list", "item_type": "integer", "value": ["not a number"]}]),
+                "does not match type",
             ),
         ] {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
@@ -754,13 +747,13 @@ mod tests {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "counter",
             "scope": "persistent",
-            "type": "number",
+            "type": "integer",
             "value": 10
         }]));
         let program = serde_json::json!({
             "entry": {"program": {"steps": [{
                 "action_type": "runtime.set_variable",
-                "config": {"name": "counter", "scope": "runtime", "valueType": "number"}
+                "config": {"name": "counter", "scope": "runtime", "valueType": "integer"}
             }]}}
         });
 

@@ -7,10 +7,16 @@ use crate::runtime::{
 use super::{
     RunVariableScope, RuntimeActionError, RuntimeActionFailure, RuntimeActionRequest, RuntimeError,
     RuntimeExecutor, RuntimeNode, action_diagnostics::action_completion_message,
+    cast_validation::validate_config_casts,
 };
 
 impl RuntimeExecutor<'_> {
     pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        // Every node, not just the ones that call an external action. Log,
+        // variable operations, delay and calculate render templates too, and a
+        // cast that fails during rendering resolves to the literal template
+        // text rather than stopping, so it has to be proven here.
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         match node.action_type.as_str() {
             "action.log" => self.execute_log(node),
             "runtime.set_variable" => self.execute_variable_operation(node),
@@ -38,7 +44,7 @@ impl RuntimeExecutor<'_> {
             self.validate_webhook_response_state(node)?;
         }
         let config = if node.action_type == "action.http" {
-            resolve_http_request_config(&node.config, &self.context.variables).map_err(
+            resolve_http_request_config(&node.id, &node.config, &self.context.variables).map_err(
                 |message| structured_http_runtime_error(node, "INVALID_REQUEST", message, false),
             )?
         } else {
@@ -165,7 +171,10 @@ impl RuntimeExecutor<'_> {
     }
 
     fn execute_delay(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
+        // Delay's fields are all numeric and stay under `NumericKind`; see
+        // the comment on the call above in `execute_external_action`.
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::Action {
                 node_id: node.id.clone(),

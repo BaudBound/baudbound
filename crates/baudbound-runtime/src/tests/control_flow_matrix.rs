@@ -111,8 +111,19 @@ fn supports_every_exported_condition_operator() {
         (json!("true"), "is_true", Value::Null, false),
         (json!(0), "is_false", Value::Null, false),
         (Value::Null, "is_false", Value::Null, false),
-        (json!("42.5"), "is_numeric", Value::Null, true),
+        // These test the type. Text that reads as a number is still text, so
+        // is_numeric is exactly is_integer or is_float and never overlaps
+        // is_string.
+        (json!(42), "is_numeric", Value::Null, true),
+        (json!(42.5), "is_numeric", Value::Null, true),
+        (json!("42.5"), "is_numeric", Value::Null, false),
         (json!("42px"), "is_numeric", Value::Null, false),
+        (json!(42), "is_integer", Value::Null, true),
+        (json!(42.5), "is_integer", Value::Null, false),
+        (json!("42"), "is_integer", Value::Null, false),
+        (json!(42.5), "is_float", Value::Null, true),
+        (json!(42), "is_float", Value::Null, false),
+        (json!("42.5"), "is_float", Value::Null, false),
         (json!("text"), "is_string", Value::Null, true),
         (json!(true), "is_boolean", Value::Null, true),
         (json!([1, 2]), "is_list", Value::Null, true),
@@ -406,7 +417,7 @@ fn color_match_resolves_rgb_objects_and_tolerance_variables() {
                     "object",
                     json!(r#"{"r":120,"g":80,"b":40}"#),
                 ),
-                variable_node("n-tolerance", "tolerance", "set", "number", json!("5")),
+                variable_node("n-tolerance", "tolerance", "set", "integer", json!("5")),
                 color_match_node(
                     json!("{{sample}}"),
                     json!("rgb(125, 80, 40)"),
@@ -702,4 +713,55 @@ fn color_match_node(
 
 fn has_log(logs: &[crate::RuntimeLogEntry], message: &str) -> bool {
     logs.iter().any(|entry| entry.message == message)
+}
+
+#[test]
+fn a_failing_cast_in_a_condition_stops_the_run_instead_of_choosing_a_branch() {
+    // A condition decides which branch runs. If a failing cast resolved to the
+    // literal template text, the comparison would still produce a boolean and
+    // the program would quietly take a branch chosen by accident.
+    let error = execute_manual_program(
+        &program(
+            vec![
+                json!({
+                    "id": "n-calculate",
+                    "action_type": "action.calculate",
+                    "type": "action",
+                    "config": {"expression": "3 / 2"},
+                    "runtime_outputs": []
+                }),
+                json!({
+                    "id": "n-if",
+                    "action_type": "control.if",
+                    "type": "if",
+                    "config": {
+                        "conditions": [{
+                            "id": "condition-1",
+                            "left": "{{n-calculate.result|integer}}",
+                            "operator": "==",
+                            "right": "1",
+                            "invert": false
+                        }]
+                    },
+                    "runtime_outputs": []
+                }),
+                log_node("n-true", "took the true branch"),
+                log_node("n-false", "took the false branch"),
+            ],
+            vec![
+                edge("n-trigger", "out", "n-calculate"),
+                edge("n-calculate", "out", "n-if"),
+                edge("n-if", "true", "n-true"),
+                edge("n-if", "false", "n-false"),
+            ],
+        ),
+        "condition-cast-failure",
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("integer"),
+        "the error should name the target type: {message}"
+    );
 }

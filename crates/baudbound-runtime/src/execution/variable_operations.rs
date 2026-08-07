@@ -1,9 +1,12 @@
-use crate::RuntimeVariableScope;
+use super::cast_validation::validate_value_casts;
 use crate::runtime::{
-    coerce_variable_value, config_string, empty_value_for_type, number_from_value, number_value,
-    remove_object_field, required_config_string, resolve_config_value, resolve_template_value,
-    set_object_field, validate_variable_name, value_kind,
+    coerce_variable_value, config_string, empty_value_for_declared_type, empty_value_for_type,
+    integer_from_value, number_from_value, number_value, remove_object_field,
+    required_config_string, resolve_config_value, resolve_template_value, set_object_field,
+    validate_variable_name, value_kind,
 };
+use crate::value_type::MAX_SAFE_INTEGER;
+use crate::{RuntimeVariableScope, ValueType, validate_value};
 use serde_json::{Map, Value};
 
 use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
@@ -194,11 +197,25 @@ impl RuntimeExecutor<'_> {
                 })?;
                 let item_type = config_string(&node.config, "itemType");
                 let raw_value = if matches!(value_type, "list" | "object") {
-                    self.resolve_json_compatible_input(node.config.get("value"))?
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?
                 } else {
                     self.resolve_variable_input(node.config.get("value"))
                 };
-                let value = coerce_variable_value(node, raw_value, value_type)?;
+                // Coercion is lenient (a numeric string is accepted for an
+                // integer field, an integer widens into a float field), so a
+                // coercion failure does not necessarily mean the value is the
+                // wrong type. Re-check the pre-coercion value against the
+                // shared vocabulary before giving up, so a genuine type
+                // mismatch is reported as a type error naming the variable
+                // rather than the coercion function's generic message.
+                let value = match coerce_variable_value(node, raw_value.clone(), value_type) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        reject_wrong_type(node, name, value_type, &raw_value)?;
+                        return Err(error);
+                    }
+                };
+                reject_wrong_type(node, name, value_type, &value)?;
                 validate_declared_value(node, value_type, item_type.as_deref(), &value)?;
                 Ok(value)
             }
@@ -210,17 +227,43 @@ impl RuntimeExecutor<'_> {
                         message: "increment value must resolve to a finite number".to_owned(),
                     }
                 })?;
-                let current = match current {
-                    Some(current) => number_from_value(Some(&current)).ok_or_else(|| {
-                        RuntimeError::VariableOperation {
+                if let Some(current) = current.as_ref()
+                    && number_from_value(Some(current)).is_none()
+                {
+                    return Err(RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: format!(
+                            "increment requires existing variable {name} to be a finite number"
+                        ),
+                    });
+                }
+
+                // An integer stays an integer. Routing every increment through
+                // f64 would turn a counter into a float on its first step, and
+                // a float renders with a decimal, so `3` would become `3.0`.
+                if let (Some(current_whole), Some(increment_whole)) = (
+                    integer_operand(current.as_ref()),
+                    integer_operand(Some(&increment_value)),
+                ) {
+                    // Bound the sum by the safe integer range rather than by
+                    // i64, so increment cannot produce a value that the
+                    // integer type itself would reject.
+                    return current_whole
+                        .checked_add(increment_whole)
+                        .filter(|sum| (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(sum))
+                        .map(|sum| Value::Number(sum.into()))
+                        .ok_or_else(|| RuntimeError::VariableOperation {
                             node_id: node.id.clone(),
                             message: format!(
-                                "increment requires existing variable {name} to be a finite number"
+                                "increment moved variable {name} outside the safe integer range"
                             ),
-                        }
-                    })?,
-                    None => 0.0,
-                };
+                        });
+                }
+
+                let current = current
+                    .as_ref()
+                    .and_then(|current| number_from_value(Some(current)))
+                    .unwrap_or(0.0);
                 number_value(node, current + increment)
             }
             "toggle_boolean" => {
@@ -253,7 +296,8 @@ impl RuntimeExecutor<'_> {
                     }
                     None => Vec::new(),
                 };
-                let item = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let item =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 validate_list_append(node, name, &list, &item)?;
                 list.push(item);
                 Ok(Value::Array(list))
@@ -279,7 +323,8 @@ impl RuntimeExecutor<'_> {
                         });
                     }
                 };
-                let item = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let item =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 let remove_mode = required_config_string(node, "removeMode")?;
                 if !matches!(remove_mode.as_str(), "first" | "all") {
                     return Err(RuntimeError::VariableOperation {
@@ -299,7 +344,8 @@ impl RuntimeExecutor<'_> {
             }
             "set_object_field" => {
                 let field_path = required_config_string(node, "fieldPath")?;
-                let value = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let value =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 let field_value_type = required_config_string(node, "fieldValueType")?;
                 let field_item_type = config_string(&node.config, "fieldItemType");
                 validate_declared_value(
@@ -350,7 +396,8 @@ impl RuntimeExecutor<'_> {
                 Ok(current)
             }
             "merge_object" => {
-                let incoming = self.resolve_json_compatible_input(node.config.get("value"))?;
+                let incoming =
+                    self.resolve_json_compatible_input(&node.id, node.config.get("value"))?;
                 validate_declared_value(node, "object", None, &incoming)?;
                 let mut object = match current {
                     Some(Value::Object(object)) => object,
@@ -385,11 +432,19 @@ impl RuntimeExecutor<'_> {
         resolve_config_value(value.unwrap_or(&Value::Null), &self.context.variables)
     }
 
-    fn resolve_json_compatible_input(&self, value: Option<&Value>) -> Result<Value, RuntimeError> {
+    fn resolve_json_compatible_input(
+        &self,
+        node_id: &str,
+        value: Option<&Value>,
+    ) -> Result<Value, RuntimeError> {
         let raw = value.cloned().unwrap_or(Value::Null);
         if let Value::String(text) = &raw
             && let Ok(json_value) = serde_json::from_str::<Value>(text.trim())
         {
+            // Parsing turns an escaped brace into a real template, which the
+            // pre-pass over the raw string could not see, so the parsed value
+            // has to be proven before it is resolved.
+            validate_value_casts(node_id, &json_value, &self.context.variables)?;
             return Ok(resolve_config_value(&json_value, &self.context.variables));
         }
 
@@ -428,7 +483,7 @@ impl RuntimeExecutor<'_> {
             }
             "append_list" => {
                 let item = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Appended {} to {scope} list variable {name:?}. New value: {next}.",
@@ -437,7 +492,7 @@ impl RuntimeExecutor<'_> {
             }
             "remove_list_items" => {
                 let item = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 let mode =
                     config_string(&node.config, "removeMode").unwrap_or_else(|| "all".to_owned());
@@ -449,7 +504,7 @@ impl RuntimeExecutor<'_> {
             "set_object_field" => {
                 let path = config_string(&node.config, "fieldPath").unwrap_or_default();
                 let value = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Set field {path:?} on {scope} object variable {name:?} to {}. New value: {next}.",
@@ -464,7 +519,7 @@ impl RuntimeExecutor<'_> {
             }
             "merge_object" => {
                 let value = self
-                    .resolve_json_compatible_input(node.config.get("value"))
+                    .resolve_json_compatible_input(&node.id, node.config.get("value"))
                     .unwrap_or(Value::Null);
                 format!(
                     "Shallow merged {} into {scope} object variable {name:?}. New value: {next}.",
@@ -485,7 +540,9 @@ fn variable_operation_declared_type(
 ) -> Result<Option<String>, RuntimeError> {
     let value_type = match operation {
         "set" => Some(required_config_string(node, "valueType")?),
-        "increment" => Some("number".to_owned()),
+        // Increment does not pin a numeric type: it applies to whichever numeric
+        // type the variable was declared with, and preserves it.
+        "increment" => None,
         "toggle_boolean" => Some("boolean".to_owned()),
         "append_list" | "remove_list_items" => Some("list".to_owned()),
         "set_object_field" | "remove_object_field" | "merge_object" => Some("object".to_owned()),
@@ -500,6 +557,19 @@ fn variable_operation_declared_type(
     Ok(value_type)
 }
 
+/// Names which string-shaped type a node declares, if it declares one.
+///
+/// `string`, `color` and `hotkey` are all JSON strings, so a stored value
+/// cannot say which of them it is. Only these three are read from the node,
+/// because every other type is identifiable from the value itself.
+fn declared_string_type(node: &RuntimeNode) -> Option<&'static str> {
+    match config_string(&node.config, "valueType")?.as_str() {
+        "color" => Some("color"),
+        "hotkey" => Some("hotkey"),
+        _ => None,
+    }
+}
+
 fn clear_existing_variable(
     node: &RuntimeNode,
     name: &str,
@@ -510,8 +580,27 @@ fn clear_existing_variable(
         message: format!("clear requires existing variable {name:?}"),
     })?;
     let value_type = match current {
-        Value::String(_) => "string",
-        Value::Number(_) => "number",
+        // The stored value's shape identifies every type except which of the
+        // string-shaped ones it is, so only that case consults the declared
+        // type. Trusting the declaration for the others would clear an integer
+        // to an empty string whenever a node carried a stale default.
+        Value::String(_) => match declared_string_type(node) {
+            Some(declared) => {
+                return empty_value_for_declared_type(declared).ok_or_else(|| {
+                    RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: format!(
+                            "clear has no empty value for the {declared} variable {name:?}, use delete instead"
+                        ),
+                    }
+                });
+            }
+            None => "string",
+        },
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            "integer"
+        }
+        Value::Number(_) => "float",
         Value::Bool(_) => "boolean",
         Value::Array(_) => "list",
         Value::Object(object) => match object.get("type").and_then(Value::as_str) {
@@ -570,10 +659,33 @@ fn validate_list_append(
     Ok(())
 }
 
+/// Reads a value as a whole-number operand for `increment`.
+///
+/// Returns `None` when the value is not an integer, which sends the increment
+/// down the float path. Only serde_json's integer variants qualify: a float
+/// stays a float even when its value is whole, and a numeric string such as
+/// `"42"` is not a number at all. An absent variable counts as integer zero so
+/// that a fresh counter starts as an integer.
+fn integer_operand(value: Option<&Value>) -> Option<i64> {
+    match value {
+        // An absent variable counts as integer zero, so a fresh counter starts
+        // as an integer.
+        None => Some(0),
+        // The editor stores a config value as text, so an amount typed as "1"
+        // arrives as a string. It uses the same rule `set` uses, otherwise
+        // typing a literal into the editor would silently widen a counter to a
+        // float while a variable reference kept it an integer.
+        Some(value) => integer_from_value(value),
+    }
+}
+
 fn list_item_kind(value: &Value) -> Option<&'static str> {
     match value {
         Value::String(_) => Some("string"),
-        Value::Number(_) => Some("number"),
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            Some("integer")
+        }
+        Value::Number(_) => Some("float"),
         Value::Bool(_) => Some("boolean"),
         Value::Object(object) => match object.get("type").and_then(Value::as_str) {
             Some("datetime") => Some("datetime"),
@@ -596,6 +708,29 @@ fn diagnostic_value(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
 }
 
+/// Rejects a `set` value that violates the type declared for the variable,
+/// stopping the run rather than routing to the node's failed output: a value
+/// that never satisfied its declared type was never a valid program to begin
+/// with. Declared type names outside the shared `ValueType` vocabulary (the
+/// retired names such as `number` or `file_path`) are left to
+/// `validate_declared_value`, which still handles them.
+fn reject_wrong_type(
+    node: &RuntimeNode,
+    name: &str,
+    declared_type: &str,
+    value: &Value,
+) -> Result<(), RuntimeError> {
+    if let Ok(declared) = declared_type.parse::<ValueType>()
+        && let Err(reason) = validate_value(value, declared)
+    {
+        return Err(RuntimeError::Type {
+            node_id: node.id.clone(),
+            message: format!("variable \"{name}\" {reason}"),
+        });
+    }
+    Ok(())
+}
+
 fn validate_declared_value(
     node: &RuntimeNode,
     value_type: &str,
@@ -604,8 +739,6 @@ fn validate_declared_value(
 ) -> Result<(), RuntimeError> {
     let valid = match value_type {
         "string" => value.is_string(),
-        "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
-        "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "object" => value.is_object(),
         "list" => value.as_array().is_some_and(|items| {
@@ -622,6 +755,12 @@ fn validate_declared_value(
                     .and_then(Value::as_str)
                     .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok())
         }),
+        // The types introduced by the type rework are checked by the shared
+        // validator so that a declared variable and a validated boundary can
+        // never disagree about what the type means.
+        "integer" | "float" | "color" | "hotkey" => value_type
+            .parse::<crate::ValueType>()
+            .is_ok_and(|declared| crate::validate_value(value, declared).is_ok()),
         "duration" => value.as_object().is_some_and(|object| {
             object.get("type").and_then(Value::as_str) == Some("duration")
                 && object

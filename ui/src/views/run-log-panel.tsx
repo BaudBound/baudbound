@@ -144,7 +144,7 @@ export function RunLogPanel({
                     {log.action_type ?? "-"}
                   </td>
                   <td className="px-3 py-2" data-label="Message">
-                    <span className="break-words font-mono text-xs">{visibleText(log.message)}</span>
+                    <span className="select-text break-words font-mono text-xs">{visibleText(log.message)}</span>
                   </td>
                 </tr>
               ))}

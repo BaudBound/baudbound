@@ -273,7 +273,7 @@ fn runtime_default_resets_before_each_run() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Runtime,
-        "number",
+        "integer",
         json!(10),
     )];
     let program = variable_program("runtime", "increment", json!(1), "{{counter}}");
@@ -291,8 +291,8 @@ fn runtime_default_resets_before_each_run() {
     )
     .expect("second run should execute");
 
-    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
-    assert_eq!(second.variables.get("counter"), Some(&json!(11.0)));
+    assert_eq!(first.variables.get("counter"), Some(&json!(11)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(11)));
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn persistent_default_initializes_once_then_retains_changes() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Persistent,
-        "number",
+        "integer",
         json!(10),
     )];
     let program = variable_program("persistent", "increment", json!(1), "{{counter}}");
@@ -319,8 +319,8 @@ fn persistent_default_initializes_once_then_retains_changes() {
     )
     .expect("second run should execute");
 
-    assert_eq!(first.variables.get("counter"), Some(&json!(11.0)));
-    assert_eq!(second.variables.get("counter"), Some(&json!(12.0)));
+    assert_eq!(first.variables.get("counter"), Some(&json!(11)));
+    assert_eq!(second.variables.get("counter"), Some(&json!(12)));
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn rejects_default_that_disagrees_with_variable_operation() {
     let defaults = [default_variable(
         "counter",
         RuntimeDefaultVariableScope::Persistent,
-        "number",
+        "integer",
         json!(10),
     )];
     let error = execute_manual_program_with_state(
@@ -385,16 +385,16 @@ fn rejects_malformed_default_resources_before_execution() {
             default_variable(
                 "counter",
                 RuntimeDefaultVariableScope::Runtime,
-                "number",
+                "integer",
                 json!("ten"),
             ),
-            "value does not match type",
+            "expected integer",
         ),
         (
             default_variable(
                 "system_counter",
                 RuntimeDefaultVariableScope::Runtime,
-                "number",
+                "integer",
                 json!(10),
             ),
             "invalid or reserved",
@@ -550,6 +550,53 @@ fn rejects_a_non_object_script_settings_snapshot() {
     );
 }
 
+#[test]
+fn declared_default_variables_reject_a_wrong_typed_value() {
+    let error = build_initial_state_with_default("retries", "integer", json!("three"))
+        .expect_err("a wrong-typed default must be rejected");
+
+    assert!(
+        matches!(error, crate::RuntimeError::Type { .. }),
+        "a type mismatch must stop the run as a type error rather than any other failure: {error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("retries"),
+        "message names the variable: {message}"
+    );
+    assert!(
+        message.contains("integer"),
+        "message names the type: {message}"
+    );
+}
+
+#[test]
+fn declared_default_variables_accept_a_correctly_typed_integer_value() {
+    let report = build_initial_state_with_default("retries", "integer", json!(3))
+        .expect("a correctly typed integer default should be accepted");
+
+    assert_eq!(report.variables.get("retries"), Some(&json!(3)));
+}
+
+fn build_initial_state_with_default(
+    name: &str,
+    value_type: &str,
+    value: Value,
+) -> Result<crate::RunReport, crate::RuntimeError> {
+    let store = TestStateStore::default();
+    let defaults = [default_variable(
+        name,
+        RuntimeDefaultVariableScope::Runtime,
+        value_type,
+        value,
+    )];
+    execute_manual_program_with_state(
+        &variable_program("runtime", "increment", json!(1), "done"),
+        "script-1",
+        state_resources_with_defaults(&store, &[], &defaults),
+    )
+}
+
 fn state_resources<'a>(
     store: &'a TestStateStore,
     secrets: &'a [RuntimeSecretDeclaration],
@@ -603,7 +650,7 @@ fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -
                             "name": "counter",
                             "operation": operation,
                             "scope": scope,
-                            "valueType": if operation == "increment" { "number" } else { "string" },
+                            "valueType": if operation == "increment" { "integer" } else { "string" },
                             "value": value
                         },
                         "runtime_outputs": []
@@ -624,4 +671,37 @@ fn variable_program(scope: &str, operation: &str, value: Value, message: &str) -
             }
         }
     })
+}
+
+#[test]
+fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
+    // The whole-value check only confirms a list is an array, so element types
+    // have to be checked where the list is declared.
+    for (item_type, bad_element) in [
+        ("integer", json!("not a number")),
+        ("float", json!(3)),
+        ("color", json!("red")),
+        ("hotkey", json!("NotARealKey")),
+    ] {
+        let store = TestStateStore::default();
+        let mut variable = default_variable(
+            "items",
+            RuntimeDefaultVariableScope::Runtime,
+            "list",
+            json!([bad_element]),
+        );
+        variable.item_type = Some(item_type.to_owned());
+
+        let error = execute_manual_program_with_state(
+            &variable_program("runtime", "increment", json!(1), "done"),
+            "script-1",
+            state_resources_with_defaults(&store, &[], &[variable]),
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("item 0"),
+            "the error should name the mismatch, found {error}"
+        );
+    }
 }

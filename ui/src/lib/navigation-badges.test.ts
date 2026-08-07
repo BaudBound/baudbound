@@ -45,11 +45,28 @@ describe("navigation badges", () => {
 
     expect(navigationBadge("scripts", dashboard, systemLogSummary())).toMatchObject({ count: 2, variant: "medium" });
     expect(navigationBadge("runs", dashboard, systemLogSummary())).toMatchObject({ count: 1, variant: "good" });
-    expect(doctor.warningCount).toBe(4);
+    expect(doctor.warningCount).toBe(3);
     expect(navigationBadge("diagnostics", dashboard, systemLogSummary())).toMatchObject({
-      count: 4,
+      count: 3,
       variant: "medium",
     });
+  });
+
+  it("only asks to review enabled scripts once something is installed", () => {
+    // An empty runner has nothing to enable, so that is idle rather than a
+    // warning. Deleting the last script used to leave the card asking for a
+    // review of something that no longer existed.
+    const empty = dashboardPayload();
+    expect(doctorStatus(empty).states.enabledScripts).toBe("idle");
+
+    const installedButDisabled = dashboardPayload();
+    installedButDisabled.runner.total_script_count = 2;
+    expect(doctorStatus(installedButDisabled).states.enabledScripts).toBe("warn");
+
+    const enabled = dashboardPayload();
+    enabled.runner.total_script_count = 2;
+    enabled.runner.enabled_script_count = 1;
+    expect(doctorStatus(enabled).states.enabledScripts).toBe("ok");
   });
 });
 

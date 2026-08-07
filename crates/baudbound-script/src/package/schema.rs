@@ -7,6 +7,11 @@ use super::PackageLoadError;
 
 include!(concat!(env!("OUT_DIR"), "/embedded_schemas.rs"));
 
+const KNOWN_VALUE_TYPES: &[&str] = &[
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
+    "duration",
+];
+
 pub(super) fn validate_manifest_schema(manifest: &Value) -> Result<(), PackageLoadError> {
     let validator = manifest_validator().map_err(PackageLoadError::SchemaContract)?;
     validate_schema(validator, manifest).map_err(PackageLoadError::ManifestSchema)
@@ -14,7 +19,65 @@ pub(super) fn validate_manifest_schema(manifest: &Value) -> Result<(), PackageLo
 
 pub(super) fn validate_program_schema(program: &Value) -> Result<(), PackageLoadError> {
     let validator = program_validator().map_err(PackageLoadError::SchemaContract)?;
-    validate_schema(validator, program).map_err(PackageLoadError::ProgramSchema)
+    validate_schema(validator, program).map_err(PackageLoadError::ProgramSchema)?;
+    validate_runtime_output_types(program)
+}
+
+fn validate_runtime_output_types(program: &Value) -> Result<(), PackageLoadError> {
+    for node in executable_nodes_with_outputs(program) {
+        for output in node {
+            let Some(name) = output.get("type").and_then(Value::as_str) else {
+                continue;
+            };
+            if !KNOWN_VALUE_TYPES.contains(&name) {
+                return Err(PackageLoadError::UnknownValueType(name.to_owned()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Yields the `runtime_outputs` array of every executable node in the
+/// program: the primary trigger, each secondary trigger, and each step.
+/// This mirrors the trigger/triggers/steps traversal in `graph.rs`.
+fn executable_nodes_with_outputs(program: &Value) -> Vec<&[Value]> {
+    let mut nodes = Vec::new();
+    let Some(entry) = program.get("entry") else {
+        return nodes;
+    };
+
+    if let Some(outputs) = entry
+        .get("trigger")
+        .and_then(|trigger| trigger.get("runtime_outputs"))
+        .and_then(Value::as_array)
+    {
+        nodes.push(outputs.as_slice());
+    }
+
+    for trigger in entry
+        .get("triggers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(outputs) = trigger.get("runtime_outputs").and_then(Value::as_array) {
+            nodes.push(outputs.as_slice());
+        }
+    }
+
+    for step in entry
+        .get("program")
+        .and_then(|program| program.get("steps"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(outputs) = step.get("runtime_outputs").and_then(Value::as_array) {
+            nodes.push(outputs.as_slice());
+        }
+    }
+
+    nodes
 }
 
 fn validate_schema(validator: &Validator, value: &Value) -> Result<(), String> {
@@ -174,7 +237,8 @@ mod tests {
     fn accepts_typed_default_variables_exported_by_the_editor() {
         let cases = [
             ("string", json!("value")),
-            ("number", json!(42)),
+            ("integer", json!(42)),
+            ("float", json!(42.5)),
             ("boolean", json!(false)),
             ("object", json!({ "key": "value" })),
             ("list", json!(["value"])),
@@ -186,7 +250,8 @@ mod tests {
                 "duration",
                 json!({"type": "duration", "unit": "seconds", "value": 3}),
             ),
-            ("file_path", json!("/tmp/value")),
+            ("color", json!("#ff8800")),
+            ("hotkey", json!("Ctrl+S")),
         ];
 
         for (variable_type, value) in cases {
@@ -311,12 +376,6 @@ mod tests {
                     "type": "object",
                     "description": "Current list item for the active iteration.",
                     "example": "n-each.item"
-                },
-                {
-                    "name": "index",
-                    "type": "number",
-                    "description": "Zero-based index for the active iteration.",
-                    "example": "n-each.index"
                 }
             ]
         }]);
@@ -349,30 +408,6 @@ mod tests {
                     "type": "boolean",
                     "description": "Whether the colors matched within tolerance.",
                     "example": "true"
-                },
-                {
-                    "name": "difference_percent",
-                    "type": "number",
-                    "description": "Normalized color difference percentage.",
-                    "example": "4.2"
-                },
-                {
-                    "name": "red_difference",
-                    "type": "number",
-                    "description": "Absolute red-channel difference.",
-                    "example": "10"
-                },
-                {
-                    "name": "green_difference",
-                    "type": "number",
-                    "description": "Absolute green-channel difference.",
-                    "example": "5"
-                },
-                {
-                    "name": "blue_difference",
-                    "type": "number",
-                    "description": "Absolute blue-channel difference.",
-                    "example": "0"
                 }
             ]
         }]);

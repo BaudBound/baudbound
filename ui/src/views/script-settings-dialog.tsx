@@ -222,13 +222,13 @@ function draftValueForPreview(setting: InstalledScriptSettingStatus, draft: Sett
   if (!draft.configured) return setting.default_value;
   if (
     setting.value_type === "string" ||
-    setting.value_type === "file_path" ||
     setting.value_type === "hotkey" ||
     setting.value_type === "color"
   ) {
     return draft.value;
   }
-  if (setting.value_type === "number") return Number(draft.value);
+  if (setting.value_type === "integer") return Math.trunc(Number(draft.value));
+  if (setting.value_type === "float") return Number(draft.value);
   if (setting.value_type === "boolean") {
     if (draft.value === "true") return true;
     if (draft.value === "false") return false;
@@ -270,22 +270,23 @@ function editableValue(value: unknown | null, valueType: InstalledScriptSettingS
   return String(value);
 }
 
-function validateDraftValue(
+export function validateDraftValue(
   valueType: InstalledScriptSettingStatus["value_type"],
   itemType: InstalledScriptSettingStatus["item_type"],
   value: string,
 ): string | null {
   if (valueType === "string") return null;
-  if (valueType === "file_path") {
-    return value.trim() ? null : "Enter a file path.";
-  }
   if (valueType === "hotkey") {
     return validateHotkey(value) ? null : "Press a valid Windows key combination.";
   }
   if (valueType === "color") {
     return isValidColor(value) ? null : "Select a color in #RRGGBB format.";
   }
-  if (valueType === "number") {
+  if (valueType === "integer") {
+    const parsed = Number(value);
+    return value.trim() && Number.isInteger(parsed) ? null : "Enter a whole number.";
+  }
+  if (valueType === "float") {
     const parsed = Number(value);
     return value.trim() && Number.isFinite(parsed) ? null : "Enter a finite number.";
   }
@@ -324,8 +325,10 @@ function valueMatchesType(
   value: unknown,
 ) {
   if (valueType === "string") return typeof value === "string";
-  if (valueType === "file_path") return typeof value === "string" && value.trim().length > 0;
-  if (valueType === "number") return typeof value === "number" && Number.isFinite(value);
+  if (valueType === "hotkey") return typeof value === "string" && validateHotkey(value);
+  if (valueType === "color") return typeof value === "string" && isValidColor(value);
+  if (valueType === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (valueType === "float") return typeof value === "number" && Number.isFinite(value);
   if (valueType === "boolean") return typeof value === "boolean";
   if (valueType === "object") return isRecord(value);
   if (!isRecord(value)) return false;

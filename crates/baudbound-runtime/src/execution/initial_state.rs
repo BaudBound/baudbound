@@ -8,7 +8,7 @@ use crate::runtime::{
 };
 use crate::{
     RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
 };
 
 use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
@@ -44,7 +44,9 @@ pub(super) fn load_initial_state(
         let operation = required_config_string(node, "operation")?;
         let value_type = match operation.as_str() {
             "set" => Some(required_config_string(node, "valueType")?),
-            "increment" => Some("number".to_owned()),
+            // Increment does not pin a numeric type: it operates on whichever
+            // numeric type the variable was declared with, and preserves it.
+            "increment" => None,
             "toggle_boolean" => Some("boolean".to_owned()),
             "append_list" | "remove_list_items" => Some("list".to_owned()),
             "set_object_field" | "remove_object_field" | "merge_object" => {
@@ -150,6 +152,7 @@ pub(super) fn load_initial_state(
         .iter()
         .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
     {
+        reject_wrong_type_default(variable)?;
         insert_initial_variable(
             &mut variables,
             &mut variable_scopes,
@@ -163,6 +166,7 @@ pub(super) fn load_initial_state(
             .iter()
             .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent)
         {
+            reject_wrong_type_default(variable)?;
             let value = load_or_initialize_persistent_default(store, script_id, variable)?;
             insert_initial_variable(
                 &mut variables,
@@ -223,6 +227,48 @@ pub(super) fn load_initial_state(
         variable_scopes,
         variables,
     })
+}
+
+/// Rejects a declared default whose value violates its declared type,
+/// against the shared `ValueType` vocabulary. `node_id` is empty because a
+/// declared default belongs to the package rather than to a node. A type
+/// name outside the ten-type vocabulary (the retired vocabulary such as
+/// `number` or `file_path`) does not parse into a `ValueType` and is left to
+/// `validate_default_variable`, which already accepts it.
+fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
+    let type_error = |reason: String| RuntimeError::Type {
+        node_id: String::new(),
+        message: format!("default variable \"{}\" {reason}", variable.name),
+    };
+
+    // A declared value is read by the type declared beside it, so a whole
+    // number under a float declaration is that number as a float. The editor
+    // writes JSON with JavaScript numbers and cannot spell 300.0 as anything
+    // but `300`, so holding a declaration to the run time rule would make a
+    // whole float impossible to declare at all.
+    let declared_float = variable.value_type == "float" && variable.value.is_number();
+    if !declared_float
+        && let Ok(declared) = variable.value_type.parse::<ValueType>()
+        && let Err(reason) = validate_value(&variable.value, declared)
+    {
+        return Err(type_error(reason));
+    }
+
+    // A list only satisfies `ValueType::List` by being an array, so its
+    // elements have to be checked separately. Without this a list declared as
+    // integers would accept a string element and nothing would ever notice.
+    if let Some(item_type) = variable.item_type.as_deref()
+        && let Ok(declared_item) = item_type.parse::<ValueType>()
+        && let Some(items) = variable.value.as_array()
+    {
+        for (index, item) in items.iter().enumerate() {
+            if let Err(reason) = validate_value(item, declared_item) {
+                return Err(type_error(format!("item {index} {reason}")));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn insert_initial_variable(

@@ -27,10 +27,11 @@ pub use state::{
 pub use templates::resolve_template_value;
 pub(crate) use templates::{
     render_json_template, render_template, resolve_config_map, resolve_config_value,
-    template_value_is_defined,
+    resolve_reference, split_cast, template_value_is_defined,
 };
 pub(crate) use variables::{
-    DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_type,
-    number_from_value, number_value, refresh_derived_variable_metadata, remove_object_field,
-    set_object_field, validate_variable_name, value_kind, value_to_string,
+    DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_declared_type,
+    empty_value_for_type, integer_from_value, number_from_value, number_value,
+    refresh_derived_variable_metadata, remove_object_field, set_object_field,
+    validate_variable_name, value_kind, value_to_string,
 };

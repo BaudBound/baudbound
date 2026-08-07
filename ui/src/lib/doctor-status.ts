@@ -33,7 +33,16 @@ export function doctorStatus(dashboard: DashboardPayload): DoctorStatus {
   );
   const states: DoctorStatus["states"] = {
     desktopBackground: dashboard.desktop_background.running ? "ok" : "idle",
-    enabledScripts: dashboard.runner.enabled_script_count > 0 ? "ok" : "warn",
+    // Nothing installed means there is nothing to enable, so that is idle
+    // rather than something to review. The warning is for the case that is
+    // actually worth acting on: scripts are installed and none of them will
+    // run.
+    enabledScripts:
+      dashboard.runner.enabled_script_count > 0
+        ? "ok"
+        : dashboard.runner.total_script_count > 0
+          ? "warn"
+          : "idle",
     installedScripts: dashboard.runner.total_script_count > 0 ? "ok" : "idle",
     launchAtLogin:
       dashboard.launch_at_login_registered === null ||

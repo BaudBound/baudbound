@@ -718,7 +718,12 @@ pub(crate) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
+        // integer and float are separate types, so reporting a bare "number"
+        // would name a type that no longer exists.
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            "integer"
+        }
+        Value::Number(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "list",
         Value::Object(_) => "object",

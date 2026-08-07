@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   runtimeFloatMaximum,
   runtimeFloatMinimum,
+  runtimeIntegerMaximum,
+  runtimeIntegerMinimum,
   type NumericFieldContract,
 } from "@/components/numeric-field-model";
 import { NumericField } from "@/components/numeric-field";
@@ -25,14 +27,20 @@ type ValueType = InstalledScriptSettingStatus["value_type"];
 type ItemType = NonNullable<InstalledScriptSettingStatus["item_type"]>;
 
 const durationUnits = ["milliseconds", "seconds", "minutes", "hours", "days"] as const;
-const runtimeNumberContract: NumericFieldContract = {
+const runtimeFloatContract: NumericFieldContract = {
   kind: "float",
   maximum: runtimeFloatMaximum,
   minimum: runtimeFloatMinimum,
   signed: true,
 };
+const runtimeIntegerContract: NumericFieldContract = {
+  ...runtimeFloatContract,
+  kind: "integer",
+  maximum: runtimeIntegerMaximum,
+  minimum: runtimeIntegerMinimum,
+};
 const durationAmountContract: NumericFieldContract = {
-  ...runtimeNumberContract,
+  ...runtimeFloatContract,
   minimum: "0",
   signed: false,
 };
@@ -64,11 +72,11 @@ export function TypedValueInput({
     );
   }
 
-  if (valueType === "number") {
+  if (valueType === "integer" || valueType === "float") {
     return (
       <NumericField
-        ariaLabel="Number value"
-        contract={runtimeNumberContract}
+        ariaLabel={valueType === "integer" ? "Integer value" : "Float value"}
+        contract={valueType === "integer" ? runtimeIntegerContract : runtimeFloatContract}
         id={id}
         onChange={onChange}
         value={value}
@@ -308,7 +316,8 @@ function editableItemValue(type: ItemType, value: unknown) {
 }
 
 function parseItemValue(type: ItemType, value: string): unknown {
-  if (type === "number") return Number(value);
+  if (type === "integer") return Math.trunc(Number(value));
+  if (type === "float") return Number(value);
   if (type === "boolean") return value === "true";
   if (type === "object" || type === "datetime" || type === "duration") {
     try {
@@ -321,7 +330,9 @@ function parseItemValue(type: ItemType, value: string): unknown {
 }
 
 function emptyItemValue(type: ItemType): unknown {
-  if (type === "number") return 0;
+  if (type === "integer") return 0;
+  // A float keeps its float variant, so an empty float is not the integer 0.
+  if (type === "float") return 0.5;
   if (type === "boolean") return false;
   if (type === "object") return {};
   if (type === "datetime") return { type: "datetime", value: new Date(0).toISOString() };

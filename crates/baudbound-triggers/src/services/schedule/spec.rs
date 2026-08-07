@@ -6,7 +6,7 @@ use crate::{TriggerError, TriggerRegistration};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ScheduleSpec {
-    pub(super) every: f64,
+    pub(super) every: u64,
     pub(super) interval: Duration,
     pub(super) unit: String,
 }
@@ -32,7 +32,7 @@ impl ScheduleSpec {
                 format!("unsupported schedule unit {unit:?}"),
             )
         })?;
-        let seconds = every * schedule_unit_seconds(normalized_unit);
+        let seconds = every as f64 * schedule_unit_seconds(normalized_unit);
         let interval = Duration::try_from_secs_f64(seconds)
             .ok()
             .filter(|interval| *interval >= Duration::from_millis(1))
@@ -52,13 +52,19 @@ impl ScheduleSpec {
     }
 }
 
-fn schedule_every(config: &Value) -> Option<f64> {
+/// Reads the interval count, which is a whole number of the chosen unit.
+///
+/// A fraction is refused rather than rounded. Milliseconds is the smallest
+/// unit and the interval cannot go below one of them, so every interval the
+/// runner will accept can be written exactly as whole units, and a fraction
+/// only ever means the author expected a precision that does not exist.
+fn schedule_every(config: &Value) -> Option<u64> {
     let value = match config.get("every")? {
-        Value::Number(value) => value.as_f64()?,
-        Value::String(value) => value.trim().parse::<f64>().ok()?,
+        Value::Number(value) => value.as_u64()?,
+        Value::String(value) => value.trim().parse::<u64>().ok()?,
         _ => return None,
     };
-    (value.is_finite() && value > 0.0).then_some(value)
+    (value > 0).then_some(value)
 }
 
 fn schedule_unit_seconds(unit: &str) -> f64 {

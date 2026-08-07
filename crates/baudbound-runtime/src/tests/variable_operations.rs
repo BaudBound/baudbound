@@ -56,13 +56,13 @@ fn set_coerces_exported_json_container_strings() {
 fn set_and_increment_resolve_variable_references() {
     let report = execute(
         vec![
-            variable_node("n-source", "source", "set", "number", json!(2)),
-            variable_node("n-target", "target", "set", "number", json!("{{source}}")),
+            variable_node("n-source", "source", "set", "integer", json!(2)),
+            variable_node("n-target", "target", "set", "integer", json!("{{source}}")),
             variable_node(
                 "n-increment",
                 "target",
                 "increment",
-                "number",
+                "integer",
                 json!("{{source}}"),
             ),
         ],
@@ -70,7 +70,7 @@ fn set_and_increment_resolve_variable_references() {
     )
     .expect("variable references should resolve before coercion");
 
-    assert_eq!(report.variables.get("target"), Some(&json!(4.0)));
+    assert_eq!(report.variables.get("target"), Some(&json!(4)));
 }
 
 #[test]
@@ -118,10 +118,10 @@ fn resolves_references_recursively_inside_json_values() {
 fn logs_variable_names_scopes_inputs_and_resulting_values() {
     let report = execute(
         vec![
-            variable_node("n-set", "count", "set", "number", json!(2)),
-            variable_node("n-increment", "count", "increment", "number", json!(3)),
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(3)),
             variable_node("n-append", "items", "append_list", "list", json!("first")),
-            variable_node("n-clear", "count", "clear", "number", Value::Null),
+            variable_node("n-clear", "count", "clear", "integer", Value::Null),
         ],
         linear_edges(&["n-set", "n-increment", "n-append", "n-clear"]),
     )
@@ -132,13 +132,15 @@ fn logs_variable_names_scopes_inputs_and_resulting_values() {
         .iter()
         .map(|log| log.message.as_str())
         .collect::<Vec<_>>();
-    assert!(messages.contains(&r#"Set runtime variable "count" to 2.0."#));
-    assert!(messages.contains(&r#"Incremented runtime variable "count" by 3. New value: 5.0."#));
+    assert!(messages.contains(&r#"Set runtime variable "count" to 2."#));
+    assert!(messages.contains(&r#"Incremented runtime variable "count" by 3. New value: 5."#));
     assert!(
         messages.contains(
             &r#"Appended "first" to runtime list variable "items". New value: ["first"]."#
         )
     );
+    // "count" is a float here, as the 2.0 and 5.0 above show, so clearing it
+    // yields a float zero rather than an integer one.
     assert!(messages.contains(&r#"Cleared runtime variable "count". New value: 0."#));
 }
 
@@ -184,7 +186,7 @@ fn supports_toggle_remove_merge_and_delete_operations() {
     remove_all["config"]["removeMode"] = json!("all");
 
     let mut list = variable_node("n-list", "items", "set", "list", json!("[1,2,2,3]"));
-    list["config"]["itemType"] = json!("number");
+    list["config"]["itemType"] = json!("integer");
 
     let mut remove_field = variable_node(
         "n-remove-field",
@@ -281,7 +283,9 @@ fn set_object_field_supports_dot_fields_and_numeric_indexes() {
 fn clear_uses_the_editor_default_for_every_variable_type() {
     let types = [
         ("string", json!("value"), json!("")),
-        ("number", json!(42), json!(0)),
+        ("integer", json!(42), json!(0)),
+        ("float", json!(42.5), json!(0.0)),
+        ("color", json!("#ff8800"), json!("#000000")),
         ("boolean", json!(true), json!(false)),
         ("list", json!(["value"]), json!([])),
         ("object", json!({"value": true}), json!({})),
@@ -295,7 +299,6 @@ fn clear_uses_the_editor_default_for_every_variable_type() {
             json!({"type": "datetime", "value": "2026-07-29T00:00:00.000Z"}),
             json!({"type": "datetime", "value": "1970-01-01T00:00:00.000Z"}),
         ),
-        ("file_path", json!("input.txt"), json!("")),
     ];
     let steps = types
         .iter()
@@ -378,7 +381,7 @@ fn clear_requires_an_existing_variable_and_append_infers_item_type() {
         mismatch
             .logs
             .iter()
-            .any(|log| { log.level == "error" && log.message.contains("requires number items") })
+            .any(|log| { log.level == "error" && log.message.contains("requires integer items") })
     );
 }
 
@@ -395,7 +398,7 @@ fn exposes_complete_derived_metadata_with_javascript_string_lengths() {
                 "object",
                 json!(r#"{"one":1,"two":2}"#),
             ),
-            variable_node("n-number", "count", "set", "number", json!(4)),
+            variable_node("n-number", "count", "set", "integer", json!(4)),
         ],
         linear_edges(&["n-text", "n-list", "n-object", "n-number"]),
     )
@@ -404,7 +407,7 @@ fn exposes_complete_derived_metadata_with_javascript_string_lengths() {
     assert_metadata(&report.variables, "text", 3, "string", false);
     assert_metadata(&report.variables, "items", 0, "list", true);
     assert_metadata(&report.variables, "payload", 2, "object", false);
-    assert_metadata(&report.variables, "count", 0, "number", false);
+    assert_metadata(&report.variables, "count", 0, "integer", false);
 }
 
 #[test]
@@ -414,7 +417,7 @@ fn invalid_increment_and_object_paths_fail_closed() {
             "n-increment",
             "count",
             "increment",
-            "number",
+            "integer",
             json!("not-a-number"),
         )],
         linear_edges(&["n-increment"]),
@@ -539,7 +542,9 @@ fn variable_node(id: &str, name: &str, operation: &str, value_type: &str, value:
         },
         "runtime_outputs": []
     });
-    if operation == "set" {
+    // The editor keeps valueType on the node for set and clear alike, so clear
+    // can tell a color or a keyboard key from a plain string.
+    if operation == "set" || operation == "clear" {
         node["config"]["valueType"] = json!(value_type);
     }
     if operation == "set" && value_type == "list" {
@@ -576,5 +581,327 @@ fn assert_metadata(
     assert_eq!(
         variables.get(&format!("{name}.$is_empty")),
         Some(&json!(is_empty))
+    );
+}
+
+#[test]
+fn integer_variables_stay_integers_through_increment() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("an integer variable should increment");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value, &json!(3));
+    assert!(
+        value.as_i64().is_some(),
+        "an incremented integer must stay an integer variant, found {value}"
+    );
+}
+
+#[test]
+fn float_variables_stay_floats_through_increment() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "ratio", "set", "float", json!(2.5)),
+            variable_node("n-increment", "ratio", "increment", "float", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a float variable should increment");
+
+    let value = report.variables.get("ratio").expect("ratio should be set");
+    assert_eq!(value.as_f64(), Some(3.5));
+    assert!(
+        value.as_i64().is_none(),
+        "a float must not become an integer, found {value}"
+    );
+}
+
+#[test]
+fn a_whole_float_does_not_become_an_integer_when_incremented() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "ratio", "set", "float", json!(2.0)),
+            variable_node("n-increment", "ratio", "increment", "float", json!(1)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a whole float should increment");
+
+    let value = report.variables.get("ratio").expect("ratio should be set");
+    assert_eq!(value.as_f64(), Some(3.0));
+    assert!(
+        value.as_i64().is_none(),
+        "a whole float must stay a float, found {value}"
+    );
+}
+
+#[test]
+fn a_fractional_increment_turns_an_integer_into_a_float() {
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(2)),
+            variable_node("n-increment", "count", "increment", "integer", json!(0.5)),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a fractional increment should widen the value");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value.as_f64(), Some(2.5));
+    assert!(
+        value.as_i64().is_none(),
+        "a fractional result must be a float, found {value}"
+    );
+}
+
+#[test]
+fn incrementing_an_absent_variable_produces_an_integer() {
+    let report = execute(
+        vec![variable_node(
+            "n-increment",
+            "fresh",
+            "increment",
+            "integer",
+            json!(1),
+        )],
+        linear_edges(&["n-increment"]),
+    )
+    .expect("incrementing an absent variable should start from zero");
+
+    let value = report.variables.get("fresh").expect("fresh should be set");
+    assert_eq!(value, &json!(1));
+    assert!(
+        value.as_i64().is_some(),
+        "a fresh counter must be an integer, found {value}"
+    );
+}
+
+#[test]
+fn setting_a_variable_rejects_a_value_of_the_wrong_type() {
+    let error = run_set_variable_with_declared_type(
+        "counter",
+        "integer",
+        serde_json::json!("not a number"),
+    )
+    .expect_err("a wrong-typed value must be rejected");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("counter"),
+        "message names the variable: {message}"
+    );
+    assert!(
+        message.contains("integer"),
+        "message names the type: {message}"
+    );
+}
+
+fn run_set_variable_with_declared_type(
+    name: &str,
+    value_type: &str,
+    value: Value,
+) -> Result<crate::RunReport, crate::RuntimeError> {
+    execute(
+        vec![variable_node("n-set", name, "set", value_type, value)],
+        linear_edges(&["n-set"]),
+    )
+}
+
+#[test]
+fn setting_an_integer_variable_rejects_a_fractional_value() {
+    // A type mismatch on `set` is a program error: it stops the run rather
+    // than taking the node's failed output, because the program was never
+    // runnable with this value. See `setting_a_variable_rejects_a_value_of_the_wrong_type`.
+    let error = execute(
+        vec![variable_node(
+            "n-set",
+            "count",
+            "set",
+            "integer",
+            json!(1.5),
+        )],
+        linear_edges(&["n-set"]),
+    )
+    .expect_err("a fractional value must be rejected by the integer type and stop the run");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("expected integer"),
+        "a fractional value must be rejected by the integer type: {message}"
+    );
+    assert!(
+        message.contains("count"),
+        "message names the variable: {message}"
+    );
+}
+
+#[test]
+fn clearing_preserves_the_declared_type_for_every_type() {
+    for (value_type, initial) in [
+        ("integer", json!(7)),
+        ("float", json!(7.5)),
+        ("color", json!("#ff8800")),
+        ("string", json!("text")),
+        ("boolean", json!(true)),
+        ("object", json!({"a": 1})),
+    ] {
+        // The editor keeps valueType on every variable operation node, including
+        // clear, so the runner can tell a color from a plain string.
+        let mut clear = variable_node("n-clear", "v", "clear", value_type, Value::Null);
+        clear["config"]["valueType"] = json!(value_type);
+
+        let report = execute(
+            vec![
+                variable_node("n-set", "v", "set", value_type, initial.clone()),
+                clear,
+            ],
+            linear_edges(&["n-set", "n-clear"]),
+        )
+        .unwrap_or_else(|error| panic!("clearing a {value_type} variable failed: {error:?}"));
+
+        let cleared = report
+            .variables
+            .get("v")
+            .unwrap_or_else(|| panic!("{value_type} should still exist after clear"));
+        assert!(
+            crate::validate_value(cleared, value_type.parse().expect("a known type")).is_ok(),
+            "clearing a {value_type} produced {cleared}, which is not a valid {value_type}"
+        );
+    }
+}
+
+#[test]
+fn clearing_a_hotkey_reports_that_it_has_no_empty_value() {
+    let mut clear = variable_node("n-clear", "shortcut", "clear", "hotkey", Value::Null);
+    clear["config"]["valueType"] = json!("hotkey");
+
+    let report = execute(
+        vec![
+            variable_node("n-set", "shortcut", "set", "hotkey", json!("Ctrl+S")),
+            clear,
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("the run completes and the node takes its failed outcome");
+
+    assert!(
+        report.logs.iter().any(|log| log.level == "error"
+            && log.message.contains("no empty value")
+            && log.message.contains("delete")),
+        "clear should explain that a keyboard key has no empty value, logs: {:?}",
+        report
+            .logs
+            .iter()
+            .map(|log| &log.message)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        report.variables.get("shortcut"),
+        Some(&json!("Ctrl+S")),
+        "the original key must survive a refused clear"
+    );
+}
+
+#[test]
+fn a_literal_string_increment_amount_keeps_an_integer_an_integer() {
+    // The editor stores a config value as text, so an amount typed as "1"
+    // reaches the runner as a JSON string rather than a number.
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(0)),
+            variable_node("n-increment", "count", "increment", "integer", json!("1")),
+        ],
+        linear_edges(&["n-set", "n-increment"]),
+    )
+    .expect("a textual increment amount should apply");
+
+    let value = report.variables.get("count").expect("count should be set");
+    assert_eq!(value, &json!(1));
+    assert!(
+        value.as_i64().is_some(),
+        "a textual whole amount must not turn an integer into a float, found {value}"
+    );
+}
+
+#[test]
+fn clearing_ignores_a_stale_declared_type_for_a_non_string_variable() {
+    // valueType is always editable on the node, so a clear node can carry a
+    // stale default. The stored value identifies every non-string type, so the
+    // declaration must not be able to clear an integer to an empty string.
+    let mut clear = variable_node("n-clear", "count", "clear", "integer", Value::Null);
+    clear["config"]["valueType"] = json!("string");
+
+    let report = execute(
+        vec![
+            variable_node("n-set", "count", "set", "integer", json!(7)),
+            clear,
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("clearing an integer should succeed");
+
+    assert_eq!(report.variables.get("count"), Some(&json!(0)));
+}
+
+#[test]
+fn a_failing_cast_in_a_variable_operation_stops_the_run() {
+    // Variable operations do not go through the external action path, so they
+    // need the cast pre-pass in their own right. Without it a failing cast
+    // resolves to the literal template text and gets stored as a string.
+    let error = execute(
+        vec![
+            variable_node("n-ratio", "ratio", "set", "float", json!(3.5)),
+            variable_node(
+                "n-count",
+                "count",
+                "set",
+                "integer",
+                json!("{{ratio|integer}}"),
+            ),
+        ],
+        linear_edges(&["n-ratio", "n-count"]),
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    let message = format!("{error:?}");
+    assert!(
+        message.contains("integer"),
+        "the error should name the target type: {message}"
+    );
+}
+
+#[test]
+fn a_cast_hidden_behind_json_escapes_still_stops_the_run() {
+    // The pre-pass scans the raw config string, but this operation parses the
+    // string as JSON first and resolves templates in the parsed result. An
+    // escaped brace is invisible to the raw scan and becomes a real template
+    // after parsing.
+    let mut set_object = variable_node(
+        "n-payload",
+        "payload",
+        "set",
+        "object",
+        json!("{\"n\":\"\\u007b\\u007bratio|integer}}\"}"),
+    );
+    set_object["config"]["valueType"] = json!("object");
+
+    let error = execute(
+        vec![
+            variable_node("n-ratio", "ratio", "set", "float", json!(3.5)),
+            set_object,
+        ],
+        linear_edges(&["n-ratio", "n-payload"]),
+    )
+    .expect_err("a fractional value cannot cast to integer");
+
+    assert!(
+        format!("{error:?}").contains("integer"),
+        "the error should name the target type: {error:?}"
     );
 }

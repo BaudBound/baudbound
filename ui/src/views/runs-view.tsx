@@ -325,7 +325,7 @@ export function RunsView({
               <EmptyState>No runs match the current filters.</EmptyState>
             </div>
           ) : (
-            <table className="responsive-table w-full table-fixed border-collapse text-sm">
+            <table className="responsive-table w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <th className="w-11 px-3 py-2">

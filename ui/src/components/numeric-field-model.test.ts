@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   getNumericDraftError,
   type NumericFieldContract,
+  runtimeFloatMinimum,
+  runtimeIntegerMaximum,
+  runtimeIntegerMinimum,
   stepNumericDraft,
 } from "@/components/numeric-field-model";
 
@@ -67,5 +70,25 @@ describe("numeric field model", () => {
     expect(getNumericDraftError("101", signedDecimal, true)).toContain("at most 100");
     expect(getNumericDraftError("42.5", signedDecimal, true)).toBe("");
     expect(getNumericDraftError("-1", unsignedInteger, true)).toContain("non-negative");
+  });
+});
+
+describe("runtime contracts", () => {
+  it("gives an integer contract bounds that BigInt can read", () => {
+    // An integer contract is read with BigInt, which rejects exponent
+    // notation. Borrowing the float bounds threw while rendering the field and
+    // took the whole window blank.
+    expect(() => BigInt(runtimeIntegerMinimum)).not.toThrow();
+    expect(() => BigInt(runtimeIntegerMaximum)).not.toThrow();
+    expect(() => BigInt(runtimeFloatMinimum)).toThrow();
+
+    const integerContract: NumericFieldContract = {
+      kind: "integer",
+      maximum: runtimeIntegerMaximum,
+      minimum: runtimeIntegerMinimum,
+      signed: true,
+    };
+    expect(getNumericDraftError("42", integerContract, true)).toBe("");
+    expect(getNumericDraftError("42.5", integerContract, true)).not.toBe("");
   });
 });

@@ -49,64 +49,70 @@ function ServiceControlPanel({
 
   return (
     <Card>
-      <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-medium">Desktop background runner</div>
-            <Badge variant={desktopRunnerRunning ? "good" : "muted"}>{desktopRunner.state}</Badge>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Runs trigger listeners inside this desktop app. Closing the service loop stops schedules, webhooks, serial
-            input, and other triggers that rely on listeners.
-          </div>
-          <div className="mt-3 grid min-w-0 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-            <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
-              <Activity className="size-4 shrink-0" />
-              <span className="min-w-0 break-all">{desktopRunner.message}</span>
+      <CardContent className="grid min-w-0 gap-4">
+        {/* The heading shares a row with the buttons, but the status pair below
+            spans the whole card. Nesting it beside the buttons would strand it
+            in the narrower column and leave the card empty under them. */}
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-medium">Desktop background runner</div>
+              <Badge variant={desktopRunnerRunning ? "good" : "muted"}>{desktopRunner.state}</Badge>
             </div>
-            <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
-              <Clock3 className="size-4 shrink-0" />
-              <span className="min-w-0 break-all">
-                {desktopRunner.started_at_unix
-                  ? `Started ${formatUnixSeconds(desktopRunner.started_at_unix)}`
-                  : desktopRunner.stopped_at_unix
-                    ? `Stopped ${formatUnixSeconds(desktopRunner.stopped_at_unix)}`
-                    : "No runtime timestamp yet"}
-              </span>
+            <div className="text-xs text-muted-foreground">
+              Runs trigger listeners inside this desktop app. Closing the service loop stops schedules, webhooks, serial
+              input, and other triggers that rely on listeners.
             </div>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-3 gap-2 lg:flex lg:justify-end">
+            <span className="w-full lg:w-auto" title={startBlocker ?? undefined}>
+              <Button
+                className="w-full lg:w-auto"
+                disabled={desktopRunnerRunning || Boolean(startBlocker) || busyActions.has("background-start")}
+                onClick={() => runAction("background-start", () => startBackgroundRunner())}
+                variant="secondary"
+              >
+                <Play />
+                {busyActions.has("background-start") ? "Working..." : "Start"}
+              </Button>
+            </span>
+            <Button
+              className="w-full lg:w-auto"
+              disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping || busyActions.has("background-reload")}
+              onClick={() => runAction("background-reload", () => reloadBackgroundRunner())}
+              variant="outline"
+            >
+              <RotateCcw />
+              {busyActions.has("background-reload") ? "Working..." : "Reload"}
+            </Button>
+            <Button
+              className="w-full lg:w-auto"
+              disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping}
+              onClick={() => runAction("background-stop", () => stopBackgroundRunner())}
+              variant="destructive"
+            >
+              <Square />
+              {desktopRunnerIsStopping ? "Stopping..." : "Stop"}
+            </Button>
           </div>
         </div>
 
-        <div className="grid min-w-0 grid-cols-3 gap-2 lg:flex lg:justify-end">
-          <span className="w-full lg:w-auto" title={startBlocker ?? undefined}>
-            <Button
-              className="w-full lg:w-auto"
-              disabled={desktopRunnerRunning || Boolean(startBlocker) || busyActions.has("background-start")}
-              onClick={() => runAction("background-start", () => startBackgroundRunner())}
-              variant="secondary"
-            >
-              <Play />
-              {busyActions.has("background-start") ? "Working..." : "Start"}
-            </Button>
-          </span>
-          <Button
-            className="w-full lg:w-auto"
-            disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping || busyActions.has("background-reload")}
-            onClick={() => runAction("background-reload", () => reloadBackgroundRunner())}
-            variant="outline"
-          >
-            <RotateCcw />
-            {busyActions.has("background-reload") ? "Working..." : "Reload"}
-          </Button>
-          <Button
-            className="w-full lg:w-auto"
-            disabled={!desktopRunnerIsRunning || desktopRunnerIsStopping}
-            onClick={() => runAction("background-stop", () => stopBackgroundRunner())}
-            variant="destructive"
-          >
-            <Square />
-            {desktopRunnerIsStopping ? "Stopping..." : "Stop"}
-          </Button>
+        <div className="grid min-w-0 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
+            <Activity className="size-4 shrink-0" />
+            <span className="min-w-0 break-all">{desktopRunner.message}</span>
+          </div>
+          <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-background px-3 py-2">
+            <Clock3 className="size-4 shrink-0" />
+            <span className="min-w-0 break-all">
+              {desktopRunner.started_at_unix
+                ? `Started ${formatUnixSeconds(desktopRunner.started_at_unix)}`
+                : desktopRunner.stopped_at_unix
+                  ? `Stopped ${formatUnixSeconds(desktopRunner.stopped_at_unix)}`
+                  : "No runtime timestamp yet"}
+            </span>
+          </div>
         </div>
       </CardContent>
     </Card>

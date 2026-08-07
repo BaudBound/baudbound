@@ -23,11 +23,14 @@ export function formatTypedValueForDisplay(
 }
 
 function formatValue(valueType: DisplayType, value: unknown): string {
-  if (valueType === "string" || valueType === "file_path" || valueType === "hotkey" || valueType === "color") {
+  if (valueType === "string" || valueType === "hotkey" || valueType === "color") {
     return typeof value === "string" ? value : "Invalid value";
   }
-  if (valueType === "number") {
-    return typeof value === "number" && Number.isFinite(value) ? String(value) : "Invalid number";
+  if (valueType === "integer") {
+    return typeof value === "number" && Number.isInteger(value) ? String(value) : "Invalid integer";
+  }
+  if (valueType === "float") {
+    return typeof value === "number" && Number.isFinite(value) ? String(value) : "Invalid float";
   }
   if (valueType === "boolean") {
     return typeof value === "boolean" ? String(value) : "Invalid boolean";
@@ -55,7 +58,10 @@ function typedDatetimeValue(value: unknown): string | null {
 
 function inferValueType(value: unknown): ItemType | null {
   if (typeof value === "string") return "string";
-  if (typeof value === "number" && Number.isFinite(value)) return "number";
+  // An integer and a float are separate types, so the inferred type follows
+  // the value rather than collapsing both into one numeric type.
+  if (typeof value === "number" && Number.isInteger(value)) return "integer";
+  if (typeof value === "number" && Number.isFinite(value)) return "float";
   if (typeof value === "boolean") return "boolean";
   if (!isRecord(value)) return null;
   if (value.type === "datetime" && typeof value.value === "string") return "datetime";

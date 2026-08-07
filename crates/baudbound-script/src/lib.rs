@@ -1,14 +1,17 @@
 //! BaudBound script package models and `.bbs` package loading.
 
 mod color_match;
+mod hotkey;
 mod identifier;
 mod package;
 mod repository;
+mod safe_integer;
 mod types;
 
 pub use color_match::{
     ColorComparisonMode, ColorMatchEvaluation, RgbColor, evaluate_color_match, parse_rgb_color,
 };
+pub use hotkey::{hotkey_error, is_hotkey};
 pub use identifier::is_user_identifier;
 pub use package::{
     MAX_SCRIPT_SETTING_CONTAINER_ITEMS, MAX_SCRIPT_SETTING_VALUE_DEPTH, PackageAsset, PackageEntry,
@@ -25,6 +28,7 @@ pub use repository::{
     validate_anonymous_public_https_url, validate_public_https_package_url,
     validate_public_https_repository_url, validate_script_repository,
 };
+pub use safe_integer::{MAX_SAFE_INTEGER, is_safe_integer};
 pub use types::{
     Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
     RiskLevel, ScriptSettingDeclaration, SecretDeclaration,

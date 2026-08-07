@@ -1,7 +1,9 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use crate::ValueType;
 use crate::runtime::value_to_string;
 pub(crate) fn render_template(template: &str, variables: &BTreeMap<String, Value>) -> String {
     let mut output = String::new();
@@ -20,7 +22,7 @@ pub(crate) fn render_template(template: &str, variables: &BTreeMap<String, Value
 
         let expression = after_start[..end_index].trim();
         if let Some(value) = resolve_variable_expression(expression, variables) {
-            output.push_str(&value_to_string(value));
+            output.push_str(&value_to_string(&value));
         } else {
             output.push_str("{{");
             output.push_str(expression);
@@ -41,7 +43,7 @@ pub fn resolve_template_value(template: &str, variables: &BTreeMap<String, Value
         .filter(|expression| !expression.contains("{{") && !expression.contains("}}"))
     {
         return resolve_variable_expression(expression.trim(), variables)
-            .cloned()
+            .map(Cow::into_owned)
             .unwrap_or_else(|| Value::String(template.to_owned()));
     }
 
@@ -129,7 +131,57 @@ pub(crate) fn resolve_config_value(value: &Value, variables: &BTreeMap<String, V
     }
 }
 
+/// Splits a template expression into its reference and optional cast target.
+///
+/// The split happens outside quote context so that a pipe inside a quoted
+/// accessor, as in `node["a|b"]`, stays part of the key. Only the last
+/// unquoted pipe is treated as the cast separator.
+pub(crate) fn split_cast(expression: &str) -> (&str, Option<&str>) {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut separator = None;
+
+    for (index, character) in expression.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote.is_some() {
+            escaped = true;
+            continue;
+        }
+        match quote {
+            Some(active) if character == active => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if character == '|' => separator = Some(index),
+            None => {}
+        }
+    }
+
+    match separator {
+        Some(index) => (
+            expression[..index].trim(),
+            Some(expression[index + 1..].trim()),
+        ),
+        None => (expression.trim(), None),
+    }
+}
+
 fn resolve_variable_expression<'a>(
+    expression: &str,
+    variables: &'a BTreeMap<String, Value>,
+) -> Option<Cow<'a, Value>> {
+    let (reference, target) = split_cast(expression);
+    let resolved = resolve_reference(reference, variables)?;
+    let Some(target) = target else {
+        return Some(Cow::Borrowed(resolved));
+    };
+    let target = target.parse::<ValueType>().ok()?;
+    crate::cast_value(resolved, target).ok().map(Cow::Owned)
+}
+
+pub(crate) fn resolve_reference<'a>(
     expression: &str,
     variables: &'a BTreeMap<String, Value>,
 ) -> Option<&'a Value> {
@@ -299,5 +351,23 @@ mod tests {
         );
         assert!(template_value_is_defined(" {{missing}} ", &variables));
         assert!(!template_value_is_defined("{{missing}}", &variables));
+    }
+
+    #[test]
+    fn splits_a_cast_suffix_outside_quotes() {
+        assert_eq!(split_cast("item"), ("item", None));
+        assert_eq!(split_cast("item|string"), ("item", Some("string")));
+        assert_eq!(split_cast(" item | string "), ("item", Some("string")));
+        assert_eq!(
+            split_cast("node.items[0].name|string"),
+            ("node.items[0].name", Some("string"))
+        );
+
+        // A pipe inside a quoted accessor is part of the key, not a cast.
+        assert_eq!(split_cast("node[\"a|b\"]"), ("node[\"a|b\"]", None));
+        assert_eq!(
+            split_cast("node[\"a|b\"]|string"),
+            ("node[\"a|b\"]", Some("string"))
+        );
     }
 }

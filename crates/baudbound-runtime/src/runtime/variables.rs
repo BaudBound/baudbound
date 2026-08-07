@@ -40,16 +40,24 @@ pub(crate) fn coerce_variable_value(
     value_type: &str,
 ) -> Result<Value, RuntimeError> {
     match value_type {
-        "string" | "file_content" | "file_path" => Ok(Value::String(value_to_string(&value))),
-        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" => {
-            number_from_value(Some(&value))
-                .and_then(Number::from_f64)
-                .map(Value::Number)
-                .ok_or_else(|| RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("expected number, found {}", value_kind(&value)),
-                })
-        }
+        "string" => Ok(Value::String(value_to_string(&value))),
+        // An integer must not be widened to f64 here. `Number::from_f64` always
+        // produces the float variant, which would make every integer variable a
+        // float the moment it was set.
+        "integer" => integer_from_value(&value)
+            .map(|whole| Value::Number(whole.into()))
+            .ok_or_else(|| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("expected integer, found {}", value_kind(&value)),
+            }),
+        "float" => number_from_value(Some(&value))
+            .and_then(Number::from_f64)
+            .map(Value::Number)
+            .ok_or_else(|| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("expected float, found {}", value_kind(&value)),
+            }),
+        "color" => Ok(Value::String(value_to_string(&value))),
         "boolean" => match value {
             Value::Bool(value) => Ok(Value::Bool(value)),
             Value::String(value) if value.trim().eq_ignore_ascii_case("true") => {
@@ -63,11 +71,9 @@ pub(crate) fn coerce_variable_value(
                 message: format!("expected boolean, found {}", value_kind(&other)),
             }),
         },
-        "object" | "http_headers" | "datetime" | "duration" => {
-            coerce_json_container(node, value, true)
-        }
+        "object" | "datetime" | "duration" => coerce_json_container(node, value, true),
         "list" => coerce_json_container(node, value, false),
-        "keyboard_key" => Ok(Value::String(value_to_string(&value))),
+        "hotkey" => Ok(Value::String(value_to_string(&value))),
         _ => Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!("unsupported variable type {value_type}"),
@@ -280,13 +286,30 @@ pub(crate) fn refresh_derived_variable_metadata(
     variables.insert(empty_key, Value::Bool(is_empty));
 }
 
+/// The value a `clear` operation leaves behind for a type.
+///
+/// Returns `None` for a type that has no empty member. A keyboard key is the
+/// only such type: every valid value names at least one real key, so there is
+/// nothing to clear it to. Storing an empty string there would leave a value
+/// that its own type rejects.
+pub(crate) fn empty_value_for_declared_type(value_type: &str) -> Option<Value> {
+    match value_type {
+        "hotkey" => None,
+        other => Some(empty_value_for_type(other)),
+    }
+}
+
 pub(crate) fn empty_value_for_type(value_type: &str) -> Value {
     match value_type {
-        "number" | "http_status_code" | "duration_ms" | "process_id" | "exit_code" => {
-            Value::Number(0.into())
-        }
+        "integer" => Value::Number(0.into()),
+        // A float must stay a float. `0.into()` would build the integer
+        // variant, leaving an integer inside a float variable.
+        "float" => Number::from_f64(0.0)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        "color" => Value::String("#000000".to_owned()),
         "boolean" => Value::Bool(false),
-        "object" | "http_headers" => Value::Object(Map::new()),
+        "object" => Value::Object(Map::new()),
         "datetime" => serde_json::json!({
             "type": "datetime",
             "value": "1970-01-01T00:00:00.000Z"
@@ -334,6 +357,22 @@ fn coerce_json_container(
     }
 }
 
+/// Reads a value as a whole number without going through `f64`.
+///
+/// A fractional number is rejected rather than truncated, because `integer` and
+/// `float` are disjoint types and silently dropping a fraction would be an
+/// invisible conversion between them. A string is accepted only when it parses
+/// as a whole number, matching the string handling in `number_from_value`.
+pub(crate) fn integer_from_value(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
+        Value::String(value) => value.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
 pub(crate) fn number_from_value(value: Option<&Value>) -> Option<f64> {
     let value = match value {
         Some(Value::Number(number)) => number.as_f64(),
@@ -372,7 +411,17 @@ fn number_to_display_string(number: &Number) -> String {
 
     number
         .as_f64()
-        .map(|value| ryu_js::Buffer::new().format(value).to_owned())
+        .map(|value| {
+            let rendered = ryu_js::Buffer::new().format(value).to_owned();
+            // ryu-js follows JavaScript, which prints 42.0 as "42". A float must
+            // stay visibly a float, otherwise the separation from integer
+            // disappears the moment a value is used in text.
+            if rendered.contains(['.', 'e', 'E', 'n']) {
+                rendered
+            } else {
+                format!("{rendered}.0")
+            }
+        })
         .unwrap_or_else(|| number.to_string())
 }
 
@@ -380,7 +429,12 @@ pub(crate) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
+        // integer and float are separate types, so reporting a bare "number"
+        // would name a type that no longer exists.
+        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
+            "integer"
+        }
+        Value::Number(_) => "float",
         Value::String(_) => "string",
         Value::Array(_) => "list",
         Value::Object(_) => "object",
@@ -397,15 +451,38 @@ mod tests {
     fn formats_numbers_like_editor_text_templates() {
         for (value, expected) in [
             (json!(1), "1"),
-            (json!(1.0), "1"),
+            (json!(1.0), "1.0"),
             (json!(1.5), "1.5"),
-            (json!(-0.0), "0"),
-            (json!(-42.0), "-42"),
+            (json!(-0.0), "0.0"),
+            (json!(-42.0), "-42.0"),
             (json!(1e-7), "1e-7"),
-            (json!(1e20), "100000000000000000000"),
+            (json!(1e20), "100000000000000000000.0"),
             (json!(1e21), "1e+21"),
         ] {
             assert_eq!(value_to_string(&value), expected);
         }
+    }
+}
+
+#[cfg(test)]
+mod float_rendering_tests {
+    use super::value_to_string;
+
+    #[test]
+    fn whole_floats_render_with_a_decimal() {
+        let float: serde_json::Value = serde_json::from_str("42.0").expect("float parses");
+        assert_eq!(value_to_string(&float), "42.0");
+    }
+
+    #[test]
+    fn fractional_floats_render_unchanged() {
+        let float: serde_json::Value = serde_json::from_str("3.7").expect("float parses");
+        assert_eq!(value_to_string(&float), "3.7");
+    }
+
+    #[test]
+    fn integers_render_without_a_decimal() {
+        let integer: serde_json::Value = serde_json::from_str("42").expect("integer parses");
+        assert_eq!(value_to_string(&integer), "42");
     }
 }

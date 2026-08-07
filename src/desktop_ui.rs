@@ -317,6 +317,15 @@ pub fn run_desktop_ui(
             window
                 .set_title("BaudBound")
                 .map_err(|source| anyhow!("failed to set window title: {source}"))?;
+            // Browser chrome is a presentation concern, so a failure here is
+            // logged rather than fatal: the runner still works without it.
+            if let Err(error) = webview_policy::enforce_desktop_chrome_policy(&window, |result| {
+                if let Err(error) = result {
+                    tracing::warn!(%error, "failed to disable the runner webview browser chrome");
+                }
+            }) {
+                tracing::warn!(%error, "failed to schedule the runner webview chrome policy");
+            }
             let app_after_policy = app.handle().clone();
             webview_policy::enforce_private_input_policy(&window, move |result| match result {
                 Ok(()) => lifecycle::apply_initial_window_visibility(

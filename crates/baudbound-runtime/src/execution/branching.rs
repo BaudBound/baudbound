@@ -6,7 +6,10 @@ use crate::runtime::{
 use serde_json::Number;
 use serde_json::Value;
 
-use super::{RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode};
+use super::{
+    RunVariableScope, RuntimeError, RuntimeExecutor, RuntimeNode,
+    cast_validation::validate_config_casts,
+};
 
 pub(super) struct ConditionEvaluation {
     pub(super) result: bool,
@@ -18,6 +21,7 @@ impl RuntimeExecutor<'_> {
         &mut self,
         node: &RuntimeNode,
     ) -> Result<bool, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::ControlFlow {
@@ -112,6 +116,9 @@ impl RuntimeExecutor<'_> {
         &self,
         node: &RuntimeNode,
     ) -> Result<ConditionEvaluation, RuntimeError> {
+        // A condition decides which branch runs, so a silently unresolved cast
+        // here would send the program down the wrong path rather than stop it.
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let conditions = node
             .config
             .get("conditions")
@@ -207,6 +214,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn evaluate_switch(&mut self, node: &RuntimeNode) -> Result<String, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let switch_value = resolve_template_value(
             &config_string(&node.config, "value").unwrap_or_default(),
             &self.context.variables,
@@ -260,6 +268,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn repeat_count(&self, node: &RuntimeNode) -> Result<u64, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let config = resolve_config_map(&node.config, &self.context.variables);
         baudbound_script::validate_resolved_numeric_config(&node.action_type, &config).map_err(
             |message| RuntimeError::ControlFlow {
@@ -279,6 +288,7 @@ impl RuntimeExecutor<'_> {
     }
 
     pub(super) fn for_each_items(&self, node: &RuntimeNode) -> Result<Vec<Value>, RuntimeError> {
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let raw_items = required_config_string(node, "items")?;
         let value = resolve_template_value(&raw_items, &self.context.variables);
         if let Value::Array(items) = value {
@@ -336,6 +346,8 @@ fn condition_operator_label(operator: &str) -> &str {
         "is_true" => "is true",
         "is_false" => "is false",
         "is_numeric" => "is numeric",
+        "is_integer" => "is an integer",
+        "is_float" => "is a float",
         "is_string" => "is a string",
         "is_boolean" => "is a boolean",
         "is_list" => "is a list",
@@ -354,6 +366,8 @@ fn condition_uses_right_value(operator: &str) -> bool {
             | "is_true"
             | "is_false"
             | "is_numeric"
+            | "is_integer"
+            | "is_float"
             | "is_string"
             | "is_boolean"
             | "is_list"

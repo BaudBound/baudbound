@@ -766,7 +766,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
             json!([{
                 "name": "watchPath",
                 "scope": "runtime",
-                "type": "file_path",
+                "type": "string",
                 "value": absolute_watch_path
             }]),
         ),
@@ -1633,7 +1633,8 @@ fn saving_script_settings_validates_the_entire_batch_before_writing() {
             .iter()
             .find(|setting| setting.name == "Retries")
             .and_then(|setting| setting.configured_value.as_ref()),
-        Some(&json!(3.0))
+        // Retries is an integer setting, so it keeps the integer variant.
+        Some(&json!(3))
     );
 }
 
@@ -1739,7 +1740,7 @@ fn create_script_settings_test_package() -> Vec<u8> {
             },
             {
                 "name": "Retries",
-                "type": "number",
+                "type": "integer",
                 "description": "Retry count",
                 "required": false
             }

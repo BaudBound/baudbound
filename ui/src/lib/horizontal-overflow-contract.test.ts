@@ -38,6 +38,24 @@ describe("horizontal overflow contract", () => {
     expect(browseScriptsViewSource).toContain("max-w-full flex-wrap justify-end gap-2");
   });
 
+  it("sizes table columns from what they hold", () => {
+    // A fixed layout with no declared widths gives every column an equal
+    // share, which made a row number as wide as a log message and left the
+    // message wrapping over several lines. Every table shares this rule, so a
+    // single opt out puts one table back to equal shares. The pattern is
+    // spelled in parts so it does not match its own source.
+    //
+    // This covers the views only. A stylesheet reads as an empty string here,
+    // through ?raw and ?inline alike, so the rule in styles.css cannot be
+    // asserted from a test without adding Node types to this package.
+    const fixedLayout = /\btable-(?:fixed)\b|table-layout\s*:\s*(?:fixed)/;
+    const offenders = Object.entries(sourceFiles).flatMap(([path, source]) =>
+      fixedLayout.test(source) ? [path] : [],
+    );
+
+    expect(offenders).toEqual([]);
+  });
+
   it("preserves horizontal padding for every shared badge", () => {
     expect(badgeSource).toContain("rounded-full border px-2 text-center");
   });

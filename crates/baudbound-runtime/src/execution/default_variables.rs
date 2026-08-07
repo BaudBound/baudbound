@@ -10,24 +10,14 @@ use crate::{
 
 use super::RuntimeError;
 
+/// The ten declarable types. A list element may be any of them except a list,
+/// so nesting stays one level.
 const SUPPORTED_VARIABLE_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "list",
-    "datetime",
+    "string", "integer", "float", "boolean", "object", "list", "color", "hotkey", "datetime",
     "duration",
-    "file_path",
 ];
 const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "datetime",
-    "duration",
-    "file_path",
+    "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
 
 pub(super) fn validate_default_variables(
@@ -160,9 +150,17 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
 
 fn value_matches_type(value_type: &str, item_type: Option<&str>, value: &Value) -> bool {
     match value_type {
+        // Checked against the shared vocabulary rather than accepted on sight.
+        // These once returned true here on the grounds that `initial_state.rs`
+        // validates the default afterwards, but that check sees only the whole
+        // value: for a list it confirms the value is an array and never looks
+        // at the elements, so a list of integers would accept a string.
+        // Only the declaration is confirmed here. The value itself is checked
+        // against the shared vocabulary in `reject_wrong_type_default`, which
+        // reports a type error rather than an invalid graph, so a mismatch
+        // takes the same path as a failed cast.
+        "integer" | "float" | "color" | "hotkey" => true,
         "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
-        "file_path" => value.as_str().is_some_and(|path| !path.trim().is_empty()),
-        "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {

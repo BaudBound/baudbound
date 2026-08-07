@@ -773,17 +773,37 @@ export type InstalledSecretStatus = {
   value_type: string;
 };
 
+/**
+ * The ten declarable types, matching the manifest schema and the runner.
+ *
+ * A list item may be any of them except a list, so nesting stays one level.
+ */
+export type ScriptSettingValueType =
+  | "boolean"
+  | "color"
+  | "datetime"
+  | "duration"
+  | "float"
+  | "integer"
+  | "hotkey"
+  | "list"
+  | "object"
+  | "string";
+
+// A list element may be any type except a list, matching the manifest schema.
+export type ScriptSettingItemType = Exclude<ScriptSettingValueType, "list">;
+
 export type InstalledScriptSettingStatus = {
   configured: boolean;
   configured_value: unknown | null;
   default_value: unknown | null;
   description: string;
   effective_value: unknown | null;
-  item_type: "boolean" | "datetime" | "duration" | "file_path" | "number" | "object" | "string" | null;
+  item_type: ScriptSettingItemType | null;
   name: string;
   required: boolean;
   updated_at_unix: number | null;
-  value_type: "boolean" | "color" | "datetime" | "duration" | "file_path" | "hotkey" | "list" | "number" | "object" | "string";
+  value_type: ScriptSettingValueType;
 };
 
 export type ActionPayload = {
