@@ -172,11 +172,14 @@ impl ScheduleService {
                 action_type: schedule.registration.action_type.clone(),
                 node_id: schedule.registration.node_id.clone(),
                 payload: json!({
-                    "interval_seconds": schedule_number_payload(
-                        schedule.spec.interval.as_secs_f64()
-                    ),
+                    // Always a float, even for a whole number of seconds. An
+                    // interval of 250 milliseconds is a quarter of a second, so
+                    // the type cannot depend on the value without the same
+                    // output being an integer on one schedule and a float on
+                    // the next.
+                    "interval_seconds": schedule.spec.interval.as_secs_f64(),
                     "schedule": {
-                        "every": schedule_number_payload(schedule.spec.every),
+                        "every": schedule.spec.every,
                         "unit": schedule.spec.unit,
                     },
                     "scheduled_at_unix": unix_timestamp(scheduled_at),
@@ -211,10 +214,3 @@ pub struct DueScheduleBatch {
     pub deferred: bool,
 }
 
-fn schedule_number_payload(value: f64) -> serde_json::Value {
-    if value.fract() == 0.0 && value <= u64::MAX as f64 {
-        json!(value as u64)
-    } else {
-        json!(value)
-    }
-}

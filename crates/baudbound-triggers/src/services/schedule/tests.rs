@@ -7,13 +7,13 @@ use super::{ScheduleService, spec::ScheduleSpec};
 use crate::TriggerRegistration;
 
 #[test]
-fn accepts_fractional_intervals_and_preserves_exact_payload_seconds() {
+fn accepts_sub_second_intervals_and_preserves_exact_payload_seconds() {
     let start = Instant::now();
     let mut service = ScheduleService::from_registrations(
-        [registration("n-fractional", "0.25", "seconds")],
+        [registration("n-sub-second", "250", "milliseconds")],
         start,
     )
-    .expect("fractional schedule should parse");
+    .expect("a sub second schedule should parse");
 
     assert!(
         service
@@ -23,6 +23,55 @@ fn accepts_fractional_intervals_and_preserves_exact_payload_seconds() {
     let events = service.due_events(start + Duration::from_millis(250), SystemTime::UNIX_EPOCH);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].payload["interval_seconds"], 0.25);
+    assert_eq!(events[0].payload["schedule"]["every"], 250);
+}
+
+#[test]
+fn a_fractional_interval_count_is_refused_rather_than_rounded() {
+    let start = Instant::now();
+
+    // Milliseconds is the smallest unit and one of them is the smallest
+    // interval, so a fraction can only mean a precision that does not exist.
+    for every in ["0.25", "1.5", "0.5"] {
+        assert!(
+            ScheduleService::from_registrations(
+                [registration("n-fractional", every, "seconds")],
+                start,
+            )
+            .is_err(),
+            "every={every} should be refused"
+        );
+    }
+
+    // The same interval written in whole units is accepted.
+    assert!(
+        ScheduleService::from_registrations(
+            [registration("n-whole", "1500", "milliseconds")],
+            start,
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn interval_seconds_is_a_float_even_for_a_whole_number_of_seconds() {
+    let start = Instant::now();
+    let mut service =
+        ScheduleService::from_registrations([registration("n-whole", "30", "seconds")], start)
+            .expect("a whole second schedule should parse");
+
+    let events = service.due_events(start + Duration::from_secs(30), SystemTime::UNIX_EPOCH);
+    assert_eq!(events.len(), 1);
+    let interval = &events[0].payload["interval_seconds"];
+    assert!(
+        interval.is_f64() && !interval.is_i64() && !interval.is_u64(),
+        "interval_seconds must stay a float so its type does not follow the value: {interval}"
+    );
+    assert_eq!(interval.as_f64(), Some(30.0));
+
+    // The interval count keeps the type the author entered.
+    let every = &events[0].payload["schedule"]["every"];
+    assert!(every.is_u64(), "every must stay an integer: {every}");
 }
 
 #[test]
@@ -166,7 +215,7 @@ fn three_second_schedule_fires_at_three_second_boundaries() {
         let now = start + Duration::from_secs(elapsed_seconds);
         let events = service.due_events(now, SystemTime::UNIX_EPOCH);
         assert_eq!(events.len(), 1, "expected a tick at {elapsed_seconds}s");
-        assert_eq!(events[0].payload["interval_seconds"], 3);
+        assert_eq!(events[0].payload["interval_seconds"], 3.0);
         assert_eq!(
             service.time_until_next_due(now),
             Some(Duration::from_secs(3))

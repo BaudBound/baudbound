@@ -68,7 +68,7 @@ fn creates_due_schedule_events_and_advances_next_due() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].script_id, "script-1");
     assert_eq!(events[0].node_id, "n-schedule");
-    assert_eq!(events[0].payload["interval_seconds"], 2);
+    assert_eq!(events[0].payload["interval_seconds"], 2.0);
     assert_eq!(events[0].payload["schedule"]["unit"], "seconds");
     assert_eq!(
         service.time_until_next_due(start + Duration::from_secs(2)),
