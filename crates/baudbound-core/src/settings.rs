@@ -500,6 +500,9 @@ mod declared_float_tests {
         // Only float is read this way. The two stay disjoint everywhere else.
         assert!(value_matches_type("integer", None, &json!(300)));
         assert!(!value_matches_type("integer", None, &json!(300.5)));
-        assert_eq!(coerce_declared_value("integer", None, json!(300)), json!(300));
+        assert_eq!(
+            coerce_declared_value("integer", None, json!(300)),
+            json!(300)
+        );
     }
 }

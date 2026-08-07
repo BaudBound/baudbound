@@ -166,10 +166,7 @@ impl RunnerConfig {
     /// of spacing in the file, which is what editing a setting from the
     /// interface used to do. Writing each value into the parsed document
     /// instead leaves the surrounding text where the author put it.
-    pub fn to_toml_preserving_comments(
-        &self,
-        existing: &str,
-    ) -> Result<String, RunnerConfigError> {
+    pub fn to_toml_preserving_comments(&self, existing: &str) -> Result<String, RunnerConfigError> {
         let Ok(mut document) = existing.parse::<toml_edit::DocumentMut>() else {
             // Whatever is on disk is not TOML, so there is no formatting worth
             // keeping and a clean render is the best available answer.
@@ -1315,7 +1312,10 @@ fn merge_into_document(existing: &mut toml_edit::Table, updated: &toml_edit::Tab
 
     for (key, updated_item) in updated {
         match (existing.get_mut(key), updated_item) {
-            (Some(toml_edit::Item::Table(existing_table)), toml_edit::Item::Table(updated_table)) => {
+            (
+                Some(toml_edit::Item::Table(existing_table)),
+                toml_edit::Item::Table(updated_table),
+            ) => {
                 merge_into_document(existing_table, updated_table);
             }
             (Some(existing_item), toml_edit::Item::Value(updated_value)) => {
@@ -2115,17 +2115,23 @@ mod comment_preservation_tests {
     #[test]
     fn an_unset_optional_setting_keeps_its_key() {
         let mut config = RunnerConfig::default();
-        config
-            .serial
-            .devices
-            .insert(
-                "probe".to_owned(),
-                SerialDeviceSettings { port: "COM3".to_owned(), ..SerialDeviceSettings::default() },
-            );
+        config.serial.devices.insert(
+            "probe".to_owned(),
+            SerialDeviceSettings {
+                port: "COM3".to_owned(),
+                ..SerialDeviceSettings::default()
+            },
+        );
 
         let written = config.to_pretty_toml().unwrap();
 
-        for setting in ["vendor_id", "product_id", "serial_number", "manufacturer", "product"] {
+        for setting in [
+            "vendor_id",
+            "product_id",
+            "serial_number",
+            "manufacturer",
+            "product",
+        ] {
             assert!(
                 written.contains(&format!("{setting} = \"\"")),
                 "{setting} should stay in the file when it is unset: {written}"
@@ -2143,7 +2149,9 @@ mod comment_preservation_tests {
     #[test]
     fn falls_back_to_a_clean_render_when_the_file_is_not_toml() {
         let config = RunnerConfig::default();
-        let written = config.to_toml_preserving_comments("this is not = = toml").unwrap();
+        let written = config
+            .to_toml_preserving_comments("this is not = = toml")
+            .unwrap();
         assert_eq!(written, config.to_pretty_toml().unwrap());
     }
 }

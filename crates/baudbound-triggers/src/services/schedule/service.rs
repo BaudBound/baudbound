@@ -213,4 +213,3 @@ pub struct DueScheduleBatch {
     pub events: Vec<TriggerEvent>,
     pub deferred: bool,
 }
-
