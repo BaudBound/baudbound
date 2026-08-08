@@ -108,6 +108,7 @@ pub enum RunVariableScope {
     Runtime,
     Secret,
     Setting,
+    System,
 }
 
 impl RunVariableScope {
@@ -121,6 +122,7 @@ impl RunVariableScope {
             Self::Runtime => "runtime",
             Self::Secret => "secret",
             Self::Setting => "setting",
+            Self::System => "system",
         }
     }
 }
@@ -280,6 +282,10 @@ impl RuntimeActionHandler for UnsupportedActionHandler {
     }
 }
 
+/// Borrowed by a resources value that was built without system variables.
+static EMPTY_SYSTEM_VARIABLES: std::sync::OnceLock<BTreeMap<String, Value>> =
+    std::sync::OnceLock::new();
+
 pub struct RuntimeExecutionResources<'a> {
     pub(super) package_bytes: Option<Arc<[u8]>>,
     pub(super) package_path: Option<PathBuf>,
@@ -293,6 +299,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) execution_policy: RuntimeExecutionPolicy,
     pub(super) script_settings: Option<&'a RuntimeScriptSettings>,
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
+    pub(super) system_variables: &'a BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +351,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
             default_variables: &[],
+            system_variables: EMPTY_SYSTEM_VARIABLES.get_or_init(BTreeMap::new),
             observer: None,
             output_limits: RuntimeOutputLimits::default(),
             execution_policy: RuntimeExecutionPolicy::default(),
@@ -388,6 +396,17 @@ impl<'a> RuntimeExecutionResources<'a> {
     ) -> Self {
         self.state_store = Some(state_store);
         self.secrets = secrets;
+        self
+    }
+
+    /// Values the runner supplies about the machine and the moment, such as
+    /// the operating system and the current time.
+    ///
+    /// A run without them resolves nothing for a system reference, which is
+    /// what every run did before they were supplied at all.
+    #[must_use]
+    pub fn with_system_variables(mut self, system_variables: &'a BTreeMap<String, Value>) -> Self {
+        self.system_variables = system_variables;
         self
     }
 

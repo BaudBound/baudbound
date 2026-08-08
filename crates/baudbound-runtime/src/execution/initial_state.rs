@@ -28,6 +28,7 @@ pub(super) fn load_initial_state(
     default_variables: &[RuntimeDefaultVariable],
     script_settings: Option<&RuntimeScriptSettings>,
     secrets: &[RuntimeSecretDeclaration],
+    system_variables: &BTreeMap<String, Value>,
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
@@ -132,6 +133,17 @@ pub(super) fn load_initial_state(
         return Err(RuntimeError::State(
             "persistent, global, and secret variables require a runner state store".to_owned(),
         ));
+    }
+    // Supplied by the runner rather than the script. The reserved system_
+    // prefix already stops a script writing one, so they cannot be shadowed.
+    for (name, value) in system_variables {
+        insert_initial_variable(
+            &mut variables,
+            &mut variable_scopes,
+            name.clone(),
+            value.clone(),
+            RunVariableScope::System,
+        );
     }
     let mut secret_values = Vec::new();
     if let Some(settings) = script_settings {

@@ -15,6 +15,8 @@ baudbound-script = { path = "../baudbound-script", version = "2.0.0" }
 baudbound-security = { path = "../baudbound-security", version = "2.0.0" }
 baudbound-storage = { path = "../baudbound-storage", version = "2.0.0" }
 chrono.workspace = true
+iana-time-zone.workspace = true
+sysinfo.workspace = true
 baudbound-triggers = { path = "../baudbound-triggers", version = "2.0.0" }
 serde.workspace = true
 serde_json.workspace = true

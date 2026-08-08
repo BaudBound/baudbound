@@ -73,6 +73,7 @@ impl<'a> RuntimeExecutor<'a> {
             resources.default_variables,
             resources.script_settings,
             resources.secrets,
+            resources.system_variables,
         )?;
         for (name, value) in &initial_state.variables {
             ensure_value_within_limit(
