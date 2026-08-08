@@ -6,11 +6,12 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    RunIdentity, RunVariableScope, RuntimeActionError, RuntimeActionHandler, RuntimeActionRequest,
-    RuntimeActionResult, RuntimeCancellationToken, RuntimeContext, RuntimeDefaultVariable,
-    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver,
-    RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope,
-    UnsupportedActionHandler, VersionedRuntimeVariable, execute_manual_program_with_state,
+    ResourceLimit, RunIdentity, RunVariableScope, RuntimeActionError, RuntimeActionHandler,
+    RuntimeActionRequest, RuntimeActionResult, RuntimeCancellationToken, RuntimeContext,
+    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeExecutionPolicy,
+    RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver, RuntimeScriptSettings,
+    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
+    VersionedRuntimeVariable, execute_manual_program_with_state,
 };
 
 #[derive(Default)]
@@ -704,4 +705,146 @@ fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
             "the error should name the mismatch, found {error}"
         );
     }
+}
+
+/// Flips a stored variable directly in the store on its first call, standing
+/// in for a different run changing it. It deliberately does not touch the run
+/// context, which is what a Variable Operation would do.
+struct OutsideWriter {
+    store: Arc<TestStateStore>,
+    calls: Mutex<usize>,
+}
+
+impl std::fmt::Debug for OutsideWriter {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("OutsideWriter")
+    }
+}
+
+impl RuntimeActionHandler for OutsideWriter {
+    fn execute_action(
+        &self,
+        _request: &RuntimeActionRequest,
+        _context: &RuntimeContext,
+    ) -> Result<RuntimeActionResult, RuntimeActionError> {
+        let mut calls = self.calls.lock().expect("call count lock should work");
+        *calls += 1;
+        if *calls == 1 {
+            let existing = self
+                .store
+                .load_variable(RuntimeVariableScope::Persistent, "script-1", "running")
+                .expect("the flag should load");
+            self.store
+                .compare_and_set_variable(
+                    RuntimeVariableScope::Persistent,
+                    "script-1",
+                    "running",
+                    existing.map(|variable| variable.version),
+                    &json!(false),
+                )
+                .expect("flipping the flag should work");
+        }
+        Ok(RuntimeActionResult::new(serde_json::Map::new()))
+    }
+}
+
+#[test]
+fn a_loop_condition_sees_a_stored_variable_changed_outside_the_run() {
+    // The reason the refresh exists. The flag is flipped in the store by
+    // something that never touches this run's variables, so only a reload at
+    // the condition can end the loop. Without it the loop runs until a
+    // resource limit stops it.
+    let store = Arc::new(TestStateStore::default());
+    store
+        .compare_and_set_variable(
+            RuntimeVariableScope::Persistent,
+            "script-1",
+            "running",
+            None,
+            &json!(true),
+        )
+        .expect("seeding the flag should work");
+
+    let handler = OutsideWriter {
+        store: Arc::clone(&store),
+        calls: Mutex::new(0),
+    };
+    let program = json!({
+        "entry": {
+            "trigger": manual_trigger(),
+            "triggers": [],
+            "program": {
+                "steps": [
+                    {
+                        "id": "n-while",
+                        "action_type": "control.while",
+                        "type": "while",
+                        "config": {
+                            "conditions": [{
+                                "id": "row",
+                                "left": "{{running}}",
+                                "operator": "==",
+                                "right": "true"
+                            }]
+                        },
+                        "runtime_outputs": []
+                    },
+                    {
+                        "id": "n-outside",
+                        "action_type": "action.clipboard.set",
+                        "type": "action",
+                        "config": {},
+                        "runtime_outputs": []
+                    }
+                ],
+                "edges": [
+                    edge("n-trigger", "out", "n-while"),
+                    edge("n-while", "loop", "n-outside")
+                ]
+            }
+        }
+    });
+
+    let defaults = [RuntimeDefaultVariable {
+        name: "running".to_owned(),
+        scope: RuntimeDefaultVariableScope::Persistent,
+        value_type: "boolean".to_owned(),
+        item_type: None,
+        value: json!(true),
+    }];
+    let report = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        RuntimeExecutionResources::new(&handler)
+            .with_state(store.as_ref(), &[])
+            .with_default_variables(&defaults)
+            .with_execution_policy(RuntimeExecutionPolicy {
+                max_steps_per_run: ResourceLimit::limited(200),
+                max_run_duration_ms: ResourceLimit::limited(10_000),
+                max_loop_iterations_per_run: ResourceLimit::limited(20),
+            }),
+    )
+    .expect("the loop should end rather than exhaust its iteration limit");
+
+    assert_eq!(report.variables.get("running"), Some(&json!(false)));
+}
+
+fn manual_trigger() -> Value {
+    json!({
+        "id": "n-trigger",
+        "action_type": "trigger.manual",
+        "type": "manual",
+        "config": {},
+        "runtime_outputs": []
+    })
+}
+
+fn edge(source: &str, source_handle: &str, target: &str) -> Value {
+    json!({
+        "execution_order": 0,
+        "source": source,
+        "source_handle": source_handle,
+        "target": target,
+        "target_handle": "input"
+    })
 }

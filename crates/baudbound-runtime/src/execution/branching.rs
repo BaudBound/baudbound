@@ -1,7 +1,8 @@
+use crate::runtime::RuntimeVariableScope;
 use crate::runtime::{
     RuntimeConditionRow, RuntimeSwitchCaseRow, compare_condition_values_with_end, config_string,
     required_config_string, resolve_config_map, resolve_template_value, template_value_is_defined,
-    value_kind, values_equal_for_condition,
+    template_variable_roots, value_kind, values_equal_for_condition,
 };
 use serde_json::Number;
 use serde_json::Value;
@@ -112,13 +113,57 @@ impl RuntimeExecutor<'_> {
         Ok(evaluation.matches)
     }
 
+    /// Reloads the stored variables a condition reads, and keeps them.
+    ///
+    /// Only the names the rows actually mention, so the cost follows what the
+    /// condition uses rather than how many variables the script declares. A
+    /// runtime variable is untouched: nothing outside the run can change it.
+    fn refresh_stored_condition_variables(
+        &mut self,
+        rows: &[RuntimeConditionRow],
+    ) -> Result<(), RuntimeError> {
+        let Some(store) = self.state_store else {
+            return Ok(());
+        };
+
+        let mut names = Vec::new();
+        for row in rows {
+            for template in [&row.left, &row.right, &row.right_end] {
+                for root in template_variable_roots(template) {
+                    if !names.contains(&root) {
+                        names.push(root);
+                    }
+                }
+            }
+        }
+
+        for name in names {
+            let scope = match self.variable_scopes.get(&name) {
+                Some(RunVariableScope::Persistent) => RuntimeVariableScope::Persistent,
+                Some(RunVariableScope::Global) => RuntimeVariableScope::Global,
+                _ => continue,
+            };
+            let stored = store
+                .load_variable(scope, &self.context.identity.script_id, &name)
+                .map_err(RuntimeError::State)?;
+            let run_scope = match scope {
+                RuntimeVariableScope::Persistent => RunVariableScope::Persistent,
+                RuntimeVariableScope::Global => RunVariableScope::Global,
+            };
+            match stored {
+                Some(variable) => self.set_variable(name, variable.value, run_scope)?,
+                // Removed by something else, so this run should stop seeing it.
+                None => self.remove_variable(&name),
+            }
+        }
+
+        Ok(())
+    }
+
     pub(super) fn evaluate_conditions(
-        &self,
+        &mut self,
         node: &RuntimeNode,
     ) -> Result<ConditionEvaluation, RuntimeError> {
-        // A condition decides which branch runs, so a silently unresolved cast
-        // here would send the program down the wrong path rather than stop it.
-        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         let conditions = node
             .config
             .get("conditions")
@@ -138,6 +183,18 @@ impl RuntimeExecutor<'_> {
                 summary: "no condition rows were configured".to_owned(),
             });
         }
+
+        // A stored variable this condition reads may have been changed by
+        // something outside this run, so reload it before deciding. The fresh
+        // value is written back into the run, which means every node after
+        // this one reads what the condition saw rather than the copy taken
+        // when the run started.
+        self.refresh_stored_condition_variables(&rows)?;
+
+        // A condition decides which branch runs, so a silently unresolved cast
+        // here would send the program down the wrong path rather than stop it.
+        // Checked after the refresh so a cast sees the value being compared.
+        validate_config_casts(&node.id, &node.config, &self.context.variables)?;
 
         let mut result = false;
         let mut summaries = Vec::with_capacity(rows.len());
