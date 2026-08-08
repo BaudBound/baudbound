@@ -622,6 +622,14 @@ mod derived_part_tests {
         assert_eq!(variables["x.$second"], json!(45));
         // 3 July 2026 is a Friday, fifth day counting from Monday.
         assert_eq!(variables["x.$weekday"], json!(5));
+
+        // A different offset must not change the reading. Converting to UTC
+        // first would report 19 here rather than the wall clock written.
+        let elsewhere =
+            parts_of(json!({ "type": "datetime", "value": "2026-07-03T14:30:45-05:00" }));
+        assert_eq!(elsewhere["x.$hour"], json!(14));
+        assert_eq!(elsewhere["x.$day"], json!(3));
+        assert_eq!(elsewhere["x.$weekday"], json!(5));
     }
 
     #[test]
