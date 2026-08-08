@@ -121,3 +121,30 @@ fn security_risk_level(risk_level: &RiskLevel) -> baudbound_security::RiskLevel 
         RiskLevel::Dangerous => baudbound_security::RiskLevel::Dangerous,
     }
 }
+
+/// Reads one trigger node's overlap option out of a program.
+///
+/// Mirrors the trigger traversal in `network_trigger_definitions`: the entry
+/// trigger plus any secondary triggers. A node that cannot be found, or a
+/// program written before the option existed, reads as `Queue`.
+pub(crate) fn trigger_overlap(program: &Value, trigger_node_id: &str) -> crate::TriggerOverlap {
+    let Some(entry) = program.get("entry") else {
+        return crate::TriggerOverlap::Queue;
+    };
+    let mut triggers = Vec::new();
+    if let Some(trigger) = entry.get("trigger") {
+        triggers.push(trigger);
+    }
+    if let Some(entries) = entry.get("triggers").and_then(Value::as_array) {
+        triggers.extend(entries);
+    }
+
+    triggers
+        .into_iter()
+        .find(|trigger| trigger.get("id").and_then(Value::as_str) == Some(trigger_node_id))
+        .and_then(|trigger| trigger.get("config"))
+        .map_or(
+            crate::TriggerOverlap::Queue,
+            crate::TriggerOverlap::from_config,
+        )
+}

@@ -149,9 +149,19 @@ pub(super) fn record_trigger_completions(
     while let Some(completion) = executor.try_completion() {
         completed_any = true;
         match completion.result {
-            Ok(report) => {
+            Ok(baudbound_core::TriggerActivation::Started { report }) => {
                 status.record_report(completion.source, &report);
-                print_live_run_report(report);
+                print_live_run_report(*report);
+            }
+            // A stopped or skipped activation never became a run, so there is
+            // no report to record. Say what happened instead of nothing.
+            Ok(outcome) => {
+                console::info(format_args!(
+                    "Trigger {} for {}: {}.",
+                    completion.event.node_id,
+                    completion.event.script_id,
+                    describe_activation(&outcome)
+                ));
             }
             Err(error) => {
                 status.record_event_failure(completion.source, &completion.event, error.clone());
@@ -160,4 +170,17 @@ pub(super) fn record_trigger_completions(
         }
     }
     completed_any
+}
+
+/// A one-line account of an activation that did not run.
+fn describe_activation(activation: &baudbound_core::TriggerActivation) -> String {
+    match activation {
+        baudbound_core::TriggerActivation::Started { .. } => "started a run".to_owned(),
+        baudbound_core::TriggerActivation::Stopped { cancelled } => {
+            format!("stopped {cancelled} running instance(s), started nothing")
+        }
+        baudbound_core::TriggerActivation::Skipped => {
+            "skipped because the script is already running".to_owned()
+        }
+    }
 }

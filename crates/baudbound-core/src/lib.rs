@@ -60,6 +60,7 @@ use version::{VersionCompatibilityError, validate_minimum_runner_version};
 
 pub use active_runs::ActiveRunTracker;
 pub use baudbound_runtime::RunReport;
+pub use baudbound_triggers::{TriggerActivation, TriggerOverlap};
 pub use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 pub use compatibility::{DESKTOP_ONLY_ACTIONS, RunnerExecutionMode, WINDOWS_DESKTOP_ONLY_ACTIONS};
 pub use config::{
@@ -127,6 +128,7 @@ impl RuntimeRunObserver for CompositeRunObserver {
 
 #[derive(Clone)]
 pub struct RunnerCore {
+    active_runs: Arc<ActiveRunTracker>,
     action_handler: Option<Arc<dyn RuntimeActionHandler>>,
     action_limits: ActionLimits,
     action_security_policy: ActionSecurityPolicy,
@@ -146,6 +148,7 @@ pub struct RunnerCore {
 impl Default for RunnerCore {
     fn default() -> Self {
         Self {
+            active_runs: ActiveRunTracker::new(),
             action_handler: None,
             action_limits: ActionLimits::default(),
             action_security_policy: ActionSecurityPolicy::default(),
@@ -174,6 +177,7 @@ impl RunnerCore {
             action_serial_devices_from_config(config),
         ));
         Self {
+            active_runs: ActiveRunTracker::new(),
             action_handler: None,
             action_limits: ActionLimits {
                 max_file_download_bytes: config.limits.max_file_download_bytes,
@@ -274,8 +278,14 @@ impl RunnerCore {
     }
 
     #[must_use]
+    /// Shares the queue and the in-flight run tracker with an existing core.
+    ///
+    /// A reload builds a new core while runs from the old one are still going.
+    /// Both have to be carried over or the new core would admit work the old
+    /// one is already running, and would see nothing to stop.
     pub fn with_execution_queue_from(mut self, existing: &Self) -> Self {
         self.execution_queue = Arc::clone(&existing.execution_queue);
+        self.active_runs = Arc::clone(&existing.active_runs);
         self.execution_queue
             .update_policy(self.execution_admission_policy);
         self
@@ -524,7 +534,7 @@ impl RunnerCore {
         &self,
         store: &impl ScriptStore,
         event: TriggerEvent,
-    ) -> Result<RunReport, CoreError> {
+    ) -> Result<TriggerActivation, CoreError> {
         self.dispatch_trigger_event_with_cancellation(store, event, RuntimeCancellationToken::new())
     }
 
@@ -533,7 +543,7 @@ impl RunnerCore {
         store: &impl ScriptStore,
         event: TriggerEvent,
         cancellation: RuntimeCancellationToken,
-    ) -> Result<RunReport, CoreError> {
+    ) -> Result<TriggerActivation, CoreError> {
         self.run_installed_with_trigger_and_cancellation(
             store,
             &event.script_id,
@@ -640,7 +650,12 @@ impl RunnerCore {
         store: &impl ScriptStore,
         reference: &str,
     ) -> Result<RunReport, CoreError> {
-        self.run_installed_with_trigger(store, reference, None, serde_json::Value::Null)
+        // No trigger node, so no overlap option applies and the activation
+        // always runs.
+        Ok(self
+            .run_installed_with_trigger(store, reference, None, serde_json::Value::Null)?
+            .report()
+            .expect("a run without a trigger node never carries an overlap decision"))
     }
 
     pub fn run_installed_with_trigger(
@@ -649,7 +664,7 @@ impl RunnerCore {
         reference: &str,
         trigger_node_id: Option<&str>,
         trigger_payload: serde_json::Value,
-    ) -> Result<RunReport, CoreError> {
+    ) -> Result<TriggerActivation, CoreError> {
         self.run_installed_with_trigger_and_cancellation(
             store,
             reference,
@@ -666,7 +681,7 @@ impl RunnerCore {
         trigger_node_id: Option<&str>,
         trigger_payload: serde_json::Value,
         cancellation: RuntimeCancellationToken,
-    ) -> Result<RunReport, CoreError> {
+    ) -> Result<TriggerActivation, CoreError> {
         self.run_installed_with_trigger_in_stack(
             store,
             reference,
@@ -685,7 +700,7 @@ impl RunnerCore {
         trigger_payload: serde_json::Value,
         mut call_stack: Vec<String>,
         cancellation: RuntimeCancellationToken,
-    ) -> Result<RunReport, CoreError> {
+    ) -> Result<TriggerActivation, CoreError> {
         let installed = store.find_script(reference)?;
         if !installed.enabled {
             return Err(CoreError::ScriptDisabled(installed.id));
@@ -699,6 +714,33 @@ impl RunnerCore {
             cycle.push(installed.id);
             return Err(CoreError::SubScriptCycle(cycle.join(" -> ")));
         }
+        // What this activation should do about a run that is already going is
+        // settled before asking the queue for a permit. A stop or a skip never
+        // becomes a run, so it must not wait behind the run it was sent to
+        // replace, and must not count against the per-script limit.
+        //
+        // The package is only read when the script is actually busy, which is
+        // the rare case, so an ordinary activation pays nothing for this.
+        let mut overlap = TriggerOverlap::Queue;
+        if call_stack.is_empty()
+            && let Some(trigger_node_id) = trigger_node_id
+            && self.active_runs.is_active(&installed.id)
+            && let Ok((_, _, package)) = load_verified_installed_package(store, &installed.id)
+        {
+            overlap = package::trigger_overlap(&package.program, trigger_node_id);
+            match overlap {
+                TriggerOverlap::Skip => return Ok(TriggerActivation::Skipped),
+                TriggerOverlap::Stop => {
+                    let cancelled = self.active_runs.cancel_script(&installed.id);
+                    return Ok(TriggerActivation::Stopped { cancelled });
+                }
+                TriggerOverlap::Restart => {
+                    self.active_runs.cancel_script(&installed.id);
+                }
+                TriggerOverlap::Queue => {}
+            }
+        }
+        let _ = overlap;
         let _execution_permit = if call_stack.is_empty() {
             self.execution_queue
                 .acquire(&installed.id, &cancellation, || {
@@ -850,11 +892,17 @@ impl RunnerCore {
                 .with_script_settings(&script_settings)
                 .with_output_limits(self.output_limits)
                 .with_execution_policy(self.execution_policy);
+            // The in-flight tracker always observes. A trigger asking to stop
+            // an already running script depends on it, so it cannot be left to
+            // whichever observers a caller happened to register.
+            let tracker: Arc<dyn RuntimeRunObserver> =
+                Arc::clone(&self.active_runs) as Arc<dyn RuntimeRunObserver>;
             match self.run_observers.as_slice() {
-                [] => resources,
-                [observer] => resources.with_observer(Arc::clone(observer)),
+                [] => resources.with_observer(tracker),
                 observers => resources.with_observer(Arc::new(CompositeRunObserver {
-                    observers: observers.to_vec(),
+                    observers: std::iter::once(tracker)
+                        .chain(observers.iter().cloned())
+                        .collect(),
                 })),
             }
         };
@@ -894,7 +942,9 @@ impl RunnerCore {
         })?;
         store.append_run_record(stored_run_record_from_report(&report, self.output_limits))?;
         self.notify_run_recorded();
-        Ok(report)
+        Ok(TriggerActivation::Started {
+            report: Box::new(report),
+        })
     }
 
     fn notify_run_recorded(&self) {

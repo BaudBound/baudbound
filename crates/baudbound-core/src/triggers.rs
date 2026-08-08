@@ -10,7 +10,7 @@ use baudbound_storage::{InstalledScript, ScriptStore, StoredVariableScope};
 use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 use serde_json::Value;
 
-use crate::{CoreError, RunReport, RunnerCore};
+use crate::{CoreError, RunnerCore};
 
 pub struct CoreTriggerDispatcher<'core, S: ScriptStore> {
     pub(crate) core: &'core RunnerCore,
@@ -18,7 +18,10 @@ pub struct CoreTriggerDispatcher<'core, S: ScriptStore> {
 }
 
 impl<S: ScriptStore> TriggerDispatcher for CoreTriggerDispatcher<'_, S> {
-    fn dispatch(&self, event: TriggerEvent) -> Result<RunReport, baudbound_triggers::TriggerError> {
+    fn dispatch(
+        &self,
+        event: TriggerEvent,
+    ) -> Result<baudbound_triggers::TriggerActivation, baudbound_triggers::TriggerError> {
         let script_id = event.script_id.clone();
         let node_id = event.node_id.clone();
         self.core

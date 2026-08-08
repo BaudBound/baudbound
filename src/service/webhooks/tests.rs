@@ -218,9 +218,11 @@ fn route_reload_preserves_in_flight_execution_and_accepts_new_routes() {
 
 #[test]
 fn http_bridge_rejects_oversized_bodies_and_wrong_methods_before_dispatch() {
-    let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
-        panic!("rejected request unexpectedly dispatched event {event:?}")
-    }) as Arc<TriggerRunner>;
+    let runner = Arc::new(
+        |event: TriggerEvent| -> Result<baudbound_core::TriggerActivation, String> {
+            panic!("rejected request unexpectedly dispatched event {event:?}")
+        },
+    ) as Arc<TriggerRunner>;
     let mut host = test_host_with_limits(webhook_service(false, 1.0), runner, 8, 4);
 
     let oversized_response = send_request(&host, "POST", "/events/test", "12345");
@@ -357,9 +359,11 @@ fn webhook_authentication_and_browser_origin_checks_happen_before_dispatch() {
 
 #[test]
 fn incomplete_webhook_headers_are_disconnected_after_the_header_timeout() {
-    let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
-        panic!("incomplete request unexpectedly dispatched event {event:?}")
-    }) as Arc<TriggerRunner>;
+    let runner = Arc::new(
+        |event: TriggerEvent| -> Result<baudbound_core::TriggerActivation, String> {
+            panic!("incomplete request unexpectedly dispatched event {event:?}")
+        },
+    ) as Arc<TriggerRunner>;
     let host = test_host(webhook_service(false, 1.0), runner);
     let mut stream = TcpStream::connect(host.listener.local_addr())
         .expect("partial-header client should connect");
@@ -381,9 +385,11 @@ fn incomplete_webhook_headers_are_disconnected_after_the_header_timeout() {
 
 #[test]
 fn incomplete_webhook_bodies_receive_a_request_timeout() {
-    let runner = Arc::new(|event: TriggerEvent| -> Result<RunReport, String> {
-        panic!("incomplete request unexpectedly dispatched event {event:?}")
-    }) as Arc<TriggerRunner>;
+    let runner = Arc::new(
+        |event: TriggerEvent| -> Result<baudbound_core::TriggerActivation, String> {
+            panic!("incomplete request unexpectedly dispatched event {event:?}")
+        },
+    ) as Arc<TriggerRunner>;
     let host = test_host(webhook_service(false, 1.0), runner);
     let mut stream =
         TcpStream::connect(host.listener.local_addr()).expect("partial-body client should connect");
@@ -720,15 +726,22 @@ fn status_tracker() -> ServeStatusTracker {
     ServeStatusTracker::start(server.descriptor().clone(), None, 0)
 }
 
-fn report(event: &TriggerEvent, variables: std::collections::BTreeMap<String, Value>) -> RunReport {
-    RunReport {
-        identity: RunIdentity {
-            run_id: format!("run-{}", event.node_id),
-            script_id: event.script_id.clone(),
-            trigger_node_id: event.node_id.clone(),
-        },
-        logs: Vec::new(),
-        variable_scopes: Default::default(),
-        variables,
+/// A started activation, which is what a runner closure returns for a trigger
+/// that actually ran.
+fn report(
+    event: &TriggerEvent,
+    variables: std::collections::BTreeMap<String, Value>,
+) -> baudbound_core::TriggerActivation {
+    baudbound_core::TriggerActivation::Started {
+        report: Box::new(RunReport {
+            identity: RunIdentity {
+                run_id: format!("run-{}", event.node_id),
+                script_id: event.script_id.clone(),
+                trigger_node_id: event.node_id.clone(),
+            },
+            logs: Vec::new(),
+            variable_scopes: Default::default(),
+            variables,
+        }),
     }
 }

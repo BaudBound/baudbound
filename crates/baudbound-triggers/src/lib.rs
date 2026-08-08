@@ -54,8 +54,78 @@ pub trait TriggerHandler: Send + Sync {
     fn register(&self, registration: &TriggerRegistration) -> Result<(), TriggerError>;
 }
 
+/// What a trigger's overlap option asks for when its script is already running.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TriggerOverlap {
+    /// Wait for the active run, then start. The behaviour before this option
+    /// existed, and the default for every trigger that does not say otherwise.
+    #[default]
+    Queue,
+    /// Drop the activation. Nothing starts and nothing queues.
+    Skip,
+    /// Cancel the active run and start nothing. One trigger toggling its own
+    /// long-running loop is the reason this exists.
+    Stop,
+    /// Cancel the active run, then start a fresh one.
+    Restart,
+}
+
+impl TriggerOverlap {
+    /// Reads the option from a trigger node's config.
+    ///
+    /// An absent or unrecognised value is `Queue`, so a package written before
+    /// the option existed keeps its behaviour rather than being refused.
+    #[must_use]
+    pub fn from_config(config: &serde_json::Value) -> Self {
+        match config.get("overlap").and_then(serde_json::Value::as_str) {
+            Some("skip") => Self::Skip,
+            Some("stop") => Self::Stop,
+            Some("restart") => Self::Restart,
+            _ => Self::Queue,
+        }
+    }
+}
+
+/// What a trigger activation actually did.
+///
+/// A stopped or skipped activation never becomes a run, so it has no report to
+/// give. Reporting it as a failed run would be wrong: it did exactly what the
+/// trigger asked.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum TriggerActivation {
+    Started {
+        report: Box<RunReport>,
+    },
+    /// Cancelled this many in-flight runs and started nothing.
+    Stopped {
+        cancelled: usize,
+    },
+    Skipped,
+}
+
+impl TriggerActivation {
+    #[must_use]
+    pub fn outcome_name(&self) -> &'static str {
+        match self {
+            Self::Started { .. } => "started",
+            Self::Stopped { .. } => "stopped",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    /// The run report, when the activation actually ran one.
+    #[must_use]
+    pub fn report(self) -> Option<RunReport> {
+        match self {
+            Self::Started { report } => Some(*report),
+            Self::Stopped { .. } | Self::Skipped => None,
+        }
+    }
+}
+
 pub trait TriggerDispatcher: Send + Sync {
-    fn dispatch(&self, event: TriggerEvent) -> Result<RunReport, TriggerError>;
+    fn dispatch(&self, event: TriggerEvent) -> Result<TriggerActivation, TriggerError>;
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

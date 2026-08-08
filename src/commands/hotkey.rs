@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use baudbound_core::{RunReport, RunnerCore};
+use baudbound_core::{RunnerCore, TriggerActivation};
 use baudbound_runtime::RuntimeCancellationToken;
 use baudbound_storage::SqliteRunnerStore;
 use baudbound_triggers::HotkeyService;
@@ -50,8 +50,8 @@ pub fn handle_hotkey_command(
                     reports.len(),
                     if reports.len() == 1 { "" } else { "s" }
                 );
-                for report in reports {
-                    print_run_report(report);
+                for activation in reports {
+                    print_hotkey_activation(activation);
                 }
             }
         }
@@ -105,8 +105,8 @@ fn listen_for_stdin_hotkeys(
                 reports.len(),
                 if reports.len() == 1 { "" } else { "s" }
             );
-            for report in reports {
-                print_run_report(report);
+            for activation in reports {
+                print_hotkey_activation(activation);
             }
         }
     }
@@ -120,7 +120,7 @@ pub fn dispatch_hotkey_key(
     service: &HotkeyService,
     key: &str,
     timestamp: SystemTime,
-) -> Result<Vec<RunReport>> {
+) -> Result<Vec<TriggerActivation>> {
     dispatch_hotkey_key_with_cancellation(
         core,
         store,
@@ -138,7 +138,7 @@ pub fn dispatch_hotkey_key_with_cancellation(
     key: &str,
     timestamp: SystemTime,
     cancellation: &RuntimeCancellationToken,
-) -> Result<Vec<RunReport>> {
+) -> Result<Vec<TriggerActivation>> {
     let events = service
         .events_for_key(key, timestamp)
         .with_context(|| format!("failed to build hotkey event for {key:?}"))?;
@@ -160,4 +160,16 @@ fn desktop_hotkey_service(core: &RunnerCore, store: &SqliteRunnerStore) -> Resul
         .list_trigger_registrations(store, None)
         .context("failed to load enabled trigger registrations")?;
     HotkeyService::from_registrations(registrations).context("failed to register hotkey triggers")
+}
+
+/// Prints what one dispatched hotkey activation did. A trigger set to stop or
+/// skip an already running script produces no run report.
+fn print_hotkey_activation(activation: TriggerActivation) {
+    match activation {
+        TriggerActivation::Started { report } => print_run_report(*report),
+        TriggerActivation::Stopped { cancelled } => {
+            println!("Stopped {cancelled} running instance(s). No new run started.");
+        }
+        TriggerActivation::Skipped => println!("Skipped: the script is already running."),
+    }
 }

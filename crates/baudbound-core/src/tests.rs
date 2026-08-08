@@ -653,7 +653,9 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
                 script_id: "network-trigger".to_owned(),
             },
         )
-        .expect("approved trigger should run");
+        .expect("approved trigger should run")
+        .report()
+        .expect("a queueing trigger runs");
     assert_eq!(report.identity.trigger_node_id, "n-webhook");
     assert_eq!(
         report.variables.get("n-webhook.body"),
@@ -1571,7 +1573,9 @@ fn dispatches_trigger_event_through_core_dispatcher() {
             payload: json!({"body": "hello"}),
             script_id: "network-trigger".to_owned(),
         })
-        .expect("trigger event should dispatch");
+        .expect("trigger event should dispatch")
+        .report()
+        .expect("a queueing trigger runs");
 
     assert_eq!(report.identity.script_id, "network-trigger");
     assert_eq!(report.identity.trigger_node_id, "n-webhook");
