@@ -95,6 +95,9 @@ impl TriggerOverlap {
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum TriggerActivation {
     Started {
+        /// Flattened so the run report keeps the shape callers already parse.
+        /// The outcome is added beside its fields rather than nesting them.
+        #[serde(flatten)]
         report: Box<RunReport>,
     },
     /// Cancelled this many in-flight runs and started nothing.
@@ -328,3 +331,56 @@ pub(crate) fn unix_timestamp_millis(timestamp: SystemTime) -> u128 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod activation_json_tests {
+    use baudbound_runtime::RunIdentity;
+
+    use super::*;
+
+    fn report() -> RunReport {
+        RunReport {
+            identity: RunIdentity {
+                run_id: "run-1".to_owned(),
+                script_id: "script-1".to_owned(),
+                trigger_node_id: "n-hotkey".to_owned(),
+            },
+            logs: Vec::new(),
+            variable_scopes: Default::default(),
+            variables: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_started_activation_keeps_the_report_shape_callers_parse() {
+        // The CLI prints this with --json. Nesting the report under a key would
+        // silently break anyone reading identity or variables from it, so the
+        // outcome is added beside those fields rather than wrapping them.
+        let value = serde_json::to_value(TriggerActivation::Started {
+            report: Box::new(report()),
+        })
+        .expect("an activation should serialize");
+
+        assert_eq!(value["outcome"], "started");
+        assert_eq!(value["identity"]["script_id"], "script-1");
+        assert_eq!(value["identity"]["trigger_node_id"], "n-hotkey");
+        assert!(value.get("variables").is_some());
+        assert!(
+            value.get("report").is_none(),
+            "the report must stay flattened, not nested"
+        );
+    }
+
+    #[test]
+    fn an_activation_that_did_not_run_names_what_it_did() {
+        let stopped = serde_json::to_value(TriggerActivation::Stopped { cancelled: 2 })
+            .expect("an activation should serialize");
+        assert_eq!(stopped["outcome"], "stopped");
+        assert_eq!(stopped["cancelled"], 2);
+        assert!(stopped.get("identity").is_none(), "no run, so no report");
+
+        let skipped = serde_json::to_value(TriggerActivation::Skipped)
+            .expect("an activation should serialize");
+        assert_eq!(skipped["outcome"], "skipped");
+    }
+}
