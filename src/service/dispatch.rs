@@ -144,6 +144,7 @@ fn queue_trigger_event_from(
 pub(super) fn record_trigger_completions(
     executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
+    websockets: &baudbound_triggers::WebSocketService,
 ) -> bool {
     let mut completed_any = false;
     while let Some(completion) = executor.try_completion() {
@@ -162,6 +163,7 @@ pub(super) fn record_trigger_completions(
                     completion.event.script_id,
                     describe_activation(&outcome)
                 ));
+                answer_websocket_client(websockets, &completion.event, &outcome);
             }
             Err(error) => {
                 status.record_event_failure(completion.source, &completion.event, error.clone());
@@ -182,5 +184,37 @@ fn describe_activation(activation: &baudbound_core::TriggerActivation) -> String
         baudbound_core::TriggerActivation::Skipped => {
             "skipped because the script is already running".to_owned()
         }
+    }
+}
+
+/// Tells a WebSocket client that its message stopped or skipped a run.
+///
+/// A WebSocket trigger has no automatic reply: a script answers with a Write
+/// node. Nothing ran here, so without this the client would get silence, which
+/// already means "the script chose not to answer".
+fn answer_websocket_client(
+    websockets: &baudbound_triggers::WebSocketService,
+    event: &TriggerEvent,
+    outcome: &baudbound_core::TriggerActivation,
+) {
+    if event.action_type != "trigger.websocket" {
+        return;
+    }
+    let Some(connection_id) = event
+        .payload
+        .get("connection_id")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    use baudbound_actions::WebSocketMessageSink as _;
+
+    let frame = serde_json::json!({ "outcome": outcome.outcome_name() }).to_string();
+    if let Err(error) =
+        websockets
+            .registry()
+            .send_text(&event.script_id, &event.node_id, connection_id, &frame)
+    {
+        tracing::warn!("failed to tell WebSocket client the trigger outcome: {error}");
     }
 }
