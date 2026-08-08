@@ -324,3 +324,44 @@ fn json_unescape_serializes_non_string_values() {
     .expect("valid JSON should unescape");
     assert_eq!(result.output_data.get("text"), Some(&json!("[1,2]")));
 }
+
+#[test]
+fn formats_a_datetime_from_the_pipeline_input() {
+    let result = execute(
+        "action.text.format",
+        pipeline(
+            json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }),
+            json!([{"id": "1", "operation": "format_datetime", "pattern": "EEEE 'at' HH:mm"}]),
+        ),
+    )
+    .expect("a datetime input should format");
+
+    assert_eq!(
+        result.output_data.get("text"),
+        Some(&json!("Friday at 14:30"))
+    );
+}
+
+#[test]
+fn rejects_a_format_datetime_operation_that_cannot_run() {
+    let cases = [
+        // Text reaches the operation as text, not as a datetime.
+        pipeline(
+            json!("2026-07-03T14:30:45+03:00"),
+            json!([{"id": "1", "operation": "format_datetime", "pattern": "yyyy"}]),
+        ),
+        // A mistyped token is refused rather than written out as itself.
+        pipeline(
+            json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }),
+            json!([{"id": "1", "operation": "format_datetime", "pattern": "YYYY"}]),
+        ),
+        pipeline(
+            json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }),
+            json!([{"id": "1", "operation": "format_datetime", "pattern": ""}]),
+        ),
+    ];
+
+    for config in cases {
+        execute("action.text.format", config).expect_err("the operation must fail");
+    }
+}
