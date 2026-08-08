@@ -205,6 +205,12 @@ impl WebSocketService {
     }
 
     #[must_use]
+    /// The connection registry, so a caller can answer a client that never
+    /// got a run to answer it.
+    pub fn registry(&self) -> &Arc<WebSocketConnectionRegistry> {
+        &self.registry
+    }
+
     pub fn is_empty(&self) -> bool {
         self.route_count == 0
     }

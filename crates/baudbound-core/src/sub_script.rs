@@ -66,7 +66,9 @@ impl<S: ScriptStore> CoreRuntimeActionHandler<'_, S> {
             .map_err(|source| RuntimeActionError::Failed {
                 action_type: request.action_type.clone(),
                 message: format!("sub-script {script:?} failed: {source}"),
-            })?;
+            })?
+            .report()
+            .expect("a sub-script call never carries an overlap decision");
 
         Ok(RuntimeActionResult {
             output_data: serde_json::Map::from_iter([

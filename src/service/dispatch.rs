@@ -144,14 +144,26 @@ fn queue_trigger_event_from(
 pub(super) fn record_trigger_completions(
     executor: &mut TriggerExecutor,
     status: &mut ServeStatusTracker,
+    websockets: &baudbound_triggers::WebSocketService,
 ) -> bool {
     let mut completed_any = false;
     while let Some(completion) = executor.try_completion() {
         completed_any = true;
         match completion.result {
-            Ok(report) => {
+            Ok(baudbound_core::TriggerActivation::Started { report }) => {
                 status.record_report(completion.source, &report);
-                print_live_run_report(report);
+                print_live_run_report(*report);
+            }
+            // A stopped or skipped activation never became a run, so there is
+            // no report to record. Say what happened instead of nothing.
+            Ok(outcome) => {
+                console::info(format_args!(
+                    "Trigger {} for {}: {}.",
+                    completion.event.node_id,
+                    completion.event.script_id,
+                    describe_activation(&outcome)
+                ));
+                answer_websocket_client(websockets, &completion.event, &outcome);
             }
             Err(error) => {
                 status.record_event_failure(completion.source, &completion.event, error.clone());
@@ -160,4 +172,49 @@ pub(super) fn record_trigger_completions(
         }
     }
     completed_any
+}
+
+/// A one-line account of an activation that did not run.
+fn describe_activation(activation: &baudbound_core::TriggerActivation) -> String {
+    match activation {
+        baudbound_core::TriggerActivation::Started { .. } => "started a run".to_owned(),
+        baudbound_core::TriggerActivation::Stopped { cancelled } => {
+            format!("stopped {cancelled} running instance(s), started nothing")
+        }
+        baudbound_core::TriggerActivation::Skipped => {
+            "skipped because the script is already running".to_owned()
+        }
+    }
+}
+
+/// Tells a WebSocket client that its message stopped or skipped a run.
+///
+/// A WebSocket trigger has no automatic reply: a script answers with a Write
+/// node. Nothing ran here, so without this the client would get silence, which
+/// already means "the script chose not to answer".
+fn answer_websocket_client(
+    websockets: &baudbound_triggers::WebSocketService,
+    event: &TriggerEvent,
+    outcome: &baudbound_core::TriggerActivation,
+) {
+    if event.action_type != "trigger.websocket" {
+        return;
+    }
+    let Some(connection_id) = event
+        .payload
+        .get("connection_id")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    use baudbound_actions::WebSocketMessageSink as _;
+
+    let frame = serde_json::json!({ "outcome": outcome.outcome_name() }).to_string();
+    if let Err(error) =
+        websockets
+            .registry()
+            .send_text(&event.script_id, &event.node_id, connection_id, &frame)
+    {
+        tracing::warn!("failed to tell WebSocket client the trigger outcome: {error}");
+    }
 }

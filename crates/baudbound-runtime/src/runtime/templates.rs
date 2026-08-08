@@ -371,3 +371,56 @@ mod tests {
         );
     }
 }
+
+/// Every variable a template reads, with any cast target removed.
+///
+/// A reference may drill into a value, so `{{flag.state|boolean}}` yields
+/// `flag`: that is the name the store holds. Reading the cast as part of the
+/// name is how a reference once failed to match anything at all.
+pub(crate) fn template_variable_roots(template: &str) -> Vec<String> {
+    let mut roots = Vec::new();
+    let mut remaining = template;
+
+    while let Some(start_index) = remaining.find("{{") {
+        let after_start = &remaining[start_index + 2..];
+        let Some(end_index) = after_start.find("}}") else {
+            break;
+        };
+        let (reference, _) = split_cast(after_start[..end_index].trim());
+        let root = reference
+            .split(['.', '['])
+            .next()
+            .unwrap_or(reference)
+            .trim();
+        if !root.is_empty() && !roots.iter().any(|existing| existing == root) {
+            roots.push(root.to_owned());
+        }
+        remaining = &after_start[end_index + 2..];
+    }
+
+    roots
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::template_variable_roots;
+
+    #[test]
+    fn reads_the_stored_name_out_of_a_reference() {
+        assert_eq!(template_variable_roots("{{flag}}"), vec!["flag"]);
+        // The cast is not part of the name.
+        assert_eq!(template_variable_roots("{{flag|boolean}}"), vec!["flag"]);
+        // Nor is the path into the value.
+        assert_eq!(
+            template_variable_roots("{{payload.state[0]|string}}"),
+            vec!["payload"]
+        );
+        // Each name once, in the order it appears.
+        assert_eq!(
+            template_variable_roots("{{a}} and {{b}} and {{a}}"),
+            vec!["a", "b"]
+        );
+        assert!(template_variable_roots("no references here").is_empty());
+        assert!(template_variable_roots("{{unclosed").is_empty());
+    }
+}

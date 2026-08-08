@@ -134,13 +134,33 @@ impl WebhookHost {
         completion: TriggerCompletion,
     ) {
         match completion.result {
-            Ok(report) => {
+            Ok(baudbound_core::TriggerActivation::Started { report }) => {
                 status.record_report("webhook", &report);
                 if let Some(pending) = self.pending.remove(&completion.job_id) {
                     let response = self.service.response_for_report(&pending.dispatch, &report);
-                    pending
-                        .response
-                        .send(with_cors_origin(response, pending.cors_origin.as_deref()));
+                    pending.response.send(with_cors_origin(
+                        with_outcome_header(response, "started"),
+                        pending.cors_origin.as_deref(),
+                    ));
+                }
+            }
+            // Nothing ran, so the configured response never happens. Answer
+            // 202 rather than the author configured status, which is theirs to
+            // choose and could be anything, and name the outcome in a header a
+            // caller can branch on without parsing the body.
+            Ok(outcome) => {
+                if let Some(pending) = self.pending.remove(&completion.job_id) {
+                    let name = outcome.outcome_name();
+                    let body = match &outcome {
+                        baudbound_core::TriggerActivation::Stopped { cancelled } => {
+                            format!("Stopped {cancelled} running instance(s). No new run started.")
+                        }
+                        _ => "Skipped: the script is already running.".to_owned(),
+                    };
+                    pending.response.send(with_cors_origin(
+                        with_outcome_header(text_response(202, body), name),
+                        pending.cors_origin.as_deref(),
+                    ));
                 }
             }
             Err(error) => {
@@ -289,6 +309,16 @@ fn unavailable_response() -> WebhookResponse {
 
 fn dispatch_failed_response(error: &str) -> WebhookResponse {
     text_response(500, format!("Webhook dispatch failed: {error}"))
+}
+
+/// Names what the activation did, so a caller can tell a run from a toggle
+/// without parsing the body. The configured response status is the author's
+/// to choose, so the status code alone cannot carry this.
+fn with_outcome_header(mut response: WebhookResponse, outcome: &str) -> WebhookResponse {
+    response
+        .headers
+        .insert("X-BaudBound-Trigger-Outcome".to_owned(), outcome.to_owned());
+    response
 }
 
 fn text_response(status_code: u16, body: impl Into<String>) -> WebhookResponse {

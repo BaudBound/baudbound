@@ -8,14 +8,14 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use baudbound_core::{QueueOverflowStrategy, RunReport, RunnerCore, TriggerEvent};
+use baudbound_core::{QueueOverflowStrategy, RunnerCore, TriggerActivation, TriggerEvent};
 use baudbound_runtime::{ResourceLimit, RuntimeCancellationToken};
 use baudbound_storage::SqliteRunnerStore;
 
 use crate::trigger_monitor::{TriggerMonitor, TriggerMonitorStatus};
 
 pub(super) type TriggerRunner =
-    dyn Fn(TriggerEvent) -> Result<RunReport, String> + Send + Sync + 'static;
+    dyn Fn(TriggerEvent) -> Result<TriggerActivation, String> + Send + Sync + 'static;
 
 pub(super) struct TriggerExecutor {
     accepting: bool,
@@ -39,7 +39,7 @@ pub(super) struct TriggerExecutor {
 pub(super) struct TriggerCompletion {
     pub(super) event: TriggerEvent,
     pub(super) job_id: u64,
-    pub(super) result: Result<RunReport, String>,
+    pub(super) result: Result<TriggerActivation, String>,
     pub(super) source: &'static str,
 }
 

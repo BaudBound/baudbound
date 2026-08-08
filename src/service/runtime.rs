@@ -258,7 +258,11 @@ pub fn serve_triggers_with_control(
         if let Some(host) = services.webhook_host.as_mut() {
             dispatched_any_event |= host.poll(&mut status);
         }
-        dispatched_any_event |= record_trigger_completions(&mut trigger_executor, &mut status);
+        dispatched_any_event |= record_trigger_completions(
+            &mut trigger_executor,
+            &mut status,
+            &services.websocket_service,
+        );
 
         dispatched_any_event |= dispatch_due_schedules(
             &mut services.schedules,
