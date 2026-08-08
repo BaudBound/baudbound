@@ -13,9 +13,7 @@ const MAX_AUTO_EXPANDED_LIST_ITEMS: usize = 100_000;
 pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(), RuntimeError> {
     if name.starts_with("system_")
         || name.starts_with("manifest_")
-        || DERIVED_VARIABLE_METADATA_SUFFIXES
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
+        || derived_suffixes().any(|suffix| name.ends_with(suffix))
     {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
@@ -249,6 +247,100 @@ fn is_identifier_continue(byte: u8) -> bool {
     is_identifier_start(byte) || byte.is_ascii_digit()
 }
 
+/// Parts of a point in time. Singular, because a datetime has one hour.
+pub(crate) const DATETIME_PART_SUFFIXES: [&str; 7] = [
+    ".$year",
+    ".$month",
+    ".$day",
+    ".$hour",
+    ".$minute",
+    ".$second",
+    ".$weekday",
+];
+
+/// Parts of a span. Plural, because a duration is some number of hours.
+///
+/// A component breakdown rather than a total in each unit, so ninety seconds
+/// is one minute and thirty seconds. Every part is then a whole number, and
+/// `.$total_milliseconds` covers the how-long-altogether question that a
+/// fractional `.$minutes` would otherwise have to answer.
+pub(crate) const DURATION_PART_SUFFIXES: [&str; 6] = [
+    ".$days",
+    ".$hours",
+    ".$minutes",
+    ".$seconds",
+    ".$milliseconds",
+    ".$total_milliseconds",
+];
+
+/// Every suffix the runner owns, so none of them can be written by a script.
+pub(crate) fn derived_suffixes() -> impl Iterator<Item = &'static str> {
+    DERIVED_VARIABLE_METADATA_SUFFIXES
+        .into_iter()
+        .chain(DATETIME_PART_SUFFIXES)
+        .chain(DURATION_PART_SUFFIXES)
+}
+
+/// The parts of a datetime value, read in the offset the value carries.
+fn datetime_parts(value: &Value) -> Option<Vec<(&'static str, i64)>> {
+    if value.get("type").and_then(Value::as_str) != Some("datetime") {
+        return None;
+    }
+    let text = value.get("value").and_then(Value::as_str)?;
+    let parsed = chrono::DateTime::parse_from_rfc3339(text).ok()?;
+
+    // Read through the offset carried by the value rather than converting to
+    // UTC, so the hour is the wall clock the value was written in.
+    use chrono::{Datelike as _, Timelike as _};
+    Some(vec![
+        (".$year", i64::from(parsed.year())),
+        (".$month", i64::from(parsed.month())),
+        (".$day", i64::from(parsed.day())),
+        (".$hour", i64::from(parsed.hour())),
+        (".$minute", i64::from(parsed.minute())),
+        (".$second", i64::from(parsed.second())),
+        // Monday is 1 through Sunday is 7, the ISO numbering, so a comparison
+        // does not depend on which day a locale calls the first.
+        (
+            ".$weekday",
+            i64::from(parsed.weekday().number_from_monday()),
+        ),
+    ])
+}
+
+/// The parts of a duration value, broken into components.
+fn duration_parts(value: &Value) -> Option<Vec<(&'static str, i64)>> {
+    if value.get("type").and_then(Value::as_str) != Some("duration") {
+        return None;
+    }
+    let amount = value.get("value").and_then(Value::as_f64)?;
+    if !amount.is_finite() || amount < 0.0 {
+        return None;
+    }
+    let unit_ms = match value.get("unit").and_then(Value::as_str)? {
+        "milliseconds" => 1.0,
+        "seconds" => 1_000.0,
+        "minutes" => 60_000.0,
+        "hours" => 3_600_000.0,
+        "days" => 86_400_000.0,
+        _ => return None,
+    };
+    let total = (amount * unit_ms).round();
+    if total > i64::MAX as f64 {
+        return None;
+    }
+    let total = total as i64;
+
+    Some(vec![
+        (".$days", total / 86_400_000),
+        (".$hours", (total % 86_400_000) / 3_600_000),
+        (".$minutes", (total % 3_600_000) / 60_000),
+        (".$seconds", (total % 60_000) / 1_000),
+        (".$milliseconds", total % 1_000),
+        (".$total_milliseconds", total),
+    ])
+}
+
 pub(crate) fn refresh_derived_variable_metadata(
     variables: &mut BTreeMap<String, Value>,
     name: &str,
@@ -261,6 +353,16 @@ pub(crate) fn refresh_derived_variable_metadata(
     variables.remove(&count_key);
     variables.remove(&type_key);
     variables.remove(&empty_key);
+
+    // A value can change type between writes, so every part key is cleared
+    // before the applicable ones are added back. Leaving a stale .$hour on a
+    // value that is no longer a datetime would read as real.
+    for suffix in DATETIME_PART_SUFFIXES
+        .into_iter()
+        .chain(DURATION_PART_SUFFIXES)
+    {
+        variables.remove(&format!("{name}{suffix}"));
+    }
 
     let Some(value) = variables.get(name) else {
         return;
@@ -279,11 +381,18 @@ pub(crate) fn refresh_derived_variable_metadata(
         Value::Bool(_) | Value::Number(_) => false,
     };
     let value_type = value_kind(value).to_owned();
+    let parts = datetime_parts(value).or_else(|| duration_parts(value));
 
     variables.insert(length_key, Value::Number(length.into()));
     variables.insert(count_key, Value::Number(length.into()));
     variables.insert(type_key, Value::String(value_type));
     variables.insert(empty_key, Value::Bool(is_empty));
+
+    if let Some(parts) = parts {
+        for (suffix, part) in parts {
+            variables.insert(format!("{name}{suffix}"), Value::Number(part.into()));
+        }
+    }
 }
 
 /// The value a `clear` operation leaves behind for a type.
@@ -484,5 +593,112 @@ mod float_rendering_tests {
     fn integers_render_without_a_decimal() {
         let integer: serde_json::Value = serde_json::from_str("42").expect("integer parses");
         assert_eq!(value_to_string(&integer), "42");
+    }
+}
+
+#[cfg(test)]
+mod derived_part_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parts_of(value: Value) -> BTreeMap<String, Value> {
+        let mut variables = BTreeMap::from([("x".to_owned(), value)]);
+        refresh_derived_variable_metadata(&mut variables, "x");
+        variables
+    }
+
+    #[test]
+    fn a_datetime_is_read_in_the_offset_it_carries() {
+        // Not converted to UTC first: the hour is the wall clock the value was
+        // written in, which is the one an author means.
+        let variables =
+            parts_of(json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }));
+
+        assert_eq!(variables["x.$year"], json!(2026));
+        assert_eq!(variables["x.$month"], json!(7));
+        assert_eq!(variables["x.$day"], json!(3));
+        assert_eq!(variables["x.$hour"], json!(14));
+        assert_eq!(variables["x.$minute"], json!(30));
+        assert_eq!(variables["x.$second"], json!(45));
+        // 3 July 2026 is a Friday, fifth day counting from Monday.
+        assert_eq!(variables["x.$weekday"], json!(5));
+    }
+
+    #[test]
+    fn a_duration_breaks_into_whole_components() {
+        // Ninety seconds is one minute and thirty seconds, not 1.5 minutes, so
+        // every part stays a whole number.
+        let variables = parts_of(json!({ "type": "duration", "unit": "seconds", "value": 90 }));
+
+        assert_eq!(variables["x.$days"], json!(0));
+        assert_eq!(variables["x.$hours"], json!(0));
+        assert_eq!(variables["x.$minutes"], json!(1));
+        assert_eq!(variables["x.$seconds"], json!(30));
+        assert_eq!(variables["x.$milliseconds"], json!(0));
+        assert_eq!(variables["x.$total_milliseconds"], json!(90_000));
+    }
+
+    #[test]
+    fn a_long_duration_carries_days_and_a_remainder() {
+        let variables = parts_of(json!({ "type": "duration", "unit": "hours", "value": 50 }));
+
+        assert_eq!(variables["x.$days"], json!(2));
+        assert_eq!(variables["x.$hours"], json!(2));
+        assert_eq!(variables["x.$total_milliseconds"], json!(180_000_000));
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_datetime_gets_no_parts() {
+        let variables = parts_of(json!("just text"));
+
+        assert!(!variables.contains_key("x.$hour"));
+        assert!(!variables.contains_key("x.$minutes"));
+        // The metadata every value has is still there.
+        assert_eq!(variables["x.$type"], json!("string"));
+    }
+
+    #[test]
+    fn parts_do_not_survive_the_value_changing_type() {
+        // A stale .$hour on something that is no longer a datetime would read
+        // as real, so every part key is cleared before the new ones are added.
+        let mut variables = BTreeMap::from([(
+            "x".to_owned(),
+            json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }),
+        )]);
+        refresh_derived_variable_metadata(&mut variables, "x");
+        assert_eq!(variables["x.$hour"], json!(14));
+
+        variables.insert("x".to_owned(), json!("now a string"));
+        refresh_derived_variable_metadata(&mut variables, "x");
+
+        assert!(
+            !variables.contains_key("x.$hour"),
+            "the old part must be gone"
+        );
+        assert!(!variables.contains_key("x.$weekday"));
+    }
+
+    #[test]
+    fn a_malformed_datetime_produces_no_parts_rather_than_wrong_ones() {
+        let variables = parts_of(json!({ "type": "datetime", "value": "not a date" }));
+        assert!(!variables.contains_key("x.$hour"));
+    }
+
+    #[test]
+    fn every_part_suffix_is_reserved_from_writes() {
+        let node = RuntimeNode {
+            id: "n-1".to_owned(),
+            action_type: "runtime.set_variable".to_owned(),
+            node_type: "set_variable".to_owned(),
+            action: None,
+            config: serde_json::Map::new(),
+        };
+        for suffix in derived_suffixes() {
+            let name = format!("mine{suffix}");
+            assert!(
+                validate_variable_name(&node, &name).is_err(),
+                "{name} must not be writable"
+            );
+        }
     }
 }
