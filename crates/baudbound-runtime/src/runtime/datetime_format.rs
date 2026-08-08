@@ -285,3 +285,77 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod conformance_tests {
+    use serde::Deserialize;
+    use serde_json::json;
+
+    use super::{TOKENS, format_datetime, validate_datetime_pattern};
+
+    #[derive(Deserialize)]
+    struct FormatConformance {
+        cases: Vec<FormatCase>,
+        tokens: Vec<String>,
+        version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct FormatCase {
+        #[serde(default)]
+        error: bool,
+        pattern: String,
+        reason: String,
+        #[serde(default)]
+        result: Option<String>,
+        value: String,
+    }
+
+    #[test]
+    fn shared_format_fixtures_conform() {
+        let conformance: FormatConformance = serde_json::from_str(include_str!(
+            "../../../../contracts/datetime-format-conformance.json"
+        ))
+        .expect("shared format fixtures should parse");
+        assert_eq!(conformance.version, 1);
+        // A token added on one side only would otherwise pass, because a case
+        // only asserts the patterns it lists. Sorted, because the fixture
+        // names the vocabulary while TOKENS is ordered longest first for
+        // matching.
+        let mut shared = conformance.tokens;
+        let mut ours = TOKENS.map(str::to_owned).to_vec();
+        shared.sort();
+        ours.sort();
+        assert_eq!(shared, ours);
+
+        for case in conformance.cases {
+            let value = json!({ "type": "datetime", "value": case.value });
+            let validity = validate_datetime_pattern(&case.pattern);
+
+            if case.error {
+                assert!(
+                    validity.is_err(),
+                    "{:?} should be refused: {}",
+                    case.pattern,
+                    case.reason
+                );
+                continue;
+            }
+
+            validity.unwrap_or_else(|error| {
+                panic!("{:?} should be valid but reported {error}", case.pattern)
+            });
+            let expected = case
+                .result
+                .expect("a successful case must declare a result");
+            assert_eq!(
+                format_datetime(&value, &case.pattern).as_deref(),
+                Some(expected.as_str()),
+                "{:?} on {}: {}",
+                case.pattern,
+                case.value,
+                case.reason
+            );
+        }
+    }
+}

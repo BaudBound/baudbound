@@ -710,3 +710,75 @@ mod derived_part_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod part_conformance_tests {
+    use std::collections::BTreeMap;
+
+    use serde::Deserialize;
+    use serde_json::Value;
+
+    use super::{
+        DATETIME_PART_SUFFIXES, DURATION_PART_SUFFIXES, refresh_derived_variable_metadata,
+    };
+
+    #[derive(Deserialize)]
+    struct PartConformance {
+        cases: Vec<PartCase>,
+        datetime_parts: Vec<String>,
+        duration_parts: Vec<String>,
+        version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct PartCase {
+        parts: BTreeMap<String, i64>,
+        reason: String,
+        value: Value,
+    }
+
+    fn conformance() -> PartConformance {
+        serde_json::from_str(include_str!(
+            "../../../../contracts/datetime-part-conformance.json"
+        ))
+        .expect("shared part fixtures should parse")
+    }
+
+    #[test]
+    fn the_shared_fixtures_name_the_parts_this_runner_produces() {
+        // Without this, a part added on one side only would go unnoticed: the
+        // cases below assert what they list, not what is missing.
+        let conformance = conformance();
+        assert_eq!(conformance.version, 1);
+
+        let named = |suffixes: &[&str]| {
+            suffixes
+                .iter()
+                .map(|suffix| suffix.trim_start_matches('.').to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(conformance.datetime_parts, named(&DATETIME_PART_SUFFIXES));
+        assert_eq!(conformance.duration_parts, named(&DURATION_PART_SUFFIXES));
+    }
+
+    #[test]
+    fn shared_part_fixtures_conform() {
+        for case in conformance().cases {
+            // Through the real refresh, so the fixtures cover what a script
+            // actually reads rather than a helper it never reaches.
+            let mut variables = BTreeMap::from([("value".to_owned(), case.value.clone())]);
+            refresh_derived_variable_metadata(&mut variables, "value");
+
+            for (part, expected) in case.parts {
+                let key = format!("value.{part}");
+                assert_eq!(
+                    variables.get(&key),
+                    Some(&Value::from(expected)),
+                    "{key} for {}: {}",
+                    case.value,
+                    case.reason
+                );
+            }
+        }
+    }
+}
