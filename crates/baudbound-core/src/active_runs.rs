@@ -200,3 +200,68 @@ mod tests {
         assert_eq!(tracker.cancel_script("script-2"), 1);
     }
 }
+
+#[cfg(test)]
+mod overlap_decision_tests {
+    use std::{sync::Arc, thread, time::Duration};
+
+    use super::*;
+
+    fn identity(run_id: &str, script_id: &str) -> RunIdentity {
+        RunIdentity {
+            run_id: run_id.to_owned(),
+            script_id: script_id.to_owned(),
+            trigger_node_id: "n-trigger".to_owned(),
+        }
+    }
+
+    #[test]
+    fn stopping_a_script_does_not_wait_for_the_run_it_ends() {
+        // The whole point of deciding before asking for a permit. With one run
+        // allowed per script, a stop that queued would wait for the run it was
+        // sent to end, which is a deadlock rather than a toggle.
+        let tracker = ActiveRunTracker::new();
+        let running = RuntimeCancellationToken::new();
+        tracker.run_started(&identity("run-1", "script-1"), running.clone());
+
+        let started = std::time::Instant::now();
+        assert!(tracker.is_active("script-1"));
+        let cancelled = tracker.cancel_script("script-1");
+
+        assert_eq!(cancelled, 1);
+        assert!(running.is_cancelled(), "the running run must be cancelled");
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "the decision must not block on the run it cancels"
+        );
+    }
+
+    #[test]
+    fn a_stop_arriving_after_the_run_finished_cancels_nothing() {
+        // Benign: off was already true, and the next activation starts again.
+        let tracker = ActiveRunTracker::new();
+        tracker.run_started(
+            &identity("run-1", "script-1"),
+            RuntimeCancellationToken::new(),
+        );
+        tracker.run_finished(&identity("run-1", "script-1"));
+
+        assert!(!tracker.is_active("script-1"));
+        assert_eq!(tracker.cancel_script("script-1"), 0);
+    }
+
+    #[test]
+    fn the_tracker_is_shared_across_threads() {
+        // A listener thread decides while the run thread is still going.
+        let tracker = ActiveRunTracker::new();
+        let running = RuntimeCancellationToken::new();
+        tracker.run_started(&identity("run-1", "script-1"), running.clone());
+
+        let watcher = Arc::clone(&tracker);
+        let handle = thread::spawn(move || watcher.cancel_script("script-1"));
+        let cancelled = handle.join().expect("the deciding thread should finish");
+
+        assert_eq!(cancelled, 1);
+        assert!(running.is_cancelled());
+    }
+}
