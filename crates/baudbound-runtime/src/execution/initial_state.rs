@@ -13,7 +13,8 @@ use crate::{
 };
 
 use super::declared_variables::{
-    load_or_initialize_persistent_default, validate_declared_variables,
+    load_or_initialize_global_declaration, load_or_initialize_persistent_default,
+    validate_declared_variables,
 };
 use super::{RunVariableScope, RuntimeError};
 
@@ -224,6 +225,24 @@ pub(super) fn load_initial_state(
                 variable.name.clone(),
                 value,
                 RunVariableScope::Persistent,
+            );
+        }
+        // A declared global adopts whatever is already stored under that name.
+        // Two scripts declaring the same global share one value, so the second
+        // one to be installed must not reset what the first has been keeping;
+        // the declared value applies only when nothing is stored yet.
+        for variable in declared_variables
+            .iter()
+            .filter(|variable| variable.scope == RuntimeDeclaredScope::Global)
+        {
+            reject_wrong_type_default(variable)?;
+            let value = load_or_initialize_global_declaration(store, script_id, variable)?;
+            insert_initial_variable(
+                &mut variables,
+                &mut variable_scopes,
+                variable.name.clone(),
+                value,
+                RunVariableScope::Global,
             );
         }
         for (name, scope) in declarations {

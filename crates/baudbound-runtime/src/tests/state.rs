@@ -55,7 +55,7 @@ impl RuntimeStateStore for TestStateStore {
             .variables
             .lock()
             .map_err(|_| "test variable lock poisoned".to_owned())?
-            .get(&(scope.into(), script_id.to_owned(), name.to_owned()))
+            .get(&variable_key(scope, script_id, name))
             .cloned())
     }
 
@@ -67,7 +67,7 @@ impl RuntimeStateStore for TestStateStore {
         expected_version: Option<u64>,
         value: &Value,
     ) -> Result<bool, String> {
-        let key = (scope.into(), script_id.to_owned(), name.to_owned());
+        let key = variable_key(scope, script_id, name);
         let mut variables = self
             .variables
             .lock()
@@ -107,7 +107,7 @@ impl RuntimeStateStore for TestStateStore {
             .variables
             .lock()
             .map_err(|_| "test variable lock poisoned".to_owned())?
-            .remove(&(scope.into(), script_id.to_owned(), name.to_owned()))
+            .remove(&variable_key(scope, script_id, name))
             .is_some())
     }
 
@@ -128,6 +128,25 @@ impl From<RuntimeVariableScope> for RuntimeVariableScopeKey {
             RuntimeVariableScope::Global => Self::Global,
         }
     }
+}
+
+/// The key a scope stores under, matching the real store.
+///
+/// A persistent variable belongs to one script and is keyed by it. A global
+/// belongs to none and is keyed by name alone: the SQLite store reads it with
+/// `WHERE name = ?1` and no script id at all. Keying a global by script here
+/// would make every script's global private, and a test written against this
+/// double would then prove the opposite of what the runner does.
+fn variable_key(
+    scope: RuntimeVariableScope,
+    script_id: &str,
+    name: &str,
+) -> (RuntimeVariableScopeKey, String, String) {
+    let owner = match scope {
+        RuntimeVariableScope::Global => String::new(),
+        RuntimeVariableScope::Persistent => script_id.to_owned(),
+    };
+    (scope.into(), owner, name.to_owned())
 }
 
 #[derive(Debug)]
@@ -322,6 +341,53 @@ fn persistent_default_initializes_once_then_retains_changes() {
 
     assert_eq!(first.variables.get("counter"), Some(&json!(11)));
     assert_eq!(second.variables.get("counter"), Some(&json!(12)));
+}
+
+#[test]
+fn a_declared_global_is_shared_and_a_later_script_adopts_it() {
+    // A global belongs to no script. The second script to declare one has to
+    // find the first script's value there, not reset it to its own declared
+    // starting point, or installing a package would quietly wipe state that
+    // another package was keeping.
+    let store = TestStateStore::default();
+    let declared = [declared_variable(
+        "counter",
+        RuntimeDeclaredScope::Global,
+        "integer",
+        json!(10),
+    )];
+    let program = variable_program("global", "increment", json!(1), "{{counter}}");
+
+    let first = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &declared),
+    )
+    .expect("the first script should execute");
+    assert_eq!(first.variables.get("counter"), Some(&json!(11)));
+
+    // A different script id, declaring the same name with the same declared
+    // starting value. It must see 11 and carry on from there.
+    let second = execute_manual_program_with_state(
+        &program,
+        "script-2",
+        state_resources_with_defaults(&store, &[], &declared),
+    )
+    .expect("the second script should execute");
+    assert_eq!(
+        second.variables.get("counter"),
+        Some(&json!(12)),
+        "a declared global adopts the stored value rather than reinitialising"
+    );
+
+    // And the first script sees what the second wrote.
+    let third = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &declared),
+    )
+    .expect("the first script should execute again");
+    assert_eq!(third.variables.get("counter"), Some(&json!(13)));
 }
 
 #[test]

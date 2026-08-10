@@ -61,6 +61,54 @@ pub(super) fn validate_declared_variables(
     Ok(())
 }
 
+/// The value a declared global starts a run with.
+///
+/// The same shape as the persistent loader, and deliberately so: read what is
+/// stored, write the declared value only if nothing is there, and read again if
+/// another writer won the race. The difference is what "already stored" means.
+/// A persistent variable belongs to one script, so a stored value can only be
+/// its own from an earlier run. A global is shared, so a stored value may well
+/// belong to a script installed months ago, and adopting it is the point rather
+/// than a fallback.
+pub(super) fn load_or_initialize_global_declaration(
+    store: &dyn RuntimeStateStore,
+    script_id: &str,
+    variable: &RuntimeDeclaredVariable,
+) -> Result<Value, RuntimeError> {
+    if let Some(stored) = store
+        .load_variable(RuntimeVariableScope::Global, script_id, &variable.name)
+        .map_err(RuntimeError::State)?
+    {
+        return Ok(stored.value);
+    }
+
+    if store
+        .compare_and_set_variable(
+            RuntimeVariableScope::Global,
+            script_id,
+            &variable.name,
+            None,
+            &variable.value,
+        )
+        .map_err(RuntimeError::State)?
+    {
+        return Ok(variable.value.clone());
+    }
+
+    // Another script declared the same global and won the initialising write
+    // between the read above and this one. Its value is the shared one now.
+    store
+        .load_variable(RuntimeVariableScope::Global, script_id, &variable.name)
+        .map_err(RuntimeError::State)?
+        .map(|stored| stored.value)
+        .ok_or_else(|| {
+            RuntimeError::State(format!(
+                "global variable {:?} could not be initialised",
+                variable.name
+            ))
+        })
+}
+
 pub(super) fn load_or_initialize_persistent_default(
     store: &dyn RuntimeStateStore,
     script_id: &str,
