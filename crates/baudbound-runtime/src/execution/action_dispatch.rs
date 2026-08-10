@@ -1,17 +1,38 @@
+use serde_json::Value;
+
 use crate::runtime::{
-    config_string, duration_from_amount, evaluate_calculation_expression, number_from_value,
-    number_value, render_template, resolve_config_map, resolve_http_request_config,
-    value_to_string,
+    SYSTEM_VARIABLE, config_string, duration_from_amount, evaluate_calculation_expression,
+    number_from_value, number_value, refresh_derived_variable_metadata, render_template,
+    resolve_config_map, resolve_http_request_config, value_to_string,
 };
 
 use super::{
     RunVariableScope, RuntimeActionError, RuntimeActionFailure, RuntimeActionRequest, RuntimeError,
     RuntimeExecutor, RuntimeNode, action_diagnostics::action_completion_message,
-    cast_validation::validate_config_casts,
+    cast_validation::validate_config_casts, initial_state::live_system_fields,
 };
 
 impl RuntimeExecutor<'_> {
+    /// Rereads the @system fields that are readings rather than facts.
+    ///
+    /// Called once at the top of every node execution, which is the boundary
+    /// that makes two references inside one field agree while still letting a
+    /// loop or a delay see the clock move.
+    fn refresh_live_system_fields(&mut self) {
+        let Some(Value::Object(system)) = self.context.variables.get_mut(SYSTEM_VARIABLE) else {
+            return;
+        };
+        for (field, value) in live_system_fields() {
+            system.insert(field.to_owned(), value);
+        }
+        refresh_derived_variable_metadata(&mut self.context.variables, SYSTEM_VARIABLE);
+    }
+
     pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+        // One reading per node execution. Every reference inside this node sees
+        // the same clock, and the next node reads again, so a loop or a delay
+        // moves while two references in one field cannot disagree.
+        self.refresh_live_system_fields();
         // Every node, not just the ones that call an external action. Log,
         // variable operations, delay and calculate render templates too, and a
         // cast that fails during rendering resolves to the literal template

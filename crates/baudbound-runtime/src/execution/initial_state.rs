@@ -348,3 +348,31 @@ fn validate_secret_value(
         )))
     }
 }
+
+/// The `@system` fields that are readings rather than facts.
+///
+/// A machine fact cannot change while a run is in progress, so it is read once.
+/// The clock and the uptime can, and a run is not short: `delay`, `repeat`,
+/// `while` and `for-each` all exist and a script that loops forever is
+/// supported. Read once per run, these reported the same value until the run
+/// ended, which made the clock useless in exactly the scripts that needed it.
+pub(super) fn live_system_fields() -> [(&'static str, Value); 2] {
+    let uptime = sysinfo::System::uptime();
+    [
+        (
+            "datetime",
+            serde_json::json!({
+                "type": "datetime",
+                "value": chrono::Local::now().to_rfc3339(),
+            }),
+        ),
+        (
+            "uptime",
+            serde_json::json!({
+                "type": "duration",
+                "unit": "seconds",
+                "value": uptime,
+            }),
+        ),
+    ]
+}

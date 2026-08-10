@@ -316,3 +316,134 @@ mod runtime_integration_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod live_field_tests {
+    use baudbound_runtime::{
+        RuntimeExecutionResources, UnsupportedActionHandler, execute_manual_program_with_state,
+    };
+    use serde_json::json;
+
+    /// Two log nodes with a delay between them, which is the shape the bug was
+    /// reported in: a script that waits and then reads the clock again.
+    fn program() -> serde_json::Value {
+        json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-first",
+                            "action_type": "action.log",
+                            "type": "log",
+                            "config": {
+                                "level": "info",
+                                "message": "first={{@system.datetime.value}} started={{@system.run_started_at.value}}"
+                            },
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-wait",
+                            "action_type": "action.delay",
+                            "type": "delay",
+                            "config": { "amount": "1100", "unit": "milliseconds" },
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-second",
+                            "action_type": "action.log",
+                            "type": "log",
+                            "config": {
+                                "level": "info",
+                                "message": "second={{@system.datetime.value}} started={{@system.run_started_at.value}}"
+                            },
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": [
+                        {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-first", "target_handle": "input"},
+                        {"execution_order": 0, "source": "n-first", "source_handle": "success", "target": "n-wait", "target_handle": "input"},
+                        {"execution_order": 0, "source": "n-wait", "source_handle": "success", "target": "n-second", "target_handle": "input"}
+                    ]
+                }
+            }
+        })
+    }
+
+    fn field(message: &str, key: &str) -> String {
+        message
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix(key))
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    #[test]
+    fn the_clock_moves_between_nodes_while_the_run_start_does_not() {
+        let report = execute_manual_program_with_state(
+            &program(),
+            "script-1",
+            RuntimeExecutionResources::new(&UnsupportedActionHandler),
+        )
+        .expect("the run should finish");
+
+        let logged = |prefix: &str| {
+            report
+                .logs
+                .iter()
+                .find(|entry| entry.message.starts_with(prefix))
+                .map(|entry| entry.message.clone())
+                .unwrap_or_default()
+        };
+        let first = logged("first=");
+        let second = logged("second=");
+        assert!(!first.is_empty() && !second.is_empty(), "both logs exist");
+
+        // The reported bug: read once per run, these two were identical no
+        // matter how long the script waited between them.
+        assert_ne!(
+            field(&first, "first="),
+            field(&second, "second="),
+            "the clock must move across a delay: {first} / {second}"
+        );
+
+        // And the stable counterpart, which is what "every reference agrees"
+        // was really asking for.
+        assert_eq!(
+            field(&first, "started="),
+            field(&second, "started="),
+            "run_started_at must not move"
+        );
+    }
+
+    #[test]
+    fn two_references_in_one_field_agree() {
+        // The boundary is a node execution, so a single field cannot straddle a
+        // tick however many times it names the clock.
+        let mut program = program();
+        program["entry"]["program"]["steps"][0]["config"]["message"] =
+            json!("a={{@system.datetime.value}} b={{@system.datetime.value}}");
+
+        let report = execute_manual_program_with_state(
+            &program,
+            "script-1",
+            RuntimeExecutionResources::new(&UnsupportedActionHandler),
+        )
+        .expect("the run should finish");
+
+        let message = report
+            .logs
+            .iter()
+            .find(|entry| entry.message.starts_with("a="))
+            .map(|entry| entry.message.clone())
+            .expect("the log exists");
+        assert_eq!(field(&message, "a="), field(&message, "b="), "{message}");
+    }
+}
