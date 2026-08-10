@@ -50,7 +50,7 @@ fn executes_manual_log_and_variable_operation() {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [
@@ -299,7 +299,7 @@ fn accepts_primary_trigger_also_listed_in_triggers() {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [
