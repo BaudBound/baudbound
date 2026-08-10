@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose};
 use baudbound_runtime::{
     ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeActionResult,
-    compile_safe_regex,
+    compile_safe_regex, format_datetime, validate_datetime_pattern,
 };
 use regex::Regex;
 use serde_json::{Map, Value};
@@ -71,6 +71,20 @@ fn apply_operation(
             .get("template")
             .cloned()
             .unwrap_or(Value::String(String::new())));
+    }
+    if operation == "format_datetime" {
+        // Handled before the text check below, because this is the one operation
+        // that wants the value rather than its text form.
+        let pattern = config_string(config, "pattern").unwrap_or_default();
+        validate_datetime_pattern(&pattern)?;
+        return format_datetime(&current, &pattern)
+            .map(Value::String)
+            .ok_or_else(|| {
+                format!(
+                    "format date and time requires a datetime, found {}",
+                    value_kind(&current)
+                )
+            });
     }
     if operation == "join" {
         let Value::Array(items) = current else {

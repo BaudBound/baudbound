@@ -472,7 +472,9 @@ fn all_derived_metadata_names_are_read_only() {
 
 #[test]
 fn script_settings_namespace_is_read_only() {
-    for name in ["settings", "settings.endpoint"] {
+    // "settings" is an ordinary user name now. The Script Settings object is
+    // "@settings", which no script can spell at all.
+    for name in ["@settings", "@settings.endpoint"] {
         let error = execute(
             vec![variable_node(
                 "n-write",

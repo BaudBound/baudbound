@@ -5,6 +5,8 @@ use serde_json::{Map, Value};
 
 use crate::ValueType;
 use crate::runtime::value_to_string;
+use crate::runtime::variables::{component_field, derived_metadata_value};
+
 pub(crate) fn render_template(template: &str, variables: &BTreeMap<String, Value>) -> String {
     let mut output = String::new();
     let mut remaining = template;
@@ -175,16 +177,16 @@ fn resolve_variable_expression<'a>(
     let (reference, target) = split_cast(expression);
     let resolved = resolve_reference(reference, variables)?;
     let Some(target) = target else {
-        return Some(Cow::Borrowed(resolved));
+        return Some(resolved);
     };
     let target = target.parse::<ValueType>().ok()?;
-    crate::cast_value(resolved, target).ok().map(Cow::Owned)
+    crate::cast_value(&resolved, target).ok().map(Cow::Owned)
 }
 
 pub(crate) fn resolve_reference<'a>(
     expression: &str,
     variables: &'a BTreeMap<String, Value>,
-) -> Option<&'a Value> {
+) -> Option<Cow<'a, Value>> {
     let mut best_name = None;
     for name in variables.keys() {
         if (expression == name
@@ -203,9 +205,19 @@ pub(crate) fn resolve_reference<'a>(
     resolve_value_path(value, suffix)
 }
 
-fn resolve_value_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+/// Walks an accessor path, ending in an optional `$` metadata segment.
+///
+/// Metadata is computed from whatever the walk lands on rather than looked up,
+/// so it works at any depth. A top-level variable also carries flat sibling
+/// keys, which `resolve_reference` matches first because they are longer, but
+/// a value reached through a path has no key of its own.
+///
+/// `$` is accepted only as the final segment. A value can genuinely hold a key
+/// named `$length`, and refusing it in the middle keeps one meaning for `$`
+/// rather than guessing which was intended.
+fn resolve_value_path<'a>(value: &'a Value, path: &str) -> Option<Cow<'a, Value>> {
     if path.is_empty() {
-        return Some(value);
+        return Some(Cow::Borrowed(value));
     }
 
     let mut current = value;
@@ -217,9 +229,32 @@ fn resolve_value_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
             if segment.is_empty() {
                 return None;
             }
-            current = current.as_object()?.get(segment)?;
-            remaining = &after_dot[segment_end..];
-            continue;
+            if segment.starts_with('$') {
+                let is_final = segment_end == after_dot.len();
+                return is_final
+                    .then(|| derived_metadata_value(current, segment))
+                    .flatten()
+                    .map(Cow::Owned);
+            }
+            // A real key wins over a computed one, so a datetime's own "value"
+            // and "type" keep meaning what they always did.
+            if let Some(field) = current.as_object().and_then(|object| object.get(segment)) {
+                current = field;
+                remaining = &after_dot[segment_end..];
+                continue;
+            }
+            // A component of a datetime or duration. Computed, so it has no
+            // home to borrow from and cannot be walked into further; the only
+            // thing allowed after it is one metadata segment.
+            let computed = component_field(current, segment)?;
+            let rest = &after_dot[segment_end..];
+            return match rest.strip_prefix(".$") {
+                None if rest.is_empty() => Some(Cow::Owned(computed)),
+                Some(metadata) if !metadata.contains(['.', '[']) => {
+                    derived_metadata_value(&computed, &format!("${metadata}")).map(Cow::Owned)
+                }
+                _ => None,
+            };
         }
 
         let after_open = remaining.strip_prefix('[')?;
@@ -233,7 +268,7 @@ fn resolve_value_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         };
         remaining = &after_open[close_index + 1..];
     }
-    Some(current)
+    Some(Cow::Borrowed(current))
 }
 
 fn find_bracket_end(value: &str) -> Option<usize> {
@@ -422,5 +457,190 @@ mod root_tests {
         );
         assert!(template_variable_roots("no references here").is_empty());
         assert!(template_variable_roots("{{unclosed").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod derived_metadata_conformance_tests {
+    use std::collections::BTreeMap;
+
+    use serde::Deserialize;
+    use serde_json::Value;
+
+    use super::resolve_reference;
+    use crate::runtime::refresh_derived_variable_metadata;
+
+    #[derive(Deserialize)]
+    struct MetadataConformance {
+        cases: Vec<MetadataCase>,
+        variables: BTreeMap<String, Value>,
+        version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct MetadataCase {
+        reason: String,
+        reference: String,
+        #[serde(default)]
+        result: Option<Value>,
+        #[serde(default)]
+        unresolved: bool,
+    }
+
+    #[test]
+    fn shared_derived_metadata_fixtures_conform() {
+        let conformance: MetadataConformance = serde_json::from_str(include_str!(
+            "../../../../contracts/derived-metadata-conformance.json"
+        ))
+        .expect("shared metadata fixtures should parse");
+        assert_eq!(conformance.version, 1);
+
+        // Seeded the way a run seeds them, so the flat sibling keys a top-level
+        // variable carries exist alongside the paths that have no key at all.
+        let mut variables = conformance.variables.clone();
+        for name in conformance.variables.keys() {
+            refresh_derived_variable_metadata(&mut variables, name);
+        }
+
+        for case in conformance.cases {
+            let resolved = resolve_reference(&case.reference, &variables);
+            if case.unresolved {
+                assert!(
+                    resolved.is_none(),
+                    "{} should not resolve: {}",
+                    case.reference,
+                    case.reason
+                );
+                continue;
+            }
+
+            let expected = case.result.expect("a resolving case must declare a result");
+            assert_eq!(
+                resolved.map(std::borrow::Cow::into_owned),
+                Some(expected),
+                "{}: {}",
+                case.reference,
+                case.reason
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod component_conformance_tests {
+    use std::collections::BTreeMap;
+
+    use serde::Deserialize;
+    use serde_json::Value;
+
+    use super::resolve_reference;
+    use crate::runtime::variables::{datetime_component, duration_component};
+
+    #[derive(Deserialize)]
+    struct ComponentConformance {
+        cases: Vec<ComponentCase>,
+        datetime_fields: Vec<String>,
+        duration_fields: Vec<String>,
+        metadata_after_component_cases: Vec<MetadataCase>,
+        unresolved_cases: Vec<UnresolvedCase>,
+        version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct ComponentCase {
+        fields: BTreeMap<String, Value>,
+        reason: String,
+        value: Value,
+    }
+
+    #[derive(Deserialize)]
+    struct MetadataCase {
+        field: String,
+        reason: String,
+        result: Value,
+        suffix: String,
+        value: Value,
+    }
+
+    #[derive(Deserialize)]
+    struct UnresolvedCase {
+        path: String,
+        reason: String,
+        value: Value,
+    }
+
+    fn conformance() -> ComponentConformance {
+        serde_json::from_str(include_str!(
+            "../../../../contracts/datetime-part-conformance.json"
+        ))
+        .expect("shared component fixtures should parse")
+    }
+
+    fn resolve(value: &Value, path: &str) -> Option<Value> {
+        let variables = BTreeMap::from([("value".to_owned(), value.clone())]);
+        resolve_reference(&format!("value{path}"), &variables).map(std::borrow::Cow::into_owned)
+    }
+
+    #[test]
+    fn the_fixture_names_every_component_this_runner_computes() {
+        // A case only asserts the fields it lists, so a field added on one side
+        // alone would otherwise pass both suites.
+        let conformance = conformance();
+        assert_eq!(conformance.version, 2);
+
+        let datetime =
+            serde_json::json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" });
+        for field in &conformance.datetime_fields {
+            assert!(
+                datetime_component(&datetime, field).is_some(),
+                "the runner must compute {field}"
+            );
+        }
+
+        let duration = serde_json::json!({ "type": "duration", "unit": "seconds", "value": 90 });
+        for field in &conformance.duration_fields {
+            assert!(
+                duration_component(&duration, field).is_some(),
+                "the runner must compute {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_component_fixtures_conform() {
+        let conformance = conformance();
+
+        for case in conformance.cases {
+            for (field, expected) in case.fields {
+                assert_eq!(
+                    resolve(&case.value, &format!(".{field}")),
+                    Some(expected),
+                    "{field} of {}: {}",
+                    case.value,
+                    case.reason
+                );
+            }
+        }
+
+        for case in conformance.metadata_after_component_cases {
+            assert_eq!(
+                resolve(&case.value, &format!(".{}.{}", case.field, case.suffix)),
+                Some(case.result),
+                "{}.{}: {}",
+                case.field,
+                case.suffix,
+                case.reason
+            );
+        }
+
+        for case in conformance.unresolved_cases {
+            assert_eq!(
+                resolve(&case.value, &case.path),
+                None,
+                "{} should not resolve: {}",
+                case.path,
+                case.reason
+            );
+        }
     }
 }

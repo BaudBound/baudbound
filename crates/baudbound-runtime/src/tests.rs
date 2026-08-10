@@ -50,7 +50,7 @@ fn executes_manual_log_and_variable_operation() {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [
@@ -299,7 +299,7 @@ fn accepts_primary_trigger_also_listed_in_triggers() {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [
@@ -459,7 +459,7 @@ fn rejects_reserved_variable_writes() {
                                 "action_type": "runtime.set_variable",
                                 "type": "set_variable",
                                 "config": {
-                                    "name": "system_os",
+                                    "name": "@system",
                                     "operation": "set",
                                     "scope": "runtime",
                                     "valueType": "string",
@@ -476,9 +476,14 @@ fn rejects_reserved_variable_writes() {
             }),
             "script-1",
         )
-        .expect_err("reserved variable should fail");
+        .expect_err("a built-in name should fail");
 
-    assert!(error.to_string().contains("reserved"));
+    // Not a reservation list any more: "@" is not a legal identifier character,
+    // so every built-in is unwritable by the same rule that rejects a space.
+    assert!(
+        error.to_string().contains("invalid variable name"),
+        "unexpected message: {error}"
+    );
 }
 
 #[test]

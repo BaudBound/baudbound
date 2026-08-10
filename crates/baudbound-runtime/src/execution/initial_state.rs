@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::runtime::{
-    DERIVED_VARIABLE_METADATA_SUFFIXES, RuntimeGraph, refresh_derived_variable_metadata,
-    required_config_string, validate_variable_name,
+    DERIVED_VARIABLE_METADATA_SUFFIXES, MANIFEST_VARIABLE, RuntimeGraph, SETTINGS_VARIABLE,
+    SYSTEM_VARIABLE, refresh_derived_variable_metadata, required_config_string,
+    validate_variable_name,
 };
 use crate::{
     RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
@@ -21,6 +22,20 @@ pub(super) struct InitialRuntimeState {
     pub(super) variables: BTreeMap<String, Value>,
 }
 
+/// Everything a run is handed that no script can write: the `@` namespaces.
+///
+/// One argument rather than three, because they arrive together and are seeded
+/// together, and because the caller reads better naming them than counting
+/// positional maps.
+pub(super) struct BuiltIns<'a> {
+    pub(super) manifest: &'a BTreeMap<String, Value>,
+    pub(super) run_id: &'a str,
+    pub(super) started_at: Value,
+    pub(super) system: &'a BTreeMap<String, Value>,
+    pub(super) trigger_id: &'a str,
+    pub(super) trigger_type: &'a str,
+}
+
 pub(super) fn load_initial_state(
     graph: &RuntimeGraph,
     script_id: &str,
@@ -28,6 +43,7 @@ pub(super) fn load_initial_state(
     default_variables: &[RuntimeDefaultVariable],
     script_settings: Option<&RuntimeScriptSettings>,
     secrets: &[RuntimeSecretDeclaration],
+    built_ins: &BuiltIns<'_>,
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
@@ -112,16 +128,10 @@ pub(super) fn load_initial_state(
     }
 
     validate_default_variables(default_variables, &declared_variables, &secret_names)?;
-    if declared_variables.contains_key("settings")
-        || default_variables
-            .iter()
-            .any(|variable| variable.name == "settings")
-        || secret_names.iter().any(|name| name == "settings")
-    {
-        return Err(RuntimeError::InvalidGraph(
-            "\"settings\" is reserved for the read-only Script Settings object".to_owned(),
-        ));
-    }
+
+    // "settings" used to be reserved here for the Script Settings object. That
+    // object is now "@settings", which no script can name, so the plain word is
+    // an ordinary variable name again.
 
     let has_persistent_default = default_variables
         .iter()
@@ -133,6 +143,44 @@ pub(super) fn load_initial_state(
             "persistent, global, and secret variables require a runner state store".to_owned(),
         ));
     }
+    // One object rather than a name per field, and behind an "@" no user
+    // identifier may contain, so nothing a script declares can shadow it.
+    let mut system = serde_json::Map::new();
+    for (name, value) in built_ins.system {
+        system.insert(name.clone(), value.clone());
+    }
+    system.insert(
+        "run_id".to_owned(),
+        Value::String(built_ins.run_id.to_owned()),
+    );
+    system.insert(
+        "trigger_id".to_owned(),
+        Value::String(built_ins.trigger_id.to_owned()),
+    );
+    system.insert(
+        "trigger_type".to_owned(),
+        Value::String(built_ins.trigger_type.to_owned()),
+    );
+    system.insert("run_started_at".to_owned(), built_ins.started_at.clone());
+    insert_initial_variable(
+        &mut variables,
+        &mut variable_scopes,
+        SYSTEM_VARIABLE.to_owned(),
+        Value::Object(system),
+        RunVariableScope::System,
+    );
+    // The manifest was never supplied to a run at all: the editor offered
+    // manifest_name and the like, and every one of them reached production as
+    // literal braces, exactly as the system values used to.
+    if !built_ins.manifest.is_empty() {
+        insert_initial_variable(
+            &mut variables,
+            &mut variable_scopes,
+            MANIFEST_VARIABLE.to_owned(),
+            Value::Object(built_ins.manifest.clone().into_iter().collect()),
+            RunVariableScope::Manifest,
+        );
+    }
     let mut secret_values = Vec::new();
     if let Some(settings) = script_settings {
         if !settings.values.is_object() {
@@ -143,7 +191,7 @@ pub(super) fn load_initial_state(
         insert_initial_variable(
             &mut variables,
             &mut variable_scopes,
-            "settings".to_owned(),
+            SETTINGS_VARIABLE.to_owned(),
             settings.values.clone(),
             RunVariableScope::Setting,
         );
@@ -299,4 +347,32 @@ fn validate_secret_value(
             declaration.name, declaration.value_type
         )))
     }
+}
+
+/// The `@system` fields that are readings rather than facts.
+///
+/// A machine fact cannot change while a run is in progress, so it is read once.
+/// The clock and the uptime can, and a run is not short: `delay`, `repeat`,
+/// `while` and `for-each` all exist and a script that loops forever is
+/// supported. Read once per run, these reported the same value until the run
+/// ended, which made the clock useless in exactly the scripts that needed it.
+pub(super) fn live_system_fields() -> [(&'static str, Value); 2] {
+    let uptime = sysinfo::System::uptime();
+    [
+        (
+            "datetime",
+            serde_json::json!({
+                "type": "datetime",
+                "value": chrono::Local::now().to_rfc3339(),
+            }),
+        ),
+        (
+            "uptime",
+            serde_json::json!({
+                "type": "duration",
+                "unit": "seconds",
+                "value": uptime,
+            }),
+        ),
+    ]
 }

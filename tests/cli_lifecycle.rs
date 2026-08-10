@@ -956,7 +956,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
                         "expression_reference": "{{{{node-id.data_name}}}}",
                         "template_reference": "{{{{node-id.data_name}}}}",
                         "variables": [],
-                        "built_in_variables": {{"syntax": "{{{{variable_name}}}}", "variables": []}},
+                        "built_in_variables": {{"syntax": "{{{{@namespace.field}}}}", "variables": []}},
                         "node_outputs": []
                     }},
                     "steps": [
@@ -1082,7 +1082,7 @@ fn create_schedule_package_with_secrets(secrets: &str) -> Vec<u8> {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [

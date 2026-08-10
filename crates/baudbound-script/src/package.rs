@@ -893,7 +893,7 @@ mod tests {
 					"template_reference": "{{node-id.data_name}}",
 					"variables": [],
 					"built_in_variables": {
-						"syntax": "{{variable_name}}",
+						"syntax": "{{@namespace.field}}",
 						"variables": []
 					},
 					"node_outputs": []
@@ -1013,7 +1013,7 @@ mod tests {
                                 "template_reference": "{{node-id.data_name}}",
                                 "variables": [],
                                 "built_in_variables": {
-                                    "syntax": "{{variable_name}}",
+                                    "syntax": "{{@namespace.field}}",
                                     "variables": []
                                 },
                                 "node_outputs": []

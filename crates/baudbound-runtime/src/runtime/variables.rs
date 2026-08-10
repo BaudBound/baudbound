@@ -6,17 +6,28 @@ use baudbound_script::is_user_identifier;
 
 use crate::{RuntimeError, RuntimeNode};
 
+/// The reserved names the runner supplies, spelled once.
+///
+/// Every one begins with a character no user identifier may contain, which is
+/// what makes a reservation list unnecessary: a script cannot spell these at
+/// all, so it cannot shadow them.
+pub(crate) const SYSTEM_VARIABLE: &str = "@system";
+pub(crate) const SETTINGS_VARIABLE: &str = "@settings";
+pub(crate) const MANIFEST_VARIABLE: &str = "@manifest";
+
 pub(crate) const DERIVED_VARIABLE_METADATA_SUFFIXES: [&str; 4] =
     [".$length", ".$count", ".$type", ".$is_empty"];
 const MAX_AUTO_EXPANDED_LIST_ITEMS: usize = 100_000;
 
+/// Rejects a name a script may not write.
+///
+/// The `system_` and `manifest_` prefixes used to be reserved here. They are
+/// not any more: every built-in lives behind `@`, which `is_user_identifier`
+/// already excludes, so a built-in cannot be shadowed no matter what a script
+/// calls its own variables. That gives those prefixes, and the bare name
+/// `settings`, back to authors.
 pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(), RuntimeError> {
-    if name.starts_with("system_")
-        || name.starts_with("manifest_")
-        || DERIVED_VARIABLE_METADATA_SUFFIXES
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
-    {
+    if derived_suffixes().any(|suffix| name.ends_with(suffix)) {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!("{name} is read-only or reserved"),
@@ -249,6 +260,130 @@ fn is_identifier_continue(byte: u8) -> bool {
     is_identifier_start(byte) || byte.is_ascii_digit()
 }
 
+/// Every suffix the runner owns, so none of them can be written by a script.
+///
+/// Only the four metadata suffixes now. A datetime and a duration used to push
+/// their components through the same door as `.$hour` and `.$minutes`, which
+/// confused two different things: `$` describes a value, while a component is
+/// part of the value and belongs on the path.
+pub(crate) fn derived_suffixes() -> impl Iterator<Item = &'static str> {
+    DERIVED_VARIABLE_METADATA_SUFFIXES.into_iter()
+}
+
+/// The fields a datetime exposes by path, read in the offset it carries.
+///
+/// Reading through the carried offset rather than converting to UTC means the
+/// hour is the wall clock the value was written in, which is what an author
+/// means by "the hour" and what the format patterns already do.
+pub(crate) fn datetime_component(value: &Value, field: &str) -> Option<Value> {
+    if value.get("type").and_then(Value::as_str) != Some("datetime") {
+        return None;
+    }
+    let text = value.get("value").and_then(Value::as_str)?;
+    let parsed = chrono::DateTime::parse_from_rfc3339(text).ok()?;
+
+    use chrono::{Datelike as _, Offset as _, Timelike as _};
+    let number = |value: i64| Some(Value::Number(value.into()));
+    match field {
+        "full" => Some(Value::String(text.to_owned())),
+        "utc" => Some(Value::String(
+            parsed
+                .to_utc()
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        )),
+        "unix" => number(parsed.timestamp()),
+        "offset_minutes" => number(i64::from(parsed.offset().fix().local_minus_utc()) / 60),
+        "year" => number(i64::from(parsed.year())),
+        "month" => number(i64::from(parsed.month())),
+        "day" => number(i64::from(parsed.day())),
+        "hour" => number(i64::from(parsed.hour())),
+        "minute" => number(i64::from(parsed.minute())),
+        "second" => number(i64::from(parsed.second())),
+        // Monday is 1 through Sunday is 7, the ISO numbering, so a comparison
+        // does not depend on which day a locale calls the first.
+        "weekday" => number(i64::from(parsed.weekday().number_from_monday())),
+        _ => None,
+    }
+}
+
+/// The fields a duration exposes by path, as a component breakdown.
+///
+/// Ninety seconds is one minute and thirty seconds rather than 1.5 minutes, so
+/// every component is a whole number, and `total_milliseconds` answers the
+/// how-long-altogether question a fractional `minutes` would otherwise have to.
+pub(crate) fn duration_component(value: &Value, field: &str) -> Option<Value> {
+    if value.get("type").and_then(Value::as_str) != Some("duration") {
+        return None;
+    }
+    let amount = value.get("value").and_then(Value::as_f64)?;
+    if !amount.is_finite() || amount < 0.0 {
+        return None;
+    }
+    let unit_ms = match value.get("unit").and_then(Value::as_str)? {
+        "milliseconds" => 1.0,
+        "seconds" => 1_000.0,
+        "minutes" => 60_000.0,
+        "hours" => 3_600_000.0,
+        "days" => 86_400_000.0,
+        _ => return None,
+    };
+    let total = (amount * unit_ms).round();
+    if total > i64::MAX as f64 {
+        return None;
+    }
+    let total = total as i64;
+
+    let number = |value: i64| Some(Value::Number(value.into()));
+    match field {
+        "days" => number(total / 86_400_000),
+        "hours" => number((total % 86_400_000) / 3_600_000),
+        "minutes" => number((total % 3_600_000) / 60_000),
+        "seconds" => number((total % 60_000) / 1_000),
+        "milliseconds" => number(total % 1_000),
+        "total_milliseconds" => number(total),
+        _ => None,
+    }
+}
+
+/// One computed field of a datetime or duration, or `None` for anything else.
+pub(crate) fn component_field(value: &Value, field: &str) -> Option<Value> {
+    datetime_component(value, field).or_else(|| duration_component(value, field))
+}
+
+fn derived_length(value: &Value) -> usize {
+    match value {
+        Value::String(value) => value.encode_utf16().count(),
+        Value::Array(values) => values.len(),
+        Value::Object(fields) => fields.len(),
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+    }
+}
+
+fn derived_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(value) => value.is_empty(),
+        Value::Array(values) => values.is_empty(),
+        Value::Object(fields) => fields.is_empty(),
+        Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+/// The metadata a `$` segment names, computed rather than stored.
+///
+/// A top-level variable also carries these as flat sibling keys so the
+/// Variables panel can list them, but a value reached through a path has no
+/// key of its own. Computing here is what lets `{{settings.label.$length}}`
+/// resolve at all.
+pub(crate) fn derived_metadata_value(value: &Value, segment: &str) -> Option<Value> {
+    match segment {
+        "$length" | "$count" => Some(Value::Number(derived_length(value).into())),
+        "$type" => Some(Value::String(value_kind(value).to_owned())),
+        "$is_empty" => Some(Value::Bool(derived_is_empty(value))),
+        _ => None,
+    }
+}
+
 pub(crate) fn refresh_derived_variable_metadata(
     variables: &mut BTreeMap<String, Value>,
     name: &str,
@@ -265,20 +400,9 @@ pub(crate) fn refresh_derived_variable_metadata(
     let Some(value) = variables.get(name) else {
         return;
     };
-    let length = match value {
-        Value::String(value) => value.encode_utf16().count(),
-        Value::Array(values) => values.len(),
-        Value::Object(fields) => fields.len(),
-        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
-    };
-    let is_empty = match value {
-        Value::Null => true,
-        Value::String(value) => value.is_empty(),
-        Value::Array(values) => values.is_empty(),
-        Value::Object(fields) => fields.is_empty(),
-        Value::Bool(_) | Value::Number(_) => false,
-    };
+    let length = derived_length(value);
     let value_type = value_kind(value).to_owned();
+    let is_empty = derived_is_empty(value);
 
     variables.insert(length_key, Value::Number(length.into()));
     variables.insert(count_key, Value::Number(length.into()));

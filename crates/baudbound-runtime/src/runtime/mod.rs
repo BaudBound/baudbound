@@ -3,6 +3,7 @@ mod cancellation;
 mod conditions;
 mod config;
 mod control;
+mod datetime_format;
 mod duration;
 mod graph;
 mod http_body;
@@ -17,6 +18,7 @@ pub(crate) use conditions::compare_condition_values;
 pub(crate) use conditions::{compare_condition_values_with_end, values_equal_for_condition};
 pub(crate) use config::{config_string, required_config_string};
 pub(crate) use control::{RuntimeConditionRow, RuntimeFrame, RuntimeSwitchCaseRow};
+pub use datetime_format::{format_datetime, validate_datetime_pattern};
 pub(crate) use duration::duration_from_amount;
 pub(crate) use graph::RuntimeGraph;
 pub(crate) use http_body::resolve_http_request_config;
@@ -30,8 +32,8 @@ pub(crate) use templates::{
     resolve_reference, split_cast, template_value_is_defined, template_variable_roots,
 };
 pub(crate) use variables::{
-    DERIVED_VARIABLE_METADATA_SUFFIXES, coerce_variable_value, empty_value_for_declared_type,
-    empty_value_for_type, integer_from_value, number_from_value, number_value,
-    refresh_derived_variable_metadata, remove_object_field, set_object_field,
-    validate_variable_name, value_kind, value_to_string,
+    DERIVED_VARIABLE_METADATA_SUFFIXES, MANIFEST_VARIABLE, SETTINGS_VARIABLE, SYSTEM_VARIABLE,
+    coerce_variable_value, empty_value_for_declared_type, empty_value_for_type, integer_from_value,
+    number_from_value, number_value, refresh_derived_variable_metadata, remove_object_field,
+    set_object_field, validate_variable_name, value_kind, value_to_string,
 };

@@ -52,7 +52,7 @@ fn validate_expression(
         .parse::<ValueType>()
         .map_err(|_| format!("unknown cast target in {{{{{expression}}}}}"))?;
     match resolve_reference(reference, variables) {
-        Some(resolved) => cast_value(resolved, target)
+        Some(resolved) => cast_value(&resolved, target)
             .map(|_| ())
             .map_err(|reason| format!("variable \"{reference}\" {reason}")),
         None => Err(format!("variable \"{reference}\" is not set")),

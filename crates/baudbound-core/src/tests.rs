@@ -2390,7 +2390,7 @@ fn complete_test_program_contract(program: &str) -> String {
             "template_reference": "{{node-id.data_name}}",
             "variables": [],
             "built_in_variables": {
-                "syntax": "{{variable_name}}",
+                "syntax": "{{@namespace.field}}",
                 "variables": []
             },
             "node_outputs": []

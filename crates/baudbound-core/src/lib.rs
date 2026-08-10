@@ -12,6 +12,7 @@ mod serial;
 mod settings;
 mod status;
 mod sub_script;
+mod system_variables;
 mod triggers;
 mod version;
 
@@ -84,6 +85,7 @@ pub use status::{
     ApprovalStatus, PackageHashStatus, RunnerStatus, ScriptMetadata, ScriptStatus,
     TriggerRegistrationStatus,
 };
+pub use system_variables::{manifest_variables, system_variables};
 pub use triggers::CoreTriggerDispatcher;
 
 use runtime_state::CoreRuntimeStateStore;
@@ -881,6 +883,11 @@ impl RunnerCore {
         let script_settings =
             settings::resolve_runtime_script_settings(store, &installed.id, &package)?;
 
+        // Machine facts, read once because none of them can change during a
+        // run. The readings that can — the clock, the uptime — are resolved by
+        // the runtime when a reference asks for them.
+        let run_system_variables = system_variables::system_variables();
+        let run_manifest_variables = system_variables::manifest_variables(&package.manifest);
         let runtime_resources = || {
             let resources = RuntimeExecutionResources::new(&core_action_handler)
                 .with_package_path(staged_package.path.clone())
@@ -891,7 +898,9 @@ impl RunnerCore {
                 .with_default_variables(&default_variables)
                 .with_script_settings(&script_settings)
                 .with_output_limits(self.output_limits)
-                .with_execution_policy(self.execution_policy);
+                .with_execution_policy(self.execution_policy)
+                .with_system_variables(&run_system_variables)
+                .with_manifest_variables(&run_manifest_variables);
             // The in-flight tracker always observes. A trigger asking to stop
             // an already running script depends on it, so it cannot be left to
             // whichever observers a caller happened to register.

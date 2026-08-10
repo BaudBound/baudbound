@@ -506,7 +506,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
             "runtime",
             "set",
             json!("ok"),
-            "{{settings.endpoint}} retries={{settings.retries}} enabled={{settings.enabled}} channel={{settings.release-channel_2}}",
+            "{{@settings.endpoint}} retries={{@settings.retries}} enabled={{@settings.enabled}} channel={{@settings.release-channel_2}}",
         ),
         "script-1",
         state_resources(&store, &[]).with_script_settings(&settings),
@@ -514,7 +514,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
     .expect("Script Settings should resolve during execution");
 
     assert_eq!(
-        report.variables.get("settings"),
+        report.variables.get("@settings"),
         Some(&json!({
             "enabled": true,
             "endpoint": "https://example.test/api",
@@ -523,7 +523,7 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
         }))
     );
     assert_eq!(
-        report.variable_scopes.get("settings"),
+        report.variable_scopes.get("@settings"),
         Some(&RunVariableScope::Setting)
     );
     assert!(report.logs.iter().any(|entry| {

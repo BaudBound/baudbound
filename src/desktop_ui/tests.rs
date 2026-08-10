@@ -665,7 +665,7 @@ fn create_test_package() -> Vec<u8> {
                             "expression_reference": "{{node-id.data_name}}",
                             "template_reference": "{{node-id.data_name}}",
                             "variables": [],
-                            "built_in_variables": {"syntax": "{{variable_name}}", "variables": []},
+                            "built_in_variables": {"syntax": "{{@namespace.field}}", "variables": []},
                             "node_outputs": []
                         },
                         "steps": [{
