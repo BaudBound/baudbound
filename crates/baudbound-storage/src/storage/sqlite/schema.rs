@@ -113,7 +113,8 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 name TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,
                 version INTEGER NOT NULL CHECK (version >= 1),
-                updated_at_unix INTEGER NOT NULL
+                updated_at_unix INTEGER NOT NULL,
+                written_by TEXT
             );
 
             CREATE TABLE IF NOT EXISTS secret_values (
@@ -397,6 +398,27 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 CREATE INDEX system_logs_severity_index
                     ON system_logs(severity, timestamp_unix_ms DESC);
                 PRAGMA user_version = 17;
+                COMMIT;
+                "#,
+            )
+            .map_err(|source| StorageError::Sqlite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+    }
+
+    // A global is shared by every installed script and writable by all of
+    // them, so the value alone does not say where it came from. The writer is
+    // recorded beside it. A row written before this migration keeps NULL,
+    // which reads as unknown rather than as a guess.
+    if version < 18 {
+        connection
+            .execute_batch(
+                r#"
+                BEGIN;
+                ALTER TABLE global_variables
+                    ADD COLUMN written_by TEXT;
+                PRAGMA user_version = 18;
                 COMMIT;
                 "#,
             )
