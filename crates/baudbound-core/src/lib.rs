@@ -863,10 +863,13 @@ impl RunnerCore {
             .iter()
             .map(|variable| RuntimeDeclaredVariable {
                 name: variable.name.clone(),
-                scope: if variable.scope == "persistent" {
-                    RuntimeDeclaredScope::Persistent
-                } else {
-                    RuntimeDeclaredScope::Runtime
+                // Matched rather than defaulted, so a scope this runner does not
+                // know is not silently read as runtime. The manifest schema is
+                // what refuses an unknown one; this only has to agree with it.
+                scope: match variable.scope.as_str() {
+                    "global" => RuntimeDeclaredScope::Global,
+                    "persistent" => RuntimeDeclaredScope::Persistent,
+                    _ => RuntimeDeclaredScope::Runtime,
                 },
                 value_type: variable.value_type.clone(),
                 item_type: variable.item_type.clone(),

@@ -42,6 +42,7 @@ pub(super) fn validate_declared_variables(
         }
         if let Some((node_scope, node_type)) = graph_declarations.get(&variable.name) {
             let default_scope = match variable.scope {
+                RuntimeDeclaredScope::Global => "global",
                 RuntimeDeclaredScope::Runtime => "runtime",
                 RuntimeDeclaredScope::Persistent => "persistent",
             };

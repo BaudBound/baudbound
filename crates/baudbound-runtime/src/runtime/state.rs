@@ -8,6 +8,7 @@ pub enum RuntimeVariableScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeDeclaredScope {
+    Global,
     Runtime,
     Persistent,
 }
