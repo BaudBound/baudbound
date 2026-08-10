@@ -3,7 +3,7 @@ use crate::runtime::{
     refresh_derived_variable_metadata,
 };
 use crate::{ResourceLimit, RuntimeCancellationToken, RuntimeStateStore};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     io::Write,
@@ -66,6 +66,10 @@ impl<'a> RuntimeExecutor<'a> {
             resources.execution_policy.max_run_duration_ms,
             resources.cancellation.clone(),
         )?;
+        let trigger_type = graph
+            .trigger(&identity.trigger_node_id)
+            .map(|node| node.action_type.clone())
+            .unwrap_or_default();
         let initial_state = load_initial_state(
             &graph,
             &identity.script_id,
@@ -73,7 +77,17 @@ impl<'a> RuntimeExecutor<'a> {
             resources.default_variables,
             resources.script_settings,
             resources.secrets,
-            resources.system_variables,
+            &initial_state::BuiltIns {
+                manifest: resources.manifest_variables,
+                run_id: &identity.run_id,
+                started_at: json!({
+                    "type": "datetime",
+                    "value": chrono::Local::now().to_rfc3339(),
+                }),
+                system: resources.system_variables,
+                trigger_id: &identity.trigger_node_id,
+                trigger_type: &trigger_type,
+            },
         )?;
         for (name, value) in &initial_state.variables {
             ensure_value_within_limit(

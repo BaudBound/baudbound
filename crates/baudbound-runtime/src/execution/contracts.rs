@@ -102,6 +102,7 @@ pub struct RunReport {
 #[serde(rename_all = "snake_case")]
 pub enum RunVariableScope {
     Global,
+    Manifest,
     Metadata,
     NodeOutput,
     Persistent,
@@ -116,6 +117,7 @@ impl RunVariableScope {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Global => "global",
+            Self::Manifest => "manifest",
             Self::Metadata => "metadata",
             Self::NodeOutput => "node_output",
             Self::Persistent => "persistent",
@@ -283,7 +285,7 @@ impl RuntimeActionHandler for UnsupportedActionHandler {
 }
 
 /// Borrowed by a resources value that was built without system variables.
-static EMPTY_SYSTEM_VARIABLES: std::sync::OnceLock<BTreeMap<String, Value>> =
+static EMPTY_BUILT_IN_FIELDS: std::sync::OnceLock<BTreeMap<String, Value>> =
     std::sync::OnceLock::new();
 
 pub struct RuntimeExecutionResources<'a> {
@@ -300,6 +302,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) script_settings: Option<&'a RuntimeScriptSettings>,
     pub(super) secrets: &'a [RuntimeSecretDeclaration],
     pub(super) system_variables: &'a BTreeMap<String, Value>,
+    pub(super) manifest_variables: &'a BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,7 +354,8 @@ impl<'a> RuntimeExecutionResources<'a> {
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
             default_variables: &[],
-            system_variables: EMPTY_SYSTEM_VARIABLES.get_or_init(BTreeMap::new),
+            system_variables: EMPTY_BUILT_IN_FIELDS.get_or_init(BTreeMap::new),
+            manifest_variables: EMPTY_BUILT_IN_FIELDS.get_or_init(BTreeMap::new),
             observer: None,
             output_limits: RuntimeOutputLimits::default(),
             execution_policy: RuntimeExecutionPolicy::default(),
@@ -407,6 +411,19 @@ impl<'a> RuntimeExecutionResources<'a> {
     #[must_use]
     pub fn with_system_variables(mut self, system_variables: &'a BTreeMap<String, Value>) -> Self {
         self.system_variables = system_variables;
+        self
+    }
+
+    /// The manifest fields a run exposes as `@manifest`.
+    ///
+    /// A run without them resolves nothing for a manifest reference, which is
+    /// what every run did before they were supplied at all.
+    #[must_use]
+    pub fn with_manifest_variables(
+        mut self,
+        manifest_variables: &'a BTreeMap<String, Value>,
+    ) -> Self {
+        self.manifest_variables = manifest_variables;
         self
     }
 

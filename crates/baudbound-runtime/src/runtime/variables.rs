@@ -6,15 +6,28 @@ use baudbound_script::is_user_identifier;
 
 use crate::{RuntimeError, RuntimeNode};
 
+/// The reserved names the runner supplies, spelled once.
+///
+/// Every one begins with a character no user identifier may contain, which is
+/// what makes a reservation list unnecessary: a script cannot spell these at
+/// all, so it cannot shadow them.
+pub(crate) const SYSTEM_VARIABLE: &str = "@system";
+pub(crate) const SETTINGS_VARIABLE: &str = "@settings";
+pub(crate) const MANIFEST_VARIABLE: &str = "@manifest";
+
 pub(crate) const DERIVED_VARIABLE_METADATA_SUFFIXES: [&str; 4] =
     [".$length", ".$count", ".$type", ".$is_empty"];
 const MAX_AUTO_EXPANDED_LIST_ITEMS: usize = 100_000;
 
+/// Rejects a name a script may not write.
+///
+/// The `system_` and `manifest_` prefixes used to be reserved here. They are
+/// not any more: every built-in lives behind `@`, which `is_user_identifier`
+/// already excludes, so a built-in cannot be shadowed no matter what a script
+/// calls its own variables. That gives those prefixes, and the bare name
+/// `settings`, back to authors.
 pub(crate) fn validate_variable_name(node: &RuntimeNode, name: &str) -> Result<(), RuntimeError> {
-    if name.starts_with("system_")
-        || name.starts_with("manifest_")
-        || derived_suffixes().any(|suffix| name.ends_with(suffix))
-    {
+    if derived_suffixes().any(|suffix| name.ends_with(suffix)) {
         return Err(RuntimeError::VariableOperation {
             node_id: node.id.clone(),
             message: format!("{name} is read-only or reserved"),

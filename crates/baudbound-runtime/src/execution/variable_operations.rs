@@ -17,13 +17,10 @@ impl RuntimeExecutor<'_> {
         node: &RuntimeNode,
     ) -> Result<(), RuntimeError> {
         let name = required_config_string(node, "name")?;
+        // A built-in lives behind "@", which is not a legal identifier
+        // character, so validate_variable_name refuses every one of them and
+        // no separate guard per built-in is needed.
         validate_variable_name(node, &name)?;
-        if name == "settings" {
-            return Err(RuntimeError::VariableOperation {
-                node_id: node.id.clone(),
-                message: "Script Settings are read-only".to_owned(),
-            });
-        }
         if self.secret_names.iter().any(|secret| secret == &name) {
             return Err(RuntimeError::VariableOperation {
                 node_id: node.id.clone(),
