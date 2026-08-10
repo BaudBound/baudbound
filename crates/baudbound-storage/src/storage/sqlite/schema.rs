@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use crate::StorageError;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 17;
+pub const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 pub(super) fn configure_connection(
     connection: &Connection,
@@ -113,8 +113,7 @@ pub(super) fn migrate(connection: &Connection, path: &Path) -> Result<(), Storag
                 name TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,
                 version INTEGER NOT NULL CHECK (version >= 1),
-                updated_at_unix INTEGER NOT NULL,
-                written_by TEXT
+                updated_at_unix INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS secret_values (
