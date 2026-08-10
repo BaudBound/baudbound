@@ -341,6 +341,40 @@ fn duration_parts(value: &Value) -> Option<Vec<(&'static str, i64)>> {
     ])
 }
 
+fn derived_length(value: &Value) -> usize {
+    match value {
+        Value::String(value) => value.encode_utf16().count(),
+        Value::Array(values) => values.len(),
+        Value::Object(fields) => fields.len(),
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+    }
+}
+
+fn derived_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(value) => value.is_empty(),
+        Value::Array(values) => values.is_empty(),
+        Value::Object(fields) => fields.is_empty(),
+        Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+/// The metadata a `$` segment names, computed rather than stored.
+///
+/// A top-level variable also carries these as flat sibling keys so the
+/// Variables panel can list them, but a value reached through a path has no
+/// key of its own. Computing here is what lets `{{settings.label.$length}}`
+/// resolve at all.
+pub(crate) fn derived_metadata_value(value: &Value, segment: &str) -> Option<Value> {
+    match segment {
+        "$length" | "$count" => Some(Value::Number(derived_length(value).into())),
+        "$type" => Some(Value::String(value_kind(value).to_owned())),
+        "$is_empty" => Some(Value::Bool(derived_is_empty(value))),
+        _ => None,
+    }
+}
+
 pub(crate) fn refresh_derived_variable_metadata(
     variables: &mut BTreeMap<String, Value>,
     name: &str,
@@ -367,21 +401,10 @@ pub(crate) fn refresh_derived_variable_metadata(
     let Some(value) = variables.get(name) else {
         return;
     };
-    let length = match value {
-        Value::String(value) => value.encode_utf16().count(),
-        Value::Array(values) => values.len(),
-        Value::Object(fields) => fields.len(),
-        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
-    };
-    let is_empty = match value {
-        Value::Null => true,
-        Value::String(value) => value.is_empty(),
-        Value::Array(values) => values.is_empty(),
-        Value::Object(fields) => fields.is_empty(),
-        Value::Bool(_) | Value::Number(_) => false,
-    };
-    let value_type = value_kind(value).to_owned();
+    let length = derived_length(value);
     let parts = datetime_parts(value).or_else(|| duration_parts(value));
+    let value_type = value_kind(value).to_owned();
+    let is_empty = derived_is_empty(value);
 
     variables.insert(length_key, Value::Number(length.into()));
     variables.insert(count_key, Value::Number(length.into()));
