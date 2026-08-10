@@ -21,7 +21,7 @@ mod api;
 mod branching;
 pub mod cast_validation;
 mod contracts;
-mod default_variables;
+mod declared_variables;
 mod frames;
 mod http_diagnostics;
 mod initial_state;
@@ -74,7 +74,7 @@ impl<'a> RuntimeExecutor<'a> {
             &graph,
             &identity.script_id,
             resources.state_store,
-            resources.default_variables,
+            resources.declared_variables,
             resources.script_settings,
             resources.secrets,
             &initial_state::BuiltIns {

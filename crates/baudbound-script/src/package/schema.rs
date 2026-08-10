@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_typed_default_variables_exported_by_the_editor() {
+    fn accepts_typed_declared_variables_exported_by_the_editor() {
         let cases = [
             ("string", json!("value")),
             ("integer", json!(42)),
@@ -269,7 +269,7 @@ mod tests {
             manifest["variables"] = json!([variable]);
 
             validate_manifest_schema(&manifest).unwrap_or_else(|error| {
-                panic!("{variable_type} default variable should match schema: {error}")
+                panic!("{variable_type} declared variable should match schema: {error}")
             });
         }
     }

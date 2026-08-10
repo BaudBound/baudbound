@@ -31,8 +31,8 @@ pub use network::{
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeDeclarationRequirements {
-    pub has_persistent_default_variables: bool,
-    pub has_runtime_default_variables: bool,
+    pub has_persistent_declared_variables: bool,
+    pub has_runtime_declared_variables: bool,
     pub has_secret_declarations: bool,
 }
 
@@ -332,7 +332,7 @@ pub fn calculate_program_permissions_with_declarations(
         }
     }
 
-    if requirements.has_runtime_default_variables {
+    if requirements.has_runtime_declared_variables {
         insert_permission(
             &mut permissions,
             &mut seen_permissions,
@@ -342,7 +342,7 @@ pub fn calculate_program_permissions_with_declarations(
             },
         );
     }
-    if requirements.has_persistent_default_variables {
+    if requirements.has_persistent_declared_variables {
         insert_permission(
             &mut permissions,
             &mut seen_permissions,

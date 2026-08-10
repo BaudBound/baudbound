@@ -28,7 +28,7 @@ pub struct Manifest {
     #[serde(default)]
     pub assets: Vec<ManifestAsset>,
     #[serde(default)]
-    pub variables: Vec<DefaultVariable>,
+    pub variables: Vec<DeclaredVariable>,
     #[serde(default)]
     pub settings: Vec<ScriptSettingDeclaration>,
     #[serde(default)]
@@ -36,7 +36,7 @@ pub struct Manifest {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct DefaultVariable {
+pub struct DeclaredVariable {
     pub name: String,
     pub scope: String,
     #[serde(rename = "type")]

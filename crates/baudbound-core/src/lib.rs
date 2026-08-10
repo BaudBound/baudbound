@@ -28,8 +28,8 @@ use baudbound_actions::{
     ActionLimits, ActionSecurityPolicy, HeadlessActionHandler, WebSocketMessageSink,
 };
 use baudbound_runtime::{
-    RunIdentity, RuntimeActionHandler, RuntimeCancellationToken, RuntimeDefaultVariable,
-    RuntimeDefaultVariableScope, RuntimeExecutionResources, RuntimeLogEntry, RuntimeOutputLimits,
+    RunIdentity, RuntimeActionHandler, RuntimeCancellationToken, RuntimeDeclaredScope,
+    RuntimeDeclaredVariable, RuntimeExecutionResources, RuntimeLogEntry, RuntimeOutputLimits,
     RuntimeRunObserver, RuntimeSecretDeclaration, execute_manual_program_with_state,
     execute_trigger_program_with_state,
 };
@@ -857,16 +857,16 @@ impl RunnerCore {
                 value_type: secret.value_type.clone(),
             })
             .collect::<Vec<_>>();
-        let default_variables = package
+        let declared_variables = package
             .manifest
             .variables
             .iter()
-            .map(|variable| RuntimeDefaultVariable {
+            .map(|variable| RuntimeDeclaredVariable {
                 name: variable.name.clone(),
                 scope: if variable.scope == "persistent" {
-                    RuntimeDefaultVariableScope::Persistent
+                    RuntimeDeclaredScope::Persistent
                 } else {
-                    RuntimeDefaultVariableScope::Runtime
+                    RuntimeDeclaredScope::Runtime
                 },
                 value_type: variable.value_type.clone(),
                 item_type: variable.item_type.clone(),
@@ -895,7 +895,7 @@ impl RunnerCore {
                 .with_package_bytes(Arc::clone(&staged_package.bytes))
                 .with_cancellation(cancellation.clone())
                 .with_state(&runtime_state_store, &secret_declarations)
-                .with_default_variables(&default_variables)
+                .with_declared_variables(&declared_variables)
                 .with_script_settings(&script_settings)
                 .with_output_limits(self.output_limits)
                 .with_execution_policy(self.execution_policy)

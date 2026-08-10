@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::{
     ResourceLimit, RunIdentity, RunVariableScope, RuntimeActionError, RuntimeActionHandler,
     RuntimeActionRequest, RuntimeActionResult, RuntimeCancellationToken, RuntimeContext,
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeExecutionPolicy,
+    RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeExecutionPolicy,
     RuntimeExecutionResources, RuntimeLogEntry, RuntimeRunObserver, RuntimeScriptSettings,
     RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, UnsupportedActionHandler,
     VersionedRuntimeVariable, execute_manual_program_with_state,
@@ -271,9 +271,9 @@ fn persists_incremented_values_between_runs() {
 #[test]
 fn runtime_default_resets_before_each_run() {
     let store = TestStateStore::default();
-    let defaults = [default_variable(
+    let defaults = [declared_variable(
         "counter",
-        RuntimeDefaultVariableScope::Runtime,
+        RuntimeDeclaredScope::Runtime,
         "integer",
         json!(10),
     )];
@@ -299,9 +299,9 @@ fn runtime_default_resets_before_each_run() {
 #[test]
 fn persistent_default_initializes_once_then_retains_changes() {
     let store = TestStateStore::default();
-    let defaults = [default_variable(
+    let defaults = [declared_variable(
         "counter",
-        RuntimeDefaultVariableScope::Persistent,
+        RuntimeDeclaredScope::Persistent,
         "integer",
         json!(10),
     )];
@@ -358,9 +358,9 @@ fn deleting_a_persistent_variable_removes_its_stored_value() {
 #[test]
 fn rejects_default_that_disagrees_with_variable_operation() {
     let store = TestStateStore::default();
-    let defaults = [default_variable(
+    let defaults = [declared_variable(
         "counter",
-        RuntimeDefaultVariableScope::Persistent,
+        RuntimeDeclaredScope::Persistent,
         "integer",
         json!(10),
     )];
@@ -383,27 +383,27 @@ fn rejects_malformed_default_resources_before_execution() {
     let store = TestStateStore::default();
     for (variable, expected) in [
         (
-            default_variable(
+            declared_variable(
                 "counter",
-                RuntimeDefaultVariableScope::Runtime,
+                RuntimeDeclaredScope::Runtime,
                 "integer",
                 json!("ten"),
             ),
             "expected integer",
         ),
         (
-            default_variable(
+            declared_variable(
                 "system_counter",
-                RuntimeDefaultVariableScope::Runtime,
+                RuntimeDeclaredScope::Runtime,
                 "integer",
                 json!(10),
             ),
             "invalid or reserved",
         ),
         (
-            default_variable(
+            declared_variable(
                 "counter",
-                RuntimeDefaultVariableScope::Runtime,
+                RuntimeDeclaredScope::Runtime,
                 "string",
                 json!(""),
             ),
@@ -552,7 +552,7 @@ fn rejects_a_non_object_script_settings_snapshot() {
 }
 
 #[test]
-fn declared_default_variables_reject_a_wrong_typed_value() {
+fn declared_declared_variables_reject_a_wrong_typed_value() {
     let error = build_initial_state_with_default("retries", "integer", json!("three"))
         .expect_err("a wrong-typed default must be rejected");
 
@@ -572,7 +572,7 @@ fn declared_default_variables_reject_a_wrong_typed_value() {
 }
 
 #[test]
-fn declared_default_variables_accept_a_correctly_typed_integer_value() {
+fn declared_declared_variables_accept_a_correctly_typed_integer_value() {
     let report = build_initial_state_with_default("retries", "integer", json!(3))
         .expect("a correctly typed integer default should be accepted");
 
@@ -585,9 +585,9 @@ fn build_initial_state_with_default(
     value: Value,
 ) -> Result<crate::RunReport, crate::RuntimeError> {
     let store = TestStateStore::default();
-    let defaults = [default_variable(
+    let defaults = [declared_variable(
         name,
-        RuntimeDefaultVariableScope::Runtime,
+        RuntimeDeclaredScope::Runtime,
         value_type,
         value,
     )];
@@ -608,18 +608,18 @@ fn state_resources<'a>(
 fn state_resources_with_defaults<'a>(
     store: &'a TestStateStore,
     secrets: &'a [RuntimeSecretDeclaration],
-    defaults: &'a [RuntimeDefaultVariable],
+    defaults: &'a [RuntimeDeclaredVariable],
 ) -> RuntimeExecutionResources<'a> {
-    state_resources(store, secrets).with_default_variables(defaults)
+    state_resources(store, secrets).with_declared_variables(defaults)
 }
 
-fn default_variable(
+fn declared_variable(
     name: &str,
-    scope: RuntimeDefaultVariableScope,
+    scope: RuntimeDeclaredScope,
     value_type: &str,
     value: Value,
-) -> RuntimeDefaultVariable {
-    RuntimeDefaultVariable {
+) -> RuntimeDeclaredVariable {
+    RuntimeDeclaredVariable {
         name: name.to_owned(),
         scope,
         value_type: value_type.to_owned(),
@@ -685,9 +685,9 @@ fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
         ("hotkey", json!("NotARealKey")),
     ] {
         let store = TestStateStore::default();
-        let mut variable = default_variable(
+        let mut variable = declared_variable(
             "items",
-            RuntimeDefaultVariableScope::Runtime,
+            RuntimeDeclaredScope::Runtime,
             "list",
             json!([bad_element]),
         );
@@ -805,9 +805,9 @@ fn a_loop_condition_sees_a_stored_variable_changed_outside_the_run() {
         }
     });
 
-    let defaults = [RuntimeDefaultVariable {
+    let defaults = [RuntimeDeclaredVariable {
         name: "running".to_owned(),
-        scope: RuntimeDefaultVariableScope::Persistent,
+        scope: RuntimeDeclaredScope::Persistent,
         value_type: "boolean".to_owned(),
         item_type: None,
         value: json!(true),
@@ -817,7 +817,7 @@ fn a_loop_condition_sees_a_stored_variable_changed_outside_the_run() {
         "script-1",
         RuntimeExecutionResources::new(&handler)
             .with_state(store.as_ref(), &[])
-            .with_default_variables(&defaults)
+            .with_declared_variables(&defaults)
             .with_execution_policy(RuntimeExecutionPolicy {
                 max_steps_per_run: ResourceLimit::limited(200),
                 max_run_duration_ms: ResourceLimit::limited(10_000),

@@ -23,8 +23,8 @@ pub(crate) use duration::duration_from_amount;
 pub(crate) use graph::RuntimeGraph;
 pub(crate) use http_body::resolve_http_request_config;
 pub use state::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
+    RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeScriptSettings, RuntimeSecretDeclaration,
+    RuntimeStateStore, RuntimeVariableScope, VersionedRuntimeVariable,
 };
 pub use templates::resolve_template_value;
 pub(crate) use templates::{

@@ -143,11 +143,12 @@ pub fn calculate_program_capabilities_with_declarations(
         .map_err(CapabilityValidationError::InvalidProgram)?
         .iter()
         .any(|scope| scope == "persistent" || scope == "global")
-        || requirements.has_persistent_default_variables
+        || requirements.has_persistent_declared_variables
     {
         names.insert("runtime.persistent_storage".to_owned());
     }
-    if requirements.has_runtime_default_variables || requirements.has_persistent_default_variables {
+    if requirements.has_runtime_declared_variables || requirements.has_persistent_declared_variables
+    {
         names.insert("runtime.variables".to_owned());
     }
     if requirements.has_secret_declarations {

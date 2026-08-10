@@ -77,12 +77,12 @@ pub(crate) fn validate_package_security(
     policy: &RunnerPolicy,
 ) -> Result<(), SecurityValidationError> {
     let requirements = RuntimeDeclarationRequirements {
-        has_persistent_default_variables: package
+        has_persistent_declared_variables: package
             .manifest
             .variables
             .iter()
             .any(|variable| variable.scope == "persistent"),
-        has_runtime_default_variables: package
+        has_runtime_declared_variables: package
             .manifest
             .variables
             .iter()

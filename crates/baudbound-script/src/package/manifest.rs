@@ -522,7 +522,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_manifest_default_variables() {
+    fn validates_manifest_declared_variables() {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "Counter-2_primary",
             "scope": "persistent",
@@ -531,7 +531,7 @@ mod tests {
             "value": 10
         }]));
 
-        validate_manifest_variables(&manifest).expect("valid default variable should pass");
+        validate_manifest_variables(&manifest).expect("valid declared variable should pass");
     }
 
     #[test]
@@ -707,7 +707,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_manifest_default_variables() {
+    fn rejects_invalid_manifest_declared_variables() {
         for (variables, expected) in [
             (
                 serde_json::json!([{"name": "counter", "scope": "global", "type": "integer", "value": 10}]),
@@ -737,13 +737,13 @@ mod tests {
             ),
         ] {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
-                .expect_err("invalid default variable should fail");
+                .expect_err("invalid declared variable should fail");
             assert!(error.to_string().contains(expected), "{error}");
         }
     }
 
     #[test]
-    fn rejects_default_variable_operation_contract_mismatch() {
+    fn rejects_declared_variable_operation_contract_mismatch() {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "counter",
             "scope": "persistent",

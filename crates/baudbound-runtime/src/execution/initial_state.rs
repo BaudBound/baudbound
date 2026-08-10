@@ -8,11 +8,13 @@ use crate::runtime::{
     validate_variable_name,
 };
 use crate::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
+    RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeScriptSettings, RuntimeSecretDeclaration,
+    RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
 };
 
-use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
+use super::declared_variables::{
+    load_or_initialize_persistent_default, validate_declared_variables,
+};
 use super::{RunVariableScope, RuntimeError};
 
 pub(super) struct InitialRuntimeState {
@@ -40,7 +42,7 @@ pub(super) fn load_initial_state(
     graph: &RuntimeGraph,
     script_id: &str,
     state_store: Option<&dyn RuntimeStateStore>,
-    default_variables: &[RuntimeDefaultVariable],
+    declared_variables: &[RuntimeDeclaredVariable],
     script_settings: Option<&RuntimeScriptSettings>,
     secrets: &[RuntimeSecretDeclaration],
     built_ins: &BuiltIns<'_>,
@@ -48,7 +50,7 @@ pub(super) fn load_initial_state(
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
     let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
-    let mut declared_variables = BTreeMap::<String, (String, Option<String>)>::new();
+    let mut graph_declarations = BTreeMap::<String, (String, Option<String>)>::new();
 
     for node in graph
         .nodes()
@@ -87,7 +89,7 @@ pub(super) fn load_initial_state(
                 });
             }
         };
-        if let Some((existing_scope, existing_type)) = declared_variables.get_mut(&name) {
+        if let Some((existing_scope, existing_type)) = graph_declarations.get_mut(&name) {
             if *existing_scope != scope_name
                 || existing_type
                     .as_ref()
@@ -102,7 +104,7 @@ pub(super) fn load_initial_state(
                 *existing_type = value_type;
             }
         } else {
-            declared_variables.insert(name.clone(), (scope_name.clone(), value_type));
+            graph_declarations.insert(name.clone(), (scope_name.clone(), value_type));
         }
         if let Some(scope) = scope {
             declarations.insert(name.clone(), scope);
@@ -120,22 +122,22 @@ pub(super) fn load_initial_state(
     }
     if let Some(collision) = secret_names
         .iter()
-        .find(|name| declared_variables.contains_key(name.as_str()))
+        .find(|name| graph_declarations.contains_key(name.as_str()))
     {
         return Err(RuntimeError::InvalidGraph(format!(
             "secret {collision:?} conflicts with a writable variable"
         )));
     }
 
-    validate_default_variables(default_variables, &declared_variables, &secret_names)?;
+    validate_declared_variables(declared_variables, &graph_declarations, &secret_names)?;
 
     // "settings" used to be reserved here for the Script Settings object. That
     // object is now "@settings", which no script can name, so the plain word is
     // an ordinary variable name again.
 
-    let has_persistent_default = default_variables
+    let has_persistent_default = declared_variables
         .iter()
-        .any(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent);
+        .any(|variable| variable.scope == RuntimeDeclaredScope::Persistent);
     if (!declarations.is_empty() || has_persistent_default || !secrets.is_empty())
         && state_store.is_none()
     {
@@ -196,9 +198,9 @@ pub(super) fn load_initial_state(
             RunVariableScope::Setting,
         );
     }
-    for variable in default_variables
+    for variable in declared_variables
         .iter()
-        .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
+        .filter(|variable| variable.scope == RuntimeDeclaredScope::Runtime)
     {
         reject_wrong_type_default(variable)?;
         insert_initial_variable(
@@ -210,9 +212,9 @@ pub(super) fn load_initial_state(
         );
     }
     if let Some(store) = state_store {
-        for variable in default_variables
+        for variable in declared_variables
             .iter()
-            .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent)
+            .filter(|variable| variable.scope == RuntimeDeclaredScope::Persistent)
         {
             reject_wrong_type_default(variable)?;
             let value = load_or_initialize_persistent_default(store, script_id, variable)?;
@@ -282,11 +284,11 @@ pub(super) fn load_initial_state(
 /// declared default belongs to the package rather than to a node. A type
 /// name outside the ten-type vocabulary (the retired vocabulary such as
 /// `number` or `file_path`) does not parse into a `ValueType` and is left to
-/// `validate_default_variable`, which already accepts it.
-fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
+/// `validate_declared_variable`, which already accepts it.
+fn reject_wrong_type_default(variable: &RuntimeDeclaredVariable) -> Result<(), RuntimeError> {
     let type_error = |reason: String| RuntimeError::Type {
         node_id: String::new(),
-        message: format!("default variable \"{}\" {reason}", variable.name),
+        message: format!("declared variable \"{}\" {reason}", variable.name),
     };
 
     // A declared value is read by the type declared beside it, so a whole

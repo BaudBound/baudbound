@@ -119,16 +119,16 @@ fn derives_persistent_storage_and_secret_capabilities() {
 }
 
 #[test]
-fn derives_capabilities_from_manifest_default_variables() {
+fn derives_capabilities_from_manifest_declared_variables() {
     let report = calculate_program_capabilities_with_declarations(
         &program(&[], &[]),
         RuntimeDeclarationRequirements {
-            has_persistent_default_variables: true,
-            has_runtime_default_variables: false,
+            has_persistent_declared_variables: true,
+            has_runtime_declared_variables: false,
             has_secret_declarations: false,
         },
     )
-    .expect("default variable capabilities should derive from manifest requirements");
+    .expect("declared variable capabilities should derive from manifest requirements");
 
     assert!(
         report

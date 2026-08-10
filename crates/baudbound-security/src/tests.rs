@@ -124,16 +124,16 @@ fn rejects_legacy_writable_secret_scope() {
 }
 
 #[test]
-fn derives_permissions_from_manifest_default_variables() {
+fn derives_permissions_from_manifest_declared_variables() {
     let report = calculate_program_permissions_with_declarations(
         &program_with_steps(&[]),
         RuntimeDeclarationRequirements {
-            has_persistent_default_variables: true,
-            has_runtime_default_variables: true,
+            has_persistent_declared_variables: true,
+            has_runtime_declared_variables: true,
             has_secret_declarations: false,
         },
     )
-    .expect("default variable permissions should derive from manifest requirements");
+    .expect("declared variable permissions should derive from manifest requirements");
 
     assert_eq!(
         report
