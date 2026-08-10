@@ -121,3 +121,111 @@ fn security_risk_level(risk_level: &RiskLevel) -> baudbound_security::RiskLevel 
         RiskLevel::Dangerous => baudbound_security::RiskLevel::Dangerous,
     }
 }
+
+/// Reads one trigger node's overlap option out of a program.
+///
+/// Mirrors the trigger traversal in `network_trigger_definitions`: the entry
+/// trigger plus any secondary triggers. A node that cannot be found, or a
+/// program written before the option existed, reads as `Queue`.
+pub(crate) fn trigger_overlap(program: &Value, trigger_node_id: &str) -> crate::TriggerOverlap {
+    let Some(entry) = program.get("entry") else {
+        return crate::TriggerOverlap::Queue;
+    };
+    let mut triggers = Vec::new();
+    if let Some(trigger) = entry.get("trigger") {
+        triggers.push(trigger);
+    }
+    if let Some(entries) = entry.get("triggers").and_then(Value::as_array) {
+        triggers.extend(entries);
+    }
+
+    triggers
+        .into_iter()
+        .find(|trigger| trigger.get("id").and_then(Value::as_str) == Some(trigger_node_id))
+        .and_then(|trigger| trigger.get("config"))
+        .map_or(
+            crate::TriggerOverlap::Queue,
+            crate::TriggerOverlap::from_config,
+        )
+}
+
+#[cfg(test)]
+mod overlap_tests {
+    use super::trigger_overlap;
+    use crate::TriggerOverlap;
+    use serde_json::json;
+
+    fn program(entry_overlap: &str, secondary_overlap: &str) -> serde_json::Value {
+        json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-entry",
+                    "action_type": "trigger.webhook",
+                    "config": { "overlap": entry_overlap }
+                },
+                "triggers": [{
+                    "id": "n-second",
+                    "action_type": "trigger.schedule",
+                    "config": { "overlap": secondary_overlap }
+                }]
+            }
+        })
+    }
+
+    #[test]
+    fn reads_the_mode_of_the_trigger_that_fired() {
+        // Per trigger, not per script: one may toggle while another queues.
+        let program = program("stop", "queue");
+        assert_eq!(
+            trigger_overlap(&program, "n-entry"),
+            TriggerOverlap::Stop,
+            "the entry trigger's own mode applies"
+        );
+        assert_eq!(
+            trigger_overlap(&program, "n-second"),
+            TriggerOverlap::Queue,
+            "a secondary trigger keeps its own mode"
+        );
+    }
+
+    #[test]
+    fn every_mode_is_understood() {
+        for (configured, expected) in [
+            ("queue", TriggerOverlap::Queue),
+            ("skip", TriggerOverlap::Skip),
+            ("stop", TriggerOverlap::Stop),
+            ("restart", TriggerOverlap::Restart),
+        ] {
+            assert_eq!(
+                trigger_overlap(&program(configured, "queue"), "n-entry"),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn anything_unrecognised_queues() {
+        // A package written before the option existed, one carrying a value
+        // from a newer editor, and a node that is not there at all all keep
+        // today's behaviour rather than being refused.
+        assert_eq!(
+            trigger_overlap(
+                &json!({"entry": {"trigger": {"id": "n-entry", "config": {}}}}),
+                "n-entry"
+            ),
+            TriggerOverlap::Queue
+        );
+        assert_eq!(
+            trigger_overlap(&program("nonsense", "queue"), "n-entry"),
+            TriggerOverlap::Queue
+        );
+        assert_eq!(
+            trigger_overlap(&program("stop", "stop"), "n-missing"),
+            TriggerOverlap::Queue
+        );
+        assert_eq!(
+            trigger_overlap(&json!({}), "n-entry"),
+            TriggerOverlap::Queue
+        );
+    }
+}

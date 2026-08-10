@@ -32,7 +32,7 @@ pub(super) fn dispatch_trigger_command(
             },
         )
         .with_context(|| format!("failed to dispatch trigger event for {script:?}"))?;
-    print_run_report(report);
+    print_activation(report);
     Ok(())
 }
 
@@ -47,8 +47,23 @@ pub(super) fn run_script(
     let report = core
         .run_installed_with_trigger(store, &script, trigger.as_deref(), payload)
         .with_context(|| format!("failed to run installed script {script:?}"))?;
-    print_run_report(report);
+    print_activation(report);
     Ok(())
+}
+
+/// Prints what the activation did. A trigger set to stop or skip an already
+/// running script does not produce a run report, and saying so is more useful
+/// than printing an empty one.
+fn print_activation(activation: baudbound_core::TriggerActivation) {
+    match activation {
+        baudbound_core::TriggerActivation::Started { report } => print_run_report(*report),
+        baudbound_core::TriggerActivation::Stopped { cancelled } => {
+            println!("Stopped {cancelled} running instance(s). No new run started.");
+        }
+        baudbound_core::TriggerActivation::Skipped => {
+            println!("Skipped: the script is already running.");
+        }
+    }
 }
 
 fn parse_payload_json(payload_json: Option<String>) -> Result<serde_json::Value> {

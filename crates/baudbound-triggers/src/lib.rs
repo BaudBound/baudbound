@@ -54,8 +54,81 @@ pub trait TriggerHandler: Send + Sync {
     fn register(&self, registration: &TriggerRegistration) -> Result<(), TriggerError>;
 }
 
+/// What a trigger's overlap option asks for when its script is already running.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TriggerOverlap {
+    /// Wait for the active run, then start. The behaviour before this option
+    /// existed, and the default for every trigger that does not say otherwise.
+    #[default]
+    Queue,
+    /// Drop the activation. Nothing starts and nothing queues.
+    Skip,
+    /// Cancel the active run and start nothing. One trigger toggling its own
+    /// long-running loop is the reason this exists.
+    Stop,
+    /// Cancel the active run, then start a fresh one.
+    Restart,
+}
+
+impl TriggerOverlap {
+    /// Reads the option from a trigger node's config.
+    ///
+    /// An absent or unrecognised value is `Queue`, so a package written before
+    /// the option existed keeps its behaviour rather than being refused.
+    #[must_use]
+    pub fn from_config(config: &serde_json::Value) -> Self {
+        match config.get("overlap").and_then(serde_json::Value::as_str) {
+            Some("skip") => Self::Skip,
+            Some("stop") => Self::Stop,
+            Some("restart") => Self::Restart,
+            _ => Self::Queue,
+        }
+    }
+}
+
+/// What a trigger activation actually did.
+///
+/// A stopped or skipped activation never becomes a run, so it has no report to
+/// give. Reporting it as a failed run would be wrong: it did exactly what the
+/// trigger asked.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum TriggerActivation {
+    Started {
+        /// Flattened so the run report keeps the shape callers already parse.
+        /// The outcome is added beside its fields rather than nesting them.
+        #[serde(flatten)]
+        report: Box<RunReport>,
+    },
+    /// Cancelled this many in-flight runs and started nothing.
+    Stopped {
+        cancelled: usize,
+    },
+    Skipped,
+}
+
+impl TriggerActivation {
+    #[must_use]
+    pub fn outcome_name(&self) -> &'static str {
+        match self {
+            Self::Started { .. } => "started",
+            Self::Stopped { .. } => "stopped",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    /// The run report, when the activation actually ran one.
+    #[must_use]
+    pub fn report(self) -> Option<RunReport> {
+        match self {
+            Self::Started { report } => Some(*report),
+            Self::Stopped { .. } | Self::Skipped => None,
+        }
+    }
+}
+
 pub trait TriggerDispatcher: Send + Sync {
-    fn dispatch(&self, event: TriggerEvent) -> Result<RunReport, TriggerError>;
+    fn dispatch(&self, event: TriggerEvent) -> Result<TriggerActivation, TriggerError>;
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -258,3 +331,56 @@ pub(crate) fn unix_timestamp_millis(timestamp: SystemTime) -> u128 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod activation_json_tests {
+    use baudbound_runtime::RunIdentity;
+
+    use super::*;
+
+    fn report() -> RunReport {
+        RunReport {
+            identity: RunIdentity {
+                run_id: "run-1".to_owned(),
+                script_id: "script-1".to_owned(),
+                trigger_node_id: "n-hotkey".to_owned(),
+            },
+            logs: Vec::new(),
+            variable_scopes: Default::default(),
+            variables: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_started_activation_keeps_the_report_shape_callers_parse() {
+        // The CLI prints this with --json. Nesting the report under a key would
+        // silently break anyone reading identity or variables from it, so the
+        // outcome is added beside those fields rather than wrapping them.
+        let value = serde_json::to_value(TriggerActivation::Started {
+            report: Box::new(report()),
+        })
+        .expect("an activation should serialize");
+
+        assert_eq!(value["outcome"], "started");
+        assert_eq!(value["identity"]["script_id"], "script-1");
+        assert_eq!(value["identity"]["trigger_node_id"], "n-hotkey");
+        assert!(value.get("variables").is_some());
+        assert!(
+            value.get("report").is_none(),
+            "the report must stay flattened, not nested"
+        );
+    }
+
+    #[test]
+    fn an_activation_that_did_not_run_names_what_it_did() {
+        let stopped = serde_json::to_value(TriggerActivation::Stopped { cancelled: 2 })
+            .expect("an activation should serialize");
+        assert_eq!(stopped["outcome"], "stopped");
+        assert_eq!(stopped["cancelled"], 2);
+        assert!(stopped.get("identity").is_none(), "no run, so no report");
+
+        let skipped = serde_json::to_value(TriggerActivation::Skipped)
+            .expect("an activation should serialize");
+        assert_eq!(skipped["outcome"], "skipped");
+    }
+}

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use baudbound_runtime::RunIdentity;
+use baudbound_runtime::{RunIdentity, RunReport};
 use serde_json::Value;
 
 use super::*;
@@ -312,15 +312,19 @@ fn event_for_script(script_id: &str, node_id: &str) -> TriggerEvent {
     }
 }
 
-fn report_for_event(event: &TriggerEvent) -> RunReport {
-    RunReport {
-        identity: RunIdentity {
-            run_id: format!("run-{}", event.node_id),
-            script_id: event.script_id.clone(),
-            trigger_node_id: event.node_id.clone(),
-        },
-        logs: Vec::new(),
-        variable_scopes: BTreeMap::new(),
-        variables: BTreeMap::new(),
+/// A started activation carrying a minimal report, which is what a runner
+/// closure hands back for a trigger that actually ran.
+fn report_for_event(event: &TriggerEvent) -> baudbound_core::TriggerActivation {
+    baudbound_core::TriggerActivation::Started {
+        report: Box::new(RunReport {
+            identity: RunIdentity {
+                run_id: format!("run-{}", event.node_id),
+                script_id: event.script_id.clone(),
+                trigger_node_id: event.node_id.clone(),
+            },
+            logs: Vec::new(),
+            variable_scopes: BTreeMap::new(),
+            variables: BTreeMap::new(),
+        }),
     }
 }
