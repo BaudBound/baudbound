@@ -413,6 +413,31 @@ fn a_declared_global_is_shared_and_a_later_script_adopts_it() {
 }
 
 #[test]
+fn a_float_declared_with_a_whole_number_still_behaves_as_a_float() {
+    // The editor cannot write 300.0, so a whole float arrives as `300`. The
+    // package validator accepts it; this checks the value then behaves like a
+    // float rather than an integer once the run touches it.
+    let store = TestStateStore::default();
+    let declarations = [declared_variable(
+        "counter",
+        RuntimeDeclaredScope::Runtime,
+        "float",
+        json!(300),
+    )];
+    let report = execute_manual_program_with_state(
+        &variable_program("runtime", "increment", json!(0.5), "{{counter}}"),
+        "script-1",
+        state_resources_with_defaults(&store, &[], &declarations),
+    )
+    .expect("a whole float declaration should run");
+
+    assert_eq!(
+        report.variables.get("counter").and_then(Value::as_f64),
+        Some(300.5)
+    );
+}
+
+#[test]
 fn resetting_a_persistent_variable_stores_its_declared_value() {
     let store = TestStateStore::default();
     // The declaration says "start", so that is what reset restores — not an

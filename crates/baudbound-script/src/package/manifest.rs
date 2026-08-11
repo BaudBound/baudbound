@@ -463,10 +463,16 @@ fn value_matches_declared_type(
         "string" => value.is_string(),
         "hotkey" => value.as_str().is_some_and(crate::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
-        // integer and float are disjoint, so a whole number is not a float and
-        // a fractional one is not an integer.
+        // A fractional value is not an integer, so that half of the rule holds.
+        // The other half cannot: JSON has one number type, and the editor writes
+        // its manifests with JavaScript numbers, which cannot spell 300.0 as
+        // anything but 300. Requiring the float variant here made every whole
+        // float impossible to declare, and the schema already says "number".
+        // load_initial_state carries the same carve-out and explains it the same
+        // way; the two disagreed, so a package the runner would happily run was
+        // refused before it got the chance.
         "integer" => crate::is_safe_integer(value),
-        "float" => value.is_f64(),
+        "float" => value.as_f64().is_some_and(f64::is_finite),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {
@@ -746,6 +752,31 @@ mod tests {
                 .expect_err("invalid declared variable should fail");
             assert!(error.to_string().contains(expected), "{error}");
         }
+    }
+
+    #[test]
+    fn a_float_variable_may_be_declared_with_a_whole_number() {
+        // The editor cannot write 0.0: JSON has one number type and JavaScript
+        // serialises a whole float as `0`. Refusing it here meant a float could
+        // only be declared with a fractional default.
+        for value in [
+            serde_json::json!(0),
+            serde_json::json!(300),
+            serde_json::json!(2.5),
+            serde_json::json!(-7),
+        ] {
+            let variables =
+                serde_json::json!([{"name": "seconds", "scope": "runtime", "type": "float", "value": value}]);
+            validate_manifest_variables(&manifest_with_variables(variables))
+                .unwrap_or_else(|error| panic!("{value} should be a valid float default: {error}"));
+        }
+
+        // The other half of the rule still holds: a fractional value is not an
+        // integer.
+        let fractional =
+            serde_json::json!([{"name": "count", "scope": "runtime", "type": "integer", "value": 2.5}]);
+        validate_manifest_variables(&manifest_with_variables(fractional))
+            .expect_err("a fractional value is not an integer");
     }
 
     #[test]
