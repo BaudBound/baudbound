@@ -28,6 +28,12 @@ pub(super) struct InitialRuntimeState {
     pub(super) declared_types: BTreeMap<String, String>,
     /// The scope each declared variable was declared with, for the same reason.
     pub(super) declared_scopes: BTreeMap<String, String>,
+    /// The value each declaration gives its variable, which is what `reset`
+    /// puts back.
+    pub(super) declared_values: BTreeMap<String, Value>,
+    /// The item type of each declared list, for the same reason: a list says
+    /// what it holds in its declaration, not on the node writing it.
+    pub(super) declared_item_types: BTreeMap<String, String>,
     pub(super) secret_names: Vec<String>,
     pub(super) secret_values: Vec<Value>,
     pub(super) variable_scopes: BTreeMap<String, RunVariableScope>,
@@ -284,6 +290,16 @@ pub(super) fn load_initial_state(
         declared_types: declared_variables
             .iter()
             .map(|variable| (variable.name.clone(), variable.value_type.clone()))
+            .collect(),
+        declared_item_types: declared_variables
+            .iter()
+            .filter_map(|variable| {
+                Some((variable.name.clone(), variable.item_type.clone()?))
+            })
+            .collect(),
+        declared_values: declared_variables
+            .iter()
+            .map(|variable| (variable.name.clone(), variable.value.clone()))
             .collect(),
         declared_scopes: declared_variables
             .iter()

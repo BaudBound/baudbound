@@ -33,7 +33,12 @@ pub(crate) use templates::{
 };
 pub(crate) use variables::{
     DERIVED_VARIABLE_METADATA_SUFFIXES, MANIFEST_VARIABLE, SETTINGS_VARIABLE, SYSTEM_VARIABLE,
-    coerce_variable_value, empty_value_for_declared_type, empty_value_for_type, integer_from_value,
+    coerce_variable_value, empty_value_for_declared_type, integer_from_value,
     number_from_value, number_value, refresh_derived_variable_metadata, remove_object_field,
     set_object_field, validate_variable_name, value_kind, value_to_string,
 };
+// Only the test fixtures reach for the raw form. The executor goes through
+// empty_value_for_declared_type, which refuses the types that have no empty
+// value rather than inventing one for them.
+#[cfg(test)]
+pub(crate) use variables::empty_value_for_type;

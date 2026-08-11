@@ -141,7 +141,16 @@ fn declarations_for_program(program: &Value) -> Vec<RuntimeDeclaredVariable> {
             Some("global") => RuntimeDeclaredScope::Global,
             _ => RuntimeDeclaredScope::Runtime,
         };
-        let item_type = (value_type == "list").then(|| "string".to_owned());
+        // The item type belongs to the declaration now, so a fixture that used
+        // to state it on the node states it here instead. String is the
+        // fallback for a list node that names none.
+        let item_type = (value_type == "list").then(|| {
+            config
+                .get("itemType")
+                .and_then(Value::as_str)
+                .unwrap_or("string")
+                .to_owned()
+        });
         declared.push(RuntimeDeclaredVariable {
             name: name.to_owned(),
             scope,

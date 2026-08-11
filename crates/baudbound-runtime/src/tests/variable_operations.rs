@@ -166,7 +166,7 @@ fn append_list_preserves_json_compatible_items() {
 }
 
 #[test]
-fn supports_toggle_remove_merge_and_delete_operations() {
+fn supports_toggle_remove_merge_and_reset_operations() {
     let mut remove_first = variable_node(
         "n-remove-first",
         "items",
@@ -226,7 +226,7 @@ fn supports_toggle_remove_merge_and_delete_operations() {
             ),
             remove_field,
             merge,
-            variable_node("n-delete", "enabled", "delete", "boolean", Value::Null),
+            variable_node("n-reset", "enabled", "reset", "boolean", Value::Null),
         ],
         linear_edges(&[
             "n-toggle",
@@ -236,17 +236,20 @@ fn supports_toggle_remove_merge_and_delete_operations() {
             "n-object",
             "n-remove-field",
             "n-merge",
-            "n-delete",
+            "n-reset",
         ]),
     )
     .expect("new variable operations should execute");
 
-    assert!(
-        !report.variables.contains_key("enabled"),
-        "delete did not remove enabled; logs: {:#?}",
+    // Toggle flipped the declared false to true, and reset put the declared
+    // value back. The variable still exists: a declaration is what makes it
+    // exist, so nothing a run does can take it away.
+    assert_eq!(
+        report.variables.get("enabled"),
+        Some(&json!(false)),
+        "reset did not restore the declared value; logs: {:#?}",
         report.logs
     );
-    assert!(!report.variables.contains_key("enabled.$type"));
     assert_eq!(report.variables.get("items"), Some(&json!([1, 3])));
     assert_eq!(
         report.variables.get("payload"),
@@ -256,6 +259,48 @@ fn supports_toggle_remove_merge_and_delete_operations() {
             "status": "ready"
         }))
     );
+}
+
+#[test]
+fn clear_answers_from_the_declared_type_not_the_stored_value() {
+    // A color is a JSON string like any other, so a clear that inspected the
+    // stored value could only see "a string" and would empty it to "". The
+    // declaration says color, whose empty value is black.
+    let report = execute(
+        vec![
+            variable_node("n-set", "accent", "set", "color", json!("#ff0000")),
+            variable_node("n-clear", "accent", "clear", "color", Value::Null),
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("clearing a declared color should execute");
+
+    assert_eq!(report.variables.get("accent"), Some(&json!("#000000")));
+}
+
+#[test]
+fn reset_restores_the_declared_value_and_clear_empties_it() {
+    // The two are different answers to different questions: clear empties the
+    // variable for its type, reset puts back what the declaration gives it.
+    let report = execute(
+        vec![
+            variable_node("n-set", "greeting", "set", "string", json!("hello")),
+            variable_node("n-clear", "greeting", "clear", "string", Value::Null),
+        ],
+        linear_edges(&["n-set", "n-clear"]),
+    )
+    .expect("clearing should execute");
+    assert_eq!(report.variables.get("greeting"), Some(&json!("")));
+
+    let report = execute(
+        vec![
+            variable_node("n-set", "greeting", "set", "string", json!("hello")),
+            variable_node("n-reset", "greeting", "reset", "string", Value::Null),
+        ],
+        linear_edges(&["n-set", "n-reset"]),
+    )
+    .expect("resetting should execute");
+    assert_eq!(report.variables.get("greeting"), Some(&json!("declared")));
 }
 
 #[test]
@@ -792,8 +837,7 @@ fn clearing_a_hotkey_reports_that_it_has_no_empty_value() {
 
     assert!(
         report.logs.iter().any(|log| log.level == "error"
-            && log.message.contains("no empty value")
-            && log.message.contains("delete")),
+            && log.message.contains("no empty value")),
         "clear should explain that a keyboard key has no empty value, logs: {:?}",
         report
             .logs
@@ -904,4 +948,158 @@ fn a_cast_hidden_behind_json_escapes_still_stops_the_run() {
         format!("{error:?}").contains("integer"),
         "the error should name the target type: {error:?}"
     );
+}
+
+#[cfg(test)]
+mod reset_conformance_tests {
+    use serde::Deserialize;
+    use serde_json::{Value, json};
+
+    use crate::{
+        RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeExecutionResources,
+        UnsupportedActionHandler, execute_manual_program_with_state,
+    };
+
+    use super::linear_edges;
+
+    #[derive(Deserialize)]
+    struct ResetConformance {
+        cases: Vec<ResetCase>,
+        version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct ResetCase {
+        clear: Value,
+        declared: DeclaredFixture,
+        name: String,
+        reset: Value,
+        stored: Value,
+    }
+
+    #[derive(Deserialize)]
+    struct DeclaredFixture {
+        #[serde(default, rename = "itemType")]
+        item_type: Option<String>,
+        #[serde(rename = "type")]
+        value_type: String,
+        value: Value,
+    }
+
+    /// Runs one operation against a variable already holding `stored`, and
+    /// reports what the variable ended up holding beside the run log.
+    fn run(case: &ResetCase, operation: &str) -> (Value, Vec<String>) {
+        let declared = [RuntimeDeclaredVariable {
+            name: case.name.clone(),
+            scope: RuntimeDeclaredScope::Runtime,
+            value_type: case.declared.value_type.clone(),
+            item_type: case.declared.item_type.clone(),
+            value: case.declared.value.clone(),
+        }];
+        // The editor stores a list or object config value as JSON text, so a
+        // set node reaches the runner with a string rather than a bare array.
+        let stored = if matches!(case.declared.value_type.as_str(), "list" | "object") {
+            Value::String(case.stored.to_string())
+        } else {
+            case.stored.clone()
+        };
+        let program = json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        {
+                            "id": "n-set",
+                            "action_type": "runtime.set_variable",
+                            "type": "set_variable",
+                            "config": {
+                                "name": case.name,
+                                "operation": "set",
+                                "value": stored
+                            },
+                            "runtime_outputs": []
+                        },
+                        {
+                            "id": "n-apply",
+                            "action_type": "runtime.set_variable",
+                            "type": "set_variable",
+                            "config": {"name": case.name, "operation": operation},
+                            "runtime_outputs": []
+                        }
+                    ],
+                    "edges": linear_edges(&["n-set", "n-apply"])
+                }
+            }
+        });
+        let report = execute_manual_program_with_state(
+            &program,
+            "script-1",
+            RuntimeExecutionResources::new(&UnsupportedActionHandler)
+                .with_declared_variables(&declared),
+        )
+        .expect("the run completes even when a node takes its failed outcome");
+        (
+            report
+                .variables
+                .get(&case.name)
+                .cloned()
+                .unwrap_or(Value::Null),
+            report
+                .logs
+                .iter()
+                .filter(|log| log.level == "error")
+                .map(|log| log.message.clone())
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn shared_clear_and_reset_fixtures_conform() {
+        let conformance: ResetConformance = serde_json::from_str(include_str!(
+            "../../../../contracts/variable-reset-conformance.json"
+        ))
+        .expect("shared clear and reset fixtures should parse");
+        assert_eq!(conformance.version, 1);
+
+        for case in conformance.cases {
+            let (value, errors) = run(&case, "reset");
+            assert_eq!(
+                value, case.reset,
+                "reset should restore the declared value for {}",
+                case.name
+            );
+            assert!(errors.is_empty(), "reset should not fail for {}", case.name);
+
+            let (value, errors) = run(&case, "clear");
+            // A null clear means the type has no empty value, so the node fails
+            // rather than answering with something invented, and the variable
+            // keeps what it held.
+            if case.clear.is_null() {
+                assert_eq!(
+                    value, case.stored,
+                    "a refused clear must leave {} untouched",
+                    case.name
+                );
+                assert!(
+                    errors.iter().any(|error| error.contains("no empty value")),
+                    "clear should explain itself for {}, errors: {errors:?}",
+                    case.name
+                );
+                continue;
+            }
+            assert_eq!(
+                value, case.clear,
+                "clear should empty for the declared type for {}",
+                case.name
+            );
+            assert!(errors.is_empty(), "clear should not fail for {}", case.name);
+        }
+    }
 }

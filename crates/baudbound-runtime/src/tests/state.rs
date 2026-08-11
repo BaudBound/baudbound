@@ -280,13 +280,20 @@ fn sensitive_action_outputs_cannot_be_written_to_persistent_or_global_state() {
 fn persists_incremented_values_between_runs() {
     let store = TestStateStore::default();
     let program = variable_program("persistent", "increment", json!(1), "{{counter}}");
+    let declarations = counter_declarations("persistent", "increment");
 
-    let first =
-        execute_manual_program_with_state(&program, "script-1", state_resources(&store, &[]))
-            .expect("first run should execute");
-    let second =
-        execute_manual_program_with_state(&program, "script-1", state_resources(&store, &[]))
-            .expect("second run should execute");
+    let first = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &declarations),
+    )
+    .expect("first run should execute");
+    let second = execute_manual_program_with_state(
+        &program,
+        "script-1",
+        state_resources_with_defaults(&store, &[], &declarations),
+    )
+    .expect("second run should execute");
 
     assert_eq!(
         first.variables.get("counter").and_then(Value::as_f64),
@@ -406,33 +413,44 @@ fn a_declared_global_is_shared_and_a_later_script_adopts_it() {
 }
 
 #[test]
-fn deleting_a_persistent_variable_removes_its_stored_value() {
+fn resetting_a_persistent_variable_stores_its_declared_value() {
     let store = TestStateStore::default();
+    // The declaration says "start", so that is what reset restores — not an
+    // empty string, which is what clear would give, and not nothing, which is
+    // what delete used to do before a variable's existence came from its
+    // declaration rather than from having been written.
+    let declarations = [declared_variable(
+        "counter",
+        RuntimeDeclaredScope::Persistent,
+        "string",
+        json!("start"),
+    )];
     execute_manual_program_with_state(
         &variable_program("persistent", "set", json!("saved"), "stored"),
         "script-1",
-        state_resources(&store, &[]),
+        state_resources_with_defaults(&store, &[], &declarations),
     )
     .expect("persistent value should store");
 
-    let mut delete_program = variable_program("persistent", "delete", Value::Null, "deleted");
-    delete_program["entry"]["program"]["steps"][0]["config"]
+    let mut reset_program = variable_program("persistent", "reset", Value::Null, "reset");
+    reset_program["entry"]["program"]["steps"][0]["config"]
         .as_object_mut()
-        .expect("delete config should be an object")
+        .expect("reset config should be an object")
         .remove("valueType");
-    let deleted = execute_manual_program_with_state(
-        &delete_program,
+    let reset = execute_manual_program_with_state(
+        &reset_program,
         "script-1",
-        state_resources(&store, &[]),
+        state_resources_with_defaults(&store, &[], &declarations),
     )
-    .expect("persistent value should delete");
+    .expect("persistent value should reset");
 
-    assert!(!deleted.variables.contains_key("counter"));
-    assert!(
+    assert_eq!(reset.variables.get("counter"), Some(&json!("start")));
+    assert_eq!(
         store
             .load_variable(RuntimeVariableScope::Persistent, "script-1", "counter")
             .expect("stored value should load")
-            .is_none()
+            .map(|stored| stored.value),
+        Some(json!("start"))
     );
 }
 
@@ -530,7 +548,8 @@ fn loads_required_secret_and_redacts_reports() {
     let report = execute_manual_program_with_state(
         &program,
         "script-1",
-        state_resources(&store, &declarations).with_observer(observer.clone()),
+        state_resources_with_defaults(&store, &declarations, &counter_declarations("runtime", "set"))
+            .with_observer(observer.clone()),
     )
     .expect("secret-backed run should execute");
 
@@ -596,7 +615,8 @@ fn exposes_script_settings_through_the_read_only_settings_object() {
             "{{@settings.endpoint}} retries={{@settings.retries}} enabled={{@settings.enabled}} channel={{@settings.release-channel_2}}",
         ),
         "script-1",
-        state_resources(&store, &[]).with_script_settings(&settings),
+        state_resources_with_defaults(&store, &[], &counter_declarations("runtime", "set"))
+            .with_script_settings(&settings),
     )
     .expect("Script Settings should resolve during execution");
 
@@ -711,6 +731,27 @@ static COUNTER_DECLARATION: std::sync::LazyLock<[RuntimeDeclaredVariable; 1]> =
             value: json!(0),
         }]
     });
+
+/// The declaration matching what [`variable_program`] builds.
+///
+/// Scope and type come from the declaration now, so a program that increments
+/// a persistent counter only does so if the declaration says persistent and
+/// integer. The two are derived from the same arguments here to keep them from
+/// drifting apart.
+fn counter_declarations(scope: &str, operation: &str) -> [RuntimeDeclaredVariable; 1] {
+    let numeric = operation == "increment";
+    [RuntimeDeclaredVariable {
+        name: "counter".to_owned(),
+        scope: match scope {
+            "persistent" => RuntimeDeclaredScope::Persistent,
+            "global" => RuntimeDeclaredScope::Global,
+            _ => RuntimeDeclaredScope::Runtime,
+        },
+        value_type: if numeric { "integer" } else { "string" }.to_owned(),
+        item_type: None,
+        value: if numeric { json!(0) } else { json!("declared") },
+    }]
+}
 
 fn state_resources<'a>(
     store: &'a TestStateStore,
