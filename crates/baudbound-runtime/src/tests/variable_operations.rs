@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::execute_manual_program;
+use crate::tests::execute_manual_program;
 
 #[test]
 fn variable_operations_accept_and_resolve_shared_identifiers() {
@@ -340,24 +340,20 @@ fn clear_uses_the_editor_default_for_every_variable_type() {
 }
 
 #[test]
-fn clear_requires_an_existing_variable_and_append_infers_item_type() {
+fn clear_empties_a_declared_variable_and_append_infers_item_type() {
+    // Clear used to fail when the variable did not exist. It cannot now: a
+    // variable exists because it is declared, and a node can only name a
+    // declared one, so there is no missing target left to fail on. What clear
+    // does is put the variable back to the empty value for its type.
     let clear_report = execute(
-        vec![variable_node(
-            "n-clear",
-            "missing",
-            "clear",
-            "string",
-            Value::Null,
-        )],
-        linear_edges(&["n-clear"]),
+        vec![
+            variable_node("n-set", "greeting", "set", "string", json!("hello")),
+            variable_node("n-clear", "greeting", "clear", "string", Value::Null),
+        ],
+        linear_edges(&["n-set", "n-clear"]),
     )
-    .expect("missing clear target should follow the failed path");
-    assert!(
-        clear_report
-            .logs
-            .iter()
-            .any(|log| log.level == "error" && log.message.contains("requires existing variable"))
-    );
+    .expect("clearing a declared variable should succeed");
+    assert_eq!(clear_report.variables.get("greeting"), Some(&json!("")));
 
     let report = execute(
         vec![
@@ -429,7 +425,9 @@ fn invalid_increment_and_object_paths_fail_closed() {
             .iter()
             .any(|log| { log.level == "error" && log.message.contains("finite number") })
     );
-    assert!(!increment_report.variables.contains_key("count"));
+    // Declared, so it exists at its declared value. Failing closed now means
+    // leaving that value alone rather than leaving the name absent.
+    assert_eq!(increment_report.variables.get("count"), Some(&json!(0)));
 
     for path in ["users[01].name", "users.", "users[name]", "users..name"] {
         let mut field_node = variable_node(

@@ -1,12 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use serde_json::Value;
 
 use baudbound_script::is_user_identifier;
 
-use crate::{
-    RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeStateStore, RuntimeVariableScope,
-};
+use crate::{RuntimeDeclaredVariable, RuntimeStateStore, RuntimeVariableScope};
 
 use super::RuntimeError;
 
@@ -20,9 +18,14 @@ const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
     "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
 
+/// Validates the declarations themselves.
+///
+/// This used to also check each declaration against the scope and type a
+/// Variable Operation node claimed for the same name. There is nothing left to
+/// disagree with: a node no longer carries a scope or a type, it names a
+/// declared variable and the declaration settles both.
 pub(super) fn validate_declared_variables(
     declared_variables: &[RuntimeDeclaredVariable],
-    graph_declarations: &BTreeMap<String, (String, Option<String>)>,
     secret_names: &[String],
 ) -> Result<(), RuntimeError> {
     let mut names = BTreeSet::new();
@@ -39,23 +42,6 @@ pub(super) fn validate_declared_variables(
                 "declared variable {:?} conflicts with a secret declaration",
                 variable.name
             )));
-        }
-        if let Some((node_scope, node_type)) = graph_declarations.get(&variable.name) {
-            let default_scope = match variable.scope {
-                RuntimeDeclaredScope::Global => "global",
-                RuntimeDeclaredScope::Runtime => "runtime",
-                RuntimeDeclaredScope::Persistent => "persistent",
-            };
-            if node_scope != default_scope
-                || node_type
-                    .as_ref()
-                    .is_some_and(|node_type| node_type != &variable.value_type)
-            {
-                return Err(RuntimeError::InvalidGraph(format!(
-                    "declared variable {:?} does not match Variable Operation scope and type",
-                    variable.name
-                )));
-            }
         }
     }
     Ok(())
@@ -147,12 +133,13 @@ pub(super) fn load_or_initialize_persistent_default(
 }
 
 fn validate_declared_variable(variable: &RuntimeDeclaredVariable) -> Result<(), RuntimeError> {
-    if !is_user_identifier(&variable.name)
-        || variable.name.starts_with("system_")
-        || variable.name.starts_with("manifest_")
-    {
+    // No prefix is reserved. Every built-in lives behind "@", which
+    // is_user_identifier already refuses, so nothing an author declares can
+    // shadow one. This site kept the old system_ and manifest_ blocklist after
+    // the rest of it was deleted.
+    if !is_user_identifier(&variable.name) {
         return Err(RuntimeError::InvalidGraph(format!(
-            "declared variable name {:?} is invalid or reserved",
+            "declared variable name {:?} is invalid",
             variable.name
         )));
     }

@@ -222,8 +222,18 @@ fn sensitive_action_outputs_cannot_be_written_to_persistent_or_global_state() {
                 }
             }
         });
-        let resources =
-            RuntimeExecutionResources::new(&SensitiveFormDialogHandler).with_state(&store, &[]);
+        let declared = [declared_variable(
+            "stored_password",
+            match scope {
+                "global" => RuntimeDeclaredScope::Global,
+                _ => RuntimeDeclaredScope::Persistent,
+            },
+            "string",
+            json!("unset"),
+        )];
+        let resources = RuntimeExecutionResources::new(&SensitiveFormDialogHandler)
+            .with_state(&store, &[])
+            .with_declared_variables(&declared);
 
         let report =
             execute_manual_program_with_state(&program, "script-sensitive-state", resources)
@@ -251,12 +261,17 @@ fn sensitive_action_outputs_cannot_be_written_to_persistent_or_global_state() {
                 .iter()
                 .all(|entry| !entry.message.contains("must-not-persist"))
         );
+        // The store is no longer empty: a persistent or global declaration
+        // initialises itself there before the run starts. What must never
+        // reach it is the sensitive value the node tried to write.
         assert!(
             store
                 .variables
                 .lock()
                 .expect("variable lock should work")
-                .is_empty()
+                .values()
+                .all(|stored| stored.value != json!("must-not-persist")),
+            "a sensitive value must not reach stored state"
         );
     }
 }
@@ -422,25 +437,28 @@ fn deleting_a_persistent_variable_removes_its_stored_value() {
 }
 
 #[test]
-fn rejects_default_that_disagrees_with_variable_operation() {
+fn a_node_cannot_write_a_variable_the_manifest_does_not_declare() {
+    // This replaces a test that a node's scope and type had to agree with the
+    // declaration's. They cannot disagree any more: a node names a declared
+    // variable and the declaration settles both. What can still go wrong is a
+    // node naming nothing at all, which is a package fault rather than a node
+    // failure, so it must stop the run rather than take the failed output.
     let store = TestStateStore::default();
-    let defaults = [declared_variable(
-        "counter",
-        RuntimeDeclaredScope::Persistent,
-        "integer",
-        json!(10),
-    )];
     let error = execute_manual_program_with_state(
         &variable_program("runtime", "increment", json!(1), "done"),
         "script-1",
-        state_resources_with_defaults(&store, &[], &defaults),
+        state_resources_with_defaults(&store, &[], &[]),
     )
-    .expect_err("scope mismatch must block execution");
+    .expect_err("an undeclared write must block execution");
 
+    let message = error.to_string();
     assert!(
-        error
-            .to_string()
-            .contains("does not match Variable Operation")
+        message.contains("counter"),
+        "the message names the variable"
+    );
+    assert!(
+        message.contains("does not declare"),
+        "unexpected message: {message}"
     );
 }
 
@@ -457,14 +475,17 @@ fn rejects_malformed_default_resources_before_execution() {
             ),
             "expected integer",
         ),
+        // A name with a space cannot be an identifier. "system_counter" used
+        // to belong here too; it is an ordinary name now that every built-in
+        // lives behind "@", which no identifier may contain.
         (
             declared_variable(
-                "system_counter",
+                "counter with a space",
                 RuntimeDeclaredScope::Runtime,
                 "integer",
                 json!(10),
             ),
-            "invalid or reserved",
+            "is invalid",
         ),
         (
             declared_variable(
@@ -651,12 +672,23 @@ fn build_initial_state_with_default(
     value: Value,
 ) -> Result<crate::RunReport, crate::RuntimeError> {
     let store = TestStateStore::default();
-    let defaults = [declared_variable(
+    let mut defaults = vec![declared_variable(
         name,
         RuntimeDeclaredScope::Runtime,
         value_type,
         value,
     )];
+    // The program always writes `counter`. When the declaration under test is
+    // named something else, that write still needs a declaration of its own or
+    // the run stops before reaching the thing the test is about.
+    if name != "counter" {
+        defaults.push(declared_variable(
+            "counter",
+            RuntimeDeclaredScope::Runtime,
+            "integer",
+            json!(0),
+        ));
+    }
     execute_manual_program_with_state(
         &variable_program("runtime", "increment", json!(1), "done"),
         "script-1",
@@ -664,11 +696,29 @@ fn build_initial_state_with_default(
     )
 }
 
+/// The declaration `variable_program` needs, since it always writes `counter`.
+///
+/// A variable exists because it is declared, so a program built inline needs
+/// one before it will start. These tests are about state rather than about
+/// declaring, so the declaration is supplied here instead of in each of them.
+static COUNTER_DECLARATION: std::sync::LazyLock<[RuntimeDeclaredVariable; 1]> =
+    std::sync::LazyLock::new(|| {
+        [RuntimeDeclaredVariable {
+            name: "counter".to_owned(),
+            scope: RuntimeDeclaredScope::Runtime,
+            value_type: "integer".to_owned(),
+            item_type: None,
+            value: json!(0),
+        }]
+    });
+
 fn state_resources<'a>(
     store: &'a TestStateStore,
     secrets: &'a [RuntimeSecretDeclaration],
 ) -> RuntimeExecutionResources<'a> {
-    RuntimeExecutionResources::new(&UnsupportedActionHandler).with_state(store, secrets)
+    RuntimeExecutionResources::new(&UnsupportedActionHandler)
+        .with_state(store, secrets)
+        .with_declared_variables(&*COUNTER_DECLARATION)
 }
 
 fn state_resources_with_defaults<'a>(
@@ -759,10 +809,21 @@ fn a_list_default_rejects_elements_that_do_not_match_the_item_type() {
         );
         variable.item_type = Some(item_type.to_owned());
 
+        // The program writes `counter`, which needs a declaration of its own or
+        // the run stops on that before reaching the malformed list.
+        let declared = [
+            variable,
+            declared_variable(
+                "counter",
+                RuntimeDeclaredScope::Runtime,
+                "integer",
+                json!(0),
+            ),
+        ];
         let error = execute_manual_program_with_state(
             &variable_program("runtime", "increment", json!(1), "done"),
             "script-1",
-            state_resources_with_defaults(&store, &[], &[variable]),
+            state_resources_with_defaults(&store, &[], &declared),
         )
         .unwrap_err();
 

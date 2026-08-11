@@ -17,6 +17,151 @@ mod state;
 #[path = "tests/variable_operations.rs"]
 mod variable_operations;
 
+/// Runs a program, declaring whatever it writes.
+///
+/// A variable now exists because the manifest declares it, so a program built
+/// inline in a test has no declarations at all and refuses to start. Restating
+/// them in every test would bury the thing each test is actually about, so this
+/// derives them the way the editor's export does: one declaration per name a
+/// `runtime.set_variable` node writes, taking its scope and type from the node.
+///
+/// A test that is about declaration itself calls the real entry point directly
+/// and supplies its own, so this shadowing helper cannot hide a missing one.
+fn execute_manual_program(program: &Value, script_id: &str) -> Result<RunReport, RuntimeError> {
+    execute_manual_program_with_actions(program, script_id, &UnsupportedActionHandler)
+}
+
+/// The same derivation for tests that supply their own action handler.
+fn execute_manual_program_with_actions(
+    program: &Value,
+    script_id: &str,
+    action_handler: &dyn RuntimeActionHandler,
+) -> Result<RunReport, RuntimeError> {
+    let declared = declarations_for_program(program);
+    let store = DeclarationTestStore;
+    execute_manual_program_with_state(
+        program,
+        script_id,
+        RuntimeExecutionResources::new(action_handler)
+            .with_state(&store, &[])
+            .with_declared_variables(&declared),
+    )
+}
+
+/// A store for the helper above, which needs one only because a persistent or
+/// global declaration requires it. Nothing is retained between runs.
+#[derive(Debug)]
+struct DeclarationTestStore;
+
+impl RuntimeStateStore for DeclarationTestStore {
+    fn load_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+    ) -> Result<Option<VersionedRuntimeVariable>, String> {
+        Ok(None)
+    }
+
+    fn compare_and_set_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+        _expected_version: Option<u64>,
+        _value: &Value,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
+    fn delete_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
+    fn read_secret(&self, _script_id: &str, _name: &str) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+}
+
+fn declarations_for_program(program: &Value) -> Vec<RuntimeDeclaredVariable> {
+    let mut declared: Vec<RuntimeDeclaredVariable> = Vec::new();
+    let steps = program
+        .pointer("/entry/program/steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    for step in steps {
+        if step.get("action_type").and_then(Value::as_str) != Some("runtime.set_variable") {
+            continue;
+        }
+        let Some(config) = step.get("config") else {
+            continue;
+        };
+        let Some(name) = config.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if declared.iter().any(|variable| variable.name == name) {
+            continue;
+        }
+        // A name a script may not write is left undeclared on purpose, so the
+        // node-level rejection is what the test sees. Declaring it here would
+        // fail declaration validation first and report the wrong thing.
+        if !baudbound_script::is_user_identifier(name) {
+            continue;
+        }
+        // Only set and clear carry a valueType. Every other operation implies
+        // one, which is the mapping the removed scan used and the same mapping
+        // the editor will use to filter the name picker.
+        let operation = config
+            .get("operation")
+            .and_then(Value::as_str)
+            .unwrap_or("set");
+        let value_type = config
+            .get("valueType")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                match operation {
+                    "increment" => "integer",
+                    "toggle_boolean" => "boolean",
+                    "append_list" | "remove_list_items" => "list",
+                    "set_object_field" | "remove_object_field" | "merge_object" => "object",
+                    _ => "string",
+                }
+                .to_owned()
+            });
+        let scope = match config.get("scope").and_then(Value::as_str) {
+            Some("persistent") => RuntimeDeclaredScope::Persistent,
+            Some("global") => RuntimeDeclaredScope::Global,
+            _ => RuntimeDeclaredScope::Runtime,
+        };
+        let item_type = (value_type == "list").then(|| "string".to_owned());
+        declared.push(RuntimeDeclaredVariable {
+            name: name.to_owned(),
+            scope,
+            value_type: value_type.clone(),
+            item_type,
+            // A declaration must carry a value its own type accepts, and a
+            // string, color or hotkey has no valid empty member, so the empty
+            // value for the type will not do for those three.
+            value: match value_type.as_str() {
+                "string" => json!("declared"),
+                "color" => json!("#000000"),
+                "hotkey" => json!("F5"),
+                other => crate::runtime::empty_value_for_type(other),
+            },
+        });
+    }
+
+    declared
+}
+
 fn assert_json_contract_type(value: &Value, expected: &str) {
     let matches = match expected {
         "boolean" => value.is_boolean(),
@@ -143,12 +288,13 @@ fn rejects_active_variable_values_over_the_configured_limit() {
             }
         }
     });
-    let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler).with_output_limits(
-        RuntimeOutputLimits {
+    let declared = declarations_for_program(&program);
+    let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler)
+        .with_declared_variables(&declared)
+        .with_output_limits(RuntimeOutputLimits {
             max_runtime_variable_bytes: crate::ResourceLimit::limited(32),
             ..RuntimeOutputLimits::default()
-        },
-    );
+        });
 
     let error = execute_manual_program_with_state(&program, "script-value-limit", resources)
         .expect_err("oversized active value should fail");
@@ -2055,7 +2201,11 @@ fn variable_operation_failures_follow_failed_edges() {
             .iter()
             .any(|log| { log.message == "variable=VARIABLE_OPERATION_FAILED" })
     );
-    assert!(!report.variables.contains_key("count"));
+    // "count" exists, because a declared variable always does: it is seeded at
+    // its declared value when the run starts. What the failed operation must
+    // not do is change it, which is the guarantee this asserts now that the
+    // variable cannot simply be absent.
+    assert_eq!(report.variables.get("count"), Some(&json!(0)));
 }
 
 #[test]

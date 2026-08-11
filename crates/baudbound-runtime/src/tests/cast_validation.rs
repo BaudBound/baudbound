@@ -138,7 +138,7 @@ fn run_program_with_failing_cast() -> Result<crate::RunReport, crate::RuntimeErr
         }
     });
 
-    let result = crate::execute_manual_program_with_actions(
+    let result = crate::tests::execute_manual_program_with_actions(
         &program,
         "cast-validation-no-side-effect",
         &handler,

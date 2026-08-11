@@ -50,67 +50,28 @@ pub(super) fn load_initial_state(
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
-    let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
-    let mut graph_declarations = BTreeMap::<String, (String, Option<String>)>::new();
+    // The manifest is the only place a variable comes from. This used to scan
+    // every set_variable node and infer a declaration from its name, scope and
+    // type, which meant N nodes writing one variable were N declarations that
+    // happened to agree — until one did not, and the run failed at the point of
+    // starting rather than the point of editing. A variable has one type and
+    // one scope, so it is stored once.
+    let declarations = declared_variables
+        .iter()
+        .filter_map(|variable| {
+            let scope = match variable.scope {
+                RuntimeDeclaredScope::Persistent => Some(RuntimeVariableScope::Persistent),
+                RuntimeDeclaredScope::Global => Some(RuntimeVariableScope::Global),
+                RuntimeDeclaredScope::Runtime => None,
+            }?;
+            Some((variable.name.clone(), scope))
+        })
+        .collect::<BTreeMap<String, RuntimeVariableScope>>();
 
-    for node in graph
-        .nodes()
-        .filter(|node| node.action_type == "runtime.set_variable")
-    {
-        let name = required_config_string(node, "name")?;
-        validate_variable_name(node, &name)?;
-        let scope_name = required_config_string(node, "scope")?;
-        let operation = required_config_string(node, "operation")?;
-        let value_type = match operation.as_str() {
-            "set" => Some(required_config_string(node, "valueType")?),
-            // Increment does not pin a numeric type: it operates on whichever
-            // numeric type the variable was declared with, and preserves it.
-            "increment" => None,
-            "toggle_boolean" => Some("boolean".to_owned()),
-            "append_list" | "remove_list_items" => Some("list".to_owned()),
-            "set_object_field" | "remove_object_field" | "merge_object" => {
-                Some("object".to_owned())
-            }
-            "clear" | "delete" => None,
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable operation {invalid}"),
-                });
-            }
-        };
-        let scope = match scope_name.as_str() {
-            "runtime" => None,
-            "persistent" => Some(RuntimeVariableScope::Persistent),
-            "global" => Some(RuntimeVariableScope::Global),
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable scope {invalid}"),
-                });
-            }
-        };
-        if let Some((existing_scope, existing_type)) = graph_declarations.get_mut(&name) {
-            if *existing_scope != scope_name
-                || existing_type
-                    .as_ref()
-                    .zip(value_type.as_ref())
-                    .is_some_and(|(existing, incoming)| existing != incoming)
-            {
-                return Err(RuntimeError::InvalidGraph(format!(
-                    "variable {name:?} is declared with conflicting scope or type"
-                )));
-            }
-            if existing_type.is_none() {
-                *existing_type = value_type;
-            }
-        } else {
-            graph_declarations.insert(name.clone(), (scope_name.clone(), value_type));
-        }
-        if let Some(scope) = scope {
-            declarations.insert(name.clone(), scope);
-        }
-    }
+    let declared_names = declared_variables
+        .iter()
+        .map(|variable| variable.name.as_str())
+        .collect::<BTreeSet<_>>();
 
     let secret_names = secrets
         .iter()
@@ -123,14 +84,34 @@ pub(super) fn load_initial_state(
     }
     if let Some(collision) = secret_names
         .iter()
-        .find(|name| graph_declarations.contains_key(name.as_str()))
+        .find(|name| declared_names.contains(name.as_str()))
     {
         return Err(RuntimeError::InvalidGraph(format!(
-            "secret {collision:?} conflicts with a writable variable"
+            "secret {collision:?} conflicts with a declared variable"
         )));
     }
 
-    validate_declared_variables(declared_variables, &graph_declarations, &secret_names)?;
+    validate_declared_variables(declared_variables, &secret_names)?;
+
+    // After the declarations are known to be well formed, so a malformed
+    // declaration is reported as itself rather than as the missing declaration
+    // it leaves behind.
+    for node in graph
+        .nodes()
+        .filter(|node| node.action_type == "runtime.set_variable")
+    {
+        let name = required_config_string(node, "name")?;
+        validate_variable_name(node, &name)?;
+        // A package fault rather than a node failure: nothing the script can
+        // do at run time makes an undeclared variable exist, so this must not
+        // take the node's failed output.
+        if !declared_names.contains(name.as_str()) {
+            return Err(RuntimeError::InvalidGraph(format!(
+                "node {:?} writes variable {name:?}, which the manifest does not declare",
+                node.id
+            )));
+        }
+    }
 
     // "settings" used to be reserved here for the Script Settings object. That
     // object is now "@settings", which no script can name, so the plain word is
