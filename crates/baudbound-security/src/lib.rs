@@ -29,8 +29,17 @@ pub use network::{
     same_http_origin,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeDeclarationRequirements {
+    /// The scope each declared variable was declared with, by name.
+    ///
+    /// A Variable Operation node no longer carries a scope: it names a declared
+    /// variable and the declaration settles it. Deriving a permission therefore
+    /// means resolving the node's target through this map, which is what the
+    /// editor does when it writes permissions.json. Reading the node instead
+    /// left the runner asking a question the program could no longer answer.
+    pub declared_variable_scopes: BTreeMap<String, String>,
+    pub has_global_declared_variables: bool,
     pub has_persistent_declared_variables: bool,
     pub has_runtime_declared_variables: bool,
     pub has_secret_declarations: bool,
@@ -306,7 +315,8 @@ pub fn calculate_program_permissions_with_declarations(
     }
 
     for scope in
-        variable_operation_scopes(program).map_err(PermissionValidationError::InvalidProgram)?
+        variable_operation_scopes(program, &requirements.declared_variable_scopes)
+            .map_err(PermissionValidationError::InvalidProgram)?
     {
         let permission = match scope.as_str() {
             "runtime" => PermissionGrant {
@@ -648,7 +658,20 @@ pub(crate) fn executable_action_types(program: &Value) -> Result<Vec<String>, St
     Ok(action_types)
 }
 
-pub(crate) fn variable_operation_scopes(program: &Value) -> Result<Vec<String>, String> {
+/// The scope each Variable Operation writes at, read from the declarations.
+///
+/// This used to read `config.scope` off the node. The node stopped carrying one
+/// when a declaration became the only place a variable's scope lives, so every
+/// package exported after that change was refused for a missing field it is no
+/// longer supposed to have.
+///
+/// An undeclared name resolves to runtime, the least privileged answer. The run
+/// is refused separately for writing a variable nothing declares, so this never
+/// has to be the thing that catches it.
+pub(crate) fn variable_operation_scopes(
+    program: &Value,
+    declared_variable_scopes: &BTreeMap<String, String>,
+) -> Result<Vec<String>, String> {
     let steps = program
         .get("entry")
         .and_then(|entry| entry.get("program"))
@@ -656,19 +679,23 @@ pub(crate) fn variable_operation_scopes(program: &Value) -> Result<Vec<String>, 
         .and_then(Value::as_array)
         .ok_or_else(|| "missing entry.program.steps".to_owned())?;
 
-    steps
+    Ok(steps
         .iter()
         .filter(|step| {
             step.get("action_type").and_then(Value::as_str) == Some("runtime.set_variable")
         })
         .map(|step| {
-            step.get("config")
-                .and_then(|config| config.get("scope"))
+            let name = step
+                .get("config")
+                .and_then(|config| config.get("name"))
                 .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .ok_or_else(|| "runtime.set_variable is missing string config.scope".to_owned())
+                .unwrap_or_default();
+            declared_variable_scopes
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| "runtime".to_owned())
         })
-        .collect()
+        .collect())
 }
 
 pub(crate) fn first_duplicate(values: &[String]) -> Option<String> {

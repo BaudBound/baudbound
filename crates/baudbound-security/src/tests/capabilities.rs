@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use crate::{
     CapabilityValidationError, RuntimeDeclarationRequirements,
     calculate_program_capabilities_with_declarations, validate_program_capabilities,
-    validate_program_capabilities_with_secrets,
+    validate_program_capabilities_with_declarations,
 };
 
 #[test]
@@ -102,9 +102,11 @@ fn rejects_unknown_action_types_and_invalid_program_shapes() {
 
 #[test]
 fn derives_persistent_storage_and_secret_capabilities() {
+    // Persistent storage follows the declaration the node writes to, not a
+    // scope on the node, which no longer exists.
     let mut program = program(&[], &["runtime.set_variable"]);
-    program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("persistent");
-    let report = validate_program_capabilities_with_secrets(
+    program["entry"]["program"]["steps"][0]["config"]["name"] = json!("counter");
+    let report = validate_program_capabilities_with_declarations(
         &program,
         &[
             "runtime.persistent_storage".to_owned(),
@@ -112,7 +114,14 @@ fn derives_persistent_storage_and_secret_capabilities() {
             "runtime.variables".to_owned(),
             "trigger.manual".to_owned(),
         ],
-        true,
+        RuntimeDeclarationRequirements {
+            declared_variable_scopes: [("counter".to_owned(), "persistent".to_owned())]
+                .into_iter()
+                .collect(),
+            has_persistent_declared_variables: true,
+            has_secret_declarations: true,
+            ..RuntimeDeclarationRequirements::default()
+        },
     )
     .expect("scope-sensitive capabilities should validate");
     assert_eq!(report.required_capabilities.len(), 4);
@@ -124,8 +133,7 @@ fn derives_capabilities_from_manifest_declared_variables() {
         &program(&[], &[]),
         RuntimeDeclarationRequirements {
             has_persistent_declared_variables: true,
-            has_runtime_declared_variables: false,
-            has_secret_declarations: false,
+            ..RuntimeDeclarationRequirements::default()
         },
     )
     .expect("declared variable capabilities should derive from manifest requirements");

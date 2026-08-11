@@ -92,15 +92,23 @@ fn policy_blocks_dangerous_permissions() {
 
 #[test]
 fn derives_scope_and_secret_permissions_from_configuration() {
-    let program = program_with_steps(&["runtime.set_variable"]);
-    let mut program = program;
-    program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("global");
-    let report = validate_program_permissions_with_secrets(
+    // The node names a variable; the declaration says the name is global. It
+    // used to carry scope: "global" itself, which is the field that went away.
+    let mut program = program_with_steps(&["runtime.set_variable"]);
+    program["entry"]["program"]["steps"][0]["config"]["name"] = json!("shared_counter");
+    let report = validate_program_permissions_with_declarations(
         &program,
         &["secret.read".to_owned(), "variable.global.set".to_owned()],
         RiskLevel::High,
         &RunnerPolicy::permissive(),
-        true,
+        RuntimeDeclarationRequirements {
+            declared_variable_scopes: [("shared_counter".to_owned(), "global".to_owned())]
+                .into_iter()
+                .collect(),
+            has_global_declared_variables: true,
+            has_secret_declarations: true,
+            ..RuntimeDeclarationRequirements::default()
+        },
     )
     .expect("global and secret permissions should derive from package configuration");
 
@@ -116,11 +124,79 @@ fn derives_scope_and_secret_permissions_from_configuration() {
 
 #[test]
 fn rejects_legacy_writable_secret_scope() {
+    // The scope comes from the declaration now, so this is a manifest that
+    // declares a variable into the secret scope rather than a node that asks
+    // for one. A secret stays read-only either way.
     let mut program = program_with_steps(&["runtime.set_variable"]);
-    program["entry"]["program"]["steps"][0]["config"]["scope"] = json!("secret");
-    let error = calculate_program_permissions(&program)
-        .expect_err("secret scope must be read-only and declared in the manifest");
+    program["entry"]["program"]["steps"][0]["config"]["name"] = json!("api_token");
+    let error = calculate_program_permissions_with_declarations(
+        &program,
+        RuntimeDeclarationRequirements {
+            declared_variable_scopes: [("api_token".to_owned(), "secret".to_owned())]
+                .into_iter()
+                .collect(),
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+    .expect_err("secret scope must be read-only and declared in the manifest");
     assert!(error.to_string().contains("unsupported scope"));
+}
+
+#[test]
+fn a_variable_operation_carrying_no_scope_is_accepted() {
+    // What the editor exports. The node names a declared variable and carries
+    // no scope of its own; reading one off the node refused every such package
+    // with "runtime.set_variable is missing string config.scope".
+    let mut program = program_with_steps(&["runtime.set_variable"]);
+    program["entry"]["program"]["steps"][0]["config"] = json!({
+        "name": "counter",
+        "operation": "increment",
+        "value": "1"
+    });
+    let report = calculate_program_permissions_with_declarations(
+        &program,
+        RuntimeDeclarationRequirements {
+            declared_variable_scopes: [("counter".to_owned(), "persistent".to_owned())]
+                .into_iter()
+                .collect(),
+            has_persistent_declared_variables: true,
+            ..RuntimeDeclarationRequirements::default()
+        },
+    )
+    .expect("a node without a scope must still derive its permission");
+
+    assert!(
+        report
+            .required_permissions
+            .iter()
+            .any(|permission| permission.name == "variable.persistent.set"),
+        "the declaration decides the permission, got {:?}",
+        report.required_permissions
+    );
+}
+
+#[test]
+fn a_write_to_an_undeclared_name_asks_for_the_least_privilege() {
+    // Nothing declares this name, so there is no scope to read. The run is
+    // refused separately for writing an undeclared variable; asking for the
+    // local permission here means that refusal is what the author sees rather
+    // than a confusing permission mismatch.
+    let mut program = program_with_steps(&["runtime.set_variable"]);
+    program["entry"]["program"]["steps"][0]["config"]["name"] = json!("nothing_declares_this");
+    let report = calculate_program_permissions_with_declarations(
+        &program,
+        RuntimeDeclarationRequirements::default(),
+    )
+    .expect("an undeclared write still derives a permission");
+
+    assert!(
+        report
+            .required_permissions
+            .iter()
+            .any(|permission| permission.name == "variable.local.set"),
+        "expected the least privileged variable permission, got {:?}",
+        report.required_permissions
+    );
 }
 
 #[test]
@@ -130,7 +206,7 @@ fn derives_permissions_from_manifest_declared_variables() {
         RuntimeDeclarationRequirements {
             has_persistent_declared_variables: true,
             has_runtime_declared_variables: true,
-            has_secret_declarations: false,
+            ..RuntimeDeclarationRequirements::default()
         },
     )
     .expect("declared variable permissions should derive from manifest requirements");

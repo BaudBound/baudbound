@@ -2115,7 +2115,18 @@ fn create_global_declaration_test_package(
             }
         }
     }"#;
-    let capabilities = capabilities_json(program, test_headless_runtime());
+    // A declared global is stored state whether or not a node writes it, the
+    // same as a declared persistent variable, so the package has to ask for
+    // persistent storage. capabilities_json only reads the program, which here
+    // is a lone log node, so the capability is added explicitly.
+    let mut capabilities: serde_json::Value =
+        serde_json::from_str(&capabilities_json(program, test_headless_runtime()))
+            .expect("generated capabilities should parse");
+    capabilities["required_capabilities"]
+        .as_array_mut()
+        .expect("required_capabilities is an array")
+        .push(serde_json::json!("runtime.persistent_storage"));
+    let capabilities = capabilities.to_string();
     create_test_package([
         ("manifest.json", manifest.as_str()),
         ("program.json", program),

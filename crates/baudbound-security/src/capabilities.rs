@@ -139,11 +139,12 @@ pub fn calculate_program_capabilities_with_declarations(
         names.extend(capabilities.iter().cloned());
     }
 
-    if variable_operation_scopes(program)
+    if variable_operation_scopes(program, &requirements.declared_variable_scopes)
         .map_err(CapabilityValidationError::InvalidProgram)?
         .iter()
         .any(|scope| scope == "persistent" || scope == "global")
         || requirements.has_persistent_declared_variables
+        || requirements.has_global_declared_variables
     {
         names.insert("runtime.persistent_storage".to_owned());
     }
