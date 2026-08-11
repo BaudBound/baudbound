@@ -154,7 +154,7 @@ export function VariablesView({ scriptRevision }: { scriptRevision: string }) {
           {stored.length === 0 ? (
             <EmptyState>No stored variables match the current search.</EmptyState>
           ) : (
-            <StoredVariablesTable variables={stored} />
+            <StoredVariablesTable scriptNames={inventory?.script_names ?? {}} variables={stored} />
           )}
         </VariableSection>
         <VariableSection title="Declared defaults">
@@ -190,7 +190,13 @@ function VariableSection({ children, title }: { children: React.ReactNode; title
   );
 }
 
-function StoredVariablesTable({ variables }: { variables: StoredVariableRecord[] }) {
+function StoredVariablesTable({
+  scriptNames,
+  variables,
+}: {
+  scriptNames: Record<string, string>;
+  variables: StoredVariableRecord[];
+}) {
   const { formatUnixSeconds } = useDesktopTime();
   return (
     <table className="responsive-table w-full border-collapse text-sm">
@@ -219,6 +225,17 @@ function StoredVariablesTable({ variables }: { variables: StoredVariableRecord[]
               {variable.script_name ?? "All scripts"}
               {variable.script_id ? (
                 <div className="break-all font-mono text-xs text-muted-foreground">{variable.script_id}</div>
+              ) : null}
+              {/* A global belongs to no script, so "All scripts" says who may
+                  read it but nothing about where this value came from. The
+                  last writer is the question an author actually has when a
+                  shared value is not what they expected. */}
+              {variable.scope === "global" ? (
+                <div className="break-all text-xs text-muted-foreground">
+                  {variable.written_by
+                    ? `Last written by ${scriptNames[variable.written_by] ?? variable.written_by}`
+                    : "Last writer unknown"}
+                </div>
               ) : null}
             </td>
             <td className="max-w-[420px] px-3 py-3" data-label="Value">
