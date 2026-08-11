@@ -455,7 +455,12 @@ fn value_matches_declared_type(
     value: &serde_json::Value,
 ) -> bool {
     match value_type {
-        "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
+        // An empty string is a string. Requiring a non-empty one meant a
+        // variable could not start empty, so scripts declared a sentinel like
+        // "none" and explained it in the description — while `clear` writes ""
+        // at run time, a value the declaration itself could not hold. A script
+        // setting's default never had this rule.
+        "string" => value.is_string(),
         "hotkey" => value.as_str().is_some_and(crate::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
         // integer and float are disjoint, so a whole number is not a float and
@@ -719,7 +724,7 @@ mod tests {
                 "does not match type",
             ),
             (
-                serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]),
+                serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": 5}]),
                 "does not match type",
             ),
             (
@@ -741,6 +746,16 @@ mod tests {
                 .expect_err("invalid declared variable should fail");
             assert!(error.to_string().contains(expected), "{error}");
         }
+    }
+
+    #[test]
+    fn a_string_variable_may_be_declared_empty() {
+        // The empty string is what clear writes, so a declaration has to be
+        // able to hold it. Without this a script had to invent a sentinel.
+        let variables =
+            serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]);
+        validate_manifest_variables(&manifest_with_variables(variables))
+            .expect("an empty string is a valid declared string value");
     }
 
     #[test]
