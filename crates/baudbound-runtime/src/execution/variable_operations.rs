@@ -32,16 +32,12 @@ impl RuntimeExecutor<'_> {
             config_string(&node.config, "operation").unwrap_or_else(|| "set".to_owned());
         let declared_type = self.declared_types.get(&name).map(String::as_str);
         let value_type = variable_operation_declared_type(node, &operation, declared_type)?;
-        let scope = match required_config_string(node, "scope")?.as_str() {
-            "runtime" => None,
-            "persistent" => Some(RuntimeVariableScope::Persistent),
-            "global" => Some(RuntimeVariableScope::Global),
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable scope {invalid}"),
-                });
-            }
+        // From the declaration, not the node. A variable has one scope, and a
+        // node repeating it was a second place for it to disagree.
+        let scope = match self.declared_scopes.get(&name).map(String::as_str) {
+            Some("persistent") => Some(RuntimeVariableScope::Persistent),
+            Some("global") => Some(RuntimeVariableScope::Global),
+            _ => None,
         };
 
         let scope_label = match scope {
