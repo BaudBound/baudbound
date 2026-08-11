@@ -441,6 +441,13 @@ pub struct StoredVariableRecord {
     pub updated_at_unix: u64,
     pub value: serde_json::Value,
     pub version: u64,
+    /// The script that wrote this value last, for a global only.
+    ///
+    /// A global belongs to no script and any of them may write it, so the
+    /// value alone does not say where it came from. `None` on a persistent
+    /// variable, which the row already attributes, and on a global stored
+    /// before the writer was recorded.
+    pub written_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]

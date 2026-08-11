@@ -1275,7 +1275,34 @@ fn lists_persistent_and_global_variables_without_secret_values() {
         variable.name == "shared"
             && variable.scope == "global"
             && variable.script_id.is_none()
+            // A global belongs to no script, so the row cannot attribute it.
+            // The writer is the only honest answer to where the value came
+            // from, and it is recorded on the initialising write too.
+            && variable.written_by.as_deref() == Some("script-1")
             && variable.value == serde_json::json!("ready")
+    }));
+
+    // A later write by a different script takes over the attribution, because
+    // it is the last writer that answers the question, not the first.
+    let stored = store
+        .load_variable(StoredVariableScope::Global, "script-1", "shared")
+        .expect("global should load")
+        .expect("global should exist");
+    store
+        .compare_and_set_variable(
+            StoredVariableScope::Global,
+            "script-2",
+            "shared",
+            Some(stored.version),
+            &serde_json::json!("changed"),
+        )
+        .expect("second script should write the shared global");
+
+    let variables = store
+        .list_stored_variables()
+        .expect("stored variables should list");
+    assert!(variables.iter().any(|variable| {
+        variable.name == "shared" && variable.written_by.as_deref() == Some("script-2")
     }));
 }
 
