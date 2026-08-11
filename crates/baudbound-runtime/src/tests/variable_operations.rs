@@ -836,8 +836,10 @@ fn clearing_a_hotkey_reports_that_it_has_no_empty_value() {
     .expect("the run completes and the node takes its failed outcome");
 
     assert!(
-        report.logs.iter().any(|log| log.level == "error"
-            && log.message.contains("no empty value")),
+        report
+            .logs
+            .iter()
+            .any(|log| log.level == "error" && log.message.contains("no empty value")),
         "clear should explain that a keyboard key has no empty value, logs: {:?}",
         report
             .logs
@@ -964,8 +966,34 @@ mod reset_conformance_tests {
 
     #[derive(Deserialize)]
     struct ResetConformance {
-        cases: Vec<ResetCase>,
+        cases: ConformanceCases,
         version: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct ConformanceCases {
+        #[serde(rename = "clearAndReset")]
+        clear_and_reset: Vec<ResetCase>,
+        #[serde(rename = "undeclaredWrites")]
+        undeclared_writes: Vec<DeclarationCase>,
+        #[serde(rename = "operationTypeAgreement")]
+        operation_type_agreement: Vec<DeclarationCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct DeclarationCase {
+        declared: Vec<DeclaredFixture>,
+        name: String,
+        reason: String,
+        #[serde(rename = "refusedAt")]
+        refused_at: Option<String>,
+        writes: Vec<WriteFixture>,
+    }
+
+    #[derive(Deserialize)]
+    struct WriteFixture {
+        name: String,
+        operation: String,
     }
 
     #[derive(Deserialize)]
@@ -981,8 +1009,13 @@ mod reset_conformance_tests {
     struct DeclaredFixture {
         #[serde(default, rename = "itemType")]
         item_type: Option<String>,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        scope: String,
         #[serde(rename = "type")]
         value_type: String,
+        #[serde(default)]
         value: Value,
     }
 
@@ -1060,15 +1093,109 @@ mod reset_conformance_tests {
         )
     }
 
+    /// Runs a fixture's writes against its declarations.
+    fn run_declaration_case(case: &DeclarationCase) -> Option<String> {
+        let declared = case
+            .declared
+            .iter()
+            .map(|variable| RuntimeDeclaredVariable {
+                name: variable.name.clone(),
+                scope: match variable.scope.as_str() {
+                    "persistent" => RuntimeDeclaredScope::Persistent,
+                    "global" => RuntimeDeclaredScope::Global,
+                    _ => RuntimeDeclaredScope::Runtime,
+                },
+                value_type: variable.value_type.clone(),
+                item_type: variable.item_type.clone(),
+                value: crate::runtime::empty_value_for_type(&variable.value_type),
+            })
+            .collect::<Vec<_>>();
+        let ids = case
+            .writes
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("n-write-{index}"))
+            .collect::<Vec<_>>();
+        let steps = case
+            .writes
+            .iter()
+            .zip(&ids)
+            .map(|(write, id)| {
+                json!({
+                    "id": id,
+                    "action_type": "runtime.set_variable",
+                    "type": "set_variable",
+                    "config": {"name": write.name, "operation": write.operation, "value": 1},
+                    "runtime_outputs": []
+                })
+            })
+            .collect::<Vec<_>>();
+        let order = ids.iter().map(String::as_str).collect::<Vec<_>>();
+        let program = json!({
+            "entry": {
+                "trigger": {
+                    "id": "n-trigger",
+                    "action_type": "trigger.manual",
+                    "type": "manual",
+                    "config": {},
+                    "runtime_outputs": []
+                },
+                "triggers": [],
+                "program": {"steps": steps, "edges": linear_edges(&order)}
+            }
+        });
+        // Where the refusal lands is the thing under test. A package fault
+        // stops the run before any node executes; a node fault lets the run
+        // finish and takes the failed output.
+        match execute_manual_program_with_state(
+            &program,
+            "script-1",
+            RuntimeExecutionResources::new(&UnsupportedActionHandler)
+                .with_declared_variables(&declared),
+        ) {
+            Err(_) => Some("run".to_owned()),
+            Ok(report) => report
+                .logs
+                .iter()
+                .any(|log| log.level == "error")
+                .then(|| "node".to_owned()),
+        }
+    }
+
+    #[test]
+    fn shared_declaration_fixtures_conform() {
+        let conformance: ResetConformance = serde_json::from_str(include_str!(
+            "../../../../contracts/variable-declaration-conformance.json"
+        ))
+        .expect("shared declaration fixtures should parse");
+        assert_eq!(conformance.version, 1);
+
+        for case in conformance
+            .cases
+            .undeclared_writes
+            .iter()
+            .chain(&conformance.cases.operation_type_agreement)
+        {
+            let refused_at = run_declaration_case(case);
+            assert_eq!(
+                refused_at.as_deref(),
+                case.refused_at.as_deref(),
+                "{}: {}",
+                case.name,
+                case.reason
+            );
+        }
+    }
+
     #[test]
     fn shared_clear_and_reset_fixtures_conform() {
         let conformance: ResetConformance = serde_json::from_str(include_str!(
-            "../../../../contracts/variable-reset-conformance.json"
+            "../../../../contracts/variable-declaration-conformance.json"
         ))
         .expect("shared clear and reset fixtures should parse");
         assert_eq!(conformance.version, 1);
 
-        for case in conformance.cases {
+        for case in conformance.cases.clear_and_reset {
             let (value, errors) = run(&case, "reset");
             assert_eq!(
                 value, case.reset,

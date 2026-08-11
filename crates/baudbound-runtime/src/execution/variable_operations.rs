@@ -1,9 +1,9 @@
 use super::cast_validation::validate_value_casts;
 use crate::runtime::{
-    coerce_variable_value, config_string, empty_value_for_declared_type,
-    integer_from_value, number_from_value, number_value, remove_object_field,
-    required_config_string, resolve_config_value, resolve_template_value, set_object_field,
-    validate_variable_name, value_kind,
+    coerce_variable_value, config_string, empty_value_for_declared_type, integer_from_value,
+    number_from_value, number_value, remove_object_field, required_config_string,
+    resolve_config_value, resolve_template_value, set_object_field, validate_variable_name,
+    value_kind,
 };
 use crate::value_type::MAX_SAFE_INTEGER;
 use crate::{RuntimeVariableScope, ValueType, validate_value};
@@ -400,7 +400,8 @@ impl RuntimeExecutor<'_> {
                     .map(String::as_str)
                     .ok_or_else(|| RuntimeError::VariableOperation {
                         node_id: node.id.clone(),
-                        message: "the manifest does not declare a type for this variable".to_owned(),
+                        message: "the manifest does not declare a type for this variable"
+                            .to_owned(),
                     })?,
             )
             .ok_or_else(|| RuntimeError::VariableOperation {

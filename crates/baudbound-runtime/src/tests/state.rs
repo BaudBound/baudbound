@@ -548,8 +548,12 @@ fn loads_required_secret_and_redacts_reports() {
     let report = execute_manual_program_with_state(
         &program,
         "script-1",
-        state_resources_with_defaults(&store, &declarations, &counter_declarations("runtime", "set"))
-            .with_observer(observer.clone()),
+        state_resources_with_defaults(
+            &store,
+            &declarations,
+            &counter_declarations("runtime", "set"),
+        )
+        .with_observer(observer.clone()),
     )
     .expect("secret-backed run should execute");
 

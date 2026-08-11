@@ -331,7 +331,7 @@ pub(super) fn validate_manifest_variables(manifest: &Manifest) -> Result<(), Pac
                 variable.name
             ));
         }
-        if !matches!(variable.scope.as_str(), "runtime" | "persistent") {
+        if !matches!(variable.scope.as_str(), "runtime" | "persistent" | "global") {
             errors.push(format!(
                 "manifest variable {:?} uses unsupported scope {:?}",
                 variable.name, variable.scope
@@ -711,7 +711,7 @@ mod tests {
     fn rejects_invalid_manifest_declared_variables() {
         for (variables, expected) in [
             (
-                serde_json::json!([{"name": "counter", "scope": "global", "type": "integer", "value": 10}]),
+                serde_json::json!([{"name": "counter", "scope": "session", "type": "integer", "value": 10}]),
                 "unsupported scope",
             ),
             (
@@ -740,6 +740,18 @@ mod tests {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
                 .expect_err("invalid declared variable should fail");
             assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn accepts_every_declarable_scope() {
+        // Global was refused here while the schema already allowed it, which
+        // meant no package declaring one could be installed at all.
+        for scope in ["runtime", "persistent", "global"] {
+            let variables =
+                serde_json::json!([{"name": "counter", "scope": scope, "type": "integer", "value": 10}]);
+            validate_manifest_variables(&manifest_with_variables(variables))
+                .unwrap_or_else(|error| panic!("{scope} should be declarable: {error}"));
         }
     }
 

@@ -329,6 +329,7 @@ impl RunnerCore {
         let package = staged.load_package()?;
         self.validate_loaded_package(&package)?;
         self.ensure_package_distribution_allowed(&package, &staged.path, "import")?;
+        ensure_global_declarations_agree(store, &package)?;
         store
             .import_script(import_request_from_package(&staged.path, package))
             .map_err(CoreError::Storage)
@@ -343,6 +344,7 @@ impl RunnerCore {
         let package = staged.load_package()?;
         self.validate_loaded_package(&package)?;
         self.ensure_package_distribution_allowed(&package, &staged.path, "update")?;
+        ensure_global_declarations_agree(store, &package)?;
         let declared_secret_names = package
             .manifest
             .secrets
@@ -1173,6 +1175,15 @@ pub enum CoreError {
     Security(#[from] SecurityValidationError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    #[error(
+        "global variable {name:?} is declared as {incoming} here but as {existing} by installed script {script}"
+    )]
+    GlobalDeclarationConflict {
+        existing: String,
+        incoming: String,
+        name: String,
+        script: String,
+    },
     #[error("script {0} is disabled")]
     ScriptDisabled(String),
     #[error("script {0} already has too many queued runs")]
@@ -1214,6 +1225,80 @@ fn sha256_bytes(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// Refuses a package whose global declarations contradict an installed one.
+///
+/// A global is shared by name across every script, so two scripts declaring
+/// one name with different types are describing the same stored value two
+/// incompatible ways. By run time one of them has already been storing values
+/// under that name, so the honest place to refuse is the install.
+fn ensure_global_declarations_agree(
+    store: &impl ScriptStore,
+    package: &ScriptPackage,
+) -> Result<(), CoreError> {
+    let incoming = package
+        .manifest
+        .variables
+        .iter()
+        .filter(|variable| variable.scope == "global")
+        .collect::<Vec<_>>();
+    if incoming.is_empty() {
+        return Ok(());
+    }
+
+    for installed in store.list_scripts()? {
+        // Updating a script does not conflict with the copy it replaces.
+        if installed.id == package.manifest.id {
+            continue;
+        }
+        // A package that no longer loads cannot be compared against. It is
+        // already broken on its own terms, and refusing an unrelated install
+        // because of it would be the wrong failure to report.
+        let Ok(other) = load_script_package(&installed.package_path) else {
+            continue;
+        };
+        for existing in other
+            .manifest
+            .variables
+            .iter()
+            .filter(|variable| variable.scope == "global")
+        {
+            let Some(declared) = incoming
+                .iter()
+                .find(|variable| variable.name == existing.name)
+            else {
+                continue;
+            };
+            // A list's item type is part of what the value is, so two lists of
+            // different items are as incompatible as two different types.
+            let agrees = declared.value_type == existing.value_type
+                && declared.item_type == existing.item_type;
+            if !agrees {
+                return Err(CoreError::GlobalDeclarationConflict {
+                    existing: describe_declared_type(
+                        &existing.value_type,
+                        existing.item_type.as_deref(),
+                    ),
+                    incoming: describe_declared_type(
+                        &declared.value_type,
+                        declared.item_type.as_deref(),
+                    ),
+                    name: existing.name.clone(),
+                    script: installed.name.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn describe_declared_type(value_type: &str, item_type: Option<&str>) -> String {
+    match item_type {
+        Some(item_type) => format!("{value_type} of {item_type}"),
+        None => value_type.to_owned(),
+    }
 }
 
 pub(crate) fn load_verified_installed_package(

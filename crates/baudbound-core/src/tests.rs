@@ -2009,6 +2009,124 @@ fn create_action_handler_test_package() -> Vec<u8> {
 /// The trigger is wired to the step so the action actually executes. A package
 /// with no edges imports and approves cleanly but never runs its step, which
 /// would make a workspace assertion vacuous.
+#[test]
+fn a_global_declared_with_two_different_types_is_refused_at_install() {
+    // A global is shared by name across every script, so two scripts declaring
+    // one name with different types describe the same stored value two
+    // incompatible ways. By run time one of them has already stored a value
+    // under that name, so the install is the honest place to refuse.
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+
+    let first_path = temporary_directory.path().join("first.bbs");
+    fs::write(
+        &first_path,
+        create_global_declaration_test_package("global-first", "integer", "0"),
+    )
+    .expect("first package should be written");
+    core.import_package(&store, &first_path)
+        .expect("the first package should import");
+
+    let second_path = temporary_directory.path().join("second.bbs");
+    fs::write(
+        &second_path,
+        create_global_declaration_test_package("global-second", "string", "\"ready\""),
+    )
+    .expect("second package should be written");
+    let error = core
+        .import_package(&store, &second_path)
+        .expect_err("a conflicting global declaration must be refused");
+
+    let message = error.to_string();
+    assert!(message.contains("shared_counter"), "{message}");
+    assert!(message.contains("integer"), "{message}");
+    assert!(message.contains("string"), "{message}");
+}
+
+#[test]
+fn a_global_declared_the_same_way_twice_installs() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+
+    for script_id in ["agree-first", "agree-second"] {
+        let path = temporary_directory.path().join(format!("{script_id}.bbs"));
+        fs::write(
+            &path,
+            create_global_declaration_test_package(script_id, "integer", "0"),
+        )
+        .expect("package should be written");
+        core.import_package(&store, &path)
+            .expect("agreeing global declarations should import");
+    }
+}
+
+fn create_global_declaration_test_package(
+    script_id: &str,
+    value_type: &str,
+    value: &str,
+) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "{script_id}",
+            "name": "{script_id}",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "version": "1.0.0",
+            "variables": [{{
+                "name": "shared_counter",
+                "scope": "global",
+                "type": "{value_type}",
+                "value": {value}
+            }}]
+        }}"#
+    );
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [{
+                    "id": "n-log",
+                    "action_type": "action.log",
+                    "type": "action",
+                    "action": "log",
+                    "config": {"level": "info", "message": "{{shared_counter}}"},
+                    "runtime_outputs": []
+                }],
+                "edges": [{
+                    "execution_order": 0,
+                    "source": "n-manual",
+                    "source_handle": "out",
+                    "target": "n-log",
+                    "target_handle": "input"
+                }]
+            }
+        }
+    }"#;
+    let capabilities = capabilities_json(program, test_headless_runtime());
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions":["log"],"risk_level":"low"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
+}
+
 fn create_workspace_write_test_package(script_id: &str) -> Vec<u8> {
     let manifest = format!(
         r#"{{

@@ -208,6 +208,9 @@ pub(super) fn import_script_package<R: tauri::Runtime>(
         &window,
     )?;
     let path = PathBuf::from(package_path);
+    // Read before importing: a global that already holds a value is one this
+    // package adopts rather than initialises.
+    let adopted = adopted_global_variables(&state, &path);
     let script = run_locked_value(&state, || {
         Ok(current_core(&state)?.import_package(&state.store, &path)?)
     })?;
@@ -215,10 +218,79 @@ pub(super) fn import_script_package<R: tauri::Runtime>(
     Ok(ActionPayload {
         dashboard,
         message: format!(
-            "Imported {} ({}) as {}.",
-            script.name, script.id, script.package_file_name
+            "Imported {} ({}) as {}.{}",
+            script.name,
+            script.id,
+            script.package_file_name,
+            describe_adopted_globals(&adopted)
         ),
     })
+}
+
+/// Globals this package declares that already hold a stored value.
+///
+/// Installing never overwrites one, so the declared starting value applies only
+/// when nothing is stored yet. A package whose global is already in use looks
+/// as though its declaration applied unless the install says otherwise.
+fn adopted_global_variables(state: &State<'_, DesktopUiState>, path: &PathBuf) -> Vec<String> {
+    let Ok(package) = baudbound_script::load_script_package(path) else {
+        return Vec::new();
+    };
+    let declared = package
+        .manifest
+        .variables
+        .iter()
+        .filter(|variable| variable.scope == "global")
+        .map(|variable| variable.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    if declared.is_empty() {
+        return Vec::new();
+    }
+    let Ok(stored) = state.store.list_stored_variables() else {
+        return Vec::new();
+    };
+    stored
+        .into_iter()
+        .filter(|variable| variable.scope == "global" && declared.contains(variable.name.as_str()))
+        .map(|variable| variable.name)
+        .collect()
+}
+
+fn describe_adopted_globals(adopted: &[String]) -> String {
+    if adopted.is_empty() {
+        return String::new();
+    }
+    let single = adopted.len() == 1;
+    format!(
+        " Global {} {} {} already stored, so {} kept {} current value rather than taking the declared one.",
+        if single { "variable" } else { "variables" },
+        adopted.join(", "),
+        if single { "was" } else { "were" },
+        if single { "it" } else { "they" },
+        if single { "its" } else { "their" }
+    )
+}
+
+#[cfg(test)]
+mod adopted_global_tests {
+    use super::describe_adopted_globals;
+
+    #[test]
+    fn says_nothing_when_no_global_was_already_stored() {
+        assert_eq!(describe_adopted_globals(&[]), "");
+    }
+
+    #[test]
+    fn names_the_globals_whose_stored_value_survived_the_install() {
+        assert_eq!(
+            describe_adopted_globals(&["stock".to_owned()]),
+            " Global variable stock was already stored, so it kept its current value rather than taking the declared one."
+        );
+        assert_eq!(
+            describe_adopted_globals(&["stock".to_owned(), "tally".to_owned()]),
+            " Global variables stock, tally were already stored, so they kept their current value rather than taking the declared one."
+        );
+    }
 }
 
 #[tauri::command]

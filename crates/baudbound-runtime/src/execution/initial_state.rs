@@ -293,9 +293,7 @@ pub(super) fn load_initial_state(
             .collect(),
         declared_item_types: declared_variables
             .iter()
-            .filter_map(|variable| {
-                Some((variable.name.clone(), variable.item_type.clone()?))
-            })
+            .filter_map(|variable| Some((variable.name.clone(), variable.item_type.clone()?)))
             .collect(),
         declared_values: declared_variables
             .iter()
