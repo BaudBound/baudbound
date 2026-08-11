@@ -30,7 +30,8 @@ impl RuntimeExecutor<'_> {
 
         let operation =
             config_string(&node.config, "operation").unwrap_or_else(|| "set".to_owned());
-        let value_type = variable_operation_declared_type(node, &operation)?;
+        let declared_type = self.declared_types.get(&name).map(String::as_str);
+        let value_type = variable_operation_declared_type(node, &operation, declared_type)?;
         let scope = match required_config_string(node, "scope")?.as_str() {
             "runtime" => None,
             "persistent" => Some(RuntimeVariableScope::Persistent),
@@ -417,7 +418,12 @@ impl RuntimeExecutor<'_> {
                 );
                 Ok(Value::Object(object))
             }
-            "clear" => clear_existing_variable(node, name, current.as_ref()),
+            "clear" => clear_existing_variable(
+                node,
+                name,
+                current.as_ref(),
+                self.declared_types.get(name).map(String::as_str),
+            ),
             _ => Err(RuntimeError::VariableOperation {
                 node_id: node.id.clone(),
                 message: format!("unsupported variable operation {operation}"),
@@ -531,12 +537,26 @@ impl RuntimeExecutor<'_> {
     }
 }
 
+/// The type an operation writes at.
+///
+/// `set` takes it from the declaration, which is the only place a variable's
+/// type lives now. Every other operation implies one, and `increment` pins
+/// none: it applies to whichever numeric type the variable was declared with
+/// and preserves it.
 fn variable_operation_declared_type(
     node: &RuntimeNode,
     operation: &str,
+    declared_type: Option<&str>,
 ) -> Result<Option<String>, RuntimeError> {
     let value_type = match operation {
-        "set" => Some(required_config_string(node, "valueType")?),
+        "set" => Some(
+            declared_type
+                .ok_or_else(|| RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: "the manifest does not declare a type for this variable".to_owned(),
+                })?
+                .to_owned(),
+        ),
         // Increment does not pin a numeric type: it applies to whichever numeric
         // type the variable was declared with, and preserves it.
         "increment" => None,
@@ -554,13 +574,14 @@ fn variable_operation_declared_type(
     Ok(value_type)
 }
 
-/// Names which string-shaped type a node declares, if it declares one.
+/// Names which string-shaped type a variable was declared with, if it matters.
 ///
 /// `string`, `color` and `hotkey` are all JSON strings, so a stored value
-/// cannot say which of them it is. Only these three are read from the node,
-/// because every other type is identifiable from the value itself.
-fn declared_string_type(node: &RuntimeNode) -> Option<&'static str> {
-    match config_string(&node.config, "valueType")?.as_str() {
+/// cannot say which of them it is. Only these three need asking about, because
+/// every other type is identifiable from the value itself. This used to read
+/// the node; the declaration is the only place a type lives now.
+fn declared_string_type(declared_type: Option<&str>) -> Option<&'static str> {
+    match declared_type? {
         "color" => Some("color"),
         "hotkey" => Some("hotkey"),
         _ => None,
@@ -571,6 +592,7 @@ fn clear_existing_variable(
     node: &RuntimeNode,
     name: &str,
     current: Option<&Value>,
+    declared_type: Option<&str>,
 ) -> Result<Value, RuntimeError> {
     let current = current.ok_or_else(|| RuntimeError::VariableOperation {
         node_id: node.id.clone(),
@@ -581,7 +603,7 @@ fn clear_existing_variable(
         // string-shaped ones it is, so only that case consults the declared
         // type. Trusting the declaration for the others would clear an integer
         // to an empty string whenever a node carried a stale default.
-        Value::String(_) => match declared_string_type(node) {
+        Value::String(_) => match declared_string_type(declared_type) {
             Some(declared) => {
                 return empty_value_for_declared_type(declared).ok_or_else(|| {
                     RuntimeError::VariableOperation {

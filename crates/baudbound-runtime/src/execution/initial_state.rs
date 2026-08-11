@@ -19,6 +19,13 @@ use super::declared_variables::{
 use super::{RunVariableScope, RuntimeError};
 
 pub(super) struct InitialRuntimeState {
+    /// The type each declared variable was declared with.
+    ///
+    /// A Variable Operation node no longer carries a type; it names a declared
+    /// variable and the declaration settles it. The executor keeps this for the
+    /// operations that need to know, which is `set` and telling a color or a
+    /// hotkey from a plain string when clearing.
+    pub(super) declared_types: BTreeMap<String, String>,
     pub(super) secret_names: Vec<String>,
     pub(super) secret_values: Vec<Value>,
     pub(super) variable_scopes: BTreeMap<String, RunVariableScope>,
@@ -272,6 +279,10 @@ pub(super) fn load_initial_state(
     }
 
     Ok(InitialRuntimeState {
+        declared_types: declared_variables
+            .iter()
+            .map(|variable| (variable.name.clone(), variable.value_type.clone()))
+            .collect(),
         secret_names,
         secret_values,
         variable_scopes,
