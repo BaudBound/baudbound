@@ -364,11 +364,7 @@ pub(super) fn validate_manifest_variable_operations(
     manifest: &Manifest,
     program: &Program,
 ) -> Result<(), PackageLoadError> {
-    if manifest.variables.is_empty() {
-        return Ok(());
-    }
-
-    let defaults = manifest
+    let declared = manifest
         .variables
         .iter()
         .map(|variable| (variable.name.as_str(), variable))
@@ -391,38 +387,43 @@ pub(super) fn validate_manifest_variable_operations(
         let Some(name) = config.get("name").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        let Some(variable) = defaults.get(name) else {
+        // This used to compare the node's scope and type against the
+        // declaration's. A node carries neither now, so nothing can disagree;
+        // what is left to catch is a write to a name the manifest never
+        // declares, which a run refuses to start. Catching it at install time
+        // means the refusal arrives before the script is on the machine.
+        let Some(variable) = declared.get(name) else {
+            errors.push(format!(
+                "program.json writes variable {name:?}, which the manifest does not declare"
+            ));
             continue;
         };
         let operation = config
             .get("operation")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("set");
-        let scope = config
-            .get("scope")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let declared_type = match operation {
-            "set" => config.get("valueType").and_then(serde_json::Value::as_str),
-            // Increment does not pin a numeric type: it applies to whichever
-            // numeric type the variable was declared with, and preserves it.
-            "increment" => None,
+        // An operation that implies a type has to agree with the declared one.
+        // The editor will not offer Toggle boolean for a string, so a package
+        // that asks for it was not built by one.
+        let required_type = match operation {
             "toggle_boolean" => Some("boolean"),
             "append_list" | "remove_list_items" => Some("list"),
             "set_object_field" | "remove_object_field" | "merge_object" => Some("object"),
-            "clear" | "delete" => None,
-            _ => config.get("valueType").and_then(serde_json::Value::as_str),
+            _ => None,
         };
-        if scope != variable.scope
-            || declared_type.is_some_and(|value_type| value_type != variable.value_type)
+        if let Some(required) = required_type
+            && required != variable.value_type
         {
             errors.push(format!(
-                "manifest variable {name:?} does not match Variable Operation scope{}",
-                if declared_type.is_some() {
-                    " and type"
-                } else {
-                    ""
-                }
+                "program.json applies {operation} to variable {name:?}, which the manifest declares as {}",
+                variable.value_type
+            ));
+        }
+        if operation == "increment" && !matches!(variable.value_type.as_str(), "integer" | "float")
+        {
+            errors.push(format!(
+                "program.json increments variable {name:?}, which the manifest declares as {}",
+                variable.value_type
             ));
         }
     }
@@ -743,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_declared_variable_operation_contract_mismatch() {
+    fn rejects_a_write_to_a_variable_the_manifest_does_not_declare() {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "counter",
             "scope": "persistent",
@@ -753,17 +754,58 @@ mod tests {
         let program = serde_json::json!({
             "entry": {"program": {"steps": [{
                 "action_type": "runtime.set_variable",
-                "config": {"name": "counter", "scope": "runtime", "valueType": "integer"}
+                "config": {"name": "tally", "operation": "set"}
             }]}}
         });
 
         let error = validate_manifest_variable_operations(&manifest, &program)
-            .expect_err("mismatched operation should fail");
-        assert!(
-            error
-                .to_string()
-                .contains("does not match Variable Operation")
-        );
+            .expect_err("an undeclared write should fail");
+        let message = error.to_string();
+        assert!(message.contains("tally"), "{message}");
+        assert!(message.contains("does not declare"), "{message}");
+    }
+
+    #[test]
+    fn rejects_an_operation_the_declared_type_cannot_take() {
+        let manifest = manifest_with_variables(serde_json::json!([{
+            "name": "label",
+            "scope": "runtime",
+            "type": "string",
+            "value": "ready"
+        }]));
+        // The editor does not offer Toggle boolean for a string, so a package
+        // asking for one was not built by it.
+        let program = serde_json::json!({
+            "entry": {"program": {"steps": [{
+                "action_type": "runtime.set_variable",
+                "config": {"name": "label", "operation": "toggle_boolean"}
+            }]}}
+        });
+
+        let error = validate_manifest_variable_operations(&manifest, &program)
+            .expect_err("a mismatched operation should fail");
+        let message = error.to_string();
+        assert!(message.contains("toggle_boolean"), "{message}");
+        assert!(message.contains("string"), "{message}");
+    }
+
+    #[test]
+    fn accepts_a_program_whose_writes_are_all_declared() {
+        let manifest = manifest_with_variables(serde_json::json!([{
+            "name": "counter",
+            "scope": "persistent",
+            "type": "integer",
+            "value": 10
+        }]));
+        let program = serde_json::json!({
+            "entry": {"program": {"steps": [{
+                "action_type": "runtime.set_variable",
+                "config": {"name": "counter", "operation": "increment", "value": 1}
+            }]}}
+        });
+
+        validate_manifest_variable_operations(&manifest, &program)
+            .expect("a declared write should pass");
     }
 
     fn manifest_with_variables(variables: serde_json::Value) -> Manifest {
