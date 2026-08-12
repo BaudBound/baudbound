@@ -40,6 +40,14 @@ function renderLogs(timeFormat: TimeFormat) {
   );
 }
 
+function renderLogsWithOffset(offset: number) {
+  return renderToStaticMarkup(
+    <DesktopTimeProvider timeFormat="24-hour">
+      <RunLogPanel logNumberOffset={offset} logs={logs.slice(0, 1)} />
+    </DesktopTimeProvider>,
+  );
+}
+
 describe("RunLogPanel", () => {
   it.each(["12-hour", "24-hour"] as const)(
     "renders each emission timestamp with the %s clock",
@@ -60,4 +68,10 @@ describe("RunLogPanel", () => {
       expect(markup).toContain("scanner\\r\\nnext");
     },
   );
+
+  it("continues row numbering after omitted live logs", () => {
+    const markup = renderLogsWithOffset(1230);
+
+    expect(markup).toContain(">1231</td>");
+  });
 });

@@ -35,12 +35,22 @@ pub(crate) fn read_file_action(
     }
 
     let path_ref = resolve_action_path(request, context, &path, PathIntent::Existing)?;
-    let metadata = path_ref
-        .metadata()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed to inspect {path}: {source}"),
-        })?;
+    let metadata = match path_ref.metadata() {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return Err(RuntimeActionError::ExpectedOutcome {
+                action_type: request.action_type.clone(),
+                output: "not_found".to_owned(),
+                output_data: Map::from_iter([("path".to_owned(), Value::String(path))]),
+            });
+        }
+        Err(source) => {
+            return Err(RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!("failed to inspect {path}: {source}"),
+            });
+        }
+    };
     if !metadata.is_file {
         return failed(request, format!("{path} is not a regular file"));
     }
@@ -307,12 +317,22 @@ pub(crate) fn delete_file_action(
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let path = required_string(request, "path")?;
     let path_buf = resolve_action_path(request, context, &path, PathIntent::Existing)?;
-    let metadata = path_buf
-        .metadata()
-        .map_err(|source| RuntimeActionError::Failed {
-            action_type: request.action_type.clone(),
-            message: format!("failed to inspect {path}: {source}"),
-        })?;
+    let metadata = match path_buf.metadata() {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return Err(RuntimeActionError::ExpectedOutcome {
+                action_type: request.action_type.clone(),
+                output: "not_found".to_owned(),
+                output_data: Map::from_iter([("path".to_owned(), Value::String(path))]),
+            });
+        }
+        Err(source) => {
+            return Err(RuntimeActionError::Failed {
+                action_type: request.action_type.clone(),
+                message: format!("failed to inspect {path}: {source}"),
+            });
+        }
+    };
     if !metadata.is_file {
         return failed(request, format!("{path} is not a regular file"));
     }
@@ -444,7 +464,7 @@ fn resolve_action_path(
     request: &RuntimeActionRequest,
     context: &RuntimeContext,
     configured_path: &str,
-    intent: PathIntent,
+    _intent: PathIntent,
 ) -> Result<ActionPath, RuntimeActionError> {
     let path = Path::new(configured_path);
     // Shares one classifier with the permission calculator so the risk approved
@@ -473,17 +493,6 @@ fn resolve_action_path(
                 workspace.display()
             ),
         })?;
-    if matches!(intent, PathIntent::Existing) {
-        directory
-            .metadata(path)
-            .map_err(|source| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message: format!(
-                    "failed to resolve limited file path {}: {source}",
-                    workspace.join(path).display()
-                ),
-            })?;
-    }
     Ok(ActionPath::Limited {
         directory,
         relative: path.to_path_buf(),

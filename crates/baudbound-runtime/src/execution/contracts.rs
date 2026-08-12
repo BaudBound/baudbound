@@ -180,6 +180,12 @@ pub enum RuntimeActionError {
     Unsupported(String),
     #[error("action was cancelled")]
     Cancelled,
+    #[error("action {action_type} selected output {output}")]
+    ExpectedOutcome {
+        action_type: String,
+        output: String,
+        output_data: Map<String, Value>,
+    },
     #[error("action {action_type} failed: {message}")]
     Failed {
         action_type: String,

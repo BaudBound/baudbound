@@ -23,7 +23,20 @@ import {
 
 type TriggerAuthConfirmation = "disable" | "rotate" | null;
 
-export function NetworkTriggerAuthControls({
+export function NetworkTriggerAuthStatus({ auth }: { auth: TriggerAuthStatus }) {
+  return (
+    <div className="grid gap-1">
+      <Badge variant={auth.auth_enabled ? "good" : "destructive"}>
+        {auth.auth_enabled ? "Protected" : "Unprotected"}
+      </Badge>
+      {auth.auth_enabled ? (
+        <span className="font-mono text-xs text-muted-foreground">ends in {auth.token_preview}</span>
+      ) : null}
+    </div>
+  );
+}
+
+export function NetworkTriggerAuthActions({
   auth,
   busyActions,
   onDashboard,
@@ -90,43 +103,31 @@ export function NetworkTriggerAuthControls({
 
   return (
     <>
-      <div className="grid gap-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={auth.auth_enabled ? "good" : "destructive"}>
-            {auth.auth_enabled ? "Protected" : "Unprotected"}
-          </Badge>
-          {auth.auth_enabled ? (
-            <span className="font-mono text-xs text-muted-foreground">
-              ends in {auth.token_preview}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button
-            aria-label="Generate a new token"
-            className="size-7 p-0"
-            disabled={busy}
-            onClick={() => setConfirmation("rotate")}
-            size="sm"
-            title="Generate a new token"
-            variant="outline"
-          >
-            <RefreshCw />
-          </Button>
-          <Button
-            aria-label={auth.auth_enabled ? "Disable authentication" : "Enable authentication"}
-            className="size-7 p-0"
-            disabled={busy}
-            onClick={() =>
-              auth.auth_enabled ? setConfirmation("disable") : void setEnabled(true)
-            }
-            size="sm"
-            title={auth.auth_enabled ? "Disable authentication" : "Enable authentication"}
-            variant={auth.auth_enabled ? "outline" : "default"}
-          >
-            {auth.auth_enabled ? <ShieldOff /> : <ShieldCheck />}
-          </Button>
-        </div>
+      <div className="flex items-center gap-1.5">
+        <Button
+          aria-label="Generate a new token"
+          className="size-7 p-0"
+          disabled={busy}
+          onClick={() => setConfirmation("rotate")}
+          size="sm"
+          title="Generate a new token"
+          variant="outline"
+        >
+          <RefreshCw />
+        </Button>
+        <Button
+          aria-label={auth.auth_enabled ? "Disable authentication" : "Enable authentication"}
+          className="size-7 p-0"
+          disabled={busy}
+          onClick={() =>
+            auth.auth_enabled ? setConfirmation("disable") : void setEnabled(true)
+          }
+          size="sm"
+          title={auth.auth_enabled ? "Disable authentication" : "Enable authentication"}
+          variant={auth.auth_enabled ? "outline" : "default"}
+        >
+          {auth.auth_enabled ? <ShieldOff /> : <ShieldCheck />}
+        </Button>
       </div>
 
       <ConfirmDialog

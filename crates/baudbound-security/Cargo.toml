@@ -9,6 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+baudbound-script = { path = "../baudbound-script", version = "2.0.0" }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

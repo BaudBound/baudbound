@@ -240,7 +240,7 @@ fn adopted_global_variables(state: &State<'_, DesktopUiState>, path: &PathBuf) -
         .manifest
         .variables
         .iter()
-        .filter(|variable| variable.scope == "global")
+        .filter(|variable| variable.scope == baudbound_script::VariableScope::Global)
         .map(|variable| variable.name.as_str())
         .collect::<std::collections::BTreeSet<_>>();
     if declared.is_empty() {

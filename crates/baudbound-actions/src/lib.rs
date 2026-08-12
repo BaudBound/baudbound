@@ -570,10 +570,11 @@ impl HeadlessActionHandler {
         let line_ending =
             config_string(&request.config, "lineEnding").unwrap_or_else(|| "none".to_owned());
         let Some(device) = self.serial_connections.config(&device_id) else {
-            return failed(
-                request,
-                format!("unknown serial device {device_id:?}; add a matching Serial Input Trigger"),
-            );
+            return Err(RuntimeActionError::ExpectedOutcome {
+                action_type: request.action_type.clone(),
+                output: "device_unavailable".to_owned(),
+                output_data: Map::from_iter([("device_id".to_owned(), Value::String(device_id))]),
+            });
         };
 
         let mut payload = data.into_bytes();
@@ -616,23 +617,34 @@ impl HeadlessActionHandler {
         let connection_id = required_string(request, "connectionId")?;
         let message = required_string(request, "message")?;
         let Some(sink) = &self.websocket_sink else {
-            return failed(
-                request,
-                "WebSocket Write requires an active WebSocket trigger connection",
-            );
+            return Err(RuntimeActionError::ExpectedOutcome {
+                action_type: request.action_type.clone(),
+                output: "connection_closed".to_owned(),
+                output_data: Map::from_iter([(
+                    "connection_id".to_owned(),
+                    Value::String(connection_id),
+                )]),
+            });
         };
 
-        let bytes = sink
-            .send_text(
-                &context.identity.script_id,
-                &context.identity.trigger_node_id,
-                &connection_id,
-                &message,
-            )
-            .map_err(|message| RuntimeActionError::Failed {
-                action_type: request.action_type.clone(),
-                message,
-            })?;
+        let bytes = match sink.send_text(
+            &context.identity.script_id,
+            &context.identity.trigger_node_id,
+            &connection_id,
+            &message,
+        ) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Err(RuntimeActionError::ExpectedOutcome {
+                    action_type: request.action_type.clone(),
+                    output: "connection_closed".to_owned(),
+                    output_data: Map::from_iter([(
+                        "connection_id".to_owned(),
+                        Value::String(connection_id),
+                    )]),
+                });
+            }
+        };
 
         Ok(RuntimeActionResult {
             output_data: Map::from_iter([

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub use baudbound_script::VariableScope;
 pub use blacklist::{
     BlacklistDecision, BlacklistEntry, BlacklistMatchSubject, BlacklistPolicy, BlacklistScope,
     BlacklistSeverity, PermissiveBlacklistPolicy, github_publisher_for_url, matching_entries,
@@ -38,7 +39,7 @@ pub struct RuntimeDeclarationRequirements {
     /// means resolving the node's target through this map, which is what the
     /// editor does when it writes permissions.json. Reading the node instead
     /// left the runner asking a question the program could no longer answer.
-    pub declared_variable_scopes: BTreeMap<String, String>,
+    pub declared_variable_scopes: BTreeMap<String, VariableScope>,
     pub has_global_declared_variables: bool,
     pub has_persistent_declared_variables: bool,
     pub has_runtime_declared_variables: bool,
@@ -314,28 +315,26 @@ pub fn calculate_program_permissions_with_declarations(
         }
     }
 
-    for scope in
-        variable_operation_scopes(program, &requirements.declared_variable_scopes)
-            .map_err(PermissionValidationError::InvalidProgram)?
+    for scope in variable_operation_scopes(program, &requirements.declared_variable_scopes)
+        .map_err(PermissionValidationError::InvalidProgram)?
     {
-        let permission = match scope.as_str() {
-            "runtime" => PermissionGrant {
+        // Exhaustive over the scopes that exist. There is no arm for an
+        // unrecognised one because `VariableScope` cannot hold one, which is
+        // what stops a new scope from silently inheriting a permission: adding
+        // a variant breaks this match until someone states its risk.
+        let permission = match scope {
+            VariableScope::Runtime => PermissionGrant {
                 name: "variable.local.set".to_owned(),
                 risk: RiskLevel::Low,
             },
-            "persistent" => PermissionGrant {
+            VariableScope::Persistent => PermissionGrant {
                 name: "variable.persistent.set".to_owned(),
                 risk: RiskLevel::Medium,
             },
-            "global" => PermissionGrant {
+            VariableScope::Global => PermissionGrant {
                 name: "variable.global.set".to_owned(),
                 risk: RiskLevel::High,
             },
-            invalid => {
-                return Err(PermissionValidationError::InvalidProgram(format!(
-                    "runtime.set_variable contains unsupported scope {invalid:?}"
-                )));
-            }
         };
         if seen_permissions.insert(permission.name.clone()) {
             permissions.push(permission);
@@ -670,8 +669,8 @@ pub(crate) fn executable_action_types(program: &Value) -> Result<Vec<String>, St
 /// has to be the thing that catches it.
 pub(crate) fn variable_operation_scopes(
     program: &Value,
-    declared_variable_scopes: &BTreeMap<String, String>,
-) -> Result<Vec<String>, String> {
+    declared_variable_scopes: &BTreeMap<String, VariableScope>,
+) -> Result<Vec<VariableScope>, String> {
     let steps = program
         .get("entry")
         .and_then(|entry| entry.get("program"))
@@ -692,8 +691,8 @@ pub(crate) fn variable_operation_scopes(
                 .unwrap_or_default();
             declared_variable_scopes
                 .get(name)
-                .cloned()
-                .unwrap_or_else(|| "runtime".to_owned())
+                .copied()
+                .unwrap_or(VariableScope::Runtime)
         })
         .collect())
 }

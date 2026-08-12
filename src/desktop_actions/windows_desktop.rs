@@ -40,10 +40,11 @@ pub(super) fn window_focus(
     target: &str,
 ) -> Result<(), RuntimeActionError> {
     let Some(handle) = find_window(match_mode, target) else {
-        return Err(failed_error(
-            request,
-            format!("no matching window found for {match_mode}={target:?}"),
-        ));
+        return Err(RuntimeActionError::ExpectedOutcome {
+            action_type: request.action_type.clone(),
+            output: "not_found".to_owned(),
+            output_data: Map::from_iter([("target".to_owned(), Value::String(target.to_owned()))]),
+        });
     };
 
     unsafe {

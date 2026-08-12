@@ -763,6 +763,8 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
     .expect("repeat should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3)));
+    assert_eq!(report.variables.get("n-repeat.index"), Some(&json!(2)));
+    assert_eq!(report.variables.get("n-repeat.count"), Some(&json!(3)));
     assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
@@ -1081,6 +1083,7 @@ fn executes_while_until_condition_fails() {
     .expect("while should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3)));
+    assert_eq!(report.variables.get("n-while.index"), Some(&json!(2)));
     assert!(
         report
             .logs
@@ -1107,7 +1110,7 @@ fn executes_for_each_over_json_list() {
                             },
                             "runtime_outputs": []
                         },
-                        log_node("n-item", "item={{n-each.index}}:{{n-each.item}}"),
+						log_node("n-item", "item={{n-each.index}}:{{n-each.item}} first={{n-each.is_first}} last={{n-each.is_last}}"),
                         log_node("n-done", "done item={{n-each.item}}")
                     ],
                     "edges": [
@@ -1122,11 +1125,24 @@ fn executes_for_each_over_json_list() {
     )
     .expect("for-each should execute");
 
-    assert!(report.logs.iter().any(|log| log.message == "item=0:one"));
-    assert!(report.logs.iter().any(|log| log.message == "item=1:two"));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "item=0:one first=true last=false")
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "item=1:two first=false last=true")
+    );
     assert!(report.logs.iter().any(|log| log.message == "done item=two"));
     assert_eq!(report.variables.get("n-each.item"), Some(&json!("two")));
     assert_eq!(report.variables.get("n-each.index"), Some(&json!(1)));
+    assert_eq!(report.variables.get("n-each.count"), Some(&json!(2)));
+    assert_eq!(report.variables.get("n-each.is_first"), Some(&json!(false)));
+    assert_eq!(report.variables.get("n-each.is_last"), Some(&json!(true)));
 }
 
 #[test]
@@ -1215,6 +1231,121 @@ fn calculates_expression_and_exposes_result_reference() {
         Some(&RunVariableScope::NodeOutput)
     );
     assert!(report.logs.iter().any(|log| log.message == "result=10.0"));
+}
+
+#[test]
+fn calculates_expression_with_integer_variable_reference() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-seconds", "seconds", "set", "integer", "7200"),
+                        {
+                            "id": "n-calc",
+                            "action_type": "action.calculate",
+                            "type": "action",
+                            "action": "calculate",
+                            "config": {
+                                "expression": "floor({{seconds}} / 3600)",
+                                "resultType": "automatic"
+                            },
+                            "runtime_outputs": []
+                        },
+                        log_node("n-log", "hours={{n-calc.result}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-seconds"),
+                        edge("n-seconds", "out", "n-calc"),
+                        edge("n-calc", "out", "n-log")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect("calculate should accept an integer variable reference");
+
+    assert_eq!(report.variables.get("seconds"), Some(&json!(7200)));
+    assert_eq!(report.variables.get("n-calc.result"), Some(&json!(2)));
+    assert!(report.logs.iter().any(|log| log.message == "hours=2"));
+}
+
+#[test]
+fn calculate_result_type_controls_numeric_output_and_rejects_fractional_integers() {
+    let automatic = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "4 / 2", "resultType": "automatic" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-automatic-calculate",
+    )
+    .expect("automatic whole result should execute");
+    assert_eq!(automatic.variables.get("n-calc.result"), Some(&json!(2)));
+
+    let float = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "4 / 2", "resultType": "float" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-float-calculate",
+    )
+    .expect("float result should execute");
+    assert_eq!(float.variables.get("n-calc.result"), Some(&json!(2.0)));
+
+    let rejected = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "5 / 2", "resultType": "integer" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-integer-calculate",
+    )
+    .expect("an action failure follows its failed output instead of aborting the run");
+    assert_eq!(
+        rejected.variables["n-calc.error"]["message"],
+        json!("integer result type requires a whole safe integer result")
+    );
 }
 
 #[test]
@@ -1330,7 +1461,7 @@ fn sensitive_action_outputs_remain_usable_but_are_removed_from_reports_and_logs(
                     ],
                     "edges": [
                         edge("n-trigger", "out", "n-form-dialog"),
-						edge("n-form-dialog", "success", "n-user-log"),
+						edge("n-form-dialog", "submitted", "n-user-log"),
 						edge("n-user-log", "out", "n-direct-log"),
                         edge("n-direct-log", "out", "n-copy"),
                         edge("n-copy", "out", "n-copy-log")
@@ -1369,6 +1500,72 @@ fn sensitive_action_outputs_remain_usable_but_are_removed_from_reports_and_logs(
             .iter()
             .any(|entry| entry.message == "copy=[REDACTED]")
     );
+}
+
+#[test]
+fn form_dialog_cancel_and_timeout_follow_their_dedicated_outputs() {
+    #[derive(Debug)]
+    struct FormDialogOutcomeHandler {
+        button: &'static str,
+    }
+
+    impl RuntimeActionHandler for FormDialogOutcomeHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Ok(RuntimeActionResult::new(Map::from_iter([
+                ("button".to_owned(), json!(self.button)),
+                ("submitted".to_owned(), json!(false)),
+                ("values".to_owned(), json!({})),
+            ])))
+        }
+    }
+
+    for (button, expected_message) in [("cancel", "cancelled"), ("timeout", "timed out")] {
+        let handler = FormDialogOutcomeHandler { button };
+        let report = execute_manual_program_with_actions(
+            &json!({
+                "entry": {
+                    "trigger": manual_trigger(),
+                    "triggers": [],
+                    "program": {
+                        "steps": [
+                            {
+                                "id": "n-form-dialog",
+                                "action_type": "action.form_dialog",
+                                "type": "action",
+                                "action": "form_dialog",
+                                "config": {"title": "Prompt", "fields": []},
+                                "runtime_outputs": []
+                            },
+                            log_node("n-success", "submitted"),
+                            log_node("n-cancelled", "cancelled"),
+                            log_node("n-timed-out", "timed out")
+                        ],
+                        "edges": [
+                            edge("n-trigger", "out", "n-form-dialog"),
+                            edge("n-form-dialog", "submitted", "n-success"),
+                            edge("n-form-dialog", "cancelled", "n-cancelled"),
+                            edge("n-form-dialog", "timed_out", "n-timed-out")
+                        ]
+                    }
+                }
+            }),
+            "script-form-dialog-outcomes",
+            &handler,
+        )
+        .expect("form dialog outcome should select its dedicated branch");
+
+        assert!(
+            report
+                .logs
+                .iter()
+                .any(|entry| entry.message == expected_message)
+        );
+        assert!(!report.logs.iter().any(|entry| entry.message == "submitted"));
+    }
 }
 
 #[test]

@@ -15,8 +15,9 @@ pub use resource_limit::ResourceLimit;
 pub use runtime::{
     RuntimeCancellationSubscription, RuntimeCancellationToken, RuntimeDeclaredScope,
     RuntimeDeclaredVariable, RuntimeScriptSettings, RuntimeSecretDeclaration, RuntimeStateStore,
-    RuntimeVariableScope, VersionedRuntimeVariable, format_datetime, resolve_template_value,
-    validate_datetime_pattern,
+    RuntimeVariableScope, VersionedRuntimeVariable, format_datetime, format_duration,
+    resolve_template_value, validate_datetime_pattern, validate_duration_pattern,
+    validate_duration_unit,
 };
 pub use safe_regex::{compile_cached_regex, compile_safe_regex, max_simulation_regex_input_bytes};
 pub use value_type::{ValueType, validate_value, value_type_name};

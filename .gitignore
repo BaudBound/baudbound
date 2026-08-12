@@ -1,5 +1,8 @@
 # Rust
 /target/
+# An alternate CARGO_TARGET_DIR leaves a second build tree beside the first,
+# which is build output like any other and must not reach a commit.
+/target-*/
 **/*.rs.bk
 
 # Node/Vite

@@ -122,6 +122,10 @@ fn executes_every_supported_operation() {
             json!("ignored"),
             json!({"id":"1","operation":"template","template":"template"}),
         ),
+        (
+            json!(90_061),
+            json!({"id":"1","operation":"format_duration","durationUnit":"seconds","pattern":"D HH:mm:ss"}),
+        ),
     ];
 
     for (input, operation) in cases {
@@ -358,6 +362,51 @@ fn rejects_a_format_datetime_operation_that_cannot_run() {
         pipeline(
             json!({ "type": "datetime", "value": "2026-07-03T14:30:45+03:00" }),
             json!([{"id": "1", "operation": "format_datetime", "pattern": ""}]),
+        ),
+    ];
+
+    for config in cases {
+        execute("action.text.format", config).expect_err("the operation must fail");
+    }
+}
+
+#[test]
+fn formats_duration_from_integer_and_float_pipeline_inputs() {
+    let integer = execute(
+        "action.text.format",
+        pipeline(
+            json!(90_061),
+            json!([{"id": "1", "operation": "format_duration", "durationUnit": "seconds", "pattern": "D HH:mm:ss"}]),
+        ),
+    )
+    .expect("integer duration should format");
+    assert_eq!(integer.output_data.get("text"), Some(&json!("1 01:01:01")));
+
+    let float = execute(
+        "action.text.format",
+        pipeline(
+            json!(1.2345),
+            json!([{"id": "1", "operation": "format_duration", "durationUnit": "seconds", "pattern": "ss.SSS"}]),
+        ),
+    )
+    .expect("float duration should format");
+    assert_eq!(float.output_data.get("text"), Some(&json!("01.235")));
+}
+
+#[test]
+fn rejects_a_format_duration_operation_that_cannot_run() {
+    let cases = [
+        pipeline(
+            json!("not a duration"),
+            json!([{"id": "1", "operation": "format_duration", "durationUnit": "seconds", "pattern": "HH:mm:ss"}]),
+        ),
+        pipeline(
+            json!(1),
+            json!([{"id": "1", "operation": "format_duration", "durationUnit": "weeks", "pattern": "HH:mm:ss"}]),
+        ),
+        pipeline(
+            json!(1),
+            json!([{"id": "1", "operation": "format_duration", "durationUnit": "seconds", "pattern": "YYYY"}]),
         ),
     ];
 

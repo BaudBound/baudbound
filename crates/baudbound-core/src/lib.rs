@@ -34,7 +34,7 @@ use baudbound_runtime::{
     execute_trigger_program_with_state,
 };
 use baudbound_script::{
-    PackageLoadError, PackageSummary, ScriptPackage, load_script_package,
+    PackageLoadError, PackageSummary, ScriptPackage, VariableScope, load_script_package,
     load_script_package_reader, max_package_archive_bytes,
 };
 use baudbound_security::{
@@ -865,13 +865,15 @@ impl RunnerCore {
             .iter()
             .map(|variable| RuntimeDeclaredVariable {
                 name: variable.name.clone(),
-                // Matched rather than defaulted, so a scope this runner does not
-                // know is not silently read as runtime. The manifest schema is
-                // what refuses an unknown one; this only has to agree with it.
-                scope: match variable.scope.as_str() {
-                    "global" => RuntimeDeclaredScope::Global,
-                    "persistent" => RuntimeDeclaredScope::Persistent,
-                    _ => RuntimeDeclaredScope::Runtime,
+                // Total, both ways. This used to read the scope off a string
+                // with `_ => Runtime`, which meant an unrecognised scope was
+                // silently granted the weakest one while the permission
+                // calculator refused the same package outright. Neither side
+                // can drift now: adding a scope breaks this match.
+                scope: match variable.scope {
+                    VariableScope::Global => RuntimeDeclaredScope::Global,
+                    VariableScope::Persistent => RuntimeDeclaredScope::Persistent,
+                    VariableScope::Runtime => RuntimeDeclaredScope::Runtime,
                 },
                 value_type: variable.value_type.clone(),
                 item_type: variable.item_type.clone(),
@@ -1241,7 +1243,7 @@ fn ensure_global_declarations_agree(
         .manifest
         .variables
         .iter()
-        .filter(|variable| variable.scope == "global")
+        .filter(|variable| variable.scope == VariableScope::Global)
         .collect::<Vec<_>>();
     if incoming.is_empty() {
         return Ok(());
@@ -1262,7 +1264,7 @@ fn ensure_global_declarations_agree(
             .manifest
             .variables
             .iter()
-            .filter(|variable| variable.scope == "global")
+            .filter(|variable| variable.scope == VariableScope::Global)
         {
             let Some(declared) = incoming
                 .iter()

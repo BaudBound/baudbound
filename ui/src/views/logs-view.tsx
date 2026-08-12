@@ -256,7 +256,7 @@ function RunLogsPanel({
             value={search}
           />
         </CardHeader>
-        <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
+        <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
           {error ? (
             <div className="p-4">
               <EmptyState>Could not load logs: {error}</EmptyState>
@@ -266,7 +266,7 @@ function RunLogsPanel({
               <EmptyState>No logs match the current search.</EmptyState>
             </div>
           ) : (
-            <table className="responsive-table w-full border-collapse text-sm">
+            <table className="responsive-table min-w-[1120px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   {(
@@ -297,7 +297,7 @@ function RunLogsPanel({
                     </td>
                     <td className="px-3 py-3" data-label="Script">
                       <div className="font-medium">{row.script_name}</div>
-                      <div className="break-all font-mono text-xs text-muted-foreground">{row.script_id}</div>
+                      <div className="break-words font-mono text-xs text-muted-foreground">{row.script_id}</div>
                     </td>
                     <td className="px-3 py-3 font-mono text-xs" data-label="Node">
                       {row.node_id ?? "runtime"}
@@ -308,7 +308,7 @@ function RunLogsPanel({
                     <td className="px-3 py-3 xl:max-w-[520px]" data-label="Message">
                       <span className="select-text break-words font-mono text-xs">{visibleText(row.message)}</span>
                     </td>
-                    <td className="break-all px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Run">
+                    <td className="break-words px-3 py-3 font-mono text-xs text-muted-foreground" data-label="Run">
                       {row.run_id}
                     </td>
                   </tr>

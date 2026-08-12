@@ -475,7 +475,14 @@ fn serial_write_rejects_unknown_device() {
     )
     .expect_err("unknown serial device should fail");
 
-    assert!(error.to_string().contains("unknown serial device"));
+    assert!(matches!(
+        error,
+        baudbound_runtime::RuntimeActionError::ExpectedOutcome {
+            action_type,
+            output,
+            ..
+        } if action_type == "action.serial.write" && output == "device_unavailable"
+    ));
 }
 
 #[test]

@@ -236,8 +236,8 @@ function TriggerEventTable({
 }) {
   const { formatUnixMilliseconds } = useDesktopTime();
   return (
-    <div className="max-h-[60vh] overflow-x-hidden overflow-y-auto" ref={scrollRef}>
-      <table className="responsive-table w-full border-collapse text-sm">
+    <div className="max-h-[60vh] overflow-x-auto overflow-y-auto" ref={scrollRef}>
+      <table className="responsive-table min-w-[1040px] w-full border-collapse text-sm max-[1280px]:min-w-0">
         <thead className="sticky top-0 z-10 bg-card">
           <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
             <th className="px-3 py-2">Time</th>
@@ -262,7 +262,7 @@ function TriggerEventTable({
               </td>
               <td className="px-3 py-3" data-label="Script">
                 <div className="font-medium">{scriptNames[event.script_id] ?? "Unknown script"}</div>
-                <div className="break-all font-mono text-xs text-muted-foreground">{event.script_id}</div>
+                <div className="break-words font-mono text-xs text-muted-foreground">{event.script_id}</div>
               </td>
               <td className="px-3 py-3 font-mono text-xs" data-label="Trigger">
                 {event.node_id}
@@ -274,7 +274,7 @@ function TriggerEventTable({
                 <Badge variant={event.status === "queued" ? "good" : "destructive"}>{event.status}</Badge>
               </td>
               <td className="max-w-[28rem] px-3 py-3" data-label="Payload">
-                <span className="line-clamp-2 break-all font-mono text-xs">{visibleText(event.payload_json)}</span>
+                <span className="line-clamp-2 break-words font-mono text-xs">{visibleText(event.payload_json)}</span>
               </td>
               <td className="px-3 py-3" data-label="View">
                 <Button

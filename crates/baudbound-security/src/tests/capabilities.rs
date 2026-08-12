@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::{
-    CapabilityValidationError, RuntimeDeclarationRequirements,
+    CapabilityValidationError, RuntimeDeclarationRequirements, VariableScope,
     calculate_program_capabilities_with_declarations, validate_program_capabilities,
     validate_program_capabilities_with_declarations,
 };
@@ -115,7 +115,7 @@ fn derives_persistent_storage_and_secret_capabilities() {
             "trigger.manual".to_owned(),
         ],
         RuntimeDeclarationRequirements {
-            declared_variable_scopes: [("counter".to_owned(), "persistent".to_owned())]
+            declared_variable_scopes: [("counter".to_owned(), VariableScope::Persistent)]
                 .into_iter()
                 .collect(),
             has_persistent_declared_variables: true,

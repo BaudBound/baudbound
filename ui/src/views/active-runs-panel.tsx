@@ -101,6 +101,7 @@ function ActiveRunRow({
         <RunLogPanel
           emptyMessage="Waiting for the first live log entry."
           followOutputControl
+          logNumberOffset={run.discarded_log_count}
           logs={run.logs}
         />
       </div>

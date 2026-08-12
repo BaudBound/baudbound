@@ -331,12 +331,8 @@ pub(super) fn validate_manifest_variables(manifest: &Manifest) -> Result<(), Pac
                 variable.name
             ));
         }
-        if !matches!(variable.scope.as_str(), "runtime" | "persistent" | "global") {
-            errors.push(format!(
-                "manifest variable {:?} uses unsupported scope {:?}",
-                variable.name, variable.scope
-            ));
-        }
+        // Scope is not checked here. It is a `VariableScope`, so a manifest
+        // naming anything else fails to deserialize and never reaches this.
         if !SUPPORTED_VARIABLE_TYPES.contains(&variable.value_type.as_str()) {
             errors.push(format!(
                 "manifest variable {:?} uses unsupported type {:?}",
@@ -532,6 +528,7 @@ fn validate_list_item_type(value_type: &str, item_type: Option<&str>) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DeclaredVariable, VariableScope};
 
     #[test]
     fn validates_manifest_declared_variables() {
@@ -719,12 +716,61 @@ mod tests {
     }
 
     #[test]
+    fn a_manifest_naming_a_scope_that_does_not_exist_does_not_deserialize() {
+        // Scope used to be a String that three crates each re-interpreted, and
+        // they disagreed about an unrecognised one. It is a `VariableScope`, so
+        // the refusal happens once, here, before any of them sees a manifest.
+        let error = serde_json::from_value::<DeclaredVariable>(serde_json::json!({
+            "name": "counter",
+            "scope": "session",
+            "type": "integer",
+            "value": 10
+        }))
+        .expect_err("a scope outside the enum should not deserialize");
+
+        let message = error.to_string();
+        assert!(message.contains("session"), "{message}");
+        assert!(message.contains("unknown variant"), "{message}");
+    }
+
+    #[test]
+    fn secret_is_not_a_variable_scope() {
+        // A secret is a separate declaration granting `secret.read`. Nothing
+        // writes one, so it must not be reachable as a variable scope.
+        serde_json::from_value::<DeclaredVariable>(serde_json::json!({
+            "name": "api_token",
+            "scope": "secret",
+            "type": "string",
+            "value": ""
+        }))
+        .expect_err("secret is not a scope a variable may be declared into");
+    }
+
+    #[test]
+    fn every_declarable_scope_round_trips_through_its_manifest_spelling() {
+        // The manifest, the stored row, and every error message spell a scope
+        // the same way, so serialisation has to survive the enum unchanged.
+        for (scope, spelling) in [
+            (VariableScope::Runtime, "runtime"),
+            (VariableScope::Persistent, "persistent"),
+            (VariableScope::Global, "global"),
+        ] {
+            assert_eq!(scope.as_str(), spelling);
+            assert_eq!(
+                serde_json::to_value(scope).expect("scope serialises"),
+                spelling
+            );
+            assert_eq!(
+                serde_json::from_value::<VariableScope>(serde_json::json!(spelling))
+                    .expect("scope deserialises"),
+                scope
+            );
+        }
+    }
+
+    #[test]
     fn rejects_invalid_manifest_declared_variables() {
         for (variables, expected) in [
-            (
-                serde_json::json!([{"name": "counter", "scope": "session", "type": "integer", "value": 10}]),
-                "unsupported scope",
-            ),
             (
                 serde_json::json!([{"name": "counter", "scope": "runtime", "type": "integer", "value": "ten"}]),
                 "does not match type",
@@ -765,16 +811,14 @@ mod tests {
             serde_json::json!(2.5),
             serde_json::json!(-7),
         ] {
-            let variables =
-                serde_json::json!([{"name": "seconds", "scope": "runtime", "type": "float", "value": value}]);
+            let variables = serde_json::json!([{"name": "seconds", "scope": "runtime", "type": "float", "value": value}]);
             validate_manifest_variables(&manifest_with_variables(variables))
                 .unwrap_or_else(|error| panic!("{value} should be a valid float default: {error}"));
         }
 
         // The other half of the rule still holds: a fractional value is not an
         // integer.
-        let fractional =
-            serde_json::json!([{"name": "count", "scope": "runtime", "type": "integer", "value": 2.5}]);
+        let fractional = serde_json::json!([{"name": "count", "scope": "runtime", "type": "integer", "value": 2.5}]);
         validate_manifest_variables(&manifest_with_variables(fractional))
             .expect_err("a fractional value is not an integer");
     }
@@ -783,8 +827,7 @@ mod tests {
     fn a_string_variable_may_be_declared_empty() {
         // The empty string is what clear writes, so a declaration has to be
         // able to hold it. Without this a script had to invent a sentinel.
-        let variables =
-            serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]);
+        let variables = serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]);
         validate_manifest_variables(&manifest_with_variables(variables))
             .expect("an empty string is a valid declared string value");
     }
@@ -794,8 +837,7 @@ mod tests {
         // Global was refused here while the schema already allowed it, which
         // meant no package declaring one could be installed at all.
         for scope in ["runtime", "persistent", "global"] {
-            let variables =
-                serde_json::json!([{"name": "counter", "scope": scope, "type": "integer", "value": 10}]);
+            let variables = serde_json::json!([{"name": "counter", "scope": scope, "type": "integer", "value": 10}]);
             validate_manifest_variables(&manifest_with_variables(variables))
                 .unwrap_or_else(|error| panic!("{scope} should be declarable: {error}"));
         }

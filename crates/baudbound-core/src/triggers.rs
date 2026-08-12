@@ -5,7 +5,7 @@ use std::{
 };
 
 use baudbound_runtime::resolve_template_value;
-use baudbound_script::ScriptPackage;
+use baudbound_script::{ScriptPackage, VariableScope};
 use baudbound_storage::{InstalledScript, ScriptStore, StoredVariableScope};
 use baudbound_triggers::{TriggerDispatcher, TriggerEvent, TriggerRegistration};
 use serde_json::Value;
@@ -122,7 +122,7 @@ fn pre_trigger_variables(
 ) -> Result<BTreeMap<String, Value>, CoreError> {
     let mut variables = BTreeMap::new();
     for variable in &package.manifest.variables {
-        let value = if variable.scope == "persistent" {
+        let value = if variable.scope == VariableScope::Persistent {
             store
                 .load_variable(
                     StoredVariableScope::Persistent,

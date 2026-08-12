@@ -77,8 +77,8 @@ export function ScriptsView({
         <EmptyState>No scripts are installed.</EmptyState>
       ) : (
         <Card>
-          <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
-            <table className="responsive-table scripts-table w-full border-collapse text-sm">
+          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+            <table className="responsive-table scripts-table min-w-[1120px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>

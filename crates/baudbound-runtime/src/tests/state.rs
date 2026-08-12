@@ -163,6 +163,7 @@ impl RuntimeActionHandler for SensitiveFormDialogHandler {
                 "values".to_owned(),
                 json!({"password":"must-not-persist","username":"Ada"}),
             ),
+            ("button".to_owned(), json!("ok")),
             ("submitted".to_owned(), json!(true)),
         ]))
         .with_sensitive_output_path("values", ["password"]))
@@ -216,7 +217,7 @@ fn sensitive_action_outputs_cannot_be_written_to_persistent_or_global_state() {
                     ],
                     "edges": [
                         {"execution_order": 0, "source": "n-trigger", "source_handle": "out", "target": "n-form-dialog", "target_handle": "input"},
-                        {"execution_order": 0, "source": "n-form-dialog", "source_handle": "success", "target": "n-user-log", "target_handle": "input"},
+                        {"execution_order": 0, "source": "n-form-dialog", "source_handle": "submitted", "target": "n-user-log", "target_handle": "input"},
                         {"execution_order": 0, "source": "n-user-log", "source_handle": "out", "target": "n-store", "target_handle": "input"}
                     ]
                 }

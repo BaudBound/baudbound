@@ -1069,6 +1069,7 @@ mod published_package_tests {
     use std::path::PathBuf;
 
     use super::load_script_package;
+    use crate::VariableScope;
 
     fn published(version: &str) -> Option<PathBuf> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1085,11 +1086,9 @@ mod published_package_tests {
         let package = load_script_package(path).expect("1.0.3 should load");
         assert_eq!(package.manifest.version, "1.0.3");
         assert!(
-            package
-                .manifest
-                .variables
-                .iter()
-                .any(|variable| variable.name == "current_ip" && variable.scope == "persistent"),
+            package.manifest.variables.iter().any(|variable| {
+                variable.name == "current_ip" && variable.scope == VariableScope::Persistent
+            }),
             "the package must declare the variable it writes"
         );
     }

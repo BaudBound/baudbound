@@ -62,10 +62,11 @@ pub(crate) fn kill_process_action(
         config_string(&request.config, "matchMode").unwrap_or_else(|| "process_name".to_owned());
     let system = process_system();
     let Some(process) = find_process(request, &system, &match_mode, &target)? else {
-        return failed(
-            request,
-            format!("no process matched {match_mode} target {target}"),
-        );
+        return Err(RuntimeActionError::ExpectedOutcome {
+            action_type: request.action_type.clone(),
+            output: "not_found".to_owned(),
+            output_data: Map::from_iter([("target".to_owned(), Value::String(target))]),
+        });
     };
 
     let mut output_data = process_status_output(process, true);

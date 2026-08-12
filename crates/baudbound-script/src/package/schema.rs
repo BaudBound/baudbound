@@ -168,6 +168,41 @@ mod tests {
     }
 
     #[test]
+    fn a_script_id_must_be_a_uuid() {
+        // The schema said `"format": "uuid"` and nothing enforced it: `format`
+        // is an annotation in draft 2020-12 unless a validator opts in, and
+        // this one does not. A name-shaped id passed, which matters because the
+        // id owns a script's stored variables and secrets and decides whether
+        // an install updates an existing script — so two authors both shipping
+        // "BRB-Timer" meant the second inherited the first's state.
+        let manifest = |id: &str| {
+            json!({
+                "format_version": 1,
+                "script_language_version": 1,
+                "id": id,
+                "name": "BRB Timer",
+                "version": "1.0.0",
+                "created_with": "BaudBound Test",
+                "created_at": "2026-01-01T00:00:00.000Z",
+                "minimum_runner_version": "0.1.0"
+            })
+        };
+
+        validate_manifest_schema(&manifest("6db0f09c-2d76-4ea3-bb6b-9a093a04d8f7"))
+            .expect("a uuid is the shape an id has");
+
+        for rejected in [
+            "BRB-Timer",
+            "",
+            "6db0f09c2d764ea3bb6b9a093a04d8f7",
+            "6db0f09c-2d76-4ea3-bb6b-9a093a04d8f",
+        ] {
+            validate_manifest_schema(&manifest(rejected))
+                .expect_err(&format!("{rejected:?} must not pass as a script id"));
+        }
+    }
+
+    #[test]
     fn program_variable_metadata_exactly_unions_manifest_and_runtime_data_types() {
         let program_schema: Value = serde_json::from_str(PROGRAM_SCHEMA_JSON)
             .expect("embedded program schema should parse");
@@ -328,6 +363,60 @@ mod tests {
             validate_program_schema(&program)
                 .unwrap_or_else(|error| panic!("{operation} export should match schema: {error}"));
         }
+    }
+
+    #[test]
+    fn accepts_the_complete_format_duration_contract_exported_by_the_editor() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["steps"] = json!([{
+            "id": "n-duration",
+            "action_type": "action.text.format",
+            "type": "action",
+            "action": "format_text",
+            "config": {
+                "input": "{{elapsed_seconds}}",
+                "operations": [{
+                    "id": "duration",
+                    "operation": "format_duration",
+                    "durationUnit": "seconds",
+                    "pattern": "D HH:mm:ss"
+                }]
+            },
+            "runtime_outputs": []
+        }]);
+
+        validate_program_schema(&program)
+            .expect("a complete format duration operation should match the schema");
+
+        program["entry"]["program"]["steps"][0]["config"]["operations"][0]
+            .as_object_mut()
+            .expect("operation should be an object")
+            .remove("durationUnit");
+        assert!(matches!(
+            validate_program_schema(&program),
+            Err(PackageLoadError::ProgramSchema(_))
+        ));
+    }
+
+    #[test]
+    fn accepts_calculate_result_types_exported_by_the_editor() {
+        let mut program = minimal_program();
+        program["entry"]["program"]["steps"] = json!([{
+            "id": "n-calculate",
+            "action_type": "action.calculate",
+            "type": "action",
+            "action": "calculate",
+            "config": { "expression": "4 / 2", "resultType": "automatic" },
+            "runtime_outputs": []
+        }]);
+        validate_program_schema(&program)
+            .expect("an automatic calculation result should match the schema");
+
+        program["entry"]["program"]["steps"][0]["config"]["resultType"] = json!("decimal");
+        assert!(matches!(
+            validate_program_schema(&program),
+            Err(PackageLoadError::ProgramSchema(_))
+        ));
     }
 
     #[test]

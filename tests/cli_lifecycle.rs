@@ -13,6 +13,16 @@ use baudbound_storage::{ScriptStore, SecretCipher, SqliteRunnerStore};
 use serde_json::{Value, json};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+/// Fixture script ids.
+///
+/// A script id is a UUID and the manifest schema enforces it, because the id
+/// owns a script's persistent variables and secrets and decides whether an
+/// install updates an existing script or creates one. These used to be readable
+/// slugs, which passed only because `"format": "uuid"` is an annotation the
+/// validator never asserted.
+const CLI_LIFECYCLE_ID: &str = "00000021-0000-4000-8000-000000000021";
+const SCHEDULED_LOG_ID: &str = "00000022-0000-4000-8000-000000000022";
+
 #[test]
 fn cli_initializes_runner_config_template() {
     let temporary_directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -97,22 +107,22 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
     );
     let imported = command_json(run_baudbound(
         &runner_home,
-        ["script", "inspect", "cli-lifecycle", "--json"],
+        ["script", "inspect", CLI_LIFECYCLE_ID, "--json"],
     ));
     let imported_hash = imported["package_hash"]
         .as_str()
         .expect("imported package hash should be a string")
         .to_owned();
-    assert_eq!(imported["id"], "cli-lifecycle");
+    assert_eq!(imported["id"], CLI_LIFECYCLE_ID);
 
-    let failed_run = run_baudbound(&runner_home, ["script", "run", "cli-lifecycle"]);
+    let failed_run = run_baudbound(&runner_home, ["script", "run", CLI_LIFECYCLE_ID]);
     assert!(
         !failed_run.status.success(),
         "unapproved package should fail before approval\n{}",
         command_output(&failed_run)
     );
 
-    let approval_output = run_baudbound(&runner_home, ["script", "approve", "cli-lifecycle"]);
+    let approval_output = run_baudbound(&runner_home, ["script", "approve", CLI_LIFECYCLE_ID]);
     assert_success_like(&approval_output);
     assert!(
         String::from_utf8_lossy(&approval_output.stdout).contains("bbwh_"),
@@ -121,12 +131,12 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
     );
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "run", "cli-lifecycle"],
+        ["script", "run", CLI_LIFECYCLE_ID],
     ));
 
     let logs = command_json(run_baudbound(
         &runner_home,
-        ["script", "logs", "--script", "cli-lifecycle", "--json"],
+        ["script", "logs", "--script", CLI_LIFECYCLE_ID, "--json"],
     ));
     let records = logs.as_array().expect("logs should be a JSON array");
     assert_eq!(records.len(), 2);
@@ -143,9 +153,9 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
     ));
     let updated = command_json(run_baudbound(
         &runner_home,
-        ["script", "inspect", "cli-lifecycle", "--json"],
+        ["script", "inspect", CLI_LIFECYCLE_ID, "--json"],
     ));
-    assert_eq!(updated["id"], "cli-lifecycle");
+    assert_eq!(updated["id"], CLI_LIFECYCLE_ID);
     assert_ne!(updated["package_hash"], imported_hash);
     assert_eq!(
         command_json(run_baudbound(&runner_home, ["script", "list", "--json"]))
@@ -157,14 +167,14 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
     assert_eq!(
         command_json(run_baudbound(
             &runner_home,
-            ["script", "approval", "cli-lifecycle", "--json"],
+            ["script", "approval", CLI_LIFECYCLE_ID, "--json"],
         )),
         Value::Null
     );
 
     let triggers = command_json(run_baudbound(
         &runner_home,
-        ["script", "triggers", "cli-lifecycle", "--json"],
+        ["script", "triggers", CLI_LIFECYCLE_ID, "--json"],
     ));
     let webhook = triggers
         .as_array()
@@ -176,7 +186,7 @@ fn cli_runs_installed_package_lifecycle_against_isolated_home() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "remove", "cli-lifecycle"],
+        ["script", "remove", CLI_LIFECYCLE_ID],
     ));
     let installed_scripts = command_json(run_baudbound(&runner_home, ["script", "list", "--json"]));
     assert!(
@@ -307,7 +317,7 @@ fn cli_reports_serve_preflight_without_opening_services() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "cli-lifecycle"],
+        ["script", "approve", CLI_LIFECYCLE_ID],
     ));
 
     let preflight = command_json(run_baudbound(
@@ -335,7 +345,7 @@ fn cli_reports_serve_preflight_without_opening_services() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "disable", "cli-lifecycle"],
+        ["script", "disable", CLI_LIFECYCLE_ID],
     ));
     let disabled_preflight = command_json(run_baudbound(
         &runner_home,
@@ -364,7 +374,7 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
 
     let preflight = command_json(run_baudbound(
@@ -390,7 +400,7 @@ fn cli_serve_once_dispatches_due_schedule_and_persists_status() {
 
     let logs = command_json(run_baudbound(
         &runner_home,
-        ["script", "logs", "--script", "scheduled-log", "--json"],
+        ["script", "logs", "--script", SCHEDULED_LOG_ID, "--json"],
     ));
     let records = logs.as_array().expect("logs should be a JSON array");
     assert_eq!(records.len(), 1);
@@ -450,7 +460,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
 
     let reloaded_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
@@ -462,7 +472,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "disable", "scheduled-log"],
+        ["script", "disable", SCHEDULED_LOG_ID],
     ));
     let disabled_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 0
@@ -471,7 +481,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "enable", "scheduled-log"],
+        ["script", "enable", SCHEDULED_LOG_ID],
     ));
     wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 1
@@ -479,7 +489,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "revoke-approval", "scheduled-log"],
+        ["script", "revoke-approval", SCHEDULED_LOG_ID],
     ));
     let revoked_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
         status["state"] == "running" && status["active_service_count"] == 0
@@ -488,7 +498,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
     let reapproved_status =
         wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
@@ -522,7 +532,7 @@ fn cli_serve_requires_secrets_only_for_enabled_scripts() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
 
     let blocked = run_baudbound(&runner_home, ["serve", "--once"]);
@@ -532,11 +542,11 @@ fn cli_serve_requires_secrets_only_for_enabled_scripts() {
     );
     let blocked_output = command_output(&blocked);
     assert!(blocked_output.contains("required secret values are missing"));
-    assert!(blocked_output.contains("\"Scheduled Log\" (scheduled-log): api_key"));
+    assert!(blocked_output.contains(&format!("\"Scheduled Log\" ({SCHEDULED_LOG_ID}): api_key")));
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "disable", "scheduled-log"],
+        ["script", "disable", SCHEDULED_LOG_ID],
     ));
     assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
 
@@ -545,11 +555,11 @@ fn cli_serve_requires_secrets_only_for_enabled_scripts() {
         .expect("runner store should open")
         .with_secret_cipher(SecretCipher::from_key(key));
     store
-        .set_secret("scheduled-log", "api_key", &json!("configured"))
+        .set_secret(SCHEDULED_LOG_ID, "api_key", &json!("configured"))
         .expect("required secret should store");
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "enable", "scheduled-log"],
+        ["script", "enable", SCHEDULED_LOG_ID],
     ));
 
     let locked = run_baudbound(&runner_home, ["serve", "--once"]);
@@ -565,7 +575,7 @@ fn cli_serve_requires_secrets_only_for_enabled_scripts() {
 
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "disable", "scheduled-log"],
+        ["script", "disable", SCHEDULED_LOG_ID],
     ));
     assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
 }
@@ -588,7 +598,7 @@ fn cli_serve_does_not_require_optional_secret_values() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
     assert_success(run_baudbound(&runner_home, ["serve", "--dry-run"]));
 }
@@ -611,7 +621,7 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
     ));
     assert_success(run_baudbound(
         &runner_home,
-        ["script", "approve", "scheduled-log"],
+        ["script", "approve", SCHEDULED_LOG_ID],
     ));
 
     let secret_value = SecretCipher::generate_key()
@@ -624,7 +634,7 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
         .expect("runner store should open")
         .with_secret_cipher(SecretCipher::from_key(key));
     store
-        .set_secret("scheduled-log", "api_key", &json!(secret_value))
+        .set_secret(SCHEDULED_LOG_ID, "api_key", &json!(secret_value))
         .expect("required secret should store");
 
     let encoded_key = STANDARD.encode(key);
@@ -639,7 +649,7 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
 
     assert!(
         store
-            .remove_secret("scheduled-log", "api_key")
+            .remove_secret(SCHEDULED_LOG_ID, "api_key")
             .expect("required secret should be removed")
     );
     assert_child_exits_with_error(
@@ -915,7 +925,7 @@ fn create_test_package(script_name: &str, hook_name: &str, marker: &str) -> Vec<
         r#"{{
             "format_version": 1,
             "script_language_version": 1,
-            "id": "cli-lifecycle",
+            "id": "{CLI_LIFECYCLE_ID}",
             "name": "{script_name}",
             "version": "1.0.0",
             "created_with": "BaudBound CLI Test",
@@ -1033,7 +1043,7 @@ fn create_schedule_package_with_secrets(secrets: &str) -> Vec<u8> {
         r#"{{
             "format_version": 1,
             "script_language_version": 1,
-            "id": "scheduled-log",
+            "id": "{SCHEDULED_LOG_ID}",
             "name": "Scheduled Log",
             "version": "1.0.0",
             "created_with": "BaudBound CLI Test",

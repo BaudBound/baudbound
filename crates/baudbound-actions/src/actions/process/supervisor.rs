@@ -9,6 +9,7 @@ use baudbound_runtime::{
     ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeCancellationToken,
 };
 use command_group::{CommandGroup, GroupChild};
+use serde_json::Map;
 
 use crate::failed;
 use crate::resource_tracker::ProcessLaunchPermit;
@@ -98,13 +99,11 @@ pub(super) fn run_command(
             })
         }
         Termination::Cancelled => Err(RuntimeActionError::Cancelled),
-        Termination::TimedOut => failed(
-            request,
-            format!(
-                "{description} exceeded its timeout of {} seconds and was terminated",
-                timeout.as_secs_f64()
-            ),
-        ),
+        Termination::TimedOut => Err(RuntimeActionError::ExpectedOutcome {
+            action_type: request.action_type.clone(),
+            output: "timed_out".to_owned(),
+            output_data: Map::new(),
+        }),
     }
 }
 

@@ -185,7 +185,7 @@ function VariableSection({ children, title }: { children: React.ReactNode; title
       <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>
-      <CardContent className="p-0 max-[1280px]:p-3">{children}</CardContent>
+      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">{children}</CardContent>
     </Card>
   );
 }
@@ -199,7 +199,7 @@ function StoredVariablesTable({
 }) {
   const { formatUnixSeconds } = useDesktopTime();
   return (
-    <table className="responsive-table w-full border-collapse text-sm">
+    <table className="responsive-table min-w-[900px] w-full border-collapse text-sm max-[1280px]:min-w-0">
       <thead>
         <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
           <th className="px-3 py-2">Name</th>
@@ -224,14 +224,14 @@ function StoredVariablesTable({
             <td className="px-3 py-3" data-label="Script">
               {variable.script_name ?? "All scripts"}
               {variable.script_id ? (
-                <div className="break-all font-mono text-xs text-muted-foreground">{variable.script_id}</div>
+                <div className="break-words font-mono text-xs text-muted-foreground">{variable.script_id}</div>
               ) : null}
               {/* A global belongs to no script, so "All scripts" says who may
                   read it but nothing about where this value came from. The
                   last writer is the question an author actually has when a
                   shared value is not what they expected. */}
               {variable.scope === "global" ? (
-                <div className="break-all text-xs text-muted-foreground">
+                <div className="break-words text-xs text-muted-foreground">
                   {variable.written_by
                     ? `Last written by ${scriptNames[variable.written_by] ?? variable.written_by}`
                     : "Last writer unknown"}
@@ -253,7 +253,7 @@ function StoredVariablesTable({
 
 function DeclaredVariablesTable({ variables }: { variables: DeclaredVariableRecord[] }) {
   return (
-    <table className="responsive-table w-full border-collapse text-sm">
+    <table className="responsive-table min-w-[980px] w-full border-collapse text-sm max-[1280px]:min-w-0">
       <thead>
         <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
           <th className="px-3 py-2">Name</th>
@@ -278,7 +278,7 @@ function DeclaredVariablesTable({ variables }: { variables: DeclaredVariableReco
             </td>
             <td className="px-3 py-3" data-label="Script">
               {variable.script_name}
-              <div className="break-all font-mono text-xs text-muted-foreground">{variable.script_id}</div>
+              <div className="break-words font-mono text-xs text-muted-foreground">{variable.script_id}</div>
             </td>
             <td className="max-w-[420px] px-3 py-3" data-label="Default value">
               <CodeBlock className="max-h-40">{jsonValue(variable.value)}</CodeBlock>

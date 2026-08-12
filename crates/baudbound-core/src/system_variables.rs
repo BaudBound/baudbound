@@ -102,6 +102,14 @@ fn timezone() -> String {
 /// `version` is the script version the manifest declares. The editor used to
 /// report the manifest format version here, which is a different fact and not
 /// one an author has any use for.
+///
+/// `format_version`, `script_language_version` and `created_with` are
+/// deliberately absent: they describe how the package was written rather than
+/// what the script is, and an author branching on them would be reading the
+/// toolchain rather than their own script. The declaration collections
+/// (`assets`, `variables`, `settings`, `secrets`) are absent for a different
+/// reason — each is already reachable as a variable in its own right, so
+/// copying them here would give one value two spellings that could disagree.
 #[must_use]
 pub fn manifest_variables(manifest: &baudbound_script::Manifest) -> BTreeMap<String, Value> {
     BTreeMap::from([
@@ -119,6 +127,18 @@ pub fn manifest_variables(manifest: &baudbound_script::Manifest) -> BTreeMap<Str
             "minimum_runner_version".to_owned(),
             json!(manifest.minimum_runner_version.clone()),
         ),
+        // `repository_url` is deliberately absent. It is distribution plumbing
+        // rather than something a script has any business branching on, and
+        // `source` already answers where the script came from. The editor's
+        // package-contract test holds the same line on its side.
+        //
+        // A datetime rather than the raw string, so the component paths and the
+        // format patterns read it the same way they read any other datetime.
+        (
+            "created_at".to_owned(),
+            json!({"type": "datetime", "value": manifest.created_at.clone()}),
+        ),
+        ("tags".to_owned(), json!(manifest.tags.clone())),
     ])
 }
 

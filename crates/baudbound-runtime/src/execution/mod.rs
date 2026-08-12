@@ -149,9 +149,35 @@ impl<'a> RuntimeExecutor<'a> {
         );
         self.seed_trigger_payload_outputs(&trigger_node_id)?;
 
+        let trigger_handle = if self
+            .graph
+            .trigger(&trigger_node_id)
+            .is_ok_and(|node| node.action_type == "trigger.file_watch")
+        {
+            match self
+                .context
+                .trigger_payload
+                .get("event")
+                .and_then(Value::as_str)
+            {
+                Some(event @ ("created" | "modified" | "deleted" | "renamed")) => event.to_owned(),
+                Some(event) => {
+                    return Err(RuntimeError::State(format!(
+                        "file watch trigger {trigger_node_id} received unsupported event {event:?}"
+                    )));
+                }
+                None => {
+                    return Err(RuntimeError::State(format!(
+                        "file watch trigger {trigger_node_id} did not receive an event type"
+                    )));
+                }
+            }
+        } else {
+            "out".to_owned()
+        };
         let mut frames = vec![RuntimeFrame::Follow {
             source_node_id: trigger_node_id,
-            handle: "out".to_owned(),
+            handle: trigger_handle,
             stop_at_node_id: None,
         }];
 

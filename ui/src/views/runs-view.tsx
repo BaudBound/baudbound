@@ -315,7 +315,7 @@ export function RunsView({
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="min-w-0 p-0 max-[1280px]:p-3">
+        <CardContent className="min-w-0 overflow-x-auto p-0 max-[1280px]:p-3">
           {error ? (
             <div className="p-4">
               <EmptyState>Could not load runs: {error}</EmptyState>
@@ -325,7 +325,7 @@ export function RunsView({
               <EmptyState>No runs match the current filters.</EmptyState>
             </div>
           ) : (
-            <table className="responsive-table w-full border-collapse text-sm">
+            <table className="responsive-table min-w-[1120px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <th className="w-11 px-3 py-2">
@@ -453,15 +453,15 @@ function RunRow({
       </td>
       <td className="px-3 py-3" data-label="Script">
         <div className="font-medium">{scriptName}</div>
-        <div className="break-all font-mono text-xs text-muted-foreground">
+        <div className="break-words font-mono text-xs text-muted-foreground">
           {run.script_id}
         </div>
       </td>
-      <td className="break-all px-3 py-3" data-label="Trigger">
+      <td className="break-words px-3 py-3" data-label="Trigger">
         {run.trigger_node_id}
       </td>
       <td
-        className="break-all px-3 py-3 font-mono text-xs text-muted-foreground"
+        className="break-words px-3 py-3 font-mono text-xs text-muted-foreground"
         data-label="Trigger type"
       >
         {nodeActionType(run.logs, run.trigger_node_id) ?? "-"}
@@ -473,7 +473,7 @@ function RunRow({
         </div>
       </td>
       <td
-        className="break-all px-3 py-3 font-mono text-xs text-muted-foreground"
+        className="break-words px-3 py-3 font-mono text-xs text-muted-foreground"
         data-label="Run ID"
       >
         {run.run_id}

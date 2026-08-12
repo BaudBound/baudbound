@@ -139,6 +139,29 @@ describe("desktop dialog payload parsing", () => {
 		).toThrow(/unsupported value "huge"/);
 	});
 
+	it("defaults legacy number fields to floats and supports explicit integers", () => {
+		const legacy = parseDesktopDialogPayload({
+			...base,
+			fields: [{ ...commonField, defaultValue: 2.5, placeholder: "0", type: "number" }],
+		});
+		const integer = parseDesktopDialogPayload({
+			...base,
+			fields: [{ ...commonField, defaultValue: 2, numberType: "integer", placeholder: "0", type: "number" }],
+		});
+
+		expect(legacy.kind).toBe("form_dialog");
+		expect(integer.kind).toBe("form_dialog");
+		if (legacy.kind !== "form_dialog" || integer.kind !== "form_dialog") throw new Error("expected form dialog payloads");
+		expect(legacy.fields[0]).toMatchObject({ numberType: "float", type: "number" });
+		expect(integer.fields[0]).toMatchObject({ numberType: "integer", type: "number" });
+		expect(() =>
+			parseDesktopDialogPayload({
+				...base,
+				fields: [{ ...commonField, defaultValue: 2, numberType: "decimal", placeholder: "0", type: "number" }],
+			}),
+		).toThrow(/numberType/);
+	});
+
 	it("accepts strict message payloads and rejects unknown variants", () => {
 		expect(
 			parseDesktopDialogPayload({

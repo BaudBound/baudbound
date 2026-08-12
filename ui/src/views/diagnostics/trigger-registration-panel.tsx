@@ -44,13 +44,13 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
         </div>
         <Badge variant="muted">{rows.length}</Badge>
       </CardHeader>
-      <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
+      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
           <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No trigger registrations are currently loaded.
           </div>
         ) : (
-          <table className="responsive-table w-full border-collapse text-sm">
+          <table className="responsive-table min-w-[900px] w-full border-collapse text-sm max-[1280px]:min-w-0">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                 <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
@@ -75,12 +75,12 @@ export function TriggerRegistrationPanel({ dashboard }: { dashboard: DashboardPa
                 <tr className="border-b border-border last:border-b-0" key={`${row.scriptId}:${row.node_id}`}>
                   <td className="px-3 py-3" data-label="Script">
                     <div className="font-medium">{row.scriptName}</div>
-                    <div className="break-all font-mono text-xs text-muted-foreground">{row.scriptId}</div>
+                    <div className="break-words font-mono text-xs text-muted-foreground">{row.scriptId}</div>
                   </td>
                   <td className="px-3 py-3" data-label="Type">
                     <Badge variant="muted">{triggerDisplayName(row.runner_type)}</Badge>
                   </td>
-                  <td className="break-all px-3 py-3 font-mono text-xs" data-label="Node">
+                  <td className="break-words px-3 py-3 font-mono text-xs" data-label="Node">
                     {row.node_id}
                   </td>
                   <td className="px-3 py-3" data-label="Health">

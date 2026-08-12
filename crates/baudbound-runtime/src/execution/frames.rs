@@ -43,13 +43,14 @@ impl RuntimeExecutor<'_> {
         stop_at_node_id: Option<String>,
     ) -> Result<(), RuntimeError> {
         self.graph.node(source_node_id)?;
+        let selected_handle = handle;
         let targets = self
             .graph
-            .target_node_ids_for_handle(source_node_id, handle);
+            .target_node_ids_for_handle(source_node_id, selected_handle);
         if targets.is_empty() {
             self.push_runtime_log(
                 "info",
-                format!("No connection from {source_node_id} output \"{handle}\". Branch ended."),
+                format!("No connection from {source_node_id} output \"{selected_handle}\". Branch ended."),
                 Some(source_node_id.to_owned()),
             );
             return Ok(());
@@ -150,7 +151,9 @@ impl RuntimeExecutor<'_> {
             }
             _ => {
                 let handle = match self.execute_node(&node) {
-                    Ok(()) => self.default_success_handle(&node),
+                    Ok(selected_output) => {
+                        selected_output.or_else(|| self.default_success_handle(&node))
+                    }
                     Err(error) => {
                         let Some(failure) =
                             ExpectedNodeFailure::from_runtime_error(&error, &node.action_type)
@@ -234,6 +237,17 @@ impl RuntimeExecutor<'_> {
         }
 
         self.record_loop_iteration()?;
+
+        self.set_variable(
+            format!("{node_id}.index"),
+            Value::Number(Number::from(index)),
+            RunVariableScope::NodeOutput,
+        )?;
+        self.set_variable(
+            format!("{node_id}.count"),
+            Value::Number(Number::from(count)),
+            RunVariableScope::NodeOutput,
+        )?;
 
         self.log_loop_iteration(
             node_id,
@@ -329,6 +343,12 @@ impl RuntimeExecutor<'_> {
 
         self.record_loop_iteration()?;
 
+        self.set_variable(
+            format!("{node_id}.index"),
+            Value::Number(Number::from(index)),
+            RunVariableScope::NodeOutput,
+        )?;
+
         let next_index = index.saturating_add(1);
         self.log_loop_iteration(
             node_id,
@@ -371,6 +391,9 @@ impl RuntimeExecutor<'_> {
 
         let item_variable = format!("{node_id}.item");
         let index_variable = format!("{node_id}.index");
+        let count_variable = format!("{node_id}.count");
+        let is_first_variable = format!("{node_id}.is_first");
+        let is_last_variable = format!("{node_id}.is_last");
         self.set_variable(
             item_variable.clone(),
             items[index].clone(),
@@ -379,6 +402,21 @@ impl RuntimeExecutor<'_> {
         self.set_variable(
             index_variable.clone(),
             Value::Number(Number::from(u64::try_from(index).unwrap_or(u64::MAX))),
+            RunVariableScope::NodeOutput,
+        )?;
+        self.set_variable(
+            count_variable,
+            Value::Number(Number::from(u64::try_from(items.len()).unwrap_or(u64::MAX))),
+            RunVariableScope::NodeOutput,
+        )?;
+        self.set_variable(
+            is_first_variable,
+            Value::Bool(index == 0),
+            RunVariableScope::NodeOutput,
+        )?;
+        self.set_variable(
+            is_last_variable,
+            Value::Bool(index.saturating_add(1) == items.len()),
             RunVariableScope::NodeOutput,
         )?;
         self.log_loop_iteration(

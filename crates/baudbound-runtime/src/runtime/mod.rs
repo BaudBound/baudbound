@@ -5,6 +5,7 @@ mod config;
 mod control;
 mod datetime_format;
 mod duration;
+mod duration_format;
 mod graph;
 mod http_body;
 pub mod state;
@@ -20,6 +21,7 @@ pub(crate) use config::{config_string, required_config_string};
 pub(crate) use control::{RuntimeConditionRow, RuntimeFrame, RuntimeSwitchCaseRow};
 pub use datetime_format::{format_datetime, validate_datetime_pattern};
 pub(crate) use duration::duration_from_amount;
+pub use duration_format::{format_duration, validate_duration_pattern, validate_duration_unit};
 pub(crate) use graph::RuntimeGraph;
 pub(crate) use http_body::resolve_http_request_config;
 pub use state::{

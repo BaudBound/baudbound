@@ -353,7 +353,14 @@ fn delete_file_rejects_missing_paths_and_directories() {
         json!({"path": directory.path().join("missing.txt")}),
     )
     .expect_err("missing delete target must fail");
-    assert!(missing_error.to_string().contains("failed to inspect"));
+    assert!(matches!(
+        missing_error,
+        baudbound_runtime::RuntimeActionError::ExpectedOutcome {
+            action_type,
+            output,
+            ..
+        } if action_type == "action.file.delete" && output == "not_found"
+    ));
 
     let directory_error = execute("action.file.delete", json!({"path": directory.path()}))
         .expect_err("directory delete target must fail");
