@@ -5,6 +5,9 @@ set -euo pipefail
 format="${1:-}"
 package_directory="${2:-}"
 expected_version="${3:-}"
+# Debian and RPM spell the same architecture differently, so the caller passes
+# the token for the format being tested rather than a single architecture name.
+architecture="${4:-}"
 package_name="baudbound"
 user_data_directory="${HOME}/.local/share/BaudBound/runner"
 user_data_marker="${user_data_directory}/package-preservation-test"
@@ -17,12 +20,15 @@ fail() {
 [[ -d "$package_directory" ]] || fail "package directory does not exist"
 [[ "$expected_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
     || fail "expected version is invalid"
+[[ -n "$architecture" ]] || fail "architecture argument is required"
 
 find_package() {
     local suffix="$1"
-    mapfile -t matches < <(find "$package_directory" -maxdepth 1 -type f -name "*$suffix" -print)
+    mapfile -t matches < <(
+        find "$package_directory" -maxdepth 1 -type f -name "*${architecture}${suffix}" -print
+    )
     [[ "${#matches[@]}" -eq 1 ]] \
-        || fail "expected exactly one $suffix package, found ${#matches[@]}"
+        || fail "expected exactly one ${architecture}${suffix} package, found ${#matches[@]}"
     printf '%s' "${matches[0]}"
 }
 
