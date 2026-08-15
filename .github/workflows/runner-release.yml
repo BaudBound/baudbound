@@ -50,6 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            cmake \
             libasound2-dev \
             libayatana-appindicator3-dev \
             libudev-dev \
@@ -106,6 +107,12 @@ jobs:
           command: check
           arguments: --all-features --locked --target x86_64-pc-windows-msvc
 
+      - name: Check ARM64 Linux Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --all-features --locked --target aarch64-unknown-linux-gnu
+
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
@@ -135,8 +142,11 @@ jobs:
           - label: Windows NSIS
             os: windows-latest
             bundles: nsis
-          - label: Linux packages
+          - label: Linux packages (x86_64)
             os: ubuntu-22.04
+            bundles: appimage,deb,rpm
+          - label: Linux packages (arm64)
+            os: ubuntu-22.04-arm
             bundles: appimage,deb,rpm
 
     steps:
@@ -150,6 +160,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            cmake \
             libasound2-dev \
             libayatana-appindicator3-dev \
             libudev-dev \
@@ -198,13 +209,55 @@ jobs:
           releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
-          updaterJsonPreferNsis: true
-          uploadUpdaterJson: true
+          # The manifest is composed once by the updater-manifest job below.
+          # Letting each package job upload its own made three writers contend
+          # for one asset.
           uploadUpdaterSignatures: true
+
+  updater-manifest:
+    name: Compose updater manifest
+    needs: package
+    runs-on: ubuntu-22.04
+    environment: runner-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+
+      - name: Download draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/baudbound-updater"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/baudbound-updater"
+
+      - name: Compose latest.json
+        run: >-
+          node scripts/build-updater-manifest.mjs
+          "$RUNNER_TEMP/baudbound-updater"
+          "$GITHUB_REF_NAME"
+          "BaudBound/baudbound"
+
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          "$RUNNER_TEMP/baudbound-updater/latest.json"
+          --clobber
 
   verify-release:
     name: Verify draft release
-    needs: package
+    needs: updater-manifest
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -247,39 +300,13 @@ jobs:
         run: >-
           node scripts/generate-release-checksums.mjs
           "$RUNNER_TEMP/baudbound-release"
+          "$GITHUB_REF_NAME"
 
       - name: Verify Linux native packages
         run: >-
           node scripts/verify-linux-packages-cli.mjs
           "$RUNNER_TEMP/baudbound-release"
           "$GITHUB_REF_NAME"
-
-      - name: Test Debian package installation and removal
-        run: |
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
-            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
-            debian:13-slim \
-            bash /workspace/scripts/test-linux-package-install.sh \
-            deb /packages "${GITHUB_REF_NAME#v}"
-
-      - name: Test Ubuntu package installation and removal
-        run: |
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
-            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
-            ubuntu:24.04 \
-            bash /workspace/scripts/test-linux-package-install.sh \
-            deb /packages "${GITHUB_REF_NAME#v}"
-
-      - name: Test RPM package installation and removal
-        run: |
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
-            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
-            fedora:43 \
-            bash /workspace/scripts/test-linux-package-install.sh \
-            rpm /packages "${GITHUB_REF_NAME#v}"
 
       - name: Verify updater manifest and artifacts
         run: >-
@@ -289,9 +316,51 @@ jobs:
           "BaudBound/baudbound"
           "$RUNNER_TEMP/baudbound-release-assets.json"
 
+  package-install:
+    name: Install ${{ matrix.image }} (${{ matrix.label }})
+    needs: updater-manifest
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      # Debian and RPM spell the same architecture differently, so the token
+      # passed to the script is the one that format uses, not an identifier
+      # shared between them.
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, label: x86_64, token: _amd64, format: deb, image: "debian:13-slim" }
+          - { runner: ubuntu-22.04, label: x86_64, token: _amd64, format: deb, image: "ubuntu:24.04" }
+          - { runner: ubuntu-22.04, label: x86_64, token: .x86_64, format: rpm, image: "fedora:43" }
+          - { runner: ubuntu-22.04-arm, label: arm64, token: _arm64, format: deb, image: "debian:13-slim" }
+          - { runner: ubuntu-22.04-arm, label: arm64, token: _arm64, format: deb, image: "ubuntu:24.04" }
+          - { runner: ubuntu-22.04-arm, label: arm64, token: .aarch64, format: rpm, image: "fedora:43" }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true
+
+      - name: Download draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/baudbound-release"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/baudbound-release"
+
+      - name: Test package installation and removal
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$RUNNER_TEMP/baudbound-release:/packages:ro" \
+            ${{ matrix.image }} \
+            bash /workspace/scripts/test-linux-package-install.sh \
+            ${{ matrix.format }} /packages "${GITHUB_REF_NAME#v}" "${{ matrix.token }}"
+
   publish-checksums:
     name: Publish verified checksums
-    needs: verify-release
+    needs: [verify-release, package-install]
     runs-on: ubuntu-22.04
     environment: runner-release
     permissions:
@@ -319,6 +388,7 @@ jobs:
         run: >-
           node scripts/generate-release-checksums.mjs
           "$RUNNER_TEMP/baudbound-release"
+          "$GITHUB_REF_NAME"
 
       - name: Upload release checksums
         env:
