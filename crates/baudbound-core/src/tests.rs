@@ -22,6 +22,42 @@ use super::*;
 #[path = "tests/sub_script.rs"]
 mod sub_script;
 
+/// The script ids these fixtures install under.
+///
+/// A script id is a UUID and the manifest schema enforces it now. That is not
+/// cosmetic: the id owns a script's persistent variables and secrets and
+/// decides whether an install updates an existing script or creates one, so two
+/// packages sharing an id means the second inherits the first's state. These
+/// used to be readable slugs, which passed only because `"format": "uuid"` is
+/// an annotation the validator never asserted.
+///
+/// They stay named here so a test still reads as what it is while carrying an
+/// id a real package could actually have.
+const WORKSPACE_ANCHOR_ID: &str = "00000001-0000-4000-8000-000000000001";
+const CANCELLABLE_ID: &str = "00000002-0000-4000-8000-000000000002";
+const NETWORK_TRIGGER_ID: &str = "00000003-0000-4000-8000-000000000003";
+const DANGEROUS_PROCESS_ID: &str = "00000004-0000-4000-8000-000000000004";
+const SHELL_COMMAND_ID: &str = "00000005-0000-4000-8000-000000000005";
+const OBSERVATION_WATCH_ID: &str = "00000006-0000-4000-8000-000000000006";
+const OBSERVATION_VARIABLE_ID: &str = "00000007-0000-4000-8000-000000000007";
+const OBSERVATION_PROCESS_ID: &str = "00000008-0000-4000-8000-000000000008";
+const ACTION_HANDLER_ID: &str = "00000009-0000-4000-8000-000000000009";
+const PARENT_SCRIPT_ID: &str = "0000000a-0000-4000-8000-00000000000a";
+const RECURSIVE_SCRIPT_ID: &str = "0000000b-0000-4000-8000-00000000000b";
+const GLOBAL_FIRST_ID: &str = "0000000c-0000-4000-8000-00000000000c";
+const GLOBAL_SECOND_ID: &str = "0000000d-0000-4000-8000-00000000000d";
+const SETTINGS_TEST_ID: &str = "0000000e-0000-4000-8000-00000000000e";
+const FUTURE_RUNNER_ID: &str = "0000000f-0000-4000-8000-00000000000f";
+const HEADLESS_NOTIFICATION_ID: &str = "00000010-0000-4000-8000-000000000010";
+const LINUX_PIXEL_ID: &str = "00000011-0000-4000-8000-000000000011";
+const UNSUPPORTED_TARGET_ID: &str = "00000012-0000-4000-8000-000000000012";
+const DESKTOP_TEXT_ID: &str = "00000013-0000-4000-8000-000000000013";
+const AGREE_FIRST_ID: &str = "00000014-0000-4000-8000-000000000014";
+const AGREE_SECOND_ID: &str = "00000015-0000-4000-8000-000000000015";
+pub(super) const MISSING_CHILD_PARENT_ID: &str = "00000016-0000-4000-8000-000000000016";
+pub(super) const MISSING_CHILD_ID: &str = "00000017-0000-4000-8000-000000000017";
+pub(super) const APPROVAL_PARENT_ID: &str = "00000018-0000-4000-8000-000000000018";
+
 #[cfg(windows)]
 fn test_headless_runtime() -> &'static str {
     "Windows Headless"
@@ -75,7 +111,7 @@ fn staged_packages_are_independent_of_the_selected_source_file() {
 /// wiring is what is covered.
 #[test]
 fn limited_relative_writes_resolve_inside_the_runner_home_workspace() {
-    let script_id = "workspace-anchor-probe";
+    let script_id = WORKSPACE_ANCHOR_ID;
     let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
     let package_path = temporary_directory.path().join("workspace-anchor.bbs");
     fs::write(
@@ -406,7 +442,7 @@ fn cancelled_execution_is_persisted_as_cancelled() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("cancellable package should import");
-    core.approve_installed(&store, "cancellable")
+    core.approve_installed(&store, CANCELLABLE_ID)
         .expect("cancellable package should approve");
 
     let cancellation = RuntimeCancellationToken::new();
@@ -418,7 +454,7 @@ fn cancelled_execution_is_persisted_as_cancelled() {
     let error = core
         .run_installed_with_trigger_and_cancellation(
             &store,
-            "cancellable",
+            CANCELLABLE_ID,
             None,
             Value::Null,
             cancellation,
@@ -433,7 +469,7 @@ fn cancelled_execution_is_persisted_as_cancelled() {
         CoreError::Runtime(baudbound_runtime::RuntimeError::Cancelled)
     ));
     let records = store
-        .list_run_records(Some("cancellable"), None)
+        .list_run_records(Some(CANCELLABLE_ID), None)
         .expect("cancelled run history should load");
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].status, "cancelled");
@@ -453,19 +489,19 @@ fn current_script_approval_allows_policy_blocked_permissions() {
         .expect("package should import");
 
     let unapproved = core
-        .run_installed(&store, "network-trigger")
+        .run_installed(&store, NETWORK_TRIGGER_ID)
         .expect_err("unapproved network trigger should be blocked");
     assert!(matches!(unapproved, CoreError::ApprovalRequired(_)));
 
     let approval = core
-        .approve_installed(&store, "network-trigger")
+        .approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
     assert_eq!(approval.approval.approved_permissions, ["network.webhook"]);
 
     let report = core
-        .run_installed(&store, "network-trigger")
+        .run_installed(&store, NETWORK_TRIGGER_ID)
         .expect("approved package should run");
-    assert_eq!(report.identity.script_id, "network-trigger");
+    assert_eq!(report.identity.script_id, NETWORK_TRIGGER_ID);
 }
 
 #[test]
@@ -479,7 +515,7 @@ fn public_listener_policy_does_not_block_approved_network_trigger_packages() {
         .import_package(&store, &package_path)
         .expect("package should import before policy is restricted");
     permissive_core
-        .approve_installed(&store, "network-trigger")
+        .approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should be approved before policy is restricted");
 
     let loopback_only_core = core_with_policy(true, true, false);
@@ -492,7 +528,7 @@ fn public_listener_policy_does_not_block_approved_network_trigger_packages() {
             .any(|registration| registration.action_type == "trigger.webhook")
     );
     loopback_only_core
-        .run_installed(&store, "network-trigger")
+        .run_installed(&store, NETWORK_TRIGGER_ID)
         .expect("listener exposure policy must not change package execution approval");
     let status = loopback_only_core
         .status(&store)
@@ -507,7 +543,7 @@ fn configured_policy_blocks_approved_dangerous_permissions() {
     fs::write(
         &package_path,
         create_action_policy_test_package(
-            "dangerous-process",
+            DANGEROUS_PROCESS_ID,
             "action.process.run",
             "run_process",
             r#"{"arguments":[],"executable":"unused","workingDirectory":""}"#,
@@ -522,12 +558,12 @@ fn configured_policy_blocks_approved_dangerous_permissions() {
         .import_package(&store, &package_path)
         .expect("package should import before policy is restricted");
     permissive_core
-        .approve_installed(&store, "dangerous-process")
+        .approve_installed(&store, DANGEROUS_PROCESS_ID)
         .expect("package should be approved before policy is restricted");
 
     let restricted_core = core_with_policy(true, false, true);
     let error = restricted_core
-        .run_installed(&store, "dangerous-process")
+        .run_installed(&store, DANGEROUS_PROCESS_ID)
         .expect_err("Dangerous permission must be blocked");
     assert!(
         error
@@ -544,7 +580,7 @@ fn configured_policy_blocks_approved_shell_commands_independently() {
     fs::write(
         &package_path,
         create_action_policy_test_package(
-            "shell-command",
+            SHELL_COMMAND_ID,
             "action.shell",
             "run_shell_command",
             r#"{"command":"unused"}"#,
@@ -559,12 +595,12 @@ fn configured_policy_blocks_approved_shell_commands_independently() {
         .import_package(&store, &package_path)
         .expect("package should import before policy is restricted");
     permissive_core
-        .approve_installed(&store, "shell-command")
+        .approve_installed(&store, SHELL_COMMAND_ID)
         .expect("package should be approved before policy is restricted");
 
     let restricted_core = core_with_policy(false, true, true);
     let error = restricted_core
-        .run_installed(&store, "shell-command")
+        .run_installed(&store, SHELL_COMMAND_ID)
         .expect_err("shell command must be blocked independently");
     assert!(
         error
@@ -598,22 +634,22 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     let imported = core
         .import_package(&store, &package_path)
         .expect("package should import");
-    assert_eq!(imported.id, "network-trigger");
+    assert_eq!(imported.id, NETWORK_TRIGGER_ID);
     assert_eq!(imported.package_file_name, "network-trigger.bbs");
     assert!(imported.package_path.exists());
-    assert!(store.verify_script_package_hash("network-trigger").is_ok());
+    assert!(store.verify_script_package_hash(NETWORK_TRIGGER_ID).is_ok());
     let initial_auth = core
-        .list_trigger_auth(&store, "network-trigger")
+        .list_trigger_auth(&store, NETWORK_TRIGGER_ID)
         .expect("webhook auth should list");
     assert!(initial_auth.is_empty());
 
     let blocked = core
-        .run_installed(&store, "network-trigger")
+        .run_installed(&store, NETWORK_TRIGGER_ID)
         .expect_err("unapproved high-risk package should be blocked");
     assert!(matches!(blocked, CoreError::ApprovalRequired(_)));
     assert_eq!(
         store
-            .list_run_records(Some("network-trigger"), None)
+            .list_run_records(Some(NETWORK_TRIGGER_ID), None)
             .expect("failed run record should list")
             .first()
             .expect("failed run record should exist")
@@ -622,7 +658,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     );
 
     let approval = core
-        .approve_installed(&store, "network-trigger")
+        .approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
     assert_eq!(approval.generated_trigger_tokens.len(), 1);
     assert_eq!(
@@ -630,14 +666,14 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
         "n-webhook"
     );
     let approved_auth = core
-        .list_trigger_auth(&store, "network-trigger")
+        .list_trigger_auth(&store, NETWORK_TRIGGER_ID)
         .expect("approved webhook auth should list");
     assert_eq!(approved_auth.len(), 1);
     assert!(approved_auth[0].auth_enabled);
     let rotated_auth = core
         .rotate_trigger_token(
             &store,
-            "network-trigger",
+            NETWORK_TRIGGER_ID,
             "n-webhook",
             NetworkTriggerType::Webhook,
         )
@@ -650,7 +686,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
                 action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "hello from lifecycle test"}),
-                script_id: "network-trigger".to_owned(),
+                script_id: NETWORK_TRIGGER_ID.to_owned(),
             },
         )
         .expect("approved trigger should run")
@@ -663,7 +699,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     );
 
     let run_records = store
-        .list_run_records(Some("network-trigger"), None)
+        .list_run_records(Some(NETWORK_TRIGGER_ID), None)
         .expect("run records should list");
     assert_eq!(
         run_records
@@ -676,13 +712,13 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     let updated = core
         .update_package(&store, &updated_package_path)
         .expect("installed package should update");
-    assert_eq!(updated.id, "network-trigger");
+    assert_eq!(updated.id, NETWORK_TRIGGER_ID);
     assert_eq!(updated.name, "network-trigger-updated");
     assert_eq!(updated.package_file_name, "network-trigger-updated.bbs");
     assert!(!imported.package_path.exists());
     assert!(updated.package_path.exists());
     let updated_auth = core
-        .list_trigger_auth(&store, "network-trigger")
+        .list_trigger_auth(&store, NETWORK_TRIGGER_ID)
         .expect("updated webhook auth should list");
     assert_eq!(updated_auth.len(), 1);
     assert_eq!(
@@ -691,18 +727,18 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
     );
     assert!(
         store
-            .find_script_approval("network-trigger")
+            .find_script_approval(NETWORK_TRIGGER_ID)
             .expect("approval lookup should succeed")
             .is_none()
     );
 
     let reapproval = core
-        .approve_installed(&store, "network-trigger")
+        .approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("updated package should approve");
     assert!(reapproval.generated_trigger_tokens.is_empty());
 
     let registrations = core
-        .list_trigger_registrations(&store, Some("network-trigger"))
+        .list_trigger_registrations(&store, Some(NETWORK_TRIGGER_ID))
         .expect("updated trigger registrations should list");
     let webhook = registrations
         .iter()
@@ -710,7 +746,7 @@ fn installed_package_lifecycle_uses_real_bbs_packages() {
         .expect("webhook registration should exist");
     assert_eq!(webhook.config["hookName"], "updated-hook");
 
-    core.remove_installed(&store, "network-trigger")
+    core.remove_installed(&store, NETWORK_TRIGGER_ID)
         .expect("installed package should remove");
     assert!(
         core.list_installed(&store)
@@ -733,7 +769,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     fs::write(
         &initial_path,
         create_observation_trigger_package(
-            "observation-watch",
+            OBSERVATION_WATCH_ID,
             "trigger.file_watch",
             "file_watch",
             json!({"path": "incoming", "recursive": false}),
@@ -746,7 +782,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     fs::write(
         &updated_path,
         create_observation_trigger_package(
-            "observation-watch",
+            OBSERVATION_WATCH_ID,
             "trigger.file_watch",
             "file_watch",
             json!({"path": absolute_watch_path, "recursive": false}),
@@ -759,7 +795,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     fs::write(
         &variable_path,
         create_observation_trigger_package(
-            "observation-variable",
+            OBSERVATION_VARIABLE_ID,
             "trigger.file_watch",
             "file_watch",
             json!({"path": "{{watchPath}}", "recursive": false}),
@@ -777,7 +813,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     fs::write(
         &process_path,
         create_observation_trigger_package(
-            "observation-process",
+            OBSERVATION_PROCESS_ID,
             "trigger.process_started",
             "process_started",
             json!({"matchMode": "process_name", "target": "baudbound-test-process"}),
@@ -800,7 +836,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     );
 
     let approval = core
-        .approve_installed(&store, "observation-watch")
+        .approve_installed(&store, OBSERVATION_WATCH_ID)
         .expect("limited observation package should approve");
     assert_eq!(
         approval.approval.approved_permissions,
@@ -821,12 +857,12 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     assert!(limited_path.is_absolute());
     let expected_workspace = store
         .root()
-        .join("workspaces/observation-watch")
+        .join(format!("workspaces/{OBSERVATION_WATCH_ID}"))
         .canonicalize()
         .expect("script workspace should resolve");
     assert!(limited_path.starts_with(expected_workspace));
 
-    core.revoke_approval(&store, "observation-watch")
+    core.revoke_approval(&store, OBSERVATION_WATCH_ID)
         .expect("approval should revoke")
         .expect("approval should exist");
     assert!(
@@ -835,7 +871,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
             .is_empty(),
         "revocation must remove observation triggers on the next registration reload"
     );
-    core.approve_installed(&store, "observation-watch")
+    core.approve_installed(&store, OBSERVATION_WATCH_ID)
         .expect("limited observation package should reapprove");
 
     core.update_package(&store, &updated_path)
@@ -847,7 +883,7 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
         "a package update must invalidate the previous observation approval"
     );
     let updated_approval = core
-        .approve_installed(&store, "observation-watch")
+        .approve_installed(&store, OBSERVATION_WATCH_ID)
         .expect("updated observation package should approve");
     assert_eq!(
         updated_approval.approval.approved_permissions,
@@ -867,10 +903,10 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
 
     core.import_package(&store, &variable_path)
         .expect("variable observation package should import");
-    core.approve_installed(&store, "observation-variable")
+    core.approve_installed(&store, OBSERVATION_VARIABLE_ID)
         .expect("variable observation package should approve");
     let variable_registration = core
-        .list_trigger_registrations(&store, Some("observation-variable"))
+        .list_trigger_registrations(&store, Some(OBSERVATION_VARIABLE_ID))
         .expect("variable observation registration should list");
     let variable_registration = variable_registration
         .iter()
@@ -885,14 +921,14 @@ fn observation_permissions_follow_resolution_approval_reload_and_update_lifecycl
     core.import_package(&store, &process_path)
         .expect("process observation package should import");
     let process_approval = core
-        .approve_installed(&store, "observation-process")
+        .approve_installed(&store, OBSERVATION_PROCESS_ID)
         .expect("process observation package should approve");
     assert_eq!(
         process_approval.approval.approved_permissions,
         ["process.observe"]
     );
     let process_registration = core
-        .list_trigger_registrations(&store, Some("observation-process"))
+        .list_trigger_registrations(&store, Some(OBSERVATION_PROCESS_ID))
         .expect("process observation registration should list");
     let process_registration = process_registration
         .iter()
@@ -921,11 +957,11 @@ fn run_observer_is_notified_after_terminal_records_are_committed() {
     core.import_package(&store, &package_path)
         .expect("package should import");
 
-    core.run_installed(&store, "action-handler-test")
+    core.run_installed(&store, ACTION_HANDLER_ID)
         .expect_err("unapproved package should create a failed record");
-    core.approve_installed(&store, "action-handler-test")
+    core.approve_installed(&store, ACTION_HANDLER_ID)
         .expect("package should approve");
-    core.run_installed(&store, "action-handler-test")
+    core.run_installed(&store, ACTION_HANDLER_ID)
         .expect("approved package should complete");
 
     assert_eq!(
@@ -950,10 +986,10 @@ fn custom_action_handler_is_used_for_script_execution() {
     let core = RunnerCore::default().with_action_handler(handler.clone());
     core.import_package(&store, &package_path)
         .expect("package should import");
-    core.approve_installed(&store, "action-handler-test")
+    core.approve_installed(&store, ACTION_HANDLER_ID)
         .expect("package should approve");
     let report = core
-        .run_installed(&store, "action-handler-test")
+        .run_installed(&store, ACTION_HANDLER_ID)
         .expect("script should run with injected action handler");
 
     assert_eq!(
@@ -1005,7 +1041,7 @@ fn import_rejects_desktop_actions_for_headless_target_runtime() {
     fs::write(
         &package_path,
         create_target_runtime_test_package(
-            "headless-notification",
+            HEADLESS_NOTIFICATION_ID,
             "Linux Headless",
             "action.notification",
         ),
@@ -1031,7 +1067,7 @@ fn import_rejects_windows_only_actions_for_non_windows_desktop_target_runtime() 
     let package_path = temporary_directory.path().join("linux-pixel.bbs");
     fs::write(
         &package_path,
-        create_target_runtime_test_package("linux-pixel", "Linux Desktop", "action.pixel.get"),
+        create_target_runtime_test_package(LINUX_PIXEL_ID, "Linux Desktop", "action.pixel.get"),
     )
     .expect("test package should be written");
 
@@ -1053,7 +1089,7 @@ fn import_rejects_removed_target_runtime() {
     fs::write(
         &package_path,
         create_target_runtime_test_package(
-            "unsupported-target",
+            UNSUPPORTED_TARGET_ID,
             &format!("{} Desktop", ["mac", "OS"].join("")),
             "action.text.format",
         ),
@@ -1077,7 +1113,7 @@ fn validate_rejects_packages_that_require_newer_runner() {
     let package_path = temporary_directory.path().join("future-runner.bbs");
     fs::write(
         &package_path,
-        create_minimum_runner_version_test_package("future-runner", "999.0.0"),
+        create_minimum_runner_version_test_package(FUTURE_RUNNER_ID, "999.0.0"),
     )
     .expect("test package should be written");
 
@@ -1099,7 +1135,7 @@ fn import_rejects_packages_that_require_newer_runner() {
     let package_path = temporary_directory.path().join("future-runner.bbs");
     fs::write(
         &package_path,
-        create_minimum_runner_version_test_package("future-runner", "999.0.0"),
+        create_minimum_runner_version_test_package(FUTURE_RUNNER_ID, "999.0.0"),
     )
     .expect("test package should be written");
 
@@ -1117,7 +1153,7 @@ fn run_rejects_installed_package_that_requires_newer_runner() {
     let package_path = temporary_directory.path().join("future-runner.bbs");
     fs::write(
         &package_path,
-        create_minimum_runner_version_test_package("future-runner", "999.0.0"),
+        create_minimum_runner_version_test_package(FUTURE_RUNNER_ID, "999.0.0"),
     )
     .expect("test package should be written");
 
@@ -1128,12 +1164,12 @@ fn run_rejects_installed_package_that_requires_newer_runner() {
         .expect("test package should be inserted into storage");
 
     let error = RunnerCore::default()
-        .run_installed(&store, "future-runner")
+        .run_installed(&store, FUTURE_RUNNER_ID)
         .expect_err("installed package requiring a newer runner should not run");
 
     assert!(matches!(error, CoreError::Version(_)), "{error}");
     let records = store
-        .list_run_records(Some("future-runner"), None)
+        .list_run_records(Some(FUTURE_RUNNER_ID), None)
         .expect("failed run record should list");
     assert_eq!(records.len(), 1);
     assert!(
@@ -1151,7 +1187,7 @@ fn trigger_registration_rejects_installed_package_that_requires_newer_runner() {
     let package_path = temporary_directory.path().join("future-runner.bbs");
     fs::write(
         &package_path,
-        create_minimum_runner_version_test_package("future-runner", "999.0.0"),
+        create_minimum_runner_version_test_package(FUTURE_RUNNER_ID, "999.0.0"),
     )
     .expect("test package should be written");
 
@@ -1174,7 +1210,7 @@ fn status_reports_installed_package_that_requires_newer_runner() {
     let package_path = temporary_directory.path().join("future-runner.bbs");
     fs::write(
         &package_path,
-        create_minimum_runner_version_test_package("future-runner", "999.0.0"),
+        create_minimum_runner_version_test_package(FUTURE_RUNNER_ID, "999.0.0"),
     )
     .expect("test package should be written");
 
@@ -1205,7 +1241,7 @@ fn configured_runner_target_runtimes_reject_other_package_targets() {
     fs::write(
         &package_path,
         create_target_runtime_test_package(
-            "desktop-text",
+            DESKTOP_TEXT_ID,
             test_desktop_runtime(),
             "action.text.format",
         ),
@@ -1243,7 +1279,7 @@ fn sub_script_action_runs_installed_manual_script() {
         .expect("child test package should be written");
     fs::write(
         &parent_package_path,
-        create_sub_script_parent_package("parent-script", "action-handler-test"),
+        create_sub_script_parent_package(PARENT_SCRIPT_ID, ACTION_HANDLER_ID),
     )
     .expect("parent test package should be written");
 
@@ -1253,13 +1289,13 @@ fn sub_script_action_runs_installed_manual_script() {
         .expect("child package should import");
     core.import_package(&store, &parent_package_path)
         .expect("parent package should import");
-    core.approve_installed(&store, "parent-script")
+    core.approve_installed(&store, PARENT_SCRIPT_ID)
         .expect("sub-script parent should approve");
-    core.approve_installed(&store, "action-handler-test")
+    core.approve_installed(&store, ACTION_HANDLER_ID)
         .expect("child package should approve");
 
     let report = core
-        .run_installed(&store, "parent-script")
+        .run_installed(&store, PARENT_SCRIPT_ID)
         .expect("parent should run sub-script");
 
     assert_eq!(
@@ -1269,11 +1305,11 @@ fn sub_script_action_runs_installed_manual_script() {
     assert_eq!(report.variables.get("n-sub.exit_code"), Some(&json!(0)));
     assert_eq!(
         report.variables.get("n-sub.script_id"),
-        Some(&json!("action-handler-test"))
+        Some(&json!(ACTION_HANDLER_ID))
     );
 
     let child_runs = store
-        .list_run_records(Some("action-handler-test"), None)
+        .list_run_records(Some(ACTION_HANDLER_ID), None)
         .expect("child run records should list");
     assert_eq!(child_runs.len(), 1);
     assert_eq!(child_runs[0].status, "completed");
@@ -1285,7 +1321,7 @@ fn sub_script_action_routes_recursive_cycle_to_failed_output() {
     let package_path = temporary_directory.path().join("recursive-script.bbs");
     fs::write(
         &package_path,
-        create_sub_script_parent_package("recursive-script", "recursive-script"),
+        create_sub_script_parent_package(RECURSIVE_SCRIPT_ID, RECURSIVE_SCRIPT_ID),
     )
     .expect("recursive test package should be written");
 
@@ -1293,11 +1329,11 @@ fn sub_script_action_routes_recursive_cycle_to_failed_output() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("recursive package should import");
-    core.approve_installed(&store, "recursive-script")
+    core.approve_installed(&store, RECURSIVE_SCRIPT_ID)
         .expect("recursive package should approve");
 
     let report = core
-        .run_installed(&store, "recursive-script")
+        .run_installed(&store, RECURSIVE_SCRIPT_ID)
         .expect("recursive sub-script failure should remain available to the parent graph");
 
     assert!(
@@ -1315,7 +1351,7 @@ fn sub_script_action_routes_recursive_cycle_to_failed_output() {
         })
     );
     let runs = store
-        .list_run_records(Some("recursive-script"), None)
+        .list_run_records(Some(RECURSIVE_SCRIPT_ID), None)
         .expect("completed run record with errors should list");
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, "completed");
@@ -1334,7 +1370,7 @@ fn lists_trigger_registrations_for_installed_scripts() {
         .expect("package should import");
 
     let registrations = core
-        .list_trigger_registrations(&store, Some("network-trigger"))
+        .list_trigger_registrations(&store, Some(NETWORK_TRIGGER_ID))
         .expect("trigger registrations should list");
 
     assert_eq!(registrations.len(), 2);
@@ -1362,7 +1398,7 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
-    core.approve_installed(&store, "network-trigger")
+    core.approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
 
     assert!(
@@ -1373,7 +1409,7 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
     );
 
     let disabled = core
-        .set_installed_enabled(&store, "network-trigger", false)
+        .set_installed_enabled(&store, NETWORK_TRIGGER_ID, false)
         .expect("script should disable");
     assert!(!disabled.enabled);
 
@@ -1384,7 +1420,7 @@ fn disabled_scripts_are_omitted_from_global_trigger_registrations() {
     );
     assert!(
         !core
-            .list_trigger_registrations(&store, Some("network-trigger"))
+            .list_trigger_registrations(&store, Some(NETWORK_TRIGGER_ID))
             .expect("direct trigger registrations should list")
             .is_empty()
     );
@@ -1400,9 +1436,9 @@ fn disabled_scripts_cannot_execute_from_stale_trigger_events() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
-    core.approve_installed(&store, "network-trigger")
+    core.approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
-    core.set_installed_enabled(&store, "network-trigger", false)
+    core.set_installed_enabled(&store, NETWORK_TRIGGER_ID, false)
         .expect("script should disable");
 
     let error = core
@@ -1412,7 +1448,7 @@ fn disabled_scripts_cannot_execute_from_stale_trigger_events() {
                 action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "stale event"}),
-                script_id: "network-trigger".to_owned(),
+                script_id: NETWORK_TRIGGER_ID.to_owned(),
             },
         )
         .expect_err("a stale trigger event must not execute a disabled script");
@@ -1444,7 +1480,7 @@ fn unapproved_scripts_are_not_registered_or_executed() {
                 action_type: "trigger.webhook".to_owned(),
                 node_id: "n-webhook".to_owned(),
                 payload: json!({"body": "unapproved event"}),
-                script_id: "network-trigger".to_owned(),
+                script_id: NETWORK_TRIGGER_ID.to_owned(),
             },
         )
         .expect_err("an unapproved script must not execute");
@@ -1465,7 +1501,7 @@ fn unapproved_low_risk_scripts_cannot_execute() {
         .expect("low-risk package should import");
 
     let error = core
-        .run_installed(&store, "action-handler-test")
+        .run_installed(&store, ACTION_HANDLER_ID)
         .expect_err("an unapproved low-risk script must not execute");
 
     assert!(matches!(error, CoreError::ApprovalRequired(_)));
@@ -1509,9 +1545,9 @@ fn status_reports_script_health_and_approval_state() {
     assert_eq!(metadata.created_with, "BaudBound Test");
     assert_eq!(metadata.minimum_runner_version, "0.1.0");
 
-    core.approve_installed(&store, "network-trigger")
+    core.approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
-    core.set_installed_enabled(&store, "network-trigger", false)
+    core.set_installed_enabled(&store, NETWORK_TRIGGER_ID, false)
         .expect("script should disable");
 
     let status = core.status(&store).expect("status should build");
@@ -1533,10 +1569,10 @@ fn status_reports_script_health_and_approval_state() {
         .expect("installed package should be restored after the status check");
 
     let revoked = core
-        .revoke_approval(&store, "network-trigger")
+        .revoke_approval(&store, NETWORK_TRIGGER_ID)
         .expect("approval should revoke")
         .expect("stored approval should be returned");
-    assert_eq!(revoked.script_id, "network-trigger");
+    assert_eq!(revoked.script_id, NETWORK_TRIGGER_ID);
     let status = core
         .status(&store)
         .expect("status should build after revoke");
@@ -1544,10 +1580,10 @@ fn status_reports_script_health_and_approval_state() {
         status.scripts[0].approval_status,
         ApprovalStatus::Missing
     ));
-    core.set_installed_enabled(&store, "network-trigger", true)
+    core.set_installed_enabled(&store, NETWORK_TRIGGER_ID, true)
         .expect("script should re-enable");
     let blocked = core
-        .run_installed(&store, "network-trigger")
+        .run_installed(&store, NETWORK_TRIGGER_ID)
         .expect_err("revoked script should be blocked");
     assert!(matches!(blocked, CoreError::ApprovalRequired(_)));
 }
@@ -1562,7 +1598,7 @@ fn dispatches_trigger_event_through_core_dispatcher() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("package should import");
-    core.approve_installed(&store, "network-trigger")
+    core.approve_installed(&store, NETWORK_TRIGGER_ID)
         .expect("package should approve");
 
     let report = core
@@ -1571,13 +1607,13 @@ fn dispatches_trigger_event_through_core_dispatcher() {
             action_type: "trigger.webhook".to_owned(),
             node_id: "n-webhook".to_owned(),
             payload: json!({"body": "hello"}),
-            script_id: "network-trigger".to_owned(),
+            script_id: NETWORK_TRIGGER_ID.to_owned(),
         })
         .expect("trigger event should dispatch")
         .report()
         .expect("a queueing trigger runs");
 
-    assert_eq!(report.identity.script_id, "network-trigger");
+    assert_eq!(report.identity.script_id, NETWORK_TRIGGER_ID);
     assert_eq!(report.identity.trigger_node_id, "n-webhook");
     assert_eq!(
         report.variables.get("n-webhook.body"),
@@ -1595,18 +1631,18 @@ fn saving_script_settings_validates_the_entire_batch_before_writing() {
     let core = RunnerCore::default();
     core.import_package(&store, &package_path)
         .expect("settings package should import");
-    core.set_installed_script_setting_from_text(&store, "settings-test", "Endpoint", "saved")
+    core.set_installed_script_setting_from_text(&store, SETTINGS_TEST_ID, "Endpoint", "saved")
         .expect("initial setting should store");
 
     let invalid = BTreeMap::from([
         ("Endpoint".to_owned(), "changed".to_owned()),
         ("Retries".to_owned(), "not-a-number".to_owned()),
     ]);
-    core.save_installed_script_settings_from_text(&store, "settings-test", &invalid)
+    core.save_installed_script_settings_from_text(&store, SETTINGS_TEST_ID, &invalid)
         .expect_err("an invalid setting must reject the entire batch");
 
     let unchanged = core
-        .list_installed_script_settings(&store, "settings-test")
+        .list_installed_script_settings(&store, SETTINGS_TEST_ID)
         .expect("settings should remain readable");
     assert_eq!(
         unchanged
@@ -1624,7 +1660,7 @@ fn saving_script_settings_validates_the_entire_batch_before_writing() {
 
     let replacement = BTreeMap::from([("Retries".to_owned(), "3".to_owned())]);
     let statuses = core
-        .save_installed_script_settings_from_text(&store, "settings-test", &replacement)
+        .save_installed_script_settings_from_text(&store, SETTINGS_TEST_ID, &replacement)
         .expect("valid settings should replace the configured set");
     assert!(
         statuses
@@ -1725,10 +1761,12 @@ fn create_observation_trigger_package(
 }
 
 fn create_script_settings_test_package() -> Vec<u8> {
-    let manifest = r#"{
+    // The id is substituted rather than interpolated: this manifest nests
+    // objects, and `format!` would need every brace in it doubled.
+    let manifest = &r#"{
         "format_version": 1,
         "script_language_version": 1,
-        "id": "settings-test",
+        "id": "$SCRIPT_ID",
         "name": "Settings Test",
         "created_with": "BaudBound Test",
         "created_at": "2026-01-01T00:00:00.000Z",
@@ -1749,7 +1787,8 @@ fn create_script_settings_test_package() -> Vec<u8> {
                 "required": false
             }
         ]
-    }"#;
+    }"#
+    .replace("$SCRIPT_ID", SETTINGS_TEST_ID);
     let program = r#"{
         "entry": {
             "trigger": {
@@ -1865,7 +1904,7 @@ fn create_policy_test_package_with_webhook(script_name: &str, hook_name: &str) -
         r#"{{
                     "format_version": 1,
                     "script_language_version": 1,
-                    "id": "network-trigger",
+                    "id": "{NETWORK_TRIGGER_ID}",
                     "name": "{script_name}",
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
@@ -2009,6 +2048,135 @@ fn create_action_handler_test_package() -> Vec<u8> {
 /// The trigger is wired to the step so the action actually executes. A package
 /// with no edges imports and approves cleanly but never runs its step, which
 /// would make a workspace assertion vacuous.
+#[test]
+fn a_global_declared_with_two_different_types_is_refused_at_install() {
+    // A global is shared by name across every script, so two scripts declaring
+    // one name with different types describe the same stored value two
+    // incompatible ways. By run time one of them has already stored a value
+    // under that name, so the install is the honest place to refuse.
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+
+    let first_path = temporary_directory.path().join("first.bbs");
+    fs::write(
+        &first_path,
+        create_global_declaration_test_package(GLOBAL_FIRST_ID, "integer", "0"),
+    )
+    .expect("first package should be written");
+    core.import_package(&store, &first_path)
+        .expect("the first package should import");
+
+    let second_path = temporary_directory.path().join("second.bbs");
+    fs::write(
+        &second_path,
+        create_global_declaration_test_package(GLOBAL_SECOND_ID, "string", "\"ready\""),
+    )
+    .expect("second package should be written");
+    let error = core
+        .import_package(&store, &second_path)
+        .expect_err("a conflicting global declaration must be refused");
+
+    let message = error.to_string();
+    assert!(message.contains("shared_counter"), "{message}");
+    assert!(message.contains("integer"), "{message}");
+    assert!(message.contains("string"), "{message}");
+}
+
+#[test]
+fn a_global_declared_the_same_way_twice_installs() {
+    let temporary_directory = tempfile::tempdir().expect("temporary storage should be created");
+    let store = test_store(&temporary_directory);
+    let core = RunnerCore::default();
+
+    for script_id in [AGREE_FIRST_ID, AGREE_SECOND_ID] {
+        let path = temporary_directory.path().join(format!("{script_id}.bbs"));
+        fs::write(
+            &path,
+            create_global_declaration_test_package(script_id, "integer", "0"),
+        )
+        .expect("package should be written");
+        core.import_package(&store, &path)
+            .expect("agreeing global declarations should import");
+    }
+}
+
+fn create_global_declaration_test_package(
+    script_id: &str,
+    value_type: &str,
+    value: &str,
+) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+            "format_version": 1,
+            "script_language_version": 1,
+            "id": "{script_id}",
+            "name": "{script_id}",
+            "created_with": "BaudBound Test",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "minimum_runner_version": "0.1.0",
+            "version": "1.0.0",
+            "variables": [{{
+                "name": "shared_counter",
+                "scope": "global",
+                "type": "{value_type}",
+                "value": {value}
+            }}]
+        }}"#
+    );
+    let program = r#"{
+        "entry": {
+            "trigger": {
+                "id": "n-manual",
+                "action_type": "trigger.manual",
+                "type": "manual",
+                "config": {},
+                "runtime_outputs": []
+            },
+            "triggers": [],
+            "program": {
+                "type": "block",
+                "steps": [{
+                    "id": "n-log",
+                    "action_type": "action.log",
+                    "type": "action",
+                    "action": "log",
+                    "config": {"level": "info", "message": "{{shared_counter}}"},
+                    "runtime_outputs": []
+                }],
+                "edges": [{
+                    "execution_order": 0,
+                    "source": "n-manual",
+                    "source_handle": "out",
+                    "target": "n-log",
+                    "target_handle": "input"
+                }]
+            }
+        }
+    }"#;
+    // A declared global is stored state whether or not a node writes it, the
+    // same as a declared persistent variable, so the package has to ask for
+    // persistent storage. capabilities_json only reads the program, which here
+    // is a lone log node, so the capability is added explicitly.
+    let mut capabilities: serde_json::Value =
+        serde_json::from_str(&capabilities_json(program, test_headless_runtime()))
+            .expect("generated capabilities should parse");
+    capabilities["required_capabilities"]
+        .as_array_mut()
+        .expect("required_capabilities is an array")
+        .push(serde_json::json!("runtime.persistent_storage"));
+    let capabilities = capabilities.to_string();
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
+        ("program.json", program),
+        (
+            "permissions.json",
+            r#"{"declared_permissions":["log"],"risk_level":"low"}"#,
+        ),
+        ("capabilities.json", capabilities.as_str()),
+    ])
+}
+
 fn create_workspace_write_test_package(script_id: &str) -> Vec<u8> {
     let manifest = format!(
         r#"{{
@@ -2100,20 +2268,20 @@ fn create_cancellable_test_package() -> Vec<u8> {
         }
     }"#;
     let capabilities = capabilities_json(program, test_headless_runtime());
-    create_test_package([
-        (
-            "manifest.json",
-            r#"{
+    let manifest = format!(
+        r#"{{
                 "format_version": 1,
                 "script_language_version": 1,
-                "id": "cancellable",
-                "name": "cancellable",
+                "id": "{CANCELLABLE_ID}",
+                "name": "Cancellable",
                 "created_with": "BaudBound Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
                 "minimum_runner_version": "0.1.0",
                 "version": "1.0.0"
-            }"#,
-        ),
+            }}"#
+    );
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
         ("program.json", program),
         (
             "permissions.json",
@@ -2186,20 +2354,20 @@ fn create_action_handler_test_package_with_capabilities(
             .to_string()
         },
     );
-    create_test_package([
-        (
-            "manifest.json",
-            r#"{
+    let manifest = format!(
+        r#"{{
                     "format_version": 1,
                     "script_language_version": 1,
-                    "id": "action-handler-test",
-                    "name": "action-handler-test",
+                    "id": "{ACTION_HANDLER_ID}",
+                    "name": "Action Handler Test",
                     "created_with": "BaudBound Test",
                     "created_at": "2026-01-01T00:00:00.000Z",
                     "minimum_runner_version": "0.1.0",
                     "version": "1.0.0"
-                }"#,
-        ),
+                }}"#
+    );
+    create_test_package([
+        ("manifest.json", manifest.as_str()),
         ("program.json", program),
         (
             "permissions.json",

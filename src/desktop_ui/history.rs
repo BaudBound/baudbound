@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io::Write};
 
-use baudbound_script::load_script_package;
+use baudbound_script::{VariableScope, load_script_package};
 use baudbound_storage::{
     InstalledScript, PaginatedRecords, RunHistoryQuery, RunLogQuery, ScriptStore,
     StoredRunLogRecord, StoredRunRecord, StoredVariableRecord,
@@ -25,7 +25,9 @@ pub(super) struct VariableInventory {
 struct DeclaredVariable {
     description: String,
     name: String,
-    scope: String,
+    /// Serialises to the same lowercase word the manifest carries, so the UI
+    /// payload is unchanged by this being a type rather than a string.
+    scope: VariableScope,
     script_id: String,
     script_name: String,
     value: serde_json::Value,

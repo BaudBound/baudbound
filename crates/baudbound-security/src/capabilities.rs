@@ -8,8 +8,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    Capability, RuntimeDeclarationRequirements, executable_action_types, first_duplicate,
-    variable_operation_scopes,
+    Capability, RuntimeDeclarationRequirements, VariableScope, executable_action_types,
+    first_duplicate, variable_operation_scopes,
 };
 
 const CAPABILITY_CONTRACT_VERSION: u32 = 1;
@@ -139,15 +139,22 @@ pub fn calculate_program_capabilities_with_declarations(
         names.extend(capabilities.iter().cloned());
     }
 
-    if variable_operation_scopes(program)
+    if variable_operation_scopes(program, &requirements.declared_variable_scopes)
         .map_err(CapabilityValidationError::InvalidProgram)?
         .iter()
-        .any(|scope| scope == "persistent" || scope == "global")
-        || requirements.has_persistent_default_variables
+        // A match rather than `matches!`, so that a scope added later has to
+        // state whether it outlives the run instead of defaulting to "no".
+        .any(|scope| match scope {
+            VariableScope::Persistent | VariableScope::Global => true,
+            VariableScope::Runtime => false,
+        })
+        || requirements.has_persistent_declared_variables
+        || requirements.has_global_declared_variables
     {
         names.insert("runtime.persistent_storage".to_owned());
     }
-    if requirements.has_runtime_default_variables || requirements.has_persistent_default_variables {
+    if requirements.has_runtime_declared_variables || requirements.has_persistent_declared_variables
+    {
         names.insert("runtime.variables".to_owned());
     }
     if requirements.has_secret_declarations {

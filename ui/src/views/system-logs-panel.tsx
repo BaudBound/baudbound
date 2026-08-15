@@ -200,7 +200,7 @@ export function SystemLogsPanel() {
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-hidden p-0 max-[1100px]:p-3">
+        <CardContent className="overflow-x-auto p-0 max-[1100px]:p-3">
           {error ? (
             <div className="p-4">
               <EmptyState>Could not load system logs: {error}</EmptyState>
@@ -210,7 +210,7 @@ export function SystemLogsPanel() {
               <EmptyState>No system logs match the current filters.</EmptyState>
             </div>
           ) : (
-            <table className="responsive-table w-full border-collapse text-sm">
+            <table className="responsive-table min-w-[900px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <SortableTableHeader column="time" onSort={toggleSort} sortState={sortState}>

@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    ResourceLimit, RuntimeCancellationToken, RuntimeDefaultVariable, RuntimeScriptSettings,
+    ResourceLimit, RuntimeCancellationToken, RuntimeDeclaredVariable, RuntimeScriptSettings,
     RuntimeSecretDeclaration, RuntimeStateStore,
 };
 use serde::{Deserialize, Serialize};
@@ -180,6 +180,12 @@ pub enum RuntimeActionError {
     Unsupported(String),
     #[error("action was cancelled")]
     Cancelled,
+    #[error("action {action_type} selected output {output}")]
+    ExpectedOutcome {
+        action_type: String,
+        output: String,
+        output_data: Map<String, Value>,
+    },
     #[error("action {action_type} failed: {message}")]
     Failed {
         action_type: String,
@@ -295,7 +301,7 @@ pub struct RuntimeExecutionResources<'a> {
     pub(super) action_handler: &'a dyn RuntimeActionHandler,
     pub(super) cancellation: RuntimeCancellationToken,
     pub(super) state_store: Option<&'a dyn RuntimeStateStore>,
-    pub(super) default_variables: &'a [RuntimeDefaultVariable],
+    pub(super) declared_variables: &'a [RuntimeDeclaredVariable],
     pub(super) observer: Option<Arc<dyn RuntimeRunObserver>>,
     pub(super) output_limits: RuntimeOutputLimits,
     pub(super) execution_policy: RuntimeExecutionPolicy,
@@ -353,7 +359,7 @@ impl<'a> RuntimeExecutionResources<'a> {
             action_handler,
             cancellation: RuntimeCancellationToken::new(),
             state_store: None,
-            default_variables: &[],
+            declared_variables: &[],
             system_variables: EMPTY_BUILT_IN_FIELDS.get_or_init(BTreeMap::new),
             manifest_variables: EMPTY_BUILT_IN_FIELDS.get_or_init(BTreeMap::new),
             observer: None,
@@ -428,11 +434,11 @@ impl<'a> RuntimeExecutionResources<'a> {
     }
 
     #[must_use]
-    pub fn with_default_variables(
+    pub fn with_declared_variables(
         mut self,
-        default_variables: &'a [RuntimeDefaultVariable],
+        declared_variables: &'a [RuntimeDeclaredVariable],
     ) -> Self {
-        self.default_variables = default_variables;
+        self.declared_variables = declared_variables;
         self
     }
 

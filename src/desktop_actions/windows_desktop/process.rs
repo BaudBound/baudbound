@@ -28,10 +28,11 @@ pub(in crate::desktop_actions) fn kill_process_by_window_title(
     target: &str,
 ) -> Result<RuntimeActionResult, RuntimeActionError> {
     let Some(handle) = find_window_by_title(target) else {
-        return Err(failed_error(
-            request,
-            format!("no process window title contains {target:?}"),
-        ));
+        return Err(RuntimeActionError::ExpectedOutcome {
+            action_type: request.action_type.clone(),
+            output: "not_found".to_owned(),
+            output_data: Map::from_iter([("target".to_owned(), Value::String(target.to_owned()))]),
+        });
     };
     let process_id = window_process_id(handle);
     let mut output_data = process_status_output(handle, true);

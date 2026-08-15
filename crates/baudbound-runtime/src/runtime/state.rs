@@ -7,15 +7,16 @@ pub enum RuntimeVariableScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeDefaultVariableScope {
+pub enum RuntimeDeclaredScope {
+    Global,
     Runtime,
     Persistent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RuntimeDefaultVariable {
+pub struct RuntimeDeclaredVariable {
     pub name: String,
-    pub scope: RuntimeDefaultVariableScope,
+    pub scope: RuntimeDeclaredScope,
     pub value_type: String,
     pub item_type: Option<String>,
     pub value: Value,

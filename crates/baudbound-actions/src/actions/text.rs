@@ -1,7 +1,8 @@
 use base64::{Engine as _, engine::general_purpose};
 use baudbound_runtime::{
     ResourceLimit, RuntimeActionError, RuntimeActionRequest, RuntimeActionResult,
-    compile_safe_regex, format_datetime, validate_datetime_pattern,
+    compile_safe_regex, format_datetime, format_duration, validate_datetime_pattern,
+    validate_duration_pattern, validate_duration_unit,
 };
 use regex::Regex;
 use serde_json::{Map, Value};
@@ -82,6 +83,20 @@ fn apply_operation(
             .ok_or_else(|| {
                 format!(
                     "format date and time requires a datetime, found {}",
+                    value_kind(&current)
+                )
+            });
+    }
+    if operation == "format_duration" {
+        let pattern = config_string(config, "pattern").unwrap_or_default();
+        validate_duration_pattern(&pattern)?;
+        let unit = config_string(config, "durationUnit").unwrap_or_default();
+        validate_duration_unit(&unit)?;
+        return format_duration(&current, &unit, &pattern)
+            .map(Value::String)
+            .ok_or_else(|| {
+                format!(
+                    "format duration requires a finite non-negative number, found {}",
                     value_kind(&current)
                 )
             });

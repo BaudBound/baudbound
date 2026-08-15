@@ -28,10 +28,12 @@ const runLogSortSelectors: Record<RunLogSortColumn, (log: RunLogEntry) => number
 export function RunLogPanel({
   emptyMessage = "No log entries were recorded for this run.",
   followOutputControl = false,
+  logNumberOffset = 0,
   logs,
 }: {
   emptyMessage?: string;
   followOutputControl?: boolean;
+  logNumberOffset?: number;
   logs: RunLogEntry[];
 }) {
   const { formatUnixMilliseconds } = useDesktopTime();
@@ -41,6 +43,10 @@ export function RunLogPanel({
   const logViewportRef = useRef<HTMLDivElement>(null);
   const levelCounts = useMemo(() => countLogsByLevel(logs), [logs]);
   const levels = useMemo(() => logLevels(logs), [logs]);
+  const logNumbers = useMemo(
+    () => new Map(logs.map((log, index) => [log, logNumberOffset + index + 1])),
+    [logNumberOffset, logs],
+  );
   const filteredLogs = useMemo(() => filterLogs(logs, { level: levelFilter, query }), [levelFilter, logs, query]);
   const { sortedRows: visibleLogs, sortState, toggleSort } = useSortableRows(filteredLogs, runLogSortSelectors);
 
@@ -98,13 +104,13 @@ export function RunLogPanel({
         <EmptyState>No log entries match the current filters.</EmptyState>
       ) : (
         <div
-          className="max-h-[380px] overflow-x-hidden overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0"
+          className="max-h-[380px] overflow-x-auto overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0"
           ref={logViewportRef}
         >
-          <table className="responsive-table w-full border-collapse text-sm">
+          <table className="responsive-table min-w-[980px] w-full border-collapse text-sm max-[1280px]:min-w-0">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
-                <th className="px-3 py-2">#</th>
+                <th className="w-12 px-3 py-2">#</th>
                 <SortableTableHeader column="time" onSort={toggleSort} sortState={sortState}>
                   Time
                 </SortableTableHeader>
@@ -126,10 +132,10 @@ export function RunLogPanel({
               {visibleLogs.map((log, index) => (
                 <tr
                   className="border-b border-border align-top last:border-b-0"
-                  key={`${index}-${log.level}-${log.node_id ?? "run"}-${log.message}`}
+                  key={`${logNumbers.get(log) ?? index}-${log.level}-${log.node_id ?? "run"}-${log.message}`}
                 >
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="#">
-                    {index + 1}
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-muted-foreground" data-label="#">
+                    {logNumbers.get(log) ?? index + 1}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2" data-label="Time">
                     {formatUnixMilliseconds(log.timestamp_unix_ms)}
@@ -137,14 +143,16 @@ export function RunLogPanel({
                   <td className="px-3 py-2" data-label="Level">
                     <Badge variant={logLevelVariant(log.level)}>{log.level}</Badge>
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Node">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Node">
                     {log.node_id ?? "-"}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Type">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-muted-foreground" data-label="Type">
                     {log.action_type ?? "-"}
                   </td>
                   <td className="px-3 py-2" data-label="Message">
-                    <span className="select-text break-words font-mono text-xs">{visibleText(log.message)}</span>
+                    <span className="select-text whitespace-pre-wrap break-words font-mono text-xs">
+                      {visibleText(log.message)}
+                    </span>
                   </td>
                 </tr>
               ))}

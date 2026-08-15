@@ -637,6 +637,15 @@ export type StoredVariableRecord = {
   updated_at_unix: number;
   value: unknown;
   version: number;
+  /**
+   * The script that wrote a global last.
+   *
+   * A global belongs to no script and any of them may write it, so the row
+   * cannot attribute it the way a persistent variable's script_id does. Null
+   * for a persistent variable, and for a global stored before the runner
+   * started recording the writer.
+   */
+  written_by: string | null;
 };
 
 export type StoredVariableChange = Omit<StoredVariableRecord, "script_name"> & {

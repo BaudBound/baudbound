@@ -331,12 +331,8 @@ pub(super) fn validate_manifest_variables(manifest: &Manifest) -> Result<(), Pac
                 variable.name
             ));
         }
-        if !matches!(variable.scope.as_str(), "runtime" | "persistent") {
-            errors.push(format!(
-                "manifest variable {:?} uses unsupported scope {:?}",
-                variable.name, variable.scope
-            ));
-        }
+        // Scope is not checked here. It is a `VariableScope`, so a manifest
+        // naming anything else fails to deserialize and never reaches this.
         if !SUPPORTED_VARIABLE_TYPES.contains(&variable.value_type.as_str()) {
             errors.push(format!(
                 "manifest variable {:?} uses unsupported type {:?}",
@@ -364,11 +360,7 @@ pub(super) fn validate_manifest_variable_operations(
     manifest: &Manifest,
     program: &Program,
 ) -> Result<(), PackageLoadError> {
-    if manifest.variables.is_empty() {
-        return Ok(());
-    }
-
-    let defaults = manifest
+    let declared = manifest
         .variables
         .iter()
         .map(|variable| (variable.name.as_str(), variable))
@@ -391,38 +383,43 @@ pub(super) fn validate_manifest_variable_operations(
         let Some(name) = config.get("name").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        let Some(variable) = defaults.get(name) else {
+        // This used to compare the node's scope and type against the
+        // declaration's. A node carries neither now, so nothing can disagree;
+        // what is left to catch is a write to a name the manifest never
+        // declares, which a run refuses to start. Catching it at install time
+        // means the refusal arrives before the script is on the machine.
+        let Some(variable) = declared.get(name) else {
+            errors.push(format!(
+                "program.json writes variable {name:?}, which the manifest does not declare"
+            ));
             continue;
         };
         let operation = config
             .get("operation")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("set");
-        let scope = config
-            .get("scope")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let declared_type = match operation {
-            "set" => config.get("valueType").and_then(serde_json::Value::as_str),
-            // Increment does not pin a numeric type: it applies to whichever
-            // numeric type the variable was declared with, and preserves it.
-            "increment" => None,
+        // An operation that implies a type has to agree with the declared one.
+        // The editor will not offer Toggle boolean for a string, so a package
+        // that asks for it was not built by one.
+        let required_type = match operation {
             "toggle_boolean" => Some("boolean"),
             "append_list" | "remove_list_items" => Some("list"),
             "set_object_field" | "remove_object_field" | "merge_object" => Some("object"),
-            "clear" | "delete" => None,
-            _ => config.get("valueType").and_then(serde_json::Value::as_str),
+            _ => None,
         };
-        if scope != variable.scope
-            || declared_type.is_some_and(|value_type| value_type != variable.value_type)
+        if let Some(required) = required_type
+            && required != variable.value_type
         {
             errors.push(format!(
-                "manifest variable {name:?} does not match Variable Operation scope{}",
-                if declared_type.is_some() {
-                    " and type"
-                } else {
-                    ""
-                }
+                "program.json applies {operation} to variable {name:?}, which the manifest declares as {}",
+                variable.value_type
+            ));
+        }
+        if operation == "increment" && !matches!(variable.value_type.as_str(), "integer" | "float")
+        {
+            errors.push(format!(
+                "program.json increments variable {name:?}, which the manifest declares as {}",
+                variable.value_type
             ));
         }
     }
@@ -454,13 +451,24 @@ fn value_matches_declared_type(
     value: &serde_json::Value,
 ) -> bool {
     match value_type {
-        "string" => value.as_str().is_some_and(|text| !text.trim().is_empty()),
+        // An empty string is a string. Requiring a non-empty one meant a
+        // variable could not start empty, so scripts declared a sentinel like
+        // "none" and explained it in the description — while `clear` writes ""
+        // at run time, a value the declaration itself could not hold. A script
+        // setting's default never had this rule.
+        "string" => value.is_string(),
         "hotkey" => value.as_str().is_some_and(crate::is_hotkey),
         "color" => value.as_str().is_some_and(is_hex_color),
-        // integer and float are disjoint, so a whole number is not a float and
-        // a fractional one is not an integer.
+        // A fractional value is not an integer, so that half of the rule holds.
+        // The other half cannot: JSON has one number type, and the editor writes
+        // its manifests with JavaScript numbers, which cannot spell 300.0 as
+        // anything but 300. Requiring the float variant here made every whole
+        // float impossible to declare, and the schema already says "number".
+        // load_initial_state carries the same carve-out and explains it the same
+        // way; the two disagreed, so a package the runner would happily run was
+        // refused before it got the chance.
         "integer" => crate::is_safe_integer(value),
-        "float" => value.is_f64(),
+        "float" => value.as_f64().is_some_and(f64::is_finite),
         "boolean" => value.is_boolean(),
         "list" => value.as_array().is_some_and(|items| {
             item_type.is_some_and(|item_type| {
@@ -520,9 +528,10 @@ fn validate_list_item_type(value_type: &str, item_type: Option<&str>) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DeclaredVariable, VariableScope};
 
     #[test]
-    fn validates_manifest_default_variables() {
+    fn validates_manifest_declared_variables() {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "Counter-2_primary",
             "scope": "persistent",
@@ -531,7 +540,7 @@ mod tests {
             "value": 10
         }]));
 
-        validate_manifest_variables(&manifest).expect("valid default variable should pass");
+        validate_manifest_variables(&manifest).expect("valid declared variable should pass");
     }
 
     #[test]
@@ -707,18 +716,67 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_manifest_default_variables() {
+    fn a_manifest_naming_a_scope_that_does_not_exist_does_not_deserialize() {
+        // Scope used to be a String that three crates each re-interpreted, and
+        // they disagreed about an unrecognised one. It is a `VariableScope`, so
+        // the refusal happens once, here, before any of them sees a manifest.
+        let error = serde_json::from_value::<DeclaredVariable>(serde_json::json!({
+            "name": "counter",
+            "scope": "session",
+            "type": "integer",
+            "value": 10
+        }))
+        .expect_err("a scope outside the enum should not deserialize");
+
+        let message = error.to_string();
+        assert!(message.contains("session"), "{message}");
+        assert!(message.contains("unknown variant"), "{message}");
+    }
+
+    #[test]
+    fn secret_is_not_a_variable_scope() {
+        // A secret is a separate declaration granting `secret.read`. Nothing
+        // writes one, so it must not be reachable as a variable scope.
+        serde_json::from_value::<DeclaredVariable>(serde_json::json!({
+            "name": "api_token",
+            "scope": "secret",
+            "type": "string",
+            "value": ""
+        }))
+        .expect_err("secret is not a scope a variable may be declared into");
+    }
+
+    #[test]
+    fn every_declarable_scope_round_trips_through_its_manifest_spelling() {
+        // The manifest, the stored row, and every error message spell a scope
+        // the same way, so serialisation has to survive the enum unchanged.
+        for (scope, spelling) in [
+            (VariableScope::Runtime, "runtime"),
+            (VariableScope::Persistent, "persistent"),
+            (VariableScope::Global, "global"),
+        ] {
+            assert_eq!(scope.as_str(), spelling);
+            assert_eq!(
+                serde_json::to_value(scope).expect("scope serialises"),
+                spelling
+            );
+            assert_eq!(
+                serde_json::from_value::<VariableScope>(serde_json::json!(spelling))
+                    .expect("scope deserialises"),
+                scope
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_manifest_declared_variables() {
         for (variables, expected) in [
-            (
-                serde_json::json!([{"name": "counter", "scope": "global", "type": "integer", "value": 10}]),
-                "unsupported scope",
-            ),
             (
                 serde_json::json!([{"name": "counter", "scope": "runtime", "type": "integer", "value": "ten"}]),
                 "does not match type",
             ),
             (
-                serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]),
+                serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": 5}]),
                 "does not match type",
             ),
             (
@@ -737,13 +795,56 @@ mod tests {
             ),
         ] {
             let error = validate_manifest_variables(&manifest_with_variables(variables))
-                .expect_err("invalid default variable should fail");
+                .expect_err("invalid declared variable should fail");
             assert!(error.to_string().contains(expected), "{error}");
         }
     }
 
     #[test]
-    fn rejects_default_variable_operation_contract_mismatch() {
+    fn a_float_variable_may_be_declared_with_a_whole_number() {
+        // The editor cannot write 0.0: JSON has one number type and JavaScript
+        // serialises a whole float as `0`. Refusing it here meant a float could
+        // only be declared with a fractional default.
+        for value in [
+            serde_json::json!(0),
+            serde_json::json!(300),
+            serde_json::json!(2.5),
+            serde_json::json!(-7),
+        ] {
+            let variables = serde_json::json!([{"name": "seconds", "scope": "runtime", "type": "float", "value": value}]);
+            validate_manifest_variables(&manifest_with_variables(variables))
+                .unwrap_or_else(|error| panic!("{value} should be a valid float default: {error}"));
+        }
+
+        // The other half of the rule still holds: a fractional value is not an
+        // integer.
+        let fractional = serde_json::json!([{"name": "count", "scope": "runtime", "type": "integer", "value": 2.5}]);
+        validate_manifest_variables(&manifest_with_variables(fractional))
+            .expect_err("a fractional value is not an integer");
+    }
+
+    #[test]
+    fn a_string_variable_may_be_declared_empty() {
+        // The empty string is what clear writes, so a declaration has to be
+        // able to hold it. Without this a script had to invent a sentinel.
+        let variables = serde_json::json!([{"name": "label", "scope": "runtime", "type": "string", "value": ""}]);
+        validate_manifest_variables(&manifest_with_variables(variables))
+            .expect("an empty string is a valid declared string value");
+    }
+
+    #[test]
+    fn accepts_every_declarable_scope() {
+        // Global was refused here while the schema already allowed it, which
+        // meant no package declaring one could be installed at all.
+        for scope in ["runtime", "persistent", "global"] {
+            let variables = serde_json::json!([{"name": "counter", "scope": scope, "type": "integer", "value": 10}]);
+            validate_manifest_variables(&manifest_with_variables(variables))
+                .unwrap_or_else(|error| panic!("{scope} should be declarable: {error}"));
+        }
+    }
+
+    #[test]
+    fn rejects_a_write_to_a_variable_the_manifest_does_not_declare() {
         let manifest = manifest_with_variables(serde_json::json!([{
             "name": "counter",
             "scope": "persistent",
@@ -753,17 +854,58 @@ mod tests {
         let program = serde_json::json!({
             "entry": {"program": {"steps": [{
                 "action_type": "runtime.set_variable",
-                "config": {"name": "counter", "scope": "runtime", "valueType": "integer"}
+                "config": {"name": "tally", "operation": "set"}
             }]}}
         });
 
         let error = validate_manifest_variable_operations(&manifest, &program)
-            .expect_err("mismatched operation should fail");
-        assert!(
-            error
-                .to_string()
-                .contains("does not match Variable Operation")
-        );
+            .expect_err("an undeclared write should fail");
+        let message = error.to_string();
+        assert!(message.contains("tally"), "{message}");
+        assert!(message.contains("does not declare"), "{message}");
+    }
+
+    #[test]
+    fn rejects_an_operation_the_declared_type_cannot_take() {
+        let manifest = manifest_with_variables(serde_json::json!([{
+            "name": "label",
+            "scope": "runtime",
+            "type": "string",
+            "value": "ready"
+        }]));
+        // The editor does not offer Toggle boolean for a string, so a package
+        // asking for one was not built by it.
+        let program = serde_json::json!({
+            "entry": {"program": {"steps": [{
+                "action_type": "runtime.set_variable",
+                "config": {"name": "label", "operation": "toggle_boolean"}
+            }]}}
+        });
+
+        let error = validate_manifest_variable_operations(&manifest, &program)
+            .expect_err("a mismatched operation should fail");
+        let message = error.to_string();
+        assert!(message.contains("toggle_boolean"), "{message}");
+        assert!(message.contains("string"), "{message}");
+    }
+
+    #[test]
+    fn accepts_a_program_whose_writes_are_all_declared() {
+        let manifest = manifest_with_variables(serde_json::json!([{
+            "name": "counter",
+            "scope": "persistent",
+            "type": "integer",
+            "value": 10
+        }]));
+        let program = serde_json::json!({
+            "entry": {"program": {"steps": [{
+                "action_type": "runtime.set_variable",
+                "config": {"name": "counter", "operation": "increment", "value": 1}
+            }]}}
+        });
+
+        validate_manifest_variable_operations(&manifest, &program)
+            .expect("a declared write should pass");
     }
 
     fn manifest_with_variables(variables: serde_json::Value) -> Manifest {

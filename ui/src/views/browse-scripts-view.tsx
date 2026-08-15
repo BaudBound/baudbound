@@ -431,13 +431,13 @@ export function BrowseScriptsView({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="overflow-x-hidden p-0 max-[1100px]:p-3">
+        <CardContent className="overflow-x-auto p-0 max-[1100px]:p-3">
           {loading ? (
             <EmptyState>Loading repository scripts...</EmptyState>
           ) : scripts.length === 0 ? (
             <EmptyState>No scripts match the current filters.</EmptyState>
           ) : (
-            <table className="responsive-table w-full border-collapse text-sm">
+            <table className="responsive-table min-w-[1080px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <colgroup className="max-[1280px]:hidden">
                 <col />
                 <col />

@@ -28,17 +28,57 @@ pub struct Manifest {
     #[serde(default)]
     pub assets: Vec<ManifestAsset>,
     #[serde(default)]
-    pub variables: Vec<DefaultVariable>,
+    pub variables: Vec<DeclaredVariable>,
     #[serde(default)]
     pub settings: Vec<ScriptSettingDeclaration>,
     #[serde(default)]
     pub secrets: Vec<SecretDeclaration>,
 }
 
+/// Where a declared variable lives, and for how long.
+///
+/// This is an enum rather than the string the manifest carries so that the
+/// three places deriving something from a scope — the permission it requires,
+/// the runtime store it reads, the install conflict it can cause — are
+/// exhaustive matches the compiler checks. As strings they were four separate
+/// opinions about what an unrecognised scope meant, and they disagreed: the
+/// permission calculator refused one while the runtime silently read it as
+/// `Runtime`. They agreed in practice only because the manifest schema had
+/// already refused anything else.
+///
+/// `secret` is deliberately absent. A secret is not a variable scope; it is a
+/// separate manifest declaration that grants `secret.read` and nothing that
+/// writes.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum VariableScope {
+    Runtime,
+    Persistent,
+    Global,
+}
+
+impl VariableScope {
+    /// The manifest spelling, for an error message or a stored row.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Runtime => "runtime",
+            Self::Persistent => "persistent",
+            Self::Global => "global",
+        }
+    }
+}
+
+impl std::fmt::Display for VariableScope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct DefaultVariable {
+pub struct DeclaredVariable {
     pub name: String,
-    pub scope: String,
+    pub scope: VariableScope,
     #[serde(rename = "type")]
     pub value_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -46,7 +46,12 @@ export type FormDialogField =
 	| (FormDialogFieldBase & { choices: DialogChoice[]; type: "dropdown" })
 	| (FormDialogFieldBase & { defaultValue: string; placeholder: string; type: "multiline" })
 	| (FormDialogFieldBase & { defaultValue: string; placeholder: string; type: "text" })
-	| (FormDialogFieldBase & { defaultValue: number | null; placeholder: string; type: "number" })
+	| (FormDialogFieldBase & {
+			defaultValue: number | null;
+			numberType: "float" | "integer";
+			placeholder: string;
+			type: "number";
+	  })
 	| (FormDialogFieldBase & { placeholder: string; type: "password" })
 	| (FormDialogFieldBase & { defaultValue: string; type: "color" })
 	| (FormDialogFieldBase & { defaultValue: string; type: "date" })
@@ -120,6 +125,7 @@ const formDialogFieldTypes = new Set([
 	"text",
 	"time",
 ] as const);
+const formDialogNumberTypes = new Set(["float", "integer"] as const);
 
 export function parseDesktopDialogPayload(value: unknown): DesktopDialogPayload {
 	const payload = record(value, "desktop dialog payload");
@@ -232,10 +238,15 @@ function parseFormDialogField(value: unknown, index: number): FormDialogField {
 				type,
 			};
 		case "number":
-			exactFields(field, ["defaultValue", "description", "key", "label", "placeholder", "required", "type"]);
+			exactFields(
+				field,
+				["defaultValue", "description", "key", "label", "placeholder", "required", "type"],
+				["numberType"],
+			);
 			return {
 				...base,
 				defaultValue: nullableNumberField(field, "defaultValue"),
+				numberType: field.numberType === undefined ? "float" : enumField(field, "numberType", formDialogNumberTypes),
 				placeholder: stringField(field, "placeholder"),
 				type,
 			};
@@ -311,8 +322,8 @@ function record(value: unknown, label: string): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-function exactFields(value: Record<string, unknown>, fields: readonly string[]) {
-	const allowed = new Set(fields);
+function exactFields(value: Record<string, unknown>, fields: readonly string[], optionalFields: readonly string[] = []) {
+	const allowed = new Set([...fields, ...optionalFields]);
 	const unexpected = Object.keys(value).find((field) => !allowed.has(field));
 	if (unexpected) {
 		throw new Error(`desktop dialog payload contains unexpected field ${JSON.stringify(unexpected)}`);

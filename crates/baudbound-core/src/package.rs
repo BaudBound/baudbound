@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use baudbound_script::{PackageSummary, RiskLevel, ScriptPackage};
+use baudbound_script::{PackageSummary, RiskLevel, ScriptPackage, VariableScope};
 use baudbound_security::{
     RunnerPolicy, RuntimeDeclarationRequirements, SecurityValidationError,
     validate_program_capabilities_with_declarations,
@@ -77,16 +77,29 @@ pub(crate) fn validate_package_security(
     policy: &RunnerPolicy,
 ) -> Result<(), SecurityValidationError> {
     let requirements = RuntimeDeclarationRequirements {
-        has_persistent_default_variables: package
+        // A Variable Operation names a declared variable rather than repeating
+        // its scope, so deriving its permission means looking the name up here.
+        declared_variable_scopes: package
             .manifest
             .variables
             .iter()
-            .any(|variable| variable.scope == "persistent"),
-        has_runtime_default_variables: package
+            .map(|variable| (variable.name.clone(), variable.scope))
+            .collect(),
+        has_global_declared_variables: package
             .manifest
             .variables
             .iter()
-            .any(|variable| variable.scope == "runtime"),
+            .any(|variable| variable.scope == VariableScope::Global),
+        has_persistent_declared_variables: package
+            .manifest
+            .variables
+            .iter()
+            .any(|variable| variable.scope == VariableScope::Persistent),
+        has_runtime_declared_variables: package
+            .manifest
+            .variables
+            .iter()
+            .any(|variable| variable.scope == VariableScope::Runtime),
         has_secret_declarations: !package.manifest.secrets.is_empty(),
     };
     validate_program_permissions_with_declarations(
@@ -94,7 +107,7 @@ pub(crate) fn validate_package_security(
         &package.permissions.declared_permissions,
         security_risk_level(&package.permissions.risk_level),
         policy,
-        requirements,
+        requirements.clone(),
     )?;
     validate_program_capabilities_with_declarations(
         &package.program,

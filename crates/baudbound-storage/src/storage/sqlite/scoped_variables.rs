@@ -108,13 +108,18 @@ impl SqliteRunnerStore {
                 "UPDATE persistent_variables SET value_json = ?1, version = version + 1, updated_at_unix = ?2 WHERE script_id = ?3 AND name = ?4 AND version = ?5",
                 params![value_json, updated_at_unix, script_id, name, version],
             ),
+            // written_by is recorded on every write, the initialising one
+            // included, so a freshly seeded global is attributed to the script
+            // that declared it rather than reading as though nobody wrote it.
+            // A global is shared and has no owner, so the last writer is the
+            // only honest thing to report about where a value came from.
             (StoredVariableScope::Global, None) => connection.execute(
-                "INSERT OR IGNORE INTO global_variables (name, value_json, version, updated_at_unix) VALUES (?1, ?2, 1, ?3)",
-                params![name, value_json, updated_at_unix],
+                "INSERT OR IGNORE INTO global_variables (name, value_json, version, updated_at_unix, written_by) VALUES (?1, ?2, 1, ?3, ?4)",
+                params![name, value_json, updated_at_unix, script_id],
             ),
             (StoredVariableScope::Global, Some(version)) => connection.execute(
-                "UPDATE global_variables SET value_json = ?1, version = version + 1, updated_at_unix = ?2 WHERE name = ?3 AND version = ?4",
-                params![value_json, updated_at_unix, name, version],
+                "UPDATE global_variables SET value_json = ?1, version = version + 1, updated_at_unix = ?2, written_by = ?3 WHERE name = ?4 AND version = ?5",
+                params![value_json, updated_at_unix, script_id, name, version],
             ),
         }
         .map_err(|source| StorageError::Sqlite {

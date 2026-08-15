@@ -26,7 +26,13 @@ import {
 } from "react";
 import { ColorValueInput } from "@/components/color-value-input";
 import { NumericField } from "@/components/numeric-field";
-import { getNumericDraftError, runtimeFloatMaximum, runtimeFloatMinimum } from "@/components/numeric-field-model";
+import {
+	getNumericDraftError,
+	runtimeFloatMaximum,
+	runtimeFloatMinimum,
+	runtimeIntegerMaximum,
+	runtimeIntegerMinimum,
+} from "@/components/numeric-field-model";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -79,6 +85,13 @@ const floatContract = {
 	kind: "float",
 	maximum: runtimeFloatMaximum,
 	minimum: runtimeFloatMinimum,
+	signed: true,
+} as const;
+
+const integerContract = {
+	kind: "integer",
+	maximum: runtimeIntegerMaximum,
+	minimum: runtimeIntegerMinimum,
 	signed: true,
 } as const;
 
@@ -852,11 +865,14 @@ function FormDialogFieldControl({
 
 	if (field.type === "single_choice" || field.type === "multi_choice") {
 		return (
-			<fieldset aria-describedby={descriptionId} aria-invalid={!!error || undefined} className="grid min-w-0 gap-2">
-				<legend className="text-sm font-medium text-baud-text" id={`${id}-label`}>
-					{field.label}
-					{field.required && <span className="ml-1 text-baud-danger">*</span>}
-				</legend>
+			<div
+				aria-describedby={describedBy}
+				aria-invalid={!!error || undefined}
+				aria-labelledby={`${id}-label`}
+				role="group"
+				className="grid min-w-0 gap-2"
+			>
+				{label}
 				{description}
 				<ChoiceList
 					choices={field.choices}
@@ -865,7 +881,8 @@ function FormDialogFieldControl({
 					onChange={(selected) => onChange?.(selected)}
 					selected={Array.isArray(draft) ? draft : []}
 				/>
-			</fieldset>
+				{validation}
+			</div>
 		);
 	}
 
@@ -959,7 +976,7 @@ function FormDialogFieldControl({
 				{description}
 				<NumericField
 					ariaLabel={field.label}
-					contract={floatContract}
+					contract={field.numberType === "integer" ? integerContract : floatContract}
 					id={id}
 					onChange={(value) => onChange?.(value)}
 					placeholder={field.placeholder}
@@ -1179,7 +1196,7 @@ function ChoiceList({
 		onChange(choices.filter((choice) => next.has(choice.key)).map((choice) => choice.key));
 	};
 	return (
-		<div className="grid max-h-72 gap-2 overflow-x-hidden overflow-y-auto pr-1">
+		<div className="grid max-h-72 gap-2 overflow-x-hidden overflow-y-auto px-px py-1 pr-2">
 			{choices.map((choice, index) => {
 				const checked = selectedSet.has(choice.key);
 				return (
@@ -1264,7 +1281,11 @@ function validateDrafts(fields: FormDialogField[], drafts: FormDialogDrafts) {
 		if (!("key" in field)) continue;
 		const draft = drafts[field.key];
 		if (field.type === "number") {
-			const error = getNumericDraftError(typeof draft === "string" ? draft : "", floatContract, field.required);
+			const error = getNumericDraftError(
+				typeof draft === "string" ? draft : "",
+				field.numberType === "integer" ? integerContract : floatContract,
+				field.required,
+			);
 			if (error) errors[field.key] = error;
 		} else if (field.type === "checkbox") {
 			if (field.required && draft !== true) errors[field.key] = "This option must be enabled.";

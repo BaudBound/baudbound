@@ -1,8 +1,8 @@
 use serde_json::{Value, json};
 
 use crate::{
-    execute_manual_program,
     runtime::{compare_condition_values, compare_condition_values_with_end},
+    tests::execute_manual_program,
 };
 
 #[derive(serde::Deserialize)]

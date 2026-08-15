@@ -367,8 +367,8 @@ export function ScriptDetailPanel({
           {script.triggers.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">No active trigger registrations.</p>
           ) : (
-            <div className="max-w-full overflow-x-hidden rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
-              <table className="responsive-table w-full border-collapse text-sm">
+            <div className="max-w-full overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
+              <table className="responsive-table min-w-[640px] w-full border-collapse text-sm max-[1280px]:min-w-0">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                     <SortableTableHeader column="node" onSort={toggleTriggerSort} sortState={triggerSortState}>
@@ -413,8 +413,8 @@ export function ScriptDetailPanel({
               <EmptyState>No recent runs for this script.</EmptyState>
             </div>
           ) : (
-            <div className="max-w-full overflow-x-hidden rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
-              <table className="responsive-table w-full border-collapse text-sm">
+            <div className="max-w-full overflow-x-auto rounded-md border border-border p-0 max-[1280px]:border-0 max-[1280px]:p-0">
+              <table className="responsive-table min-w-[760px] w-full border-collapse text-sm max-[1280px]:min-w-0">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                     <SortableTableHeader column="completed" onSort={toggleRunSort} sortState={runSortState}>

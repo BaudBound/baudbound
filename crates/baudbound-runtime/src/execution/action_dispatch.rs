@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{Number, Value};
 
 use crate::runtime::{
     SYSTEM_VARIABLE, config_string, duration_from_amount, evaluate_calculation_expression,
@@ -28,7 +28,10 @@ impl RuntimeExecutor<'_> {
         refresh_derived_variable_metadata(&mut self.context.variables, SYSTEM_VARIABLE);
     }
 
-    pub(super) fn execute_node(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+    pub(super) fn execute_node(
+        &mut self,
+        node: &RuntimeNode,
+    ) -> Result<Option<String>, RuntimeError> {
         // One reading per node execution. Every reference inside this node sees
         // the same clock, and the next node reads again, so a loop or a delay
         // moves while two references in one field cannot disagree.
@@ -39,10 +42,10 @@ impl RuntimeExecutor<'_> {
         // text rather than stopping, so it has to be proven here.
         validate_config_casts(&node.id, &node.config, &self.context.variables)?;
         match node.action_type.as_str() {
-            "action.log" => self.execute_log(node),
-            "runtime.set_variable" => self.execute_variable_operation(node),
-            "action.delay" => self.execute_delay(node),
-            "action.calculate" => self.execute_calculate(node),
+            "action.log" => self.execute_log(node).map(|()| None),
+            "runtime.set_variable" => self.execute_variable_operation(node).map(|()| None),
+            "action.delay" => self.execute_delay(node).map(|()| None),
+            "action.calculate" => self.execute_calculate(node).map(|()| None),
             action_type if action_type.starts_with("action.") => self.execute_external_action(node),
             action_type => Err(RuntimeError::UnsupportedStep {
                 action_type: action_type.to_owned(),
@@ -59,7 +62,10 @@ impl RuntimeExecutor<'_> {
         Ok(())
     }
 
-    fn execute_external_action(&mut self, node: &RuntimeNode) -> Result<(), RuntimeError> {
+    fn execute_external_action(
+        &mut self,
+        node: &RuntimeNode,
+    ) -> Result<Option<String>, RuntimeError> {
         self.ensure_not_cancelled()?;
         if node.action_type == "action.webhook_response" {
             self.validate_webhook_response_state(node)?;
@@ -94,29 +100,37 @@ impl RuntimeExecutor<'_> {
             self.log_http_request(node, &request.config);
         }
 
-        let result = match self.action_handler.execute_action(&request, &self.context) {
-            Ok(result) => result,
-            Err(RuntimeActionError::Cancelled) => return Err(RuntimeError::Cancelled),
-            Err(RuntimeActionError::Unsupported(action_type)) => {
-                return Err(RuntimeError::UnsupportedStep {
-                    action_type,
-                    node_id: node.id.clone(),
-                });
-            }
-            Err(RuntimeActionError::Failed { message, .. }) => {
-                return Err(RuntimeError::Action {
-                    node_id: node.id.clone(),
-                    message,
-                });
-            }
-            Err(RuntimeActionError::StructuredFailure { failure, .. }) => {
-                return Err(RuntimeError::StructuredAction {
-                    node_id: node.id.clone(),
-                    failure,
-                });
-            }
-        };
+        let (result, expected_output) =
+            match self.action_handler.execute_action(&request, &self.context) {
+                Ok(result) => (result, None),
+                Err(RuntimeActionError::Cancelled) => return Err(RuntimeError::Cancelled),
+                Err(RuntimeActionError::ExpectedOutcome {
+                    output,
+                    output_data,
+                    ..
+                }) => (super::RuntimeActionResult::new(output_data), Some(output)),
+                Err(RuntimeActionError::Unsupported(action_type)) => {
+                    return Err(RuntimeError::UnsupportedStep {
+                        action_type,
+                        node_id: node.id.clone(),
+                    });
+                }
+                Err(RuntimeActionError::Failed { message, .. }) => {
+                    return Err(RuntimeError::Action {
+                        node_id: node.id.clone(),
+                        message,
+                    });
+                }
+                Err(RuntimeActionError::StructuredFailure { failure, .. }) => {
+                    return Err(RuntimeError::StructuredAction {
+                        node_id: node.id.clone(),
+                        failure,
+                    });
+                }
+            };
         self.ensure_not_cancelled()?;
+        let selected_output =
+            expected_output.or_else(|| select_action_output(node, &result.output_data));
 
         for reference in &result.sensitive_output_keys {
             let value = resolve_sensitive_output_reference(&result.output_data, reference)
@@ -165,7 +179,7 @@ impl RuntimeExecutor<'_> {
         if let Some(message) = completion_message {
             self.push_runtime_log("info", message, Some(node.id.clone()));
         }
-        Ok(())
+        Ok(selected_output)
     }
 
     fn validate_webhook_response_state(&self, node: &RuntimeNode) -> Result<(), RuntimeError> {
@@ -236,7 +250,12 @@ impl RuntimeExecutor<'_> {
                 message,
             }
         })?;
-        let value = number_value(node, result)?;
+        // Older packages did not carry a result type, and historically Calculate
+        // always returned a float. Keep that behavior for those packages while
+        // new editor exports explicitly choose automatic, integer, or float.
+        let result_type =
+            config_string(&node.config, "resultType").unwrap_or_else(|| "float".to_owned());
+        let value = calculation_result_value(node, result, &result_type)?;
         self.set_variable(
             format!("{}.result", node.id),
             value.clone(),
@@ -253,6 +272,102 @@ impl RuntimeExecutor<'_> {
         );
         Ok(())
     }
+}
+
+fn select_action_output(
+    node: &RuntimeNode,
+    output: &serde_json::Map<String, Value>,
+) -> Option<String> {
+    let button = output.get("button").and_then(Value::as_str);
+    match node.action_type.as_str() {
+        "action.form_dialog" => match button {
+            Some("ok") => Some("submitted".to_owned()),
+            Some("cancel") => Some("cancelled".to_owned()),
+            Some("timeout") => Some("timed_out".to_owned()),
+            _ => None,
+        },
+        "action.message_box" => button.map(|button| {
+            if button == "timeout" {
+                "timed_out".to_owned()
+            } else {
+                button.to_owned()
+            }
+        }),
+        "action.process.run" | "action.shell" => Some(
+            if output.get("success").and_then(Value::as_bool) == Some(true) {
+                "exited_zero"
+            } else {
+                "exited_nonzero"
+            }
+            .to_owned(),
+        ),
+        "action.process.status" => Some(
+            if output.get("running").and_then(Value::as_bool) == Some(true) {
+                "running"
+            } else {
+                "not_running"
+            }
+            .to_owned(),
+        ),
+        "action.http" => output
+            .get("status_code")
+            .and_then(Value::as_u64)
+            .map(|status| {
+                if (200..300).contains(&status) {
+                    "ok"
+                } else if (400..500).contains(&status) {
+                    "client_error"
+                } else if (500..600).contains(&status) {
+                    "server_error"
+                } else {
+                    "unexpected_status"
+                }
+                .to_owned()
+            }),
+        "action.file.read" => Some("read".to_owned()),
+        "action.file.delete" => Some("deleted".to_owned()),
+        "action.window.focus" => Some("focused".to_owned()),
+        "action.process.kill" => Some("killed".to_owned()),
+        "action.websocket.write" | "action.serial.write" => Some("sent".to_owned()),
+        _ => None,
+    }
+}
+
+fn calculation_result_value(
+    node: &RuntimeNode,
+    result: f64,
+    result_type: &str,
+) -> Result<Value, RuntimeError> {
+    match result_type {
+        "float" => number_value(node, result),
+        "integer" => calculation_integer_value(node, result),
+        "automatic" => {
+            if is_safe_integer(result) {
+                calculation_integer_value(node, result)
+            } else {
+                number_value(node, result)
+            }
+        }
+        _ => Err(RuntimeError::Calculation {
+            node_id: node.id.clone(),
+            message: format!("unsupported calculation result type {result_type:?}"),
+        }),
+    }
+}
+
+fn calculation_integer_value(node: &RuntimeNode, result: f64) -> Result<Value, RuntimeError> {
+    if !is_safe_integer(result) {
+        return Err(RuntimeError::Calculation {
+            node_id: node.id.clone(),
+            message: "integer result type requires a whole safe integer result".to_owned(),
+        });
+    }
+    Ok(Value::Number(Number::from(result as i64)))
+}
+
+fn is_safe_integer(value: f64) -> bool {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    value.is_finite() && value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER
 }
 
 fn structured_http_runtime_error(
@@ -293,7 +408,9 @@ fn sensitive_output_root(reference: &str) -> &str {
 mod tests {
     use serde_json::{Map, json};
 
-    use super::{resolve_sensitive_output_reference, sensitive_output_root};
+    use crate::RuntimeNode;
+
+    use super::{resolve_sensitive_output_reference, select_action_output, sensitive_output_root};
 
     #[test]
     fn resolves_nested_sensitive_output_references_without_widening_the_secret() {
@@ -329,5 +446,78 @@ mod tests {
             resolve_sensitive_output_reference(&outputs, ".password"),
             None
         );
+    }
+
+    #[test]
+    fn selects_specific_action_outputs_from_runtime_data() {
+        for (action_type, outputs, expected) in [
+            (
+                "action.form_dialog",
+                Map::from_iter([("button".to_owned(), json!("ok"))]),
+                "submitted",
+            ),
+            (
+                "action.message_box",
+                Map::from_iter([("button".to_owned(), json!("yes"))]),
+                "yes",
+            ),
+            (
+                "action.process.run",
+                Map::from_iter([("success".to_owned(), json!(true))]),
+                "exited_zero",
+            ),
+            (
+                "action.shell",
+                Map::from_iter([("success".to_owned(), json!(false))]),
+                "exited_nonzero",
+            ),
+            (
+                "action.process.status",
+                Map::from_iter([("running".to_owned(), json!(false))]),
+                "not_running",
+            ),
+            (
+                "action.http",
+                Map::from_iter([("status_code".to_owned(), json!(204))]),
+                "ok",
+            ),
+            (
+                "action.http",
+                Map::from_iter([("status_code".to_owned(), json!(404))]),
+                "client_error",
+            ),
+            (
+                "action.http",
+                Map::from_iter([("status_code".to_owned(), json!(503))]),
+                "server_error",
+            ),
+            (
+                "action.http",
+                Map::from_iter([("status_code".to_owned(), json!(302))]),
+                "unexpected_status",
+            ),
+            ("action.file.read", Map::new(), "read"),
+            ("action.file.delete", Map::new(), "deleted"),
+            ("action.window.focus", Map::new(), "focused"),
+            ("action.process.kill", Map::new(), "killed"),
+            ("action.websocket.write", Map::new(), "sent"),
+            ("action.serial.write", Map::new(), "sent"),
+        ] {
+            assert_eq!(
+                select_action_output(&runtime_node(action_type), &outputs),
+                Some(expected.to_owned()),
+                "{action_type} should select {expected}"
+            );
+        }
+    }
+
+    fn runtime_node(action_type: &str) -> RuntimeNode {
+        RuntimeNode {
+            id: "n-test".to_owned(),
+            action_type: action_type.to_owned(),
+            node_type: "action".to_owned(),
+            action: None,
+            config: Map::new(),
+        }
     }
 }

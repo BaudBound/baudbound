@@ -1,12 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use serde_json::Value;
 
 use baudbound_script::is_user_identifier;
 
-use crate::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeStateStore, RuntimeVariableScope,
-};
+use crate::{RuntimeDeclaredVariable, RuntimeStateStore, RuntimeVariableScope};
 
 use super::RuntimeError;
 
@@ -20,50 +18,87 @@ const SUPPORTED_LIST_ITEM_TYPES: &[&str] = &[
     "string", "integer", "float", "boolean", "object", "color", "hotkey", "datetime", "duration",
 ];
 
-pub(super) fn validate_default_variables(
-    default_variables: &[RuntimeDefaultVariable],
-    declared_variables: &BTreeMap<String, (String, Option<String>)>,
+/// Validates the declarations themselves.
+///
+/// This used to also check each declaration against the scope and type a
+/// Variable Operation node claimed for the same name. There is nothing left to
+/// disagree with: a node no longer carries a scope or a type, it names a
+/// declared variable and the declaration settles both.
+pub(super) fn validate_declared_variables(
+    declared_variables: &[RuntimeDeclaredVariable],
     secret_names: &[String],
 ) -> Result<(), RuntimeError> {
     let mut names = BTreeSet::new();
-    for variable in default_variables {
-        validate_default_variable(variable)?;
+    for variable in declared_variables {
+        validate_declared_variable(variable)?;
         if !names.insert(variable.name.as_str()) {
             return Err(RuntimeError::InvalidGraph(format!(
-                "manifest contains duplicate default variable {:?}",
+                "manifest contains duplicate declared variable {:?}",
                 variable.name
             )));
         }
         if secret_names.iter().any(|name| name == &variable.name) {
             return Err(RuntimeError::InvalidGraph(format!(
-                "default variable {:?} conflicts with a secret declaration",
+                "declared variable {:?} conflicts with a secret declaration",
                 variable.name
             )));
-        }
-        if let Some((node_scope, node_type)) = declared_variables.get(&variable.name) {
-            let default_scope = match variable.scope {
-                RuntimeDefaultVariableScope::Runtime => "runtime",
-                RuntimeDefaultVariableScope::Persistent => "persistent",
-            };
-            if node_scope != default_scope
-                || node_type
-                    .as_ref()
-                    .is_some_and(|node_type| node_type != &variable.value_type)
-            {
-                return Err(RuntimeError::InvalidGraph(format!(
-                    "default variable {:?} does not match Variable Operation scope and type",
-                    variable.name
-                )));
-            }
         }
     }
     Ok(())
 }
 
+/// The value a declared global starts a run with.
+///
+/// The same shape as the persistent loader, and deliberately so: read what is
+/// stored, write the declared value only if nothing is there, and read again if
+/// another writer won the race. The difference is what "already stored" means.
+/// A persistent variable belongs to one script, so a stored value can only be
+/// its own from an earlier run. A global is shared, so a stored value may well
+/// belong to a script installed months ago, and adopting it is the point rather
+/// than a fallback.
+pub(super) fn load_or_initialize_global_declaration(
+    store: &dyn RuntimeStateStore,
+    script_id: &str,
+    variable: &RuntimeDeclaredVariable,
+) -> Result<Value, RuntimeError> {
+    if let Some(stored) = store
+        .load_variable(RuntimeVariableScope::Global, script_id, &variable.name)
+        .map_err(RuntimeError::State)?
+    {
+        return Ok(stored.value);
+    }
+
+    if store
+        .compare_and_set_variable(
+            RuntimeVariableScope::Global,
+            script_id,
+            &variable.name,
+            None,
+            &variable.value,
+        )
+        .map_err(RuntimeError::State)?
+    {
+        return Ok(variable.value.clone());
+    }
+
+    // Another script declared the same global and won the initialising write
+    // between the read above and this one. Its value is the shared one now.
+    store
+        .load_variable(RuntimeVariableScope::Global, script_id, &variable.name)
+        .map_err(RuntimeError::State)?
+        .map(|stored| stored.value)
+        .ok_or_else(|| {
+            RuntimeError::State(format!(
+                "global variable {:?} could not be initialised",
+                variable.name
+            ))
+        })
+}
+
 pub(super) fn load_or_initialize_persistent_default(
     store: &dyn RuntimeStateStore,
     script_id: &str,
-    variable: &RuntimeDefaultVariable,
+    variable: &RuntimeDeclaredVariable,
 ) -> Result<Value, RuntimeError> {
     if let Some(stored) = store
         .load_variable(RuntimeVariableScope::Persistent, script_id, &variable.name)
@@ -97,19 +132,20 @@ pub(super) fn load_or_initialize_persistent_default(
         })
 }
 
-fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
-    if !is_user_identifier(&variable.name)
-        || variable.name.starts_with("system_")
-        || variable.name.starts_with("manifest_")
-    {
+fn validate_declared_variable(variable: &RuntimeDeclaredVariable) -> Result<(), RuntimeError> {
+    // No prefix is reserved. Every built-in lives behind "@", which
+    // is_user_identifier already refuses, so nothing an author declares can
+    // shadow one. This site kept the old system_ and manifest_ blocklist after
+    // the rest of it was deleted.
+    if !is_user_identifier(&variable.name) {
         return Err(RuntimeError::InvalidGraph(format!(
-            "default variable name {:?} is invalid or reserved",
+            "declared variable name {:?} is invalid",
             variable.name
         )));
     }
     if !SUPPORTED_VARIABLE_TYPES.contains(&variable.value_type.as_str()) {
         return Err(RuntimeError::InvalidGraph(format!(
-            "default variable {:?} uses unsupported type {:?}",
+            "declared variable {:?} uses unsupported type {:?}",
             variable.name, variable.value_type
         )));
     }
@@ -118,20 +154,20 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
             Some(item_type) if SUPPORTED_LIST_ITEM_TYPES.contains(&item_type) => {}
             Some(item_type) => {
                 return Err(RuntimeError::InvalidGraph(format!(
-                    "default variable {:?} uses unsupported list item type {item_type:?}",
+                    "declared variable {:?} uses unsupported list item type {item_type:?}",
                     variable.name
                 )));
             }
             None => {
                 return Err(RuntimeError::InvalidGraph(format!(
-                    "default variable {:?} must declare a list item type",
+                    "declared variable {:?} must declare a list item type",
                     variable.name
                 )));
             }
         }
     } else if variable.item_type.is_some() {
         return Err(RuntimeError::InvalidGraph(format!(
-            "default variable {:?} declares an item type but is not a list",
+            "declared variable {:?} declares an item type but is not a list",
             variable.name
         )));
     }
@@ -141,7 +177,7 @@ fn validate_default_variable(variable: &RuntimeDefaultVariable) -> Result<(), Ru
         &variable.value,
     ) {
         return Err(RuntimeError::InvalidGraph(format!(
-            "default variable {:?} value does not match type {}",
+            "declared variable {:?} value does not match type {}",
             variable.name, variable.value_type
         )));
     }

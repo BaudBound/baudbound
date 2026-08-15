@@ -11,15 +11,10 @@ const sourceFiles = import.meta.glob("../**/*.{css,ts,tsx}", {
   query: "?raw",
   import: "default",
 }) as Record<string, string>;
-const forbiddenOverflow = /\boverflow-(?:x-auto|x-scroll|scroll|auto)\b|overflow(?:-x)?\s*:\s*(?:auto|scroll)/;
 
 describe("horizontal overflow contract", () => {
-  it("forbids horizontal scrollbar utilities throughout the runner UI", () => {
-    const offenders = Object.entries(sourceFiles).flatMap(([path, source]) =>
-      forbiddenOverflow.test(source) ? [path] : [],
-    );
-
-    expect(offenders).toEqual([]);
+  it("keeps page-level horizontal overflow contained", () => {
+    expect(appSource).toContain("runner-content min-h-0 min-w-0 max-w-full flex-1 overflow-x-hidden");
   });
 
   it("keeps shared page and table containers width bounded", () => {
@@ -36,6 +31,15 @@ describe("horizontal overflow contract", () => {
     expect(scriptRowSource).toContain("max-[1280px]:flex-wrap");
     expect(browseScriptsViewSource).toContain('<col className="w-56" />');
     expect(browseScriptsViewSource).toContain("max-w-full flex-wrap justify-end gap-2");
+  });
+
+  it("gives responsive tables a desktop width floor before the mobile card layout", () => {
+    const tableWithoutWidthFloor = /<table className="responsive-table(?![^"]*min-w-\[)/;
+    const offenders = Object.entries(sourceFiles).flatMap(([path, source]) =>
+      tableWithoutWidthFloor.test(source) ? [path] : [],
+    );
+
+    expect(offenders).toEqual([]);
   });
 
   it("sizes table columns from what they hold", () => {

@@ -6,7 +6,10 @@ import type { DashboardPayload, NetworkTriggerType, TriggerAuthStatus } from "@/
 import { isApprovalCurrent } from "@/lib/status-format";
 import { type SortValue, useSortableRows } from "@/lib/table-sorting";
 import { useDesktopTime } from "@/lib/time-format";
-import { NetworkTriggerAuthControls } from "@/views/security/network-trigger-auth";
+import {
+  NetworkTriggerAuthActions,
+  NetworkTriggerAuthStatus,
+} from "@/views/security/network-trigger-auth";
 
 export type NetworkTriggerAuthRow = {
   approvalCurrent: boolean;
@@ -54,13 +57,13 @@ export function NetworkTriggerSecurityPanel({
           {rows.length} network trigger{rows.length === 1 ? "" : "s"}
         </Badge>
       </CardHeader>
-      <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
+      <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
         {rows.length === 0 ? (
           <div className="p-3 text-sm text-muted-foreground max-[1280px]:p-0">
             No installed scripts use Webhook or WebSocket triggers.
           </div>
         ) : (
-          <table className="responsive-table w-full border-collapse text-sm">
+          <table className="responsive-table min-w-[1080px] w-full border-collapse text-sm max-[1280px]:min-w-0">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                 <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>
@@ -76,6 +79,7 @@ export function NetworkTriggerSecurityPanel({
                   Last rotation
                 </SortableTableHeader>
                 <th className="px-3 py-2">Authentication</th>
+                <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -86,11 +90,11 @@ export function NetworkTriggerSecurityPanel({
                 >
                   <td className="px-3 py-3" data-label="Script">
                     <div className="font-medium">{row.scriptName}</div>
-                    <div className="break-all font-mono text-xs text-muted-foreground">{row.scriptId}</div>
+                    <div className="break-words font-mono text-xs text-muted-foreground">{row.scriptId}</div>
                   </td>
                   <td className="px-3 py-3" data-label="Trigger">
                     <Badge variant="muted">{triggerTypeLabel(row.triggerType)}</Badge>
-                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground">{row.nodeId}</div>
+                    <div className="mt-1 break-words font-mono text-xs text-muted-foreground">{row.nodeId}</div>
                   </td>
                   <td className="px-3 py-3 text-xs" data-label="Created">
                     {row.auth ? formatUnixSeconds(row.auth.created_at_unix) : "After approval"}
@@ -100,12 +104,7 @@ export function NetworkTriggerSecurityPanel({
                   </td>
                   <td className="px-3 py-3" data-label="Authentication">
                     {row.auth ? (
-                      <NetworkTriggerAuthControls
-                        auth={row.auth}
-                        busyActions={busyActions}
-                        onDashboard={onDashboard}
-                        runAction={runAction}
-                      />
+                      <NetworkTriggerAuthStatus auth={row.auth} />
                     ) : (
                       <div className="grid gap-1">
                         <Badge variant={row.approvalCurrent ? "destructive" : "medium"}>
@@ -117,6 +116,18 @@ export function NetworkTriggerSecurityPanel({
                             : "Approve this package to create its token."}
                         </span>
                       </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3" data-label="Actions">
+                    {row.auth ? (
+                      <NetworkTriggerAuthActions
+                        auth={row.auth}
+                        busyActions={busyActions}
+                        onDashboard={onDashboard}
+                        runAction={runAction}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No actions</span>
                     )}
                   </td>
                 </tr>

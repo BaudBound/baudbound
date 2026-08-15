@@ -616,6 +616,7 @@ dependencies = [
 name = "baudbound-security"
 version = "2.0.0"
 dependencies = [
+ "baudbound-script",
  "chrono",
  "serde",
  "serde_json",

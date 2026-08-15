@@ -1,9 +1,9 @@
 use super::cast_validation::validate_value_casts;
 use crate::runtime::{
-    coerce_variable_value, config_string, empty_value_for_declared_type, empty_value_for_type,
-    integer_from_value, number_from_value, number_value, remove_object_field,
-    required_config_string, resolve_config_value, resolve_template_value, set_object_field,
-    validate_variable_name, value_kind,
+    coerce_variable_value, config_string, empty_value_for_declared_type, integer_from_value,
+    number_from_value, number_value, remove_object_field, required_config_string,
+    resolve_config_value, resolve_template_value, set_object_field, validate_variable_name,
+    value_kind,
 };
 use crate::value_type::MAX_SAFE_INTEGER;
 use crate::{RuntimeVariableScope, ValueType, validate_value};
@@ -30,17 +30,14 @@ impl RuntimeExecutor<'_> {
 
         let operation =
             config_string(&node.config, "operation").unwrap_or_else(|| "set".to_owned());
-        let value_type = variable_operation_declared_type(node, &operation)?;
-        let scope = match required_config_string(node, "scope")?.as_str() {
-            "runtime" => None,
-            "persistent" => Some(RuntimeVariableScope::Persistent),
-            "global" => Some(RuntimeVariableScope::Global),
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable scope {invalid}"),
-                });
-            }
+        let declared_type = self.declared_types.get(&name).map(String::as_str);
+        let value_type = variable_operation_declared_type(node, &operation, declared_type)?;
+        // From the declaration, not the node. A variable has one scope, and a
+        // node repeating it was a second place for it to disagree.
+        let scope = match self.declared_scopes.get(&name).map(String::as_str) {
+            Some("persistent") => Some(RuntimeVariableScope::Persistent),
+            Some("global") => Some(RuntimeVariableScope::Global),
+            _ => None,
         };
 
         let scope_label = match scope {
@@ -48,37 +45,11 @@ impl RuntimeExecutor<'_> {
             Some(RuntimeVariableScope::Global) => "global",
             None => "runtime",
         };
-        if operation == "delete" {
-            let existed = if let Some(scope) = scope {
-                let store = self.state_store.ok_or_else(|| {
-                    RuntimeError::State(
-                        "stored variable operation requires a runner state store".to_owned(),
-                    )
-                })?;
-                let deleted = store
-                    .delete_variable(scope, &self.context.identity.script_id, &name)
-                    .map_err(RuntimeError::State)?;
-                self.remove_variable(&name);
-                deleted
-            } else {
-                let existed = self.context.variables.contains_key(&name);
-                self.remove_variable(&name);
-                existed
-            };
-            self.push_runtime_log(
-                "info",
-                if existed {
-                    format!("Deleted {scope_label} variable {name:?}.")
-                } else {
-                    format!(
-                        "{} variable {name:?} was already missing.",
-                        capitalize(scope_label)
-                    )
-                },
-                Some(node.id.clone()),
-            );
-            return Ok(());
-        }
+        // Reset and clear go through the ordinary write path below, so a global
+        // one still takes the compare-and-set that every other operation takes.
+        // Deleting a variable is gone: a declaration is what makes a variable
+        // exist, so removing one mid-run would leave the rest of the script
+        // reading a name that nothing declares.
         let next = if let Some(scope) = scope {
             self.execute_stored_variable_operation(
                 node,
@@ -192,7 +163,10 @@ impl RuntimeExecutor<'_> {
                     node_id: node.id.clone(),
                     message: "set requires valueType".to_owned(),
                 })?;
-                let item_type = config_string(&node.config, "itemType");
+                // From the declaration. A list says what it holds where it is
+                // declared, so a node repeating it was a second answer that
+                // could disagree with the first.
+                let item_type = self.declared_item_types.get(name).cloned();
                 let raw_value = if matches!(value_type, "list" | "object") {
                     self.resolve_json_compatible_input(&node.id, node.config.get("value"))?
                 } else {
@@ -417,7 +391,29 @@ impl RuntimeExecutor<'_> {
                 );
                 Ok(Value::Object(object))
             }
-            "clear" => clear_existing_variable(node, name, current.as_ref()),
+            // Both answer from the declaration rather than from what is stored.
+            // Clear used to read the current value's shape to pick an empty one,
+            // which made the result depend on what happened to be there.
+            "clear" => empty_value_for_declared_type(
+                self.declared_types
+                    .get(name)
+                    .map(String::as_str)
+                    .ok_or_else(|| RuntimeError::VariableOperation {
+                        node_id: node.id.clone(),
+                        message: "the manifest does not declare a type for this variable"
+                            .to_owned(),
+                    })?,
+            )
+            .ok_or_else(|| RuntimeError::VariableOperation {
+                node_id: node.id.clone(),
+                message: format!("clear has no empty value for variable {name:?}"),
+            }),
+            "reset" => self.declared_values.get(name).cloned().ok_or_else(|| {
+                RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: "the manifest does not declare a value for this variable".to_owned(),
+                }
+            }),
             _ => Err(RuntimeError::VariableOperation {
                 node_id: node.id.clone(),
                 message: format!("unsupported variable operation {operation}"),
@@ -526,24 +522,41 @@ impl RuntimeExecutor<'_> {
             "clear" => {
                 format!("Cleared {scope} variable {name:?}. New value: {next}.")
             }
+            "reset" => {
+                format!("Reset {scope} variable {name:?} to its declared value {next}.")
+            }
             _ => format!("Set {scope} variable {name:?} to {next}."),
         }
     }
 }
 
+/// The type an operation writes at.
+///
+/// `set` takes it from the declaration, which is the only place a variable's
+/// type lives now. Every other operation implies one, and `increment` pins
+/// none: it applies to whichever numeric type the variable was declared with
+/// and preserves it.
 fn variable_operation_declared_type(
     node: &RuntimeNode,
     operation: &str,
+    declared_type: Option<&str>,
 ) -> Result<Option<String>, RuntimeError> {
     let value_type = match operation {
-        "set" => Some(required_config_string(node, "valueType")?),
+        "set" => Some(
+            declared_type
+                .ok_or_else(|| RuntimeError::VariableOperation {
+                    node_id: node.id.clone(),
+                    message: "the manifest does not declare a type for this variable".to_owned(),
+                })?
+                .to_owned(),
+        ),
         // Increment does not pin a numeric type: it applies to whichever numeric
         // type the variable was declared with, and preserves it.
         "increment" => None,
         "toggle_boolean" => Some("boolean".to_owned()),
         "append_list" | "remove_list_items" => Some("list".to_owned()),
         "set_object_field" | "remove_object_field" | "merge_object" => Some("object".to_owned()),
-        "clear" | "delete" => None,
+        "clear" | "reset" => None,
         _ => {
             return Err(RuntimeError::VariableOperation {
                 node_id: node.id.clone(),
@@ -552,67 +565,6 @@ fn variable_operation_declared_type(
         }
     };
     Ok(value_type)
-}
-
-/// Names which string-shaped type a node declares, if it declares one.
-///
-/// `string`, `color` and `hotkey` are all JSON strings, so a stored value
-/// cannot say which of them it is. Only these three are read from the node,
-/// because every other type is identifiable from the value itself.
-fn declared_string_type(node: &RuntimeNode) -> Option<&'static str> {
-    match config_string(&node.config, "valueType")?.as_str() {
-        "color" => Some("color"),
-        "hotkey" => Some("hotkey"),
-        _ => None,
-    }
-}
-
-fn clear_existing_variable(
-    node: &RuntimeNode,
-    name: &str,
-    current: Option<&Value>,
-) -> Result<Value, RuntimeError> {
-    let current = current.ok_or_else(|| RuntimeError::VariableOperation {
-        node_id: node.id.clone(),
-        message: format!("clear requires existing variable {name:?}"),
-    })?;
-    let value_type = match current {
-        // The stored value's shape identifies every type except which of the
-        // string-shaped ones it is, so only that case consults the declared
-        // type. Trusting the declaration for the others would clear an integer
-        // to an empty string whenever a node carried a stale default.
-        Value::String(_) => match declared_string_type(node) {
-            Some(declared) => {
-                return empty_value_for_declared_type(declared).ok_or_else(|| {
-                    RuntimeError::VariableOperation {
-                        node_id: node.id.clone(),
-                        message: format!(
-                            "clear has no empty value for the {declared} variable {name:?}, use delete instead"
-                        ),
-                    }
-                });
-            }
-            None => "string",
-        },
-        Value::Number(number) if number.as_i64().is_some() || number.as_u64().is_some() => {
-            "integer"
-        }
-        Value::Number(_) => "float",
-        Value::Bool(_) => "boolean",
-        Value::Array(_) => "list",
-        Value::Object(object) => match object.get("type").and_then(Value::as_str) {
-            Some("datetime") => "datetime",
-            Some("duration") => "duration",
-            _ => "object",
-        },
-        Value::Null => {
-            return Err(RuntimeError::VariableOperation {
-                node_id: node.id.clone(),
-                message: format!("clear cannot derive a supported type from variable {name:?}"),
-            });
-        }
-    };
-    Ok(empty_value_for_type(value_type))
 }
 
 fn validate_list_append(
@@ -691,14 +643,6 @@ fn list_item_kind(value: &Value) -> Option<&'static str> {
         },
         Value::Null | Value::Array(_) => None,
     }
-}
-
-fn capitalize(value: &str) -> String {
-    let mut characters = value.chars();
-    characters
-        .next()
-        .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
-        .unwrap_or_default()
 }
 
 fn diagnostic_value(value: &Value) -> String {

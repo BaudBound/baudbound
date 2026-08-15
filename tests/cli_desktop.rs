@@ -13,6 +13,19 @@ use serde_json::Value;
 use serde_json::json;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+/// Fixture script ids.
+///
+/// A script id is a UUID and the manifest schema enforces it, because the id
+/// owns a script's persistent variables and secrets and decides whether an
+/// install updates an existing script or creates one. These used to be readable
+/// slugs, which passed only because `"format": "uuid"` is an annotation the
+/// validator never asserted.
+const DESKTOP_SCRIPT_ID: &str = "00000023-0000-4000-8000-000000000023";
+/// Only the hotkey tests use this, and they are Windows only, so the constant
+/// carries the same gate as its callers rather than a dead-code exemption.
+#[cfg(windows)]
+const HOTKEY_SCRIPT_ID: &str = "00000024-0000-4000-8000-000000000024";
+
 #[cfg(windows)]
 fn expected_desktop_runtime() -> &'static str {
     "Windows Desktop"
@@ -134,45 +147,45 @@ fn desktop_cli_manages_script_storage_against_isolated_home() {
         .as_array()
         .expect("installed scripts should be a JSON array");
     assert_eq!(scripts.len(), 1);
-    assert_eq!(scripts[0]["id"], "desktop-script");
+    assert_eq!(scripts[0]["id"], DESKTOP_SCRIPT_ID);
     assert_eq!(scripts[0]["enabled"], true);
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "disable", "desktop-script"],
+        ["script", "disable", DESKTOP_SCRIPT_ID],
     ));
     let disabled = command_json(run_desktop(
         &runner_home,
-        ["script", "inspect", "desktop-script", "--json"],
+        ["script", "inspect", DESKTOP_SCRIPT_ID, "--json"],
     ));
     assert_eq!(disabled["enabled"], false);
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "enable", "desktop-script"],
+        ["script", "enable", DESKTOP_SCRIPT_ID],
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "desktop-script"],
+        ["script", "approve", DESKTOP_SCRIPT_ID],
     ));
-    let run_output = run_desktop(&runner_home, ["script", "run", "desktop-script"]);
+    let run_output = run_desktop(&runner_home, ["script", "run", DESKTOP_SCRIPT_ID]);
     assert_success(run_output);
     let run_logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "desktop-script", "--json"],
+        ["script", "logs", "--script", DESKTOP_SCRIPT_ID, "--json"],
     ));
     let run_logs = run_logs
         .as_array()
         .expect("run logs should be a JSON array");
     assert_eq!(run_logs.len(), 1);
-    assert_eq!(run_logs[0]["script_id"], "desktop-script");
+    assert_eq!(run_logs[0]["script_id"], DESKTOP_SCRIPT_ID);
     assert_eq!(run_logs[0]["trigger_node_id"], "n-manual");
 
     let approval = command_json(run_desktop(
         &runner_home,
-        ["script", "approval", "desktop-script", "--json"],
+        ["script", "approval", DESKTOP_SCRIPT_ID, "--json"],
     ));
-    assert_eq!(approval["script_id"], "desktop-script");
+    assert_eq!(approval["script_id"], DESKTOP_SCRIPT_ID);
     assert!(
         approval["approved_permissions"]
             .as_array()
@@ -182,19 +195,19 @@ fn desktop_cli_manages_script_storage_against_isolated_home() {
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "revoke-approval", "desktop-script"],
+        ["script", "revoke-approval", DESKTOP_SCRIPT_ID],
     ));
     assert_eq!(
         command_json(run_desktop(
             &runner_home,
-            ["script", "approval", "desktop-script", "--json"],
+            ["script", "approval", DESKTOP_SCRIPT_ID, "--json"],
         )),
         Value::Null
     );
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "remove", "desktop-script"],
+        ["script", "remove", DESKTOP_SCRIPT_ID],
     ));
     assert!(
         command_json(run_desktop(&runner_home, ["script", "list", "--json"]))
@@ -235,12 +248,12 @@ fn desktop_cli_supports_package_and_script_commands() {
 
     let installed = command_json(run_desktop(
         &runner_home,
-        ["script", "inspect", "desktop-script", "--json"],
+        ["script", "inspect", DESKTOP_SCRIPT_ID, "--json"],
     ));
-    assert_eq!(installed["id"], "desktop-script");
+    assert_eq!(installed["id"], DESKTOP_SCRIPT_ID);
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "desktop-script"],
+        ["script", "approve", DESKTOP_SCRIPT_ID],
     ));
 
     let triggers = command_json(run_desktop(&runner_home, ["script", "triggers", "--json"]));
@@ -254,11 +267,11 @@ fn desktop_cli_supports_package_and_script_commands() {
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "dispatch-trigger", "desktop-script", "n-manual"],
+        ["script", "dispatch-trigger", DESKTOP_SCRIPT_ID, "n-manual"],
     ));
     let run_logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "desktop-script", "--json"],
+        ["script", "logs", "--script", DESKTOP_SCRIPT_ID, "--json"],
     ));
     assert_eq!(
         run_logs
@@ -270,41 +283,41 @@ fn desktop_cli_supports_package_and_script_commands() {
 
     let approval = command_json(run_desktop(
         &runner_home,
-        ["script", "approval", "desktop-script", "--json"],
+        ["script", "approval", DESKTOP_SCRIPT_ID, "--json"],
     ));
-    assert_eq!(approval["script_id"], "desktop-script");
+    assert_eq!(approval["script_id"], DESKTOP_SCRIPT_ID);
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "revoke-approval", "desktop-script"],
+        ["script", "revoke-approval", DESKTOP_SCRIPT_ID],
     ));
     assert_eq!(
         command_json(run_desktop(
             &runner_home,
-            ["script", "approval", "desktop-script", "--json"],
+            ["script", "approval", DESKTOP_SCRIPT_ID, "--json"],
         )),
         Value::Null
     );
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "disable", "desktop-script"],
+        ["script", "disable", DESKTOP_SCRIPT_ID],
     ));
     assert_eq!(
         command_json(run_desktop(
             &runner_home,
-            ["script", "inspect", "desktop-script", "--json"],
+            ["script", "inspect", DESKTOP_SCRIPT_ID, "--json"],
         ))["enabled"],
         false
     );
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "enable", "desktop-script"],
+        ["script", "enable", DESKTOP_SCRIPT_ID],
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "remove", "desktop-script"],
+        ["script", "remove", DESKTOP_SCRIPT_ID],
     ));
 }
 
@@ -338,15 +351,15 @@ fn desktop_cli_supports_script_group_aliases() {
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "desktop-script"],
+        ["script", "approve", DESKTOP_SCRIPT_ID],
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "run", "desktop-script"],
+        ["script", "run", DESKTOP_SCRIPT_ID],
     ));
     let triggers = command_json(run_desktop(
         &runner_home,
-        ["script", "triggers", "desktop-script", "--json"],
+        ["script", "triggers", DESKTOP_SCRIPT_ID, "--json"],
     ));
     assert!(
         triggers
@@ -357,11 +370,11 @@ fn desktop_cli_supports_script_group_aliases() {
     );
     assert_success(run_desktop(
         &runner_home,
-        ["script", "dispatch-trigger", "desktop-script", "n-manual"],
+        ["script", "dispatch-trigger", DESKTOP_SCRIPT_ID, "n-manual"],
     ));
     let logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "desktop-script", "--json"],
+        ["script", "logs", "--script", DESKTOP_SCRIPT_ID, "--json"],
     ));
     assert_eq!(
         logs.as_array().expect("logs should be a JSON array").len(),
@@ -370,7 +383,7 @@ fn desktop_cli_supports_script_group_aliases() {
 
     assert_success(run_desktop(
         &runner_home,
-        ["script", "remove", "desktop-script"],
+        ["script", "remove", DESKTOP_SCRIPT_ID],
     ));
 }
 
@@ -396,7 +409,7 @@ fn desktop_cli_dispatches_hotkey_triggers() {
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "hotkey-script"],
+        ["script", "approve", HOTKEY_SCRIPT_ID],
     ));
 
     let hotkeys = command_json(run_desktop(&runner_home, ["hotkey", "list", "--json"]));
@@ -411,13 +424,13 @@ fn desktop_cli_dispatches_hotkey_triggers() {
         .as_array()
         .expect("hotkey dispatch should return report array");
     assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0]["identity"]["script_id"], "hotkey-script");
+    assert_eq!(reports[0]["identity"]["script_id"], HOTKEY_SCRIPT_ID);
     assert_eq!(reports[0]["identity"]["trigger_node_id"], "n-hotkey");
     assert_eq!(reports[0]["variables"]["n-hotkey.key"], "Ctrl+Alt+B");
 
     let run_logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "hotkey-script", "--json"],
+        ["script", "logs", "--script", HOTKEY_SCRIPT_ID, "--json"],
     ));
     let run_logs = run_logs
         .as_array()
@@ -448,7 +461,7 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "hotkey-script"],
+        ["script", "approve", HOTKEY_SCRIPT_ID],
     ));
 
     let output = run_desktop_with_stdin(
@@ -471,7 +484,7 @@ fn desktop_cli_listens_for_stdin_hotkey_triggers() {
 
     let run_logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "hotkey-script", "--json"],
+        ["script", "logs", "--script", HOTKEY_SCRIPT_ID, "--json"],
     ));
     let run_logs = run_logs
         .as_array()
@@ -502,7 +515,7 @@ fn desktop_cli_serves_hotkey_stdin_once() {
     ));
     assert_success(run_desktop(
         &runner_home,
-        ["script", "approve", "hotkey-script"],
+        ["script", "approve", HOTKEY_SCRIPT_ID],
     ));
 
     let preflight = command_json(run_desktop(
@@ -555,7 +568,7 @@ fn desktop_cli_serves_hotkey_stdin_once() {
 
     let run_logs = command_json(run_desktop(
         &runner_home,
-        ["script", "logs", "--script", "hotkey-script", "--json"],
+        ["script", "logs", "--script", HOTKEY_SCRIPT_ID, "--json"],
     ));
     let run_logs = run_logs
         .as_array()
@@ -644,7 +657,7 @@ fn create_desktop_test_package(script_name: &str) -> Vec<u8> {
         r#"{{
             "format_version": 1,
             "script_language_version": 1,
-            "id": "desktop-script",
+            "id": "{DESKTOP_SCRIPT_ID}",
             "name": "{script_name}",
             "version": "1.0.0",
             "created_with": "BaudBound Desktop Test",
@@ -723,7 +736,7 @@ fn create_desktop_hotkey_test_package(script_name: &str) -> Vec<u8> {
         r#"{{
             "format_version": 1,
             "script_language_version": 1,
-            "id": "hotkey-script",
+            "id": "{HOTKEY_SCRIPT_ID}",
             "name": "{script_name}",
             "version": "1.0.0",
             "created_with": "BaudBound Desktop Test",

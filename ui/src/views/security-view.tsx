@@ -86,8 +86,8 @@ export function SecurityView({
           <CardHeader>
             <CardTitle>Script security review</CardTitle>
           </CardHeader>
-          <CardContent className="overflow-x-hidden p-0 max-[1280px]:p-3">
-            <table className="responsive-table w-full border-collapse text-sm">
+          <CardContent className="overflow-x-auto p-0 max-[1280px]:p-3">
+            <table className="responsive-table min-w-[980px] w-full border-collapse text-sm max-[1280px]:min-w-0">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                   <SortableTableHeader column="script" onSort={toggleSort} sortState={sortState}>

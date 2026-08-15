@@ -141,11 +141,13 @@ impl SqliteRunnerStore {
             .prepare(
                 r#"
                 SELECT variable.name, 'persistent', variable.script_id, scripts.name,
-                    variable.value_json, variable.version, variable.updated_at_unix
+                    variable.value_json, variable.version, variable.updated_at_unix,
+                    NULL AS written_by
                 FROM persistent_variables AS variable
                 JOIN scripts ON scripts.id = variable.script_id
                 UNION ALL
-                SELECT name, 'global', NULL, NULL, value_json, version, updated_at_unix
+                SELECT name, 'global', NULL, NULL, value_json, version, updated_at_unix,
+                    written_by
                 FROM global_variables
                 ORDER BY 2, 4, 1
                 "#,
@@ -165,6 +167,10 @@ impl SqliteRunnerStore {
                     value,
                     version: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),
                     updated_at_unix: u64::try_from(row.get::<_, i64>(6)?).unwrap_or_default(),
+                    // Only a global has one. A persistent variable belongs to
+                    // the script it is listed under, so naming a writer would
+                    // repeat what the row already says.
+                    written_by: row.get(7)?,
                 })
             })
             .map_err(|source| self.sqlite_error(source))?;

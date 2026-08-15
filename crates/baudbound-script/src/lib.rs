@@ -30,6 +30,6 @@ pub use repository::{
 };
 pub use safe_integer::{MAX_SAFE_INTEGER, is_safe_integer};
 pub use types::{
-    Capabilities, DefaultVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
-    RiskLevel, ScriptSettingDeclaration, SecretDeclaration,
+    Capabilities, DeclaredVariable, EditorMetadata, Manifest, ManifestAsset, Permissions, Program,
+    RiskLevel, ScriptSettingDeclaration, SecretDeclaration, VariableScope,
 };

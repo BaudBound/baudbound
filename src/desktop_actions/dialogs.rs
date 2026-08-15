@@ -9,7 +9,7 @@ use baudbound_script::{is_user_identifier, parse_rgb_color};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 
 use super::config::{config_string, failed_error, required_string};
 
@@ -26,6 +26,7 @@ const MAX_CHOICE_LABEL_CHARS: usize = 512;
 const MAX_CHOICE_VALUE_CHARS: usize = 512;
 const MAX_TIMEOUT_SECONDS: f64 = 86_400.0;
 const MAX_FORM_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 pub(crate) trait DesktopDialogProvider: Send + Sync {
     fn show_dialog(
@@ -258,6 +259,7 @@ pub(crate) enum FormDialogField {
         description: String,
         key: String,
         label: String,
+        number_type: FormDialogNumberType,
         placeholder: String,
         required: bool,
     },
@@ -342,6 +344,13 @@ pub(crate) enum FormDialogField {
         placeholder: String,
         required: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FormDialogNumberType {
+    Float,
+    Integer,
 }
 
 impl FormDialogField {
@@ -533,6 +542,7 @@ pub(super) fn run_form_dialog(
     )?;
     let normalized = validate_form_dialog_response(request, &form.fields, response)?;
     let submitted = normalized.button == "ok";
+    let display_values = form_dialog_display_values(&form.fields, &normalized.values);
     let password_keys = form
         .fields
         .iter()
@@ -540,17 +550,69 @@ pub(super) fn run_form_dialog(
         .filter_map(FormDialogField::key)
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    let mut result = RuntimeActionResult::new(Map::from_iter([
+    let mut output_data = Map::from_iter([
         ("values".to_owned(), Value::Object(normalized.values)),
         ("submitted".to_owned(), Value::Bool(submitted)),
         ("button".to_owned(), Value::String(normalized.button)),
-    ]));
+    ]);
+    if let Some(display_values) = display_values {
+        output_data.insert("display".to_owned(), Value::Object(display_values));
+    }
+    let mut result = RuntimeActionResult::new(output_data);
     if submitted {
         for key in password_keys {
             result = result.with_sensitive_output_path("values", [key]);
         }
     }
     Ok(result)
+}
+
+fn form_dialog_display_values(
+    fields: &[FormDialogField],
+    values: &Map<String, Value>,
+) -> Option<Map<String, Value>> {
+    let mut display = Map::new();
+    let mut has_choice_field = false;
+
+    for field in fields {
+        let (key, choices, multiple) = match field {
+            FormDialogField::SingleChoice { key, choices, .. }
+            | FormDialogField::Dropdown { key, choices, .. } => (key, choices, false),
+            FormDialogField::MultiChoice { key, choices, .. } => (key, choices, true),
+            _ => continue,
+        };
+        has_choice_field = true;
+
+        if multiple {
+            let labels = values
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(|selected| {
+                    choices
+                        .iter()
+                        .find(|choice| choice.key == selected)
+                        .map(|choice| Value::String(choice.display_value.clone()))
+                })
+                .collect();
+            display.insert(key.clone(), Value::Array(labels));
+            continue;
+        }
+
+        if let Some(label) = values
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|selected| !selected.is_empty())
+            .and_then(|selected| choices.iter().find(|choice| choice.key == selected))
+            .map(|choice| choice.display_value.clone())
+        {
+            display.insert(key.clone(), Value::String(label));
+        }
+    }
+
+    has_choice_field.then_some(display)
 }
 
 pub(super) fn run_notification(
@@ -1077,7 +1139,67 @@ fn parse_form_fields(
                     required,
                 }
             }
-            "text" | "multiline" | "number" => {
+            "number" => {
+                let mut expected = vec![
+                    "type",
+                    "key",
+                    "label",
+                    "description",
+                    "required",
+                    "placeholder",
+                    "defaultValue",
+                ];
+                if object.contains_key("numberType") {
+                    expected.push("numberType");
+                }
+                ensure_exact_fields(request, object, index, &expected)?;
+                let placeholder = object_string(request, object, "placeholder", index)?;
+                validate_length(
+                    request,
+                    "form placeholder",
+                    &placeholder,
+                    MAX_PLACEHOLDER_CHARS,
+                )?;
+                let number_type = match object.get("numberType") {
+                    None => FormDialogNumberType::Float,
+                    Some(Value::String(value)) if value == "float" => FormDialogNumberType::Float,
+                    Some(Value::String(value)) if value == "integer" => {
+                        FormDialogNumberType::Integer
+                    }
+                    _ => {
+                        return Err(failed_error(
+                            request,
+                            format!(
+                                "form component {} numberType must be integer or float",
+                                index + 1
+                            ),
+                        ));
+                    }
+                };
+                let default_value = optional_number(request, object.get("defaultValue"), index)?;
+                if matches!(number_type, FormDialogNumberType::Integer)
+                    && default_value.is_some_and(|value| !is_safe_integer(value))
+                {
+                    return Err(failed_error(
+                        request,
+                        format!(
+                            "form component {} integer default value must be a whole safe integer",
+                            index + 1
+                        ),
+                    ));
+                }
+                let (description, key, label, required) = common();
+                FormDialogField::Number {
+                    default_value,
+                    description,
+                    key,
+                    label,
+                    number_type,
+                    placeholder,
+                    required,
+                }
+            }
+            "text" | "multiline" => {
                 ensure_exact_fields(
                     request,
                     object,
@@ -1100,9 +1222,16 @@ fn parse_form_fields(
                     MAX_PLACEHOLDER_CHARS,
                 )?;
                 let (description, key, label, required) = common();
-                if field_type == "number" {
-                    FormDialogField::Number {
-                        default_value: optional_number(request, object.get("defaultValue"), index)?,
+                let default_value = object_string(request, object, "defaultValue", index)?;
+                validate_length(
+                    request,
+                    "form default value",
+                    &default_value,
+                    MAX_DEFAULT_VALUE_CHARS,
+                )?;
+                if field_type == "text" {
+                    FormDialogField::Text {
+                        default_value,
                         description,
                         key,
                         label,
@@ -1110,31 +1239,13 @@ fn parse_form_fields(
                         required,
                     }
                 } else {
-                    let default_value = object_string(request, object, "defaultValue", index)?;
-                    validate_length(
-                        request,
-                        "form default value",
-                        &default_value,
-                        MAX_DEFAULT_VALUE_CHARS,
-                    )?;
-                    if field_type == "text" {
-                        FormDialogField::Text {
-                            default_value,
-                            description,
-                            key,
-                            label,
-                            placeholder,
-                            required,
-                        }
-                    } else {
-                        FormDialogField::Multiline {
-                            default_value,
-                            description,
-                            key,
-                            label,
-                            placeholder,
-                            required,
-                        }
+                    FormDialogField::Multiline {
+                        default_value,
+                        description,
+                        key,
+                        label,
+                        placeholder,
+                        required,
                     }
                 }
             }
@@ -1295,6 +1406,35 @@ fn ensure_exact_fields(
                 index + 1
             ),
         ))
+    }
+}
+
+fn is_safe_integer(value: f64) -> bool {
+    value.is_finite() && value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER
+}
+
+fn form_dialog_json_number(
+    request: &RuntimeActionRequest,
+    key: &str,
+    value: f64,
+    number_type: FormDialogNumberType,
+) -> Result<Number, RuntimeActionError> {
+    match number_type {
+        FormDialogNumberType::Integer => {
+            if !is_safe_integer(value) {
+                return Err(failed_error(
+                    request,
+                    format!("form dialog response field {key:?} must be a whole safe integer"),
+                ));
+            }
+            Ok(Number::from(value as i64))
+        }
+        FormDialogNumberType::Float => Number::from_f64(value).ok_or_else(|| {
+            failed_error(
+                request,
+                format!("form dialog response field {key:?} is outside the numeric range"),
+            )
+        }),
     }
 }
 
@@ -1706,65 +1846,84 @@ fn validate_form_dialog_response_field(
             }
             normalized.insert(key.to_owned(), Value::String(text));
         }
-        FormDialogField::Number { required, .. } | FormDialogField::Slider { required, .. } => {
-            match value {
-                Some(value) => {
-                    let number = value
-                        .as_f64()
-                        .filter(|number| number.is_finite())
-                        .ok_or_else(|| {
-                            failed_error(
-                                request,
-                                format!(
-                                    "form dialog response field {key:?} must be a finite number"
-                                ),
-                            )
-                        })?;
-                    if let FormDialogField::Slider {
-                        maximum,
-                        minimum,
-                        step,
-                        ..
-                    } = field
-                    {
-                        if !(*minimum..=*maximum).contains(&number) {
-                            return Err(failed_error(
-                                request,
-                                format!(
-                                    "form dialog response field {key:?} is outside its slider range"
-                                ),
-                            ));
-                        }
-                        let steps = (number - minimum) / step;
-                        if (steps - steps.round()).abs() > f64::EPSILON * steps.abs().max(1.0) * 8.0
-                        {
-                            return Err(failed_error(
-                                request,
-                                format!(
-                                    "form dialog response field {key:?} does not align with its slider step"
-                                ),
-                            ));
-                        }
-                    }
-                    let number = serde_json::Number::from_f64(number).ok_or_else(|| {
+        FormDialogField::Number {
+            number_type,
+            required,
+            ..
+        } => match value {
+            Some(value) => {
+                let number = value
+                    .as_f64()
+                    .filter(|number| number.is_finite())
+                    .ok_or_else(|| {
                         failed_error(
                             request,
-                            format!(
-                                "form dialog response field {key:?} is outside the numeric range"
-                            ),
+                            format!("form dialog response field {key:?} must be a finite number"),
                         )
                     })?;
-                    normalized.insert(key.to_owned(), Value::Number(number));
-                }
-                None if *required => {
-                    return Err(failed_error(
-                        request,
-                        format!("form dialog response field {key:?} is required"),
-                    ));
-                }
-                None => {}
+                let number = form_dialog_json_number(request, key, number, *number_type)?;
+                normalized.insert(key.to_owned(), Value::Number(number));
             }
-        }
+            None if *required => {
+                return Err(failed_error(
+                    request,
+                    format!("form dialog response field {key:?} is required"),
+                ));
+            }
+            None => {}
+        },
+        FormDialogField::Slider { required, .. } => match value {
+            Some(value) => {
+                let number = value
+                    .as_f64()
+                    .filter(|number| number.is_finite())
+                    .ok_or_else(|| {
+                        failed_error(
+                            request,
+                            format!("form dialog response field {key:?} must be a finite number"),
+                        )
+                    })?;
+                if let FormDialogField::Slider {
+                    maximum,
+                    minimum,
+                    step,
+                    ..
+                } = field
+                {
+                    if !(*minimum..=*maximum).contains(&number) {
+                        return Err(failed_error(
+                            request,
+                            format!(
+                                "form dialog response field {key:?} is outside its slider range"
+                            ),
+                        ));
+                    }
+                    let steps = (number - minimum) / step;
+                    if (steps - steps.round()).abs() > f64::EPSILON * steps.abs().max(1.0) * 8.0 {
+                        return Err(failed_error(
+                            request,
+                            format!(
+                                "form dialog response field {key:?} does not align with its slider step"
+                            ),
+                        ));
+                    }
+                }
+                let number = Number::from_f64(number).ok_or_else(|| {
+                    failed_error(
+                        request,
+                        format!("form dialog response field {key:?} is outside the numeric range"),
+                    )
+                })?;
+                normalized.insert(key.to_owned(), Value::Number(number));
+            }
+            None if *required => {
+                return Err(failed_error(
+                    request,
+                    format!("form dialog response field {key:?} is required"),
+                ));
+            }
+            None => {}
+        },
         FormDialogField::Checkbox { required, .. } => {
             let checked = value.and_then(|value| value.as_bool()).ok_or_else(|| {
                 failed_error(

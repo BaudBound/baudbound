@@ -21,7 +21,7 @@ mod api;
 mod branching;
 pub mod cast_validation;
 mod contracts;
-mod default_variables;
+mod declared_variables;
 mod frames;
 mod http_diagnostics;
 mod initial_state;
@@ -47,6 +47,10 @@ struct RuntimeExecutor<'a> {
     cancellation: RuntimeCancellationToken,
     state_store: Option<&'a dyn RuntimeStateStore>,
     variable_scopes: std::collections::BTreeMap<String, RunVariableScope>,
+    declared_types: std::collections::BTreeMap<String, String>,
+    declared_scopes: std::collections::BTreeMap<String, String>,
+    declared_values: std::collections::BTreeMap<String, Value>,
+    declared_item_types: std::collections::BTreeMap<String, String>,
     secret_names: Vec<String>,
     secret_values: Vec<Value>,
     transient_sensitive_values: Vec<Value>,
@@ -74,7 +78,7 @@ impl<'a> RuntimeExecutor<'a> {
             &graph,
             &identity.script_id,
             resources.state_store,
-            resources.default_variables,
+            resources.declared_variables,
             resources.script_settings,
             resources.secrets,
             &initial_state::BuiltIns {
@@ -119,6 +123,10 @@ impl<'a> RuntimeExecutor<'a> {
             cancellation: resources.cancellation,
             state_store: resources.state_store,
             variable_scopes: initial_state.variable_scopes,
+            declared_types: initial_state.declared_types,
+            declared_scopes: initial_state.declared_scopes,
+            declared_values: initial_state.declared_values,
+            declared_item_types: initial_state.declared_item_types,
             secret_names: initial_state.secret_names,
             secret_values: initial_state.secret_values,
             transient_sensitive_values: Vec::new(),
@@ -141,9 +149,35 @@ impl<'a> RuntimeExecutor<'a> {
         );
         self.seed_trigger_payload_outputs(&trigger_node_id)?;
 
+        let trigger_handle = if self
+            .graph
+            .trigger(&trigger_node_id)
+            .is_ok_and(|node| node.action_type == "trigger.file_watch")
+        {
+            match self
+                .context
+                .trigger_payload
+                .get("event")
+                .and_then(Value::as_str)
+            {
+                Some(event @ ("created" | "modified" | "deleted" | "renamed")) => event.to_owned(),
+                Some(event) => {
+                    return Err(RuntimeError::State(format!(
+                        "file watch trigger {trigger_node_id} received unsupported event {event:?}"
+                    )));
+                }
+                None => {
+                    return Err(RuntimeError::State(format!(
+                        "file watch trigger {trigger_node_id} did not receive an event type"
+                    )));
+                }
+            }
+        } else {
+            "out".to_owned()
+        };
         let mut frames = vec![RuntimeFrame::Follow {
             source_node_id: trigger_node_id,
-            handle: "out".to_owned(),
+            handle: trigger_handle,
             stop_at_node_id: None,
         }];
 

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+pub use baudbound_script::VariableScope;
 pub use blacklist::{
     BlacklistDecision, BlacklistEntry, BlacklistMatchSubject, BlacklistPolicy, BlacklistScope,
     BlacklistSeverity, PermissiveBlacklistPolicy, github_publisher_for_url, matching_entries,
@@ -29,10 +30,19 @@ pub use network::{
     same_http_origin,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeDeclarationRequirements {
-    pub has_persistent_default_variables: bool,
-    pub has_runtime_default_variables: bool,
+    /// The scope each declared variable was declared with, by name.
+    ///
+    /// A Variable Operation node no longer carries a scope: it names a declared
+    /// variable and the declaration settles it. Deriving a permission therefore
+    /// means resolving the node's target through this map, which is what the
+    /// editor does when it writes permissions.json. Reading the node instead
+    /// left the runner asking a question the program could no longer answer.
+    pub declared_variable_scopes: BTreeMap<String, VariableScope>,
+    pub has_global_declared_variables: bool,
+    pub has_persistent_declared_variables: bool,
+    pub has_runtime_declared_variables: bool,
     pub has_secret_declarations: bool,
 }
 
@@ -305,34 +315,33 @@ pub fn calculate_program_permissions_with_declarations(
         }
     }
 
-    for scope in
-        variable_operation_scopes(program).map_err(PermissionValidationError::InvalidProgram)?
+    for scope in variable_operation_scopes(program, &requirements.declared_variable_scopes)
+        .map_err(PermissionValidationError::InvalidProgram)?
     {
-        let permission = match scope.as_str() {
-            "runtime" => PermissionGrant {
+        // Exhaustive over the scopes that exist. There is no arm for an
+        // unrecognised one because `VariableScope` cannot hold one, which is
+        // what stops a new scope from silently inheriting a permission: adding
+        // a variant breaks this match until someone states its risk.
+        let permission = match scope {
+            VariableScope::Runtime => PermissionGrant {
                 name: "variable.local.set".to_owned(),
                 risk: RiskLevel::Low,
             },
-            "persistent" => PermissionGrant {
+            VariableScope::Persistent => PermissionGrant {
                 name: "variable.persistent.set".to_owned(),
                 risk: RiskLevel::Medium,
             },
-            "global" => PermissionGrant {
+            VariableScope::Global => PermissionGrant {
                 name: "variable.global.set".to_owned(),
                 risk: RiskLevel::High,
             },
-            invalid => {
-                return Err(PermissionValidationError::InvalidProgram(format!(
-                    "runtime.set_variable contains unsupported scope {invalid:?}"
-                )));
-            }
         };
         if seen_permissions.insert(permission.name.clone()) {
             permissions.push(permission);
         }
     }
 
-    if requirements.has_runtime_default_variables {
+    if requirements.has_runtime_declared_variables {
         insert_permission(
             &mut permissions,
             &mut seen_permissions,
@@ -342,7 +351,7 @@ pub fn calculate_program_permissions_with_declarations(
             },
         );
     }
-    if requirements.has_persistent_default_variables {
+    if requirements.has_persistent_declared_variables {
         insert_permission(
             &mut permissions,
             &mut seen_permissions,
@@ -648,7 +657,20 @@ pub(crate) fn executable_action_types(program: &Value) -> Result<Vec<String>, St
     Ok(action_types)
 }
 
-pub(crate) fn variable_operation_scopes(program: &Value) -> Result<Vec<String>, String> {
+/// The scope each Variable Operation writes at, read from the declarations.
+///
+/// This used to read `config.scope` off the node. The node stopped carrying one
+/// when a declaration became the only place a variable's scope lives, so every
+/// package exported after that change was refused for a missing field it is no
+/// longer supposed to have.
+///
+/// An undeclared name resolves to runtime, the least privileged answer. The run
+/// is refused separately for writing a variable nothing declares, so this never
+/// has to be the thing that catches it.
+pub(crate) fn variable_operation_scopes(
+    program: &Value,
+    declared_variable_scopes: &BTreeMap<String, VariableScope>,
+) -> Result<Vec<VariableScope>, String> {
     let steps = program
         .get("entry")
         .and_then(|entry| entry.get("program"))
@@ -656,19 +678,23 @@ pub(crate) fn variable_operation_scopes(program: &Value) -> Result<Vec<String>, 
         .and_then(Value::as_array)
         .ok_or_else(|| "missing entry.program.steps".to_owned())?;
 
-    steps
+    Ok(steps
         .iter()
         .filter(|step| {
             step.get("action_type").and_then(Value::as_str) == Some("runtime.set_variable")
         })
         .map(|step| {
-            step.get("config")
-                .and_then(|config| config.get("scope"))
+            let name = step
+                .get("config")
+                .and_then(|config| config.get("name"))
                 .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .ok_or_else(|| "runtime.set_variable is missing string config.scope".to_owned())
+                .unwrap_or_default();
+            declared_variable_scopes
+                .get(name)
+                .copied()
+                .unwrap_or(VariableScope::Runtime)
         })
-        .collect()
+        .collect())
 }
 
 pub(crate) fn first_duplicate(values: &[String]) -> Option<String> {

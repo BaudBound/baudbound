@@ -209,7 +209,14 @@ fn shell_command_timeout_terminates_the_process_group_promptly() {
     )
     .expect_err("a command exceeding its deadline must fail");
 
-    assert!(error.to_string().contains("exceeded its timeout"));
+    assert!(matches!(
+        error,
+        RuntimeActionError::ExpectedOutcome {
+            action_type,
+            output,
+            ..
+        } if action_type == "action.shell" && output == "timed_out"
+    ));
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 

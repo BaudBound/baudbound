@@ -11,6 +11,15 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::*;
 
+/// Fixture script ids.
+///
+/// A script id is a UUID and the manifest schema enforces it, because the id
+/// owns a script's persistent variables and secrets and decides whether an
+/// install updates an existing script or creates one. These used to be readable
+/// slugs, which passed only because `"format": "uuid"` is an annotation the
+/// validator never asserted.
+const DESKTOP_WORKFLOW_ID: &str = "00000025-0000-4000-8000-000000000025";
+
 #[test]
 fn desktop_dialog_capability_allows_console_event_subscriptions() {
     let capability: Value =
@@ -200,7 +209,7 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
         "approve_script",
         json!({
             "confirmationId": wrong_challenge["confirmation_id"],
-            "reference": "desktop-workflow"
+            "reference": DESKTOP_WORKFLOW_ID
         }),
     )
     .expect_err("confirmation for another operation must fail");
@@ -279,8 +288,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let approved = invoke_sensitive(
         &webview,
         "approve_script",
-        json!({"kind": "approve_script", "reference": "desktop-workflow"}),
-        json!({"reference": "desktop-workflow"}),
+        json!({"kind": "approve_script", "reference": DESKTOP_WORKFLOW_ID}),
+        json!({"reference": DESKTOP_WORKFLOW_ID}),
     );
     assert_eq!(
         approved["dashboard"]["runner"]["scripts"][0]["approval_status"]["state"],
@@ -291,8 +300,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let run = invoke_sensitive(
         &webview,
         "run_script",
-        json!({"kind": "run_script", "reference": "desktop-workflow"}),
-        json!({"reference": "desktop-workflow"}),
+        json!({"kind": "run_script", "reference": DESKTOP_WORKFLOW_ID}),
+        json!({"reference": DESKTOP_WORKFLOW_ID}),
     );
     assert_eq!(run["dashboard"]["recent_runs"][0]["status"], "completed");
     assert_eq!(run["dashboard"]["run_statistics"]["total"], 1);
@@ -343,15 +352,15 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let disabled = invoke_sensitive(
         &webview,
         "set_script_enabled",
-        json!({"kind": "set_script_enabled", "reference": "desktop-workflow", "enabled": false}),
-        json!({"reference": "desktop-workflow", "enabled": false}),
+        json!({"kind": "set_script_enabled", "reference": DESKTOP_WORKFLOW_ID, "enabled": false}),
+        json!({"reference": DESKTOP_WORKFLOW_ID, "enabled": false}),
     );
     assert_eq!(disabled["dashboard"]["runner"]["enabled_script_count"], 0);
     invoke_sensitive(
         &webview,
         "set_script_enabled",
-        json!({"kind": "set_script_enabled", "reference": "desktop-workflow", "enabled": true}),
-        json!({"reference": "desktop-workflow", "enabled": true}),
+        json!({"kind": "set_script_enabled", "reference": DESKTOP_WORKFLOW_ID, "enabled": true}),
+        json!({"reference": DESKTOP_WORKFLOW_ID, "enabled": true}),
     );
 
     let config = invoke(&webview, "read_runner_config", json!({}));
@@ -500,8 +509,8 @@ fn tauri_bridge_completes_the_primary_desktop_workflow() {
     let removed = invoke_sensitive(
         &webview,
         "remove_script",
-        json!({"kind": "remove_script", "reference": "desktop-workflow"}),
-        json!({"reference": "desktop-workflow"}),
+        json!({"kind": "remove_script", "reference": DESKTOP_WORKFLOW_ID}),
+        json!({"reference": DESKTOP_WORKFLOW_ID}),
     );
     assert_eq!(removed["dashboard"]["runner"]["total_script_count"], 0);
 }
@@ -632,20 +641,20 @@ fn invoke_sensitive(
 fn create_test_package() -> Vec<u8> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-    for (path, content) in [
-        (
-            "manifest.json",
-            r#"{
+    let manifest = format!(
+        r#"{{
                 "format_version": 1,
                 "script_language_version": 1,
-                "id": "desktop-workflow",
+                "id": "{DESKTOP_WORKFLOW_ID}",
                 "name": "Desktop Workflow",
                 "version": "1.0.0",
                 "created_with": "BaudBound Tauri Test",
                 "created_at": "2026-01-01T00:00:00.000Z",
                 "minimum_runner_version": "0.1.0"
-            }"#,
-        ),
+            }}"#
+    );
+    for (path, content) in [
+        ("manifest.json", manifest.as_str()),
         (
             "program.json",
             r#"{

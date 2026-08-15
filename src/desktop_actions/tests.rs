@@ -494,6 +494,16 @@ fn form_dialog_returns_typed_values_and_configured_choice_order() {
         result.output_data["values"]["features"],
         serde_json::json!(["first", "second"])
     );
+    assert_eq!(result.output_data["display"]["environment"], "Production");
+    assert_eq!(
+        result.output_data["display"]["features"],
+        serde_json::json!(["First", "Second"])
+    );
+    assert_eq!(result.output_data["display"]["dropdown"], "Production");
+    assert_eq!(
+        result.output_data["display"].as_object().map(Map::len),
+        Some(3)
+    );
     assert!(result.sensitive_output_keys.is_empty());
 
     let recorded = provider
@@ -931,6 +941,39 @@ fn form_dialog_rejects_unknown_or_invalid_renderer_values() {
 }
 
 #[test]
+fn form_dialog_integer_number_fields_preserve_whole_outputs_and_reject_fractions() {
+    let provider = std::sync::Arc::new(FixedDialogProvider::new(DesktopDialogResponse {
+        button: "ok".to_owned(),
+        values: serde_json::json!({"count":42})
+            .as_object()
+            .expect("test response must be an object")
+            .clone(),
+    }));
+    let adapter = SystemDesktopActionAdapter::with_dialog_provider(provider);
+    let request = form_dialog_request(serde_json::json!([
+        {"type":"number","key":"count","label":"Count","description":"","required":true,"placeholder":"","defaultValue":0,"numberType":"integer"}
+    ]));
+
+    let result = adapter
+        .form_dialog(&request, &dialog_context())
+        .expect("whole integer form response should succeed");
+    assert_eq!(result.output_data["values"]["count"], serde_json::json!(42));
+
+    let provider = std::sync::Arc::new(FixedDialogProvider::new(DesktopDialogResponse {
+        button: "ok".to_owned(),
+        values: serde_json::json!({"count":42.5})
+            .as_object()
+            .expect("test response must be an object")
+            .clone(),
+    }));
+    let adapter = SystemDesktopActionAdapter::with_dialog_provider(provider);
+    let error = adapter
+        .form_dialog(&request, &dialog_context())
+        .expect_err("fractional integer form response must be rejected");
+    assert!(error.to_string().contains("whole safe integer"));
+}
+
+#[test]
 fn cancelled_form_dialog_rejects_renderer_data() {
     let provider = std::sync::Arc::new(FixedDialogProvider::new(DesktopDialogResponse {
         button: "cancel".to_owned(),
@@ -1130,12 +1173,29 @@ fn windows_process_title_actions_handle_missing_windows_safely() {
         node_id: "n-process-kill".to_owned(),
         ..request
     };
+    // A missing window is a routing outcome, not a failure: `action.process.kill`
+    // declares a `not_found` output beside `killed` and `failed`, so a script can
+    // branch on it. This used to be a plain failure carrying the prose "no
+    // process window title contains", and the assertion outlived the message.
     let error = adapter
         .kill_process_by_window_title(&kill_request, &context)
-        .expect_err("terminating a missing window must fail safely");
-    assert!(
-        error
-            .to_string()
-            .contains("no process window title contains")
+        .expect_err("terminating a missing window must not report a kill");
+    let RuntimeActionError::ExpectedOutcome {
+        action_type,
+        output,
+        output_data,
+    } = error
+    else {
+        panic!("a missing window must select an output rather than fail the run");
+    };
+
+    assert_eq!(action_type, "action.process.kill");
+    assert_eq!(output, "not_found");
+    assert_eq!(
+        output_data.get("target"),
+        Some(&Value::String(
+            "BaudBound-Window-That-Does-Not-Exist-7B8C3D9E".to_owned()
+        )),
+        "the outcome must name the window it looked for"
     );
 }

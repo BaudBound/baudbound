@@ -164,10 +164,6 @@ select {
 
 .responsive-table {
   max-width: 100%;
-  /* Columns are sized from what they hold. A fixed layout with no declared
-     widths splits the table into equal shares, which gave a row number the
-     same width as a log message and left the message wrapping over several
-     lines while its neighbours sat mostly empty. */
   table-layout: auto;
 }
 
@@ -186,20 +182,14 @@ select {
 
 .responsive-table th,
 .responsive-table td {
-  /* A column asks for the width its content wants, up to a limit. Without a
-     floor, a column that breaks anywhere can be squeezed to a single
-     character by a neighbour holding a long message, which is how node and
-     type ended up reading one letter per line. The limit keeps a long value
-     from claiming the whole row, and breaking anywhere still applies past it
-     so nothing overflows sideways. */
-  min-width: min(max-content, 10rem);
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 @media (max-width: 1280px) {
   .responsive-table {
     display: block;
+    min-width: 0;
   }
 
   .responsive-table thead {
@@ -235,6 +225,10 @@ select {
   .responsive-table td > * {
     grid-column: 2;
     min-width: 0;
+  }
+
+  .responsive-table td.text-right {
+    text-align: left;
   }
 
   .responsive-table td::before {

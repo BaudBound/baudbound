@@ -1058,3 +1058,56 @@ mod tests {
             .into_inner()
     }
 }
+
+/// The published packages, loaded as a runner would load them.
+///
+/// The repository is a sibling checkout rather than part of this workspace, so
+/// these are skipped when it is not present instead of failing a build that has
+/// no way to satisfy them.
+#[cfg(test)]
+mod published_package_tests {
+    use std::path::PathBuf;
+
+    use super::load_script_package;
+    use crate::VariableScope;
+
+    fn published(version: &str) -> Option<PathBuf> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../repository/packages/8bb0c704-e663-491c-b96f-0af25bcea0ae")
+            .join(format!("ip-address-change-notifier-{version}.bbs"));
+        path.exists().then_some(path)
+    }
+
+    #[test]
+    fn the_published_package_declares_every_variable_it_writes() {
+        let Some(path) = published("1.0.3") else {
+            return;
+        };
+        let package = load_script_package(path).expect("1.0.3 should load");
+        assert_eq!(package.manifest.version, "1.0.3");
+        assert!(
+            package.manifest.variables.iter().any(|variable| {
+                variable.name == "current_ip" && variable.scope == VariableScope::Persistent
+            }),
+            "the package must declare the variable it writes"
+        );
+    }
+
+    #[test]
+    fn the_previous_published_package_is_refused() {
+        let Some(path) = published("1.0.2") else {
+            return;
+        };
+        // 1.0.2 writes current_ip and declares nothing, which is what the
+        // re-export exists to fix. Loading it must fail rather than defer the
+        // failure to the first run. It trips the schema first, because its
+        // nodes still carry the scope and type they no longer may; the
+        // undeclared write behind that is covered by its own unit test.
+        let error = load_script_package(path).expect_err("1.0.2 must no longer load");
+        let message = error.to_string();
+        assert!(
+            message.contains("current_ip"),
+            "the refusal should name the offending variable, got: {message}"
+        );
+    }
+}

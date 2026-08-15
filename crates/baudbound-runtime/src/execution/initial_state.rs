@@ -8,14 +8,32 @@ use crate::runtime::{
     validate_variable_name,
 };
 use crate::{
-    RuntimeDefaultVariable, RuntimeDefaultVariableScope, RuntimeScriptSettings,
-    RuntimeSecretDeclaration, RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
+    RuntimeDeclaredScope, RuntimeDeclaredVariable, RuntimeScriptSettings, RuntimeSecretDeclaration,
+    RuntimeStateStore, RuntimeVariableScope, ValueType, validate_value,
 };
 
-use super::default_variables::{load_or_initialize_persistent_default, validate_default_variables};
+use super::declared_variables::{
+    load_or_initialize_global_declaration, load_or_initialize_persistent_default,
+    validate_declared_variables,
+};
 use super::{RunVariableScope, RuntimeError};
 
 pub(super) struct InitialRuntimeState {
+    /// The type each declared variable was declared with.
+    ///
+    /// A Variable Operation node no longer carries a type; it names a declared
+    /// variable and the declaration settles it. The executor keeps this for the
+    /// operations that need to know, which is `set` and telling a color or a
+    /// hotkey from a plain string when clearing.
+    pub(super) declared_types: BTreeMap<String, String>,
+    /// The scope each declared variable was declared with, for the same reason.
+    pub(super) declared_scopes: BTreeMap<String, String>,
+    /// The value each declaration gives its variable, which is what `reset`
+    /// puts back.
+    pub(super) declared_values: BTreeMap<String, Value>,
+    /// The item type of each declared list, for the same reason: a list says
+    /// what it holds in its declaration, not on the node writing it.
+    pub(super) declared_item_types: BTreeMap<String, String>,
     pub(super) secret_names: Vec<String>,
     pub(super) secret_values: Vec<Value>,
     pub(super) variable_scopes: BTreeMap<String, RunVariableScope>,
@@ -40,74 +58,35 @@ pub(super) fn load_initial_state(
     graph: &RuntimeGraph,
     script_id: &str,
     state_store: Option<&dyn RuntimeStateStore>,
-    default_variables: &[RuntimeDefaultVariable],
+    declared_variables: &[RuntimeDeclaredVariable],
     script_settings: Option<&RuntimeScriptSettings>,
     secrets: &[RuntimeSecretDeclaration],
     built_ins: &BuiltIns<'_>,
 ) -> Result<InitialRuntimeState, RuntimeError> {
     let mut variables = BTreeMap::new();
     let mut variable_scopes = BTreeMap::new();
-    let mut declarations = BTreeMap::<String, RuntimeVariableScope>::new();
-    let mut declared_variables = BTreeMap::<String, (String, Option<String>)>::new();
+    // The manifest is the only place a variable comes from. This used to scan
+    // every set_variable node and infer a declaration from its name, scope and
+    // type, which meant N nodes writing one variable were N declarations that
+    // happened to agree — until one did not, and the run failed at the point of
+    // starting rather than the point of editing. A variable has one type and
+    // one scope, so it is stored once.
+    let declarations = declared_variables
+        .iter()
+        .filter_map(|variable| {
+            let scope = match variable.scope {
+                RuntimeDeclaredScope::Persistent => Some(RuntimeVariableScope::Persistent),
+                RuntimeDeclaredScope::Global => Some(RuntimeVariableScope::Global),
+                RuntimeDeclaredScope::Runtime => None,
+            }?;
+            Some((variable.name.clone(), scope))
+        })
+        .collect::<BTreeMap<String, RuntimeVariableScope>>();
 
-    for node in graph
-        .nodes()
-        .filter(|node| node.action_type == "runtime.set_variable")
-    {
-        let name = required_config_string(node, "name")?;
-        validate_variable_name(node, &name)?;
-        let scope_name = required_config_string(node, "scope")?;
-        let operation = required_config_string(node, "operation")?;
-        let value_type = match operation.as_str() {
-            "set" => Some(required_config_string(node, "valueType")?),
-            // Increment does not pin a numeric type: it operates on whichever
-            // numeric type the variable was declared with, and preserves it.
-            "increment" => None,
-            "toggle_boolean" => Some("boolean".to_owned()),
-            "append_list" | "remove_list_items" => Some("list".to_owned()),
-            "set_object_field" | "remove_object_field" | "merge_object" => {
-                Some("object".to_owned())
-            }
-            "clear" | "delete" => None,
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable operation {invalid}"),
-                });
-            }
-        };
-        let scope = match scope_name.as_str() {
-            "runtime" => None,
-            "persistent" => Some(RuntimeVariableScope::Persistent),
-            "global" => Some(RuntimeVariableScope::Global),
-            invalid => {
-                return Err(RuntimeError::VariableOperation {
-                    node_id: node.id.clone(),
-                    message: format!("unsupported variable scope {invalid}"),
-                });
-            }
-        };
-        if let Some((existing_scope, existing_type)) = declared_variables.get_mut(&name) {
-            if *existing_scope != scope_name
-                || existing_type
-                    .as_ref()
-                    .zip(value_type.as_ref())
-                    .is_some_and(|(existing, incoming)| existing != incoming)
-            {
-                return Err(RuntimeError::InvalidGraph(format!(
-                    "variable {name:?} is declared with conflicting scope or type"
-                )));
-            }
-            if existing_type.is_none() {
-                *existing_type = value_type;
-            }
-        } else {
-            declared_variables.insert(name.clone(), (scope_name.clone(), value_type));
-        }
-        if let Some(scope) = scope {
-            declarations.insert(name.clone(), scope);
-        }
-    }
+    let declared_names = declared_variables
+        .iter()
+        .map(|variable| variable.name.as_str())
+        .collect::<BTreeSet<_>>();
 
     let secret_names = secrets
         .iter()
@@ -120,22 +99,42 @@ pub(super) fn load_initial_state(
     }
     if let Some(collision) = secret_names
         .iter()
-        .find(|name| declared_variables.contains_key(name.as_str()))
+        .find(|name| declared_names.contains(name.as_str()))
     {
         return Err(RuntimeError::InvalidGraph(format!(
-            "secret {collision:?} conflicts with a writable variable"
+            "secret {collision:?} conflicts with a declared variable"
         )));
     }
 
-    validate_default_variables(default_variables, &declared_variables, &secret_names)?;
+    validate_declared_variables(declared_variables, &secret_names)?;
+
+    // After the declarations are known to be well formed, so a malformed
+    // declaration is reported as itself rather than as the missing declaration
+    // it leaves behind.
+    for node in graph
+        .nodes()
+        .filter(|node| node.action_type == "runtime.set_variable")
+    {
+        let name = required_config_string(node, "name")?;
+        validate_variable_name(node, &name)?;
+        // A package fault rather than a node failure: nothing the script can
+        // do at run time makes an undeclared variable exist, so this must not
+        // take the node's failed output.
+        if !declared_names.contains(name.as_str()) {
+            return Err(RuntimeError::InvalidGraph(format!(
+                "node {:?} writes variable {name:?}, which the manifest does not declare",
+                node.id
+            )));
+        }
+    }
 
     // "settings" used to be reserved here for the Script Settings object. That
     // object is now "@settings", which no script can name, so the plain word is
     // an ordinary variable name again.
 
-    let has_persistent_default = default_variables
+    let has_persistent_default = declared_variables
         .iter()
-        .any(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent);
+        .any(|variable| variable.scope == RuntimeDeclaredScope::Persistent);
     if (!declarations.is_empty() || has_persistent_default || !secrets.is_empty())
         && state_store.is_none()
     {
@@ -196,9 +195,9 @@ pub(super) fn load_initial_state(
             RunVariableScope::Setting,
         );
     }
-    for variable in default_variables
+    for variable in declared_variables
         .iter()
-        .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Runtime)
+        .filter(|variable| variable.scope == RuntimeDeclaredScope::Runtime)
     {
         reject_wrong_type_default(variable)?;
         insert_initial_variable(
@@ -210,9 +209,9 @@ pub(super) fn load_initial_state(
         );
     }
     if let Some(store) = state_store {
-        for variable in default_variables
+        for variable in declared_variables
             .iter()
-            .filter(|variable| variable.scope == RuntimeDefaultVariableScope::Persistent)
+            .filter(|variable| variable.scope == RuntimeDeclaredScope::Persistent)
         {
             reject_wrong_type_default(variable)?;
             let value = load_or_initialize_persistent_default(store, script_id, variable)?;
@@ -222,6 +221,24 @@ pub(super) fn load_initial_state(
                 variable.name.clone(),
                 value,
                 RunVariableScope::Persistent,
+            );
+        }
+        // A declared global adopts whatever is already stored under that name.
+        // Two scripts declaring the same global share one value, so the second
+        // one to be installed must not reset what the first has been keeping;
+        // the declared value applies only when nothing is stored yet.
+        for variable in declared_variables
+            .iter()
+            .filter(|variable| variable.scope == RuntimeDeclaredScope::Global)
+        {
+            reject_wrong_type_default(variable)?;
+            let value = load_or_initialize_global_declaration(store, script_id, variable)?;
+            insert_initial_variable(
+                &mut variables,
+                &mut variable_scopes,
+                variable.name.clone(),
+                value,
+                RunVariableScope::Global,
             );
         }
         for (name, scope) in declarations {
@@ -270,6 +287,29 @@ pub(super) fn load_initial_state(
     }
 
     Ok(InitialRuntimeState {
+        declared_types: declared_variables
+            .iter()
+            .map(|variable| (variable.name.clone(), variable.value_type.clone()))
+            .collect(),
+        declared_item_types: declared_variables
+            .iter()
+            .filter_map(|variable| Some((variable.name.clone(), variable.item_type.clone()?)))
+            .collect(),
+        declared_values: declared_variables
+            .iter()
+            .map(|variable| (variable.name.clone(), variable.value.clone()))
+            .collect(),
+        declared_scopes: declared_variables
+            .iter()
+            .map(|variable| {
+                let scope = match variable.scope {
+                    RuntimeDeclaredScope::Global => "global",
+                    RuntimeDeclaredScope::Persistent => "persistent",
+                    RuntimeDeclaredScope::Runtime => "runtime",
+                };
+                (variable.name.clone(), scope.to_owned())
+            })
+            .collect(),
         secret_names,
         secret_values,
         variable_scopes,
@@ -282,11 +322,11 @@ pub(super) fn load_initial_state(
 /// declared default belongs to the package rather than to a node. A type
 /// name outside the ten-type vocabulary (the retired vocabulary such as
 /// `number` or `file_path`) does not parse into a `ValueType` and is left to
-/// `validate_default_variable`, which already accepts it.
-fn reject_wrong_type_default(variable: &RuntimeDefaultVariable) -> Result<(), RuntimeError> {
+/// `validate_declared_variable`, which already accepts it.
+fn reject_wrong_type_default(variable: &RuntimeDeclaredVariable) -> Result<(), RuntimeError> {
     let type_error = |reason: String| RuntimeError::Type {
         node_id: String::new(),
-        message: format!("default variable \"{}\" {reason}", variable.name),
+        message: format!("declared variable \"{}\" {reason}", variable.name),
     };
 
     // A declared value is read by the type declared beside it, so a whole

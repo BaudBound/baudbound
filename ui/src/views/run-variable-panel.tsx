@@ -87,8 +87,8 @@ export function RunVariablePanel({
       {visibleRows.length === 0 ? (
         <EmptyState>No variables match the current filters.</EmptyState>
       ) : (
-        <div className="max-h-[420px] overflow-x-hidden overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0">
-          <table className="responsive-table w-full border-collapse text-sm">
+        <div className="max-h-[420px] overflow-x-auto overflow-y-auto rounded-md border border-border p-0 max-[1280px]:border-0">
+          <table className="responsive-table min-w-[760px] w-full border-collapse text-sm max-[1280px]:min-w-0">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
                 <SortableTableHeader column="name" onSort={toggleSort} sortState={sortState}>

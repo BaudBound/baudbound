@@ -17,6 +17,160 @@ mod state;
 #[path = "tests/variable_operations.rs"]
 mod variable_operations;
 
+/// Runs a program, declaring whatever it writes.
+///
+/// A variable now exists because the manifest declares it, so a program built
+/// inline in a test has no declarations at all and refuses to start. Restating
+/// them in every test would bury the thing each test is actually about, so this
+/// derives them the way the editor's export does: one declaration per name a
+/// `runtime.set_variable` node writes, taking its scope and type from the node.
+///
+/// A test that is about declaration itself calls the real entry point directly
+/// and supplies its own, so this shadowing helper cannot hide a missing one.
+fn execute_manual_program(program: &Value, script_id: &str) -> Result<RunReport, RuntimeError> {
+    execute_manual_program_with_actions(program, script_id, &UnsupportedActionHandler)
+}
+
+/// The same derivation for tests that supply their own action handler.
+fn execute_manual_program_with_actions(
+    program: &Value,
+    script_id: &str,
+    action_handler: &dyn RuntimeActionHandler,
+) -> Result<RunReport, RuntimeError> {
+    let declared = declarations_for_program(program);
+    let store = DeclarationTestStore;
+    execute_manual_program_with_state(
+        program,
+        script_id,
+        RuntimeExecutionResources::new(action_handler)
+            .with_state(&store, &[])
+            .with_declared_variables(&declared),
+    )
+}
+
+/// A store for the helper above, which needs one only because a persistent or
+/// global declaration requires it. Nothing is retained between runs.
+#[derive(Debug)]
+struct DeclarationTestStore;
+
+impl RuntimeStateStore for DeclarationTestStore {
+    fn load_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+    ) -> Result<Option<VersionedRuntimeVariable>, String> {
+        Ok(None)
+    }
+
+    fn compare_and_set_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+        _expected_version: Option<u64>,
+        _value: &Value,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
+    fn delete_variable(
+        &self,
+        _scope: RuntimeVariableScope,
+        _script_id: &str,
+        _name: &str,
+    ) -> Result<bool, String> {
+        Ok(true)
+    }
+
+    fn read_secret(&self, _script_id: &str, _name: &str) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+}
+
+fn declarations_for_program(program: &Value) -> Vec<RuntimeDeclaredVariable> {
+    let mut declared: Vec<RuntimeDeclaredVariable> = Vec::new();
+    let steps = program
+        .pointer("/entry/program/steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    for step in steps {
+        if step.get("action_type").and_then(Value::as_str) != Some("runtime.set_variable") {
+            continue;
+        }
+        let Some(config) = step.get("config") else {
+            continue;
+        };
+        let Some(name) = config.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if declared.iter().any(|variable| variable.name == name) {
+            continue;
+        }
+        // A name a script may not write is left undeclared on purpose, so the
+        // node-level rejection is what the test sees. Declaring it here would
+        // fail declaration validation first and report the wrong thing.
+        if !baudbound_script::is_user_identifier(name) {
+            continue;
+        }
+        // Only set and clear carry a valueType. Every other operation implies
+        // one, which is the mapping the removed scan used and the same mapping
+        // the editor will use to filter the name picker.
+        let operation = config
+            .get("operation")
+            .and_then(Value::as_str)
+            .unwrap_or("set");
+        let value_type = config
+            .get("valueType")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                match operation {
+                    "increment" => "integer",
+                    "toggle_boolean" => "boolean",
+                    "append_list" | "remove_list_items" => "list",
+                    "set_object_field" | "remove_object_field" | "merge_object" => "object",
+                    _ => "string",
+                }
+                .to_owned()
+            });
+        let scope = match config.get("scope").and_then(Value::as_str) {
+            Some("persistent") => RuntimeDeclaredScope::Persistent,
+            Some("global") => RuntimeDeclaredScope::Global,
+            _ => RuntimeDeclaredScope::Runtime,
+        };
+        // The item type belongs to the declaration now, so a fixture that used
+        // to state it on the node states it here instead. String is the
+        // fallback for a list node that names none.
+        let item_type = (value_type == "list").then(|| {
+            config
+                .get("itemType")
+                .and_then(Value::as_str)
+                .unwrap_or("string")
+                .to_owned()
+        });
+        declared.push(RuntimeDeclaredVariable {
+            name: name.to_owned(),
+            scope,
+            value_type: value_type.clone(),
+            item_type,
+            // A declaration must carry a value its own type accepts, and a
+            // string, color or hotkey has no valid empty member, so the empty
+            // value for the type will not do for those three.
+            value: match value_type.as_str() {
+                "string" => json!("declared"),
+                "color" => json!("#000000"),
+                "hotkey" => json!("F5"),
+                other => crate::runtime::empty_value_for_type(other),
+            },
+        });
+    }
+
+    declared
+}
+
 fn assert_json_contract_type(value: &Value, expected: &str) {
     let matches = match expected {
         "boolean" => value.is_boolean(),
@@ -143,12 +297,13 @@ fn rejects_active_variable_values_over_the_configured_limit() {
             }
         }
     });
-    let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler).with_output_limits(
-        RuntimeOutputLimits {
+    let declared = declarations_for_program(&program);
+    let resources = RuntimeExecutionResources::new(&UnsupportedActionHandler)
+        .with_declared_variables(&declared)
+        .with_output_limits(RuntimeOutputLimits {
             max_runtime_variable_bytes: crate::ResourceLimit::limited(32),
             ..RuntimeOutputLimits::default()
-        },
-    );
+        });
 
     let error = execute_manual_program_with_state(&program, "script-value-limit", resources)
         .expect_err("oversized active value should fail");
@@ -608,6 +763,8 @@ fn executes_fixed_count_repeat_body_and_done_branch() {
     .expect("repeat should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3)));
+    assert_eq!(report.variables.get("n-repeat.index"), Some(&json!(2)));
+    assert_eq!(report.variables.get("n-repeat.count"), Some(&json!(3)));
     assert!(report.logs.iter().any(|log| log.message == "counter=3"));
 }
 
@@ -926,6 +1083,7 @@ fn executes_while_until_condition_fails() {
     .expect("while should execute");
 
     assert_eq!(report.variables.get("counter"), Some(&json!(3)));
+    assert_eq!(report.variables.get("n-while.index"), Some(&json!(2)));
     assert!(
         report
             .logs
@@ -952,7 +1110,7 @@ fn executes_for_each_over_json_list() {
                             },
                             "runtime_outputs": []
                         },
-                        log_node("n-item", "item={{n-each.index}}:{{n-each.item}}"),
+						log_node("n-item", "item={{n-each.index}}:{{n-each.item}} first={{n-each.is_first}} last={{n-each.is_last}}"),
                         log_node("n-done", "done item={{n-each.item}}")
                     ],
                     "edges": [
@@ -967,11 +1125,24 @@ fn executes_for_each_over_json_list() {
     )
     .expect("for-each should execute");
 
-    assert!(report.logs.iter().any(|log| log.message == "item=0:one"));
-    assert!(report.logs.iter().any(|log| log.message == "item=1:two"));
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "item=0:one first=true last=false")
+    );
+    assert!(
+        report
+            .logs
+            .iter()
+            .any(|log| log.message == "item=1:two first=false last=true")
+    );
     assert!(report.logs.iter().any(|log| log.message == "done item=two"));
     assert_eq!(report.variables.get("n-each.item"), Some(&json!("two")));
     assert_eq!(report.variables.get("n-each.index"), Some(&json!(1)));
+    assert_eq!(report.variables.get("n-each.count"), Some(&json!(2)));
+    assert_eq!(report.variables.get("n-each.is_first"), Some(&json!(false)));
+    assert_eq!(report.variables.get("n-each.is_last"), Some(&json!(true)));
 }
 
 #[test]
@@ -1060,6 +1231,121 @@ fn calculates_expression_and_exposes_result_reference() {
         Some(&RunVariableScope::NodeOutput)
     );
     assert!(report.logs.iter().any(|log| log.message == "result=10.0"));
+}
+
+#[test]
+fn calculates_expression_with_integer_variable_reference() {
+    let report = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [
+                        variable_node("n-seconds", "seconds", "set", "integer", "7200"),
+                        {
+                            "id": "n-calc",
+                            "action_type": "action.calculate",
+                            "type": "action",
+                            "action": "calculate",
+                            "config": {
+                                "expression": "floor({{seconds}} / 3600)",
+                                "resultType": "automatic"
+                            },
+                            "runtime_outputs": []
+                        },
+                        log_node("n-log", "hours={{n-calc.result}}")
+                    ],
+                    "edges": [
+                        edge("n-trigger", "out", "n-seconds"),
+                        edge("n-seconds", "out", "n-calc"),
+                        edge("n-calc", "out", "n-log")
+                    ]
+                }
+            }
+        }),
+        "script-1",
+    )
+    .expect("calculate should accept an integer variable reference");
+
+    assert_eq!(report.variables.get("seconds"), Some(&json!(7200)));
+    assert_eq!(report.variables.get("n-calc.result"), Some(&json!(2)));
+    assert!(report.logs.iter().any(|log| log.message == "hours=2"));
+}
+
+#[test]
+fn calculate_result_type_controls_numeric_output_and_rejects_fractional_integers() {
+    let automatic = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "4 / 2", "resultType": "automatic" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-automatic-calculate",
+    )
+    .expect("automatic whole result should execute");
+    assert_eq!(automatic.variables.get("n-calc.result"), Some(&json!(2)));
+
+    let float = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "4 / 2", "resultType": "float" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-float-calculate",
+    )
+    .expect("float result should execute");
+    assert_eq!(float.variables.get("n-calc.result"), Some(&json!(2.0)));
+
+    let rejected = execute_manual_program(
+        &json!({
+            "entry": {
+                "trigger": manual_trigger(),
+                "triggers": [],
+                "program": {
+                    "steps": [{
+                        "id": "n-calc",
+                        "action_type": "action.calculate",
+                        "type": "action",
+                        "action": "calculate",
+                        "config": { "expression": "5 / 2", "resultType": "integer" },
+                        "runtime_outputs": []
+                    }],
+                    "edges": [edge("n-trigger", "out", "n-calc")]
+                }
+            }
+        }),
+        "script-integer-calculate",
+    )
+    .expect("an action failure follows its failed output instead of aborting the run");
+    assert_eq!(
+        rejected.variables["n-calc.error"]["message"],
+        json!("integer result type requires a whole safe integer result")
+    );
 }
 
 #[test]
@@ -1175,7 +1461,7 @@ fn sensitive_action_outputs_remain_usable_but_are_removed_from_reports_and_logs(
                     ],
                     "edges": [
                         edge("n-trigger", "out", "n-form-dialog"),
-						edge("n-form-dialog", "success", "n-user-log"),
+						edge("n-form-dialog", "submitted", "n-user-log"),
 						edge("n-user-log", "out", "n-direct-log"),
                         edge("n-direct-log", "out", "n-copy"),
                         edge("n-copy", "out", "n-copy-log")
@@ -1214,6 +1500,72 @@ fn sensitive_action_outputs_remain_usable_but_are_removed_from_reports_and_logs(
             .iter()
             .any(|entry| entry.message == "copy=[REDACTED]")
     );
+}
+
+#[test]
+fn form_dialog_cancel_and_timeout_follow_their_dedicated_outputs() {
+    #[derive(Debug)]
+    struct FormDialogOutcomeHandler {
+        button: &'static str,
+    }
+
+    impl RuntimeActionHandler for FormDialogOutcomeHandler {
+        fn execute_action(
+            &self,
+            _request: &RuntimeActionRequest,
+            _context: &RuntimeContext,
+        ) -> Result<RuntimeActionResult, RuntimeActionError> {
+            Ok(RuntimeActionResult::new(Map::from_iter([
+                ("button".to_owned(), json!(self.button)),
+                ("submitted".to_owned(), json!(false)),
+                ("values".to_owned(), json!({})),
+            ])))
+        }
+    }
+
+    for (button, expected_message) in [("cancel", "cancelled"), ("timeout", "timed out")] {
+        let handler = FormDialogOutcomeHandler { button };
+        let report = execute_manual_program_with_actions(
+            &json!({
+                "entry": {
+                    "trigger": manual_trigger(),
+                    "triggers": [],
+                    "program": {
+                        "steps": [
+                            {
+                                "id": "n-form-dialog",
+                                "action_type": "action.form_dialog",
+                                "type": "action",
+                                "action": "form_dialog",
+                                "config": {"title": "Prompt", "fields": []},
+                                "runtime_outputs": []
+                            },
+                            log_node("n-success", "submitted"),
+                            log_node("n-cancelled", "cancelled"),
+                            log_node("n-timed-out", "timed out")
+                        ],
+                        "edges": [
+                            edge("n-trigger", "out", "n-form-dialog"),
+                            edge("n-form-dialog", "submitted", "n-success"),
+                            edge("n-form-dialog", "cancelled", "n-cancelled"),
+                            edge("n-form-dialog", "timed_out", "n-timed-out")
+                        ]
+                    }
+                }
+            }),
+            "script-form-dialog-outcomes",
+            &handler,
+        )
+        .expect("form dialog outcome should select its dedicated branch");
+
+        assert!(
+            report
+                .logs
+                .iter()
+                .any(|entry| entry.message == expected_message)
+        );
+        assert!(!report.logs.iter().any(|entry| entry.message == "submitted"));
+    }
 }
 
 #[test]
@@ -2055,7 +2407,11 @@ fn variable_operation_failures_follow_failed_edges() {
             .iter()
             .any(|log| { log.message == "variable=VARIABLE_OPERATION_FAILED" })
     );
-    assert!(!report.variables.contains_key("count"));
+    // "count" exists, because a declared variable always does: it is seeded at
+    // its declared value when the run starts. What the failed operation must
+    // not do is change it, which is the guarantee this asserts now that the
+    // variable cannot simply be absent.
+    assert_eq!(report.variables.get("count"), Some(&json!(0)));
 }
 
 #[test]
