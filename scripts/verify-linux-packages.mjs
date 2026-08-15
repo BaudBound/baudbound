@@ -8,6 +8,11 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  RELEASE_ARCHITECTURES,
+  debianPackageName,
+  rpmPackageName,
+} from "./release-architectures.mjs";
 
 const PACKAGE_NAME = "baudbound";
 const REQUIRED_FILES = [
@@ -40,32 +45,42 @@ export class LinuxPackageContractError extends Error {}
 export function verifyLinuxPackages({ directory, tag }) {
   const version = releaseVersion(tag);
   const packageDirectory = resolve(directory);
-  const debPath = exactlyOnePackage(packageDirectory, ".deb");
-  const rpmPath = exactlyOnePackage(packageDirectory, ".rpm");
   const extractionRoot = mkdtempSync(join(tmpdir(), "baudbound-package-check-"));
+  const packages = [];
 
   try {
-    verifyDebPackage(debPath, version, join(extractionRoot, "deb"));
-    verifyRpmPackage(rpmPath, version);
+    for (const architecture of RELEASE_ARCHITECTURES) {
+      const debPath = exactlyOnePackage(packageDirectory, debianPackageName(version, architecture));
+      const rpmPath = exactlyOnePackage(packageDirectory, rpmPackageName(version, architecture));
+
+      verifyDebPackage(
+        debPath,
+        version,
+        architecture,
+        join(extractionRoot, `deb-${architecture.id}`),
+      );
+      verifyRpmPackage(rpmPath, version, architecture);
+      packages.push({
+        architecture: architecture.id,
+        deb: basename(debPath),
+        rpm: basename(rpmPath),
+      });
+    }
   } finally {
     rmSync(extractionRoot, { force: true, recursive: true });
   }
 
-  return {
-    deb: basename(debPath),
-    rpm: basename(rpmPath),
-    version,
-  };
+  return { packages, version };
 }
 
-function verifyDebPackage(packagePath, version, extractionDirectory) {
+function verifyDebPackage(packagePath, version, architecture, extractionDirectory) {
   assert(
-    basename(packagePath) === `Baudbound_${version}_amd64.deb`,
+    basename(packagePath) === debianPackageName(version, architecture),
     `unexpected Debian package filename ${basename(packagePath)}`,
   );
   assertField("Debian package name", debField(packagePath, "Package"), PACKAGE_NAME);
   assertField("Debian version", debField(packagePath, "Version"), version);
-  assertField("Debian architecture", debField(packagePath, "Architecture"), "amd64");
+  assertField("Debian architecture", debField(packagePath, "Architecture"), architecture.debian);
   assertField("Debian maintainer", debField(packagePath, "Maintainer"), "NATroutter");
   assertField("Debian section", debField(packagePath, "Section"), "utils");
   assertField("Debian priority", debField(packagePath, "Priority"), "optional");
@@ -89,16 +104,16 @@ function verifyDebPackage(packagePath, version, extractionDirectory) {
   verifyInstalledTree(extractionDirectory, "Debian");
 }
 
-function verifyRpmPackage(packagePath, version) {
+function verifyRpmPackage(packagePath, version, architecture) {
   assert(
-    basename(packagePath) === `Baudbound-${version}-1.x86_64.rpm`,
+    basename(packagePath) === rpmPackageName(version, architecture),
     `unexpected RPM package filename ${basename(packagePath)}`,
   );
   assertField("RPM package name", rpmField(packagePath, "%{NAME}"), PACKAGE_NAME);
   assertField("RPM epoch", rpmField(packagePath, "%{EPOCHNUM}"), "0");
   assertField("RPM version", rpmField(packagePath, "%{VERSION}"), version);
   assertField("RPM release", rpmField(packagePath, "%{RELEASE}"), "1");
-  assertField("RPM architecture", rpmField(packagePath, "%{ARCH}"), "x86_64");
+  assertField("RPM architecture", rpmField(packagePath, "%{ARCH}"), architecture.rpm);
   assertField(
     "RPM license",
     rpmField(packagePath, "%{LICENSE}"),
@@ -162,9 +177,14 @@ function releaseVersion(tag) {
   return match[1];
 }
 
-function exactlyOnePackage(directory, suffix) {
-  const packages = packageFiles(directory, suffix);
-  assert(packages.length === 1, `expected exactly one ${suffix} package, found ${packages.length}`);
+function exactlyOnePackage(directory, expectedName) {
+  const packages = packageFiles(directory, expectedName).filter(
+    (path) => basename(path) === expectedName,
+  );
+  assert(
+    packages.length === 1,
+    `expected exactly one ${expectedName}, found ${packages.length}`,
+  );
   return packages[0];
 }
 

@@ -1,21 +1,23 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { expectedArtifacts } from "./release-architectures.mjs";
 
 export const CHECKSUM_FILENAME = "SHA256SUMS";
 
-export function installerAssetNames(assets) {
+export function installerAssetNames(assets, version) {
   const names = [...assets.keys()];
-  const definitions = [
-    ["Windows NSIS installer", (name) => name.endsWith("-setup.exe")],
-    ["Linux AppImage", (name) => name.endsWith(".AppImage")],
-    ["Linux Debian package", (name) => name.endsWith(".deb")],
-    ["Linux RPM package", (name) => name.endsWith(".rpm")],
-  ];
 
-  return definitions.map(([label, matches]) => {
-    const matching = names.filter(matches);
-    assert(matching.length === 1, `release must contain exactly one ${label}`);
+  return expectedArtifacts(version).map((artifact) => {
+    const matching = names.filter((name) => artifact.matches(name));
+    assert(
+      matching.length === 1,
+      `release must contain exactly one ${artifact.label}, found ${matching.length}`,
+    );
+    assert(
+      matching[0].includes(version),
+      `${artifact.label} filename does not contain version ${version}`,
+    );
     return matching[0];
   });
 }
@@ -24,16 +26,16 @@ export function checksumFile(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-export function checksumManifest(assets) {
-  return installerAssetNames(assets)
+export function checksumManifest(assets, version) {
+  return installerAssetNames(assets, version)
     .sort()
     .map((name) => `${checksumFile(assets.get(name))}  ${name}`)
     .join("\n") + "\n";
 }
 
-export function validateChecksumManifest(assets) {
+export function validateChecksumManifest(assets, version) {
   assert(assets.has(CHECKSUM_FILENAME), `release is missing ${CHECKSUM_FILENAME}`);
-  const expectedNames = new Set(installerAssetNames(assets));
+  const expectedNames = new Set(installerAssetNames(assets, version));
   const seen = new Set();
   const contents = readFileSync(assets.get(CHECKSUM_FILENAME), "utf8");
 
@@ -53,9 +55,9 @@ export function validateChecksumManifest(assets) {
   }
 }
 
-export function writeChecksumManifest(directory, assets) {
+export function writeChecksumManifest(directory, assets, version) {
   const path = resolve(directory, CHECKSUM_FILENAME);
-  writeFileSync(path, checksumManifest(assets), "utf8");
+  writeFileSync(path, checksumManifest(assets, version), "utf8");
   return basename(path);
 }
 
