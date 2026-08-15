@@ -21,6 +21,9 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 /// slugs, which passed only because `"format": "uuid"` is an annotation the
 /// validator never asserted.
 const DESKTOP_SCRIPT_ID: &str = "00000023-0000-4000-8000-000000000023";
+/// Only the hotkey tests use this, and they are Windows only, so the constant
+/// carries the same gate as its callers rather than a dead-code exemption.
+#[cfg(windows)]
 const HOTKEY_SCRIPT_ID: &str = "00000024-0000-4000-8000-000000000024";
 
 #[cfg(windows)]
