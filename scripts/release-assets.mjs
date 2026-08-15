@@ -2,14 +2,16 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { validateChecksumManifest } from "./release-checksums.mjs";
 
-const SUPPORTED_PLATFORMS = ["windows", "linux"];
+import { expectedArtifacts, updaterKeys } from "./release-architectures.mjs";
+
+const INSTALLER_SUFFIXES = [".deb", ".rpm", ".AppImage", "-setup.exe"];
 
 export function validateReleaseAssets({ directory, releaseAssets = [], repository, tag }) {
   const version = validateInputs({ directory, repository, tag });
   const assets = readAssets(directory);
   const releaseAssetsByApiUrl = indexReleaseAssets(releaseAssets);
   requireInstallers(assets, version);
-  validateChecksumManifest(assets);
+  validateChecksumManifest(assets, version);
 
   const manifest = readManifest(directory, assets);
   assert(manifest.version === version, `latest.json version must be ${version}`);
@@ -17,16 +19,18 @@ export function validateReleaseAssets({ directory, releaseAssets = [], repositor
   assert(isRecord(manifest.platforms), "latest.json platforms must be an object");
 
   const platformNames = Object.keys(manifest.platforms);
-  for (const supported of SUPPORTED_PLATFORMS) {
-    assert(
-      platformNames.some((name) => platformFamily(name) === supported),
-      `latest.json is missing a ${supported} updater entry`,
-    );
+  const declared = updaterKeys();
+
+  for (const key of declared) {
+    assert(platformNames.includes(key), `latest.json is missing the ${key} updater entry`);
   }
 
   for (const platformName of platformNames) {
+    assert(
+      declared.includes(platformName),
+      `latest.json contains undeclared platform ${platformName}`,
+    );
     const family = platformFamily(platformName);
-    assert(family, `latest.json contains unsupported platform ${platformName}`);
     validatePlatform({
       assets,
       entry: manifest.platforms[platformName],
@@ -66,17 +70,29 @@ function readAssets(directory) {
 
 function requireInstallers(assets, version) {
   const names = [...assets.keys()];
-  const expected = [
-    ["Windows NSIS installer", (name) => name.endsWith("-setup.exe")],
-    ["Linux AppImage", (name) => name.endsWith(".AppImage")],
-    ["Linux Debian package", (name) => name.endsWith(".deb")],
-    ["Linux RPM package", (name) => name.endsWith(".rpm")],
-  ];
+  const claimed = new Set();
 
-  for (const [label, matches] of expected) {
-    const installers = names.filter(matches);
-    assert(installers.length === 1, `release must contain exactly one ${label}`);
-    assert(installers[0].includes(version), `${label} filename does not contain version ${version}`);
+  for (const artifact of expectedArtifacts(version)) {
+    const installers = names.filter((name) => artifact.matches(name));
+    assert(
+      installers.length === 1,
+      `release must contain exactly one ${artifact.label}, found ${installers.length}`,
+    );
+    assert(
+      installers[0].includes(version),
+      `${artifact.label} filename does not contain version ${version}`,
+    );
+    claimed.add(installers[0]);
+  }
+
+  // The matrix is exhaustive, not a minimum. An installer nobody declared is a
+  // build that produced something this release does not describe, which is the
+  // same defect as a missing one and is caught here rather than shipped.
+  // Updater payloads and signatures end in .AppImage.tar.gz or .sig, so neither
+  // is mistaken for an undeclared installer.
+  for (const name of names) {
+    if (!INSTALLER_SUFFIXES.some((suffix) => name.endsWith(suffix))) continue;
+    assert(claimed.has(name), `release contains undeclared installer ${name}`);
   }
 }
 
@@ -174,7 +190,7 @@ function isUpdaterPayload(family, assetName) {
 }
 
 function platformFamily(name) {
-  return SUPPORTED_PLATFORMS.find((platform) => name.toLowerCase().startsWith(platform));
+  return name.toLowerCase().startsWith("windows") ? "windows" : "linux";
 }
 
 function assertValidDate(value) {

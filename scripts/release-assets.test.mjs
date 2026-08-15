@@ -13,7 +13,7 @@ test("accepts matching Windows and Linux updater artifacts", (context) => {
   const directory = createRelease(context);
   const result = validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG });
 
-  assert.deepEqual(result.platforms, ["linux-x86_64", "windows-x86_64"]);
+  assert.deepEqual(result.platforms, ["linux-aarch64", "linux-x86_64", "windows-x86_64"]);
   assert.equal(result.version, "2.0.0");
 });
 
@@ -22,6 +22,7 @@ test("accepts Tauri GitHub API URLs that match release asset metadata", (context
   const directory = createRelease(context, (manifest) => {
     setApiUrl(manifest, releaseAssets, "windows-x86_64", 1001);
     setApiUrl(manifest, releaseAssets, "linux-x86_64", 1002);
+    setApiUrl(manifest, releaseAssets, "linux-aarch64", 1003);
   });
   const result = validateReleaseAssets({
     directory,
@@ -30,7 +31,7 @@ test("accepts Tauri GitHub API URLs that match release asset metadata", (context
     tag: TAG,
   });
 
-  assert.deepEqual(result.platforms, ["linux-x86_64", "windows-x86_64"]);
+  assert.deepEqual(result.platforms, ["linux-aarch64", "linux-x86_64", "windows-x86_64"]);
 });
 
 test("rejects a Tauri API URL that is absent from release asset metadata", (context) => {
@@ -87,7 +88,56 @@ test("rejects a release without both supported platforms", (context) => {
 
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
-    /missing a linux updater entry/,
+    /latest\.json is missing the linux-x86_64 updater entry/,
+  );
+});
+
+test("accepts a release carrying both Linux architectures", (context) => {
+  const directory = createRelease(context);
+  const result = validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG });
+
+  assert.deepEqual(result.platforms, ["linux-aarch64", "linux-x86_64", "windows-x86_64"]);
+});
+
+test("rejects a release without the ARM64 Debian package", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "Baudbound_2.0.0_arm64.deb"));
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /exactly one Linux Debian package \(aarch64\)/,
+  );
+});
+
+test("rejects a release without the ARM64 updater entry", (context) => {
+  const directory = createRelease(context, (manifest) => {
+    delete manifest.platforms["linux-aarch64"];
+  });
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /latest\.json is missing the linux-aarch64 updater entry/,
+  );
+});
+
+test("rejects an updater entry for an undeclared platform", (context) => {
+  const directory = createRelease(context, (manifest) => {
+    manifest.platforms["darwin-aarch64"] = manifest.platforms["linux-aarch64"];
+  });
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /latest\.json contains undeclared platform darwin-aarch64/,
+  );
+});
+
+test("rejects an installer artifact outside the declared matrix", (context) => {
+  const directory = createRelease(context);
+  write(directory, "Baudbound_2.0.0_armhf.deb", "undeclared-armhf-deb");
+
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /release contains undeclared installer Baudbound_2\.0\.0_armhf\.deb/,
   );
 });
 
@@ -116,9 +166,24 @@ test("rejects a native package with the wrong version", (context) => {
   rmSync(join(directory, "Baudbound_2.0.0_amd64.deb"));
   write(directory, "Baudbound_1.9.0_amd64.deb", "linux-deb");
 
+  // A Debian name is matched exactly, version included, so a wrong version is
+  // not a package that fails a later version check. It is not that package.
   assert.throws(
     () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
-    /Debian package filename does not contain version 2\.0\.0/,
+    /exactly one Linux Debian package \(x86_64\), found 0/,
+  );
+});
+
+test("rejects an AppImage with the wrong version", (context) => {
+  const directory = createRelease(context);
+  rmSync(join(directory, "Baudbound_2.0.0_amd64.AppImage"));
+  write(directory, "Baudbound_1.9.0_amd64.AppImage", "linux-appimage");
+
+  // The AppImage is matched on its architecture suffix rather than a full name,
+  // so this is the artifact whose version the check still has to catch.
+  assert.throws(
+    () => validateReleaseAssets({ directory, repository: REPOSITORY, tag: TAG }),
+    /Linux AppImage \(x86_64\) filename does not contain version 2\.0\.0/,
   );
 });
 
@@ -147,32 +212,45 @@ function createRelease(context, alterManifest = () => {}) {
   context.after(() => rmSync(directory, { force: true, recursive: true }));
 
   const windows = "BaudBound_2.0.0_x64-setup.exe";
-  const linux = "Baudbound_2.0.0_amd64.AppImage";
-  const windowsSignature = "windows-signature";
-  const linuxSignature = "linux-signature";
+  const linuxX86 = "Baudbound_2.0.0_amd64.AppImage";
+  const linuxArm = "Baudbound_2.0.0_aarch64.AppImage";
+  const signatures = {
+    [windows]: "windows-signature",
+    [linuxX86]: "linux-x86-signature",
+    [linuxArm]: "linux-arm-signature",
+  };
   const manifest = {
     version: "2.0.0",
     notes: "Production release",
     pub_date: "2026-07-12T12:00:00Z",
     platforms: {
-      "windows-x86_64": releaseEntry(windows, windowsSignature),
-      "linux-x86_64": releaseEntry(linux, linuxSignature),
+      "windows-x86_64": releaseEntry(windows, signatures[windows]),
+      "linux-x86_64": releaseEntry(linuxX86, signatures[linuxX86]),
+      "linux-aarch64": releaseEntry(linuxArm, signatures[linuxArm]),
     },
   };
   alterManifest(manifest);
 
-  write(directory, windows, "windows-installer");
-  write(directory, `${windows}.sig`, windowsSignature);
-  write(directory, linux, "linux-appimage");
-  write(directory, `${linux}.sig`, linuxSignature);
-  write(directory, "Baudbound_2.0.0_amd64.deb", "linux-deb");
-  write(directory, "Baudbound-2.0.0-1.x86_64.rpm", "linux-rpm");
+  const packages = [
+    "Baudbound_2.0.0_amd64.deb",
+    "Baudbound-2.0.0-1.x86_64.rpm",
+    "Baudbound_2.0.0_arm64.deb",
+    "Baudbound-2.0.0-1.aarch64.rpm",
+  ];
+
+  for (const [name, signature] of Object.entries(signatures)) {
+    write(directory, name, `payload-${name}`);
+    write(directory, `${name}.sig`, signature);
+  }
+  for (const name of packages) {
+    write(directory, name, `payload-${name}`);
+  }
   write(directory, "latest.json", JSON.stringify(manifest));
+
   const assets = new Map(
-    [windows, linux, "Baudbound_2.0.0_amd64.deb", "Baudbound-2.0.0-1.x86_64.rpm"]
-      .map((name) => [name, join(directory, name)]),
+    [windows, linuxX86, linuxArm, ...packages].map((name) => [name, join(directory, name)]),
   );
-  write(directory, "SHA256SUMS", checksumManifest(assets));
+  write(directory, "SHA256SUMS", checksumManifest(assets, "2.0.0"));
   return directory;
 }
 
