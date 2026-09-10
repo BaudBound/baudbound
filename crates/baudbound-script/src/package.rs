@@ -1080,16 +1080,33 @@ mod published_package_tests {
 
     #[test]
     fn the_published_package_declares_every_variable_it_writes() {
-        let Some(path) = published("1.0.3") else {
+        let Some(path) = published("1.0.4") else {
             return;
         };
-        let package = load_script_package(path).expect("1.0.3 should load");
-        assert_eq!(package.manifest.version, "1.0.3");
+        let package = load_script_package(path).expect("1.0.4 should load");
+        assert_eq!(package.manifest.version, "1.0.4");
         assert!(
             package.manifest.variables.iter().any(|variable| {
                 variable.name == "current_ip" && variable.scope == VariableScope::Persistent
             }),
             "the package must declare the variable it writes"
+        );
+    }
+
+    #[test]
+    fn the_package_that_still_routes_on_success_is_refused() {
+        let Some(path) = published("1.0.3") else {
+            return;
+        };
+        // 1.0.3 leaves the HTTP node through `success`, an output that no
+        // longer exists now that outcomes are named. 1.0.4 is the same graph
+        // re-exported through `ok`. Loading 1.0.3 must fail at import rather
+        // than surface as a dead branch on the first run.
+        let error = load_script_package(path).expect_err("1.0.3 must no longer load");
+        let message = error.to_string();
+        assert!(
+            message.contains("unknown source_handle \"success\""),
+            "the refusal should name the stale output, got: {message}"
         );
     }
 
