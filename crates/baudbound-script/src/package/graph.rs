@@ -729,6 +729,14 @@ mod tests {
                 "missing output",
             ),
             (
+                json!({"inputs":[{"id":"a","label":"A"}],"outputs":[{"id":"x","label":"X"}],"routes":[{"id":"r","inputId":"zzz","outputId":"x","order":0}]}),
+                "missing input",
+            ),
+            (
+                json!({"inputs":[{"id":"a","label":"A"}],"outputs":[{"id":"x","label":"X"},{"id":"y","label":"Y"}],"routes":[{"id":"r","inputId":"a","outputId":"x","order":0},{"id":"r","inputId":"a","outputId":"y","order":1}]}),
+                "duplicate route id",
+            ),
+            (
                 json!({"inputs":[{"id":"a","label":"A"}],"outputs":[{"id":"x","label":"X"},{"id":"y","label":"Y"}],"routes":[{"id":"r1","inputId":"a","outputId":"x","order":1},{"id":"r2","inputId":"a","outputId":"y","order":2}]}),
                 "unique consecutive",
             ),
