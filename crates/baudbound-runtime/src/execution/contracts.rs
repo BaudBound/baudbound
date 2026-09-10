@@ -20,6 +20,7 @@ pub const SUPPORTED_CONTROL_ACTION_TYPES: &[&str] = &[
     "control.for_each",
     "control.if",
     "control.repeat",
+    "control.router",
     "control.switch",
     "control.while",
 ];
