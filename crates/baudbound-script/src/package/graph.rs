@@ -283,7 +283,7 @@ fn router_port_ids(node: &Value, key: &str) -> Result<Vec<String>, PackageLoadEr
         let port_id = port
             .get("id")
             .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
                 PackageLoadError::ProgramGraph(format!(
                     "router node {id:?} config.{key} entry is missing a non-empty id"
@@ -361,7 +361,7 @@ fn validate_router_config(
         let route_id = route
             .get("id")
             .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
                 PackageLoadError::ProgramGraph(format!(
                     "router node {id:?} route is missing a non-empty id"
@@ -739,6 +739,14 @@ mod tests {
             (
                 json!({"inputs":[{"id":"a","label":"A"}],"outputs":[{"id":"x","label":"X"},{"id":"y","label":"Y"}],"routes":[{"id":"r1","inputId":"a","outputId":"x","order":1},{"id":"r2","inputId":"a","outputId":"y","order":2}]}),
                 "unique consecutive",
+            ),
+            (
+                json!({"inputs":[{"id":" ","label":"A"}],"outputs":[{"id":"x","label":"X"}],"routes":[{"id":"r","inputId":" ","outputId":"x","order":0}]}),
+                "non-empty id",
+            ),
+            (
+                json!({"inputs":[{"id":"a","label":"A"}],"outputs":[{"id":"x","label":"X"}],"routes":[{"id":" ","inputId":"a","outputId":"x","order":0}]}),
+                "non-empty id",
             ),
         ];
         for (config, expected) in cases {
