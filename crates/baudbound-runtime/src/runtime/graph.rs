@@ -32,6 +32,12 @@ pub(crate) struct RuntimeGraph {
     trigger_ids: Vec<String>,
 }
 
+/// One outgoing edge, as the executor needs it: where to go and which input to arrive through.
+pub(crate) struct FollowTarget {
+    pub(crate) node_id: String,
+    pub(crate) target_handle: String,
+}
+
 impl RuntimeGraph {
     pub(crate) fn from_program_value(value: &Value) -> Result<Self, RuntimeError> {
         let envelope = serde_json::from_value::<ProgramEnvelope>(value.clone())
@@ -126,7 +132,11 @@ impl RuntimeGraph {
         self.nodes.values()
     }
 
-    pub(crate) fn target_node_ids_for_handle(&self, node_id: &str, handle: &str) -> Vec<String> {
+    pub(crate) fn follow_targets_for_handle(
+        &self,
+        node_id: &str,
+        handle: &str,
+    ) -> Vec<FollowTarget> {
         let mut matching_edges = self
             .edges_by_source
             .get(node_id)
@@ -137,7 +147,18 @@ impl RuntimeGraph {
         matching_edges.sort_by_key(|edge| edge.execution_order);
         matching_edges
             .into_iter()
-            .map(|edge| edge.target.clone())
+            .map(|edge| FollowTarget {
+                node_id: edge.target.clone(),
+                target_handle: edge.target_handle.clone(),
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn target_node_ids_for_handle(&self, node_id: &str, handle: &str) -> Vec<String> {
+        self.follow_targets_for_handle(node_id, handle)
+            .into_iter()
+            .map(|target| target.node_id)
             .collect()
     }
 
@@ -261,6 +282,25 @@ mod tests {
                 .unwrap_or_else(|| panic!("{expected} execution orders must fail"));
             assert!(error.to_string().contains("unique consecutive"), "{error}");
         }
+    }
+
+    #[test]
+    fn follow_targets_keep_the_target_handle_of_each_edge() {
+        let mut program = fan_out_program(json!([
+            edge("n-trigger", "n-zulu", 1),
+            edge("n-trigger", "n-alpha", 0)
+        ]));
+        program["entry"]["program"]["edges"][0]["target_handle"] = json!("in-z");
+        let graph = RuntimeGraph::from_program_value(&program).expect("valid graph");
+
+        let targets = graph.follow_targets_for_handle("n-trigger", "out");
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| (target.node_id.as_str(), target.target_handle.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("n-alpha", "input"), ("n-zulu", "in-z")]
+        );
     }
 
     fn edge(source: &str, target: &str, execution_order: u32) -> Value {

@@ -42,6 +42,7 @@ pub(crate) enum RuntimeFrame {
     },
     Node {
         node_id: String,
+        input_handle: Option<String>,
         stop_at_node_id: Option<String>,
     },
     While {
