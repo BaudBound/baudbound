@@ -26,6 +26,7 @@ mod frames;
 mod http_diagnostics;
 mod initial_state;
 mod redaction;
+mod router;
 mod variable_operations;
 
 pub use api::*;

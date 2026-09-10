@@ -24,6 +24,31 @@ pub(crate) struct RuntimeSwitchCaseRow {
     pub(crate) expected_value: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RuntimeRouterPort {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) label: String,
+}
+
+/// The route `id` is an editor-side handle for the panel; the runtime never
+/// reads it, so it is left out and serde ignores it.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RuntimeRouterRoute {
+    #[serde(rename = "inputId")]
+    pub(crate) input_id: String,
+    #[serde(rename = "outputId")]
+    pub(crate) output_id: String,
+    pub(crate) order: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RuntimeRouterConfig {
+    pub(crate) inputs: Vec<RuntimeRouterPort>,
+    pub(crate) outputs: Vec<RuntimeRouterPort>,
+    pub(crate) routes: Vec<RuntimeRouterRoute>,
+}
+
 pub(crate) enum RuntimeFrame {
     Follow {
         source_node_id: String,

@@ -76,7 +76,6 @@ impl RuntimeExecutor<'_> {
         input_handle: Option<&str>,
         stop_at_node_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        let _ = input_handle;
         if stop_at_node_id.as_deref() == Some(node_id) {
             return Ok(());
         }
@@ -127,6 +126,16 @@ impl RuntimeExecutor<'_> {
                     handle,
                     stop_at_node_id: None,
                 });
+            }
+            "control.router" => {
+                let handles = self.evaluate_router(&node, input_handle)?;
+                for handle in handles.into_iter().rev() {
+                    frames.push(RuntimeFrame::Follow {
+                        source_node_id: node.id.clone(),
+                        handle,
+                        stop_at_node_id: None,
+                    });
+                }
             }
             "control.repeat" => {
                 let count = self.repeat_count(&node)?;

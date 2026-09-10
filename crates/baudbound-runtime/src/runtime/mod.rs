@@ -18,7 +18,9 @@ pub use cancellation::{RuntimeCancellationSubscription, RuntimeCancellationToken
 pub(crate) use conditions::compare_condition_values;
 pub(crate) use conditions::{compare_condition_values_with_end, values_equal_for_condition};
 pub(crate) use config::{config_string, required_config_string};
-pub(crate) use control::{RuntimeConditionRow, RuntimeFrame, RuntimeSwitchCaseRow};
+pub(crate) use control::{
+    RuntimeConditionRow, RuntimeFrame, RuntimeRouterConfig, RuntimeSwitchCaseRow,
+};
 pub use datetime_format::{format_datetime, validate_datetime_pattern};
 pub(crate) use duration::duration_from_amount;
 pub use duration_format::{format_duration, validate_duration_pattern, validate_duration_unit};
