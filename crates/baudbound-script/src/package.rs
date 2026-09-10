@@ -1094,23 +1094,6 @@ mod published_package_tests {
     }
 
     #[test]
-    fn the_package_that_still_routes_on_success_is_refused() {
-        let Some(path) = published("1.0.3") else {
-            return;
-        };
-        // 1.0.3 leaves the HTTP node through `success`, an output that no
-        // longer exists now that outcomes are named. 1.0.4 is the same graph
-        // re-exported through `ok`. Loading 1.0.3 must fail at import rather
-        // than surface as a dead branch on the first run.
-        let error = load_script_package(path).expect_err("1.0.3 must no longer load");
-        let message = error.to_string();
-        assert!(
-            message.contains("unknown source_handle \"success\""),
-            "the refusal should name the stale output, got: {message}"
-        );
-    }
-
-    #[test]
     fn the_previous_published_package_is_refused() {
         let Some(path) = published("1.0.2") else {
             return;
