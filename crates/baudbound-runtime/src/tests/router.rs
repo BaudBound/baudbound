@@ -125,8 +125,7 @@ fn router_follows_multiple_outputs_in_configured_order() {
                 && entry.message.contains("input \"Alpha\"")
                 && entry.message.contains("out-y, out-x")
         }),
-        "router diagnostics should name the input and ordered outputs: {:?}",
-        report.logs
+        "router diagnostics should name the input and the ordered outputs"
     );
 }
 
