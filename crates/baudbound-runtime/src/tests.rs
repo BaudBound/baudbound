@@ -12,6 +12,8 @@ mod cancellation;
 mod cast_validation;
 #[path = "tests/control_flow_matrix.rs"]
 mod control_flow_matrix;
+#[path = "tests/router.rs"]
+mod router;
 #[path = "tests/state.rs"]
 mod state;
 #[path = "tests/variable_operations.rs"]

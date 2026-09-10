@@ -27,8 +27,11 @@ impl RuntimeExecutor<'_> {
             } => self.process_repeat_frame(frames, &node_id, index, count),
             RuntimeFrame::Node {
                 node_id,
+                input_handle,
                 stop_at_node_id,
-            } => self.execute_node_frame(frames, &node_id, stop_at_node_id),
+            } => {
+                self.execute_node_frame(frames, &node_id, input_handle.as_deref(), stop_at_node_id)
+            }
             RuntimeFrame::While { node_id, index } => {
                 self.process_while_frame(frames, &node_id, index)
             }
@@ -46,7 +49,7 @@ impl RuntimeExecutor<'_> {
         let selected_handle = handle;
         let targets = self
             .graph
-            .target_node_ids_for_handle(source_node_id, selected_handle);
+            .follow_targets_for_handle(source_node_id, selected_handle);
         if targets.is_empty() {
             self.push_runtime_log(
                 "info",
@@ -56,9 +59,10 @@ impl RuntimeExecutor<'_> {
             return Ok(());
         }
 
-        for target_node_id in targets.into_iter().rev() {
+        for target in targets.into_iter().rev() {
             frames.push(RuntimeFrame::Node {
-                node_id: target_node_id,
+                node_id: target.node_id,
+                input_handle: Some(target.target_handle),
                 stop_at_node_id: stop_at_node_id.clone(),
             });
         }
@@ -69,6 +73,7 @@ impl RuntimeExecutor<'_> {
         &mut self,
         frames: &mut Vec<RuntimeFrame>,
         node_id: &str,
+        input_handle: Option<&str>,
         stop_at_node_id: Option<String>,
     ) -> Result<(), RuntimeError> {
         if stop_at_node_id.as_deref() == Some(node_id) {
@@ -121,6 +126,16 @@ impl RuntimeExecutor<'_> {
                     handle,
                     stop_at_node_id: None,
                 });
+            }
+            "control.router" => {
+                let handles = self.evaluate_router(&node, input_handle)?;
+                for handle in handles.into_iter().rev() {
+                    frames.push(RuntimeFrame::Follow {
+                        source_node_id: node.id.clone(),
+                        handle,
+                        stop_at_node_id: None,
+                    });
+                }
             }
             "control.repeat" => {
                 let count = self.repeat_count(&node)?;
