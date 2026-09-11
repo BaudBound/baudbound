@@ -103,7 +103,15 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
     blacklist
         .enforce_cached(&store)
         .context("failed to enforce the cached blacklist")?;
-    blacklist.start_background_refresh(store.clone());
+    // The refresh worker is only for processes that stay alive. A one-shot
+    // command exits within milliseconds, which left its first HTTPS request
+    // still in flight on a background thread while the process tore down;
+    // that intermittently aborted `script approve`, `script run`, and
+    // `serve --dry-run` on Linux CI. The cached blacklist was already applied
+    // above, and the desktop app and `serve` refresh it on their schedule.
+    if keeps_running(&launch_mode) {
+        blacklist.start_background_refresh(store.clone());
+    }
     if let LaunchMode::Command(command) = &launch_mode {
         check_for_automatic_cli_update(command, &runner_config, &store);
     }
@@ -127,6 +135,16 @@ fn run(cli: Cli, launch_mode: LaunchMode) -> Result<()> {
             &store,
         ),
     }
+}
+
+/// True for the launch modes that run until asked to stop: the desktop app
+/// and a real `serve`. Everything else, including `serve --dry-run`, does its
+/// work and exits, so it must not leave background workers behind.
+fn keeps_running(launch_mode: &LaunchMode) -> bool {
+    matches!(
+        launch_mode,
+        LaunchMode::Desktop { .. } | LaunchMode::Command(Command::Serve { dry_run: false, .. })
+    )
 }
 
 fn execution_mode_for_launch(launch_mode: &LaunchMode) -> RunnerExecutionMode {
@@ -265,5 +283,40 @@ fn dispatch_command(
         Command::Update { command } => match command {
             cli::UpdateCommand::Check { json } => commands::update::check(store, json),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, LaunchMode, keeps_running};
+
+    fn launch_mode(args: &[&str]) -> LaunchMode {
+        let mut cli = Cli::try_parse_from(args).expect("arguments should parse");
+        cli.take_launch_mode().expect("launch mode should resolve")
+    }
+
+    #[test]
+    fn only_long_running_modes_keep_background_workers() {
+        assert!(keeps_running(&LaunchMode::Desktop { autostart: false }));
+        assert!(keeps_running(&launch_mode(&["baudbound", "serve"])));
+        assert!(keeps_running(&launch_mode(&[
+            "baudbound",
+            "serve",
+            "--once"
+        ])));
+
+        assert!(!keeps_running(&launch_mode(&[
+            "baudbound",
+            "serve",
+            "--dry-run"
+        ])));
+        assert!(!keeps_running(&launch_mode(&["baudbound", "status"])));
+        assert!(!keeps_running(&launch_mode(&[
+            "baudbound",
+            "script",
+            "list"
+        ])));
     }
 }

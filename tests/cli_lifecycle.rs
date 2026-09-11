@@ -21,6 +21,10 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 /// slugs, which passed only because `"format": "uuid"` is an annotation the
 /// validator never asserted.
 const CLI_LIFECYCLE_ID: &str = "00000021-0000-4000-8000-000000000021";
+/// Upper bound for a serve child to reach a state. Shared CI runners under
+/// load have taken well over the old 8 seconds to start services, so this is
+/// deliberately generous: a passing test never waits this long.
+const SERVICE_TIMEOUT: Duration = Duration::from_secs(30);
 const SCHEDULED_LOG_ID: &str = "00000022-0000-4000-8000-000000000022";
 
 #[test]
@@ -435,7 +439,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
 
     let serve = spawn_baudbound(&runner_home, ["serve", "--reload-interval-seconds", "1"]);
 
-    let initial_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    let initial_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running"
     });
     assert_eq!(initial_status["active_service_count"], 0);
@@ -463,7 +467,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
         ["script", "approve", SCHEDULED_LOG_ID],
     ));
 
-    let reloaded_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    let reloaded_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running" && status["active_service_count"] == 1
     });
     let schedule = service_row(&reloaded_status, "schedule");
@@ -474,7 +478,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
         &runner_home,
         ["script", "disable", SCHEDULED_LOG_ID],
     ));
-    let disabled_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    let disabled_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running" && status["active_service_count"] == 0
     });
     assert_eq!(disabled_status["idle"], true);
@@ -483,7 +487,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
         &runner_home,
         ["script", "enable", SCHEDULED_LOG_ID],
     ));
-    wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running" && status["active_service_count"] == 1
     });
 
@@ -491,7 +495,7 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
         &runner_home,
         ["script", "revoke-approval", SCHEDULED_LOG_ID],
     ));
-    let revoked_status = wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    let revoked_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running" && status["active_service_count"] == 0
     });
     assert_eq!(revoked_status["idle"], true);
@@ -500,15 +504,14 @@ fn cli_serve_reloads_triggers_after_import_and_stops_through_ipc() {
         &runner_home,
         ["script", "approve", SCHEDULED_LOG_ID],
     ));
-    let reapproved_status =
-        wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
-            status["state"] == "running" && status["active_service_count"] == 1
-        });
+    let reapproved_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
+        status["state"] == "running" && status["active_service_count"] == 1
+    });
 
     request_service_control(&reapproved_status, "stop");
-    assert_child_exits_successfully(serve, Duration::from_secs(8));
+    assert_child_exits_successfully(serve, SERVICE_TIMEOUT);
 
-    let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {
+    let stopped_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "stopped"
     });
     assert_eq!(stopped_status["state"], "stopped");
@@ -643,7 +646,7 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
         ["serve", "--reload-interval-seconds", "1"],
         &encoded_key,
     );
-    wait_for_service_status(&runner_home, Duration::from_secs(8), |status| {
+    wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "running" && status["active_service_count"] == 1
     });
 
@@ -652,13 +655,9 @@ fn cli_serve_stops_when_a_required_secret_is_removed() {
             .remove_secret(SCHEDULED_LOG_ID, "api_key")
             .expect("required secret should be removed")
     );
-    assert_child_exits_with_error(
-        serve,
-        Duration::from_secs(8),
-        "required secret values are missing",
-    );
+    assert_child_exits_with_error(serve, SERVICE_TIMEOUT, "required secret values are missing");
 
-    let stopped_status = wait_for_service_status(&runner_home, Duration::from_secs(4), |status| {
+    let stopped_status = wait_for_service_status(&runner_home, SERVICE_TIMEOUT, |status| {
         status["state"] == "stopped"
     });
     assert_eq!(stopped_status["active_service_count"], 0);

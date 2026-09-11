@@ -205,7 +205,10 @@ fn wait_for_playback(
 #[cfg(test)]
 mod tests {
     use std::{
-        sync::atomic::{AtomicBool, Ordering},
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -248,18 +251,31 @@ mod tests {
         let sink = TestSink::default();
         let cancellation = RuntimeCancellationToken::new();
         let signal = cancellation.clone();
+        let (cancelled_at_sender, cancelled_at) = mpsc::channel();
         let canceller = thread::spawn(move || {
             thread::sleep(Duration::from_millis(30));
             signal.cancel();
+            cancelled_at_sender
+                .send(Instant::now())
+                .expect("test should still be waiting");
         });
-        let started = Instant::now();
 
+        // The sink never drains, so returning at all proves cancellation was
+        // honoured. The bound is measured from the cancel call, not from the
+        // start, and is generous: thread scheduling on a loaded CI runner is
+        // not what this test is about. It only has to catch a wait loop that
+        // stops polling the token.
         let error = wait_for_playback(&sink, &cancellation)
             .expect_err("cancelled playback should return cancellation");
+        let returned_at = Instant::now();
         canceller.join().expect("canceller should finish");
+        let cancelled_at = cancelled_at.recv().expect("cancel time should be reported");
 
         assert!(matches!(error, RuntimeActionError::Cancelled));
         assert!(sink.stopped.load(Ordering::Acquire));
-        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(
+            returned_at.saturating_duration_since(cancelled_at) < Duration::from_secs(2),
+            "playback wait should return promptly after cancellation"
+        );
     }
 }
