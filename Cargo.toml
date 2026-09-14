@@ -21,7 +21,7 @@ version = "2.0.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
-argon2 = { version = "0.5.3", features = ["zeroize"] }
+argon2 = { version = "0.6.0", features = ["zeroize"] }
 bytes = "1.12.0"
 crossbeam-channel = "0.5.15"
 cap-std = "4.0.2"
