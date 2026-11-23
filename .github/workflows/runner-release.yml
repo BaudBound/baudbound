@@ -96,19 +96,19 @@ jobs:
         run: shellcheck scripts/test-linux-package-install.sh
 
       - name: Check Linux Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2
         with:
           command: check
           arguments: --all-features --locked --target x86_64-unknown-linux-gnu
 
       - name: Check Windows Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2
         with:
           command: check
           arguments: --all-features --locked --target x86_64-pc-windows-msvc
 
       - name: Check ARM64 Linux Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2
         with:
           command: check
           arguments: --all-features --locked --target aarch64-unknown-linux-gnu
